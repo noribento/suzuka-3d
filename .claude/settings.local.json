@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node simtest.mjs 3)",
+      "Bash(pnpm exec *)",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(pnpm add *)",
+      "Bash(pnpm build *)",
+      "Bash(pkill -f \"nuxt dev\")",
+      "Bash(grep -A12 '\"devDependencies\"' package.json; ls node_modules/@playwright 2>/dev/null; cat node_modules/playwright/package.json | grep '\"version\"'; ls ~/.cache/ms-playwright/)",
+      "Read(//home/user/.cache/ms-playwright/**)",
+      "Bash(cp -r /tmp/claude-1000/-home-user-projects-suzuka-3d/e8781a89-288a-4438-8941-b6ab0ef4ff9d/scratchpad/chromelibs /tmp/claude-1000/-home-user-projects-suzuka-3d/06641853-2123-41ab-8644-b84f4e03d3d7/scratchpad/)",
+      "Bash(cp /tmp/claude-1000/-home-user-projects-suzuka-3d/e8781a89-288a-4438-8941-b6ab0ef4ff9d/scratchpad/package.json /tmp/claude-1000/-home-user-projects-suzuka-3d/e8781a89-288a-4438-8941-b6ab0ef4ff9d/scratchpad/pnpm-lock.yaml /tmp/claude-1000/-home-user-projects-suzuka-3d/e8781a89-288a-4438-8941-b6ab0ef4ff9d/scratchpad/shot.mjs /tmp/claude-1000/-home-user-projects-suzuka-3d/06641853-2123-41ab-8644-b84f4e03d3d7/scratchpad/)",
+      "Bash(cp -r /tmp/claude-1000/-home-user-projects-suzuka-3d/e8781a89-288a-4438-8941-b6ab0ef4ff9d/scratchpad/node_modules /tmp/claude-1000/-home-user-projects-suzuka-3d/06641853-2123-41ab-8644-b84f4e03d3d7/scratchpad/)",
+      "Read(//tmp/claude-1000/-home-user-projects-suzuka-3d/**)",
+      "Bash(timeout 600 pnpm typecheck)",
+      "Bash(timeout 600 pnpm sim -- --laps 53 --seeds 2)",
+      "Bash(echo \"EXIT $?\")",
+      "Bash(LD_LIBRARY_PATH=/tmp/claude-1000/-home-user-projects-suzuka-3d/d17e3fab-b769-4edb-a950-b003db4f8294/scratchpad/chromelibs/usr/lib/x86_64-linux-gnu timeout 900 pnpm test:e2e)"
+    ]
+  }
+}

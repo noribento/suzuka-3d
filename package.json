@@ -1,0 +1,30 @@
+{
+  "name": "suzuka-3d",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxi typecheck",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report",
+    "sim": "node scripts/sim-harness.mjs"
+  },
+  "dependencies": {
+    "nuxt": "^4.5.2",
+    "three": "^0.185.1",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/three": "^0.185.4",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.11"
+  }
+}

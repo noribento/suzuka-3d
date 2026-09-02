@@ -1,0 +1,105 @@
+:root {
+  --font: 'Titillium Web', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --f1-red: #e10600;
+  --panel: rgba(12, 12, 18, 0.78);
+  --panel-strong: rgba(10, 10, 15, 0.92);
+  --muted: #a7abb6;
+  --purple: #8a2be2;
+  --purple-text: #c77dff;
+  color-scheme: dark;
+}
+
+html,
+body,
+#__nuxt {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #05060a;
+  color: #fff;
+  font-family: var(--font);
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: radial-gradient(ellipse at center, #15161f 0%, #05060a 70%);
+  z-index: 20;
+  letter-spacing: 0.3em;
+  font-weight: 700;
+}
+
+.loading .brand {
+  font-size: 44px;
+  font-style: italic;
+  font-weight: 900;
+  color: var(--f1-red);
+  letter-spacing: -0.04em;
+}
+
+.loading .sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.loading .bar {
+  width: 220px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.loading .bar::after {
+  content: '';
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--f1-red);
+  animation: load 1.1s infinite ease-in-out;
+}
+
+@keyframes load {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  background: var(--panel);
+  padding: 5px 12px;
+  border-radius: 2px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 1600px) {
+  .hint { display: none; }
+}
