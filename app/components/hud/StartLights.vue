@@ -12,7 +12,8 @@ const visible = computed(() => store.status === 'grid' || store.status === 'ligh
           <span class="lamp" :class="{ on: store.status === 'lights' && i <= store.lights }" />
         </div>
       </div>
-      <div class="caption">{{ store.status === 'grid' ? 'CARS ON THE GRID' : 'START SEQUENCE' }}</div>
+      <div class="caption">{{ store.status === 'grid' ? (store.interacted ? 'CARS ON THE GRID' : 'TAP / CLICK TO START') : 'START SEQUENCE' }}</div>
+      <div class="count" role="status" aria-live="polite" aria-atomic="true">{{ store.status === 'lights' && store.lights > 0 ? 6 - store.lights : '' }}</div>
     </div>
   </transition>
 </template>
@@ -63,6 +64,14 @@ const visible = computed(() => store.status === 'grid' || store.status === 'ligh
   background: var(--panel);
   padding: 4px 12px;
   border-radius: 2px;
+}
+.count {
+  min-height: 22px;
+  font-size: 18px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255, 31, 31, 0.8);
 }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.4s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

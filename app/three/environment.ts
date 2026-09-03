@@ -4,14 +4,18 @@ import { APEX_SPEED_TARGETS, CIRCUIT, GRANDSTANDS, OVERTAKE_ZONES, TV_CAMERA_SPO
 import { TEAMS, TEAM_ORDER } from '~/data/drivers'
 import { Rng } from '~/sim/random'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import { ribbonGeometry, wallGeometry } from './track-mesh'
+import { addMacro, ribbonGeometry, wallGeometry } from './track-mesh'
 import { makeGround, type Ground } from './ground'
 import { buildCrowd } from './crowd'
 import { boardTexture, brakingRubberTexture, crowdTexture, garageTexture, grassMaps, labelTexture } from './textures'
+import { EMISSIVE, emissiveScale } from './emissive'
+import { QUALITY, type Quality } from './quality'
+import { bucketedInstancedMeshes } from './instancing'
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
 const _q = new THREE.Quaternion()
+const _one = new THREE.Vector3(1, 1, 1)
 const _s = new THREE.Vector3()
 
 function smoothstep(t: number): number {
@@ -36,8 +40,8 @@ export class Terrain {
   readonly group: THREE.Group
   private coarse: { x: number; z: number; y: number }[] = []
   private readonly flatZone = { from: 5540, to: 90, latMin: -100, latMax: 62 }
-  private readonly NX = 256
-  private readonly NZ = 192
+  private readonly NX: number
+  private readonly NZ: number
   private readonly CH = 4
   private readonly x0: number
   private readonly z0: number
@@ -46,7 +50,9 @@ export class Terrain {
   private readonly heights: Float32Array
   private readonly chunks: THREE.Mesh[] = []
 
-  constructor(private track: Track) {
+  constructor(private track: Track, grid: [number, number] = [256, 192]) {
+    this.NX = grid[0]
+    this.NZ = grid[1]
     for (let s = 0; s < track.length; s += 90) {
       track.pointAt(s, 0, _p)
       this.coarse.push({ x: _p.x, z: _p.z, y: _p.y })
@@ -64,6 +70,8 @@ export class Terrain {
     for (let j = 0; j < gz; j++) for (let i = 0; i < gx; i++) this.heights[j * gx + i] = this.heightAt(this.x0 + i * this.dx, this.z0 + j * this.dz)
     const grass = grassMaps(false)
     const mat = new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.normalMap, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 1, metalness: 0 })
+    // terrain uv = xz / 9: one macro period every 250 m
+    addMacro(mat, new THREE.Vector2(9 / 250, 9 / 250))
     this.group = new THREE.Group()
     this.group.name = 'terrain'
     const cw = this.NX / this.CH, cd = this.NZ / this.CH
@@ -100,16 +108,50 @@ export class Terrain {
         this.chunks.push(mesh)
       }
     }
+    // a flat skirt far beyond the height grid: the overview camera looks past the terrain
+    // rectangle, and without ground there the Sky shader's below-horizon colours show through
+    let minH = Infinity
+    for (let i = 0; i < this.heights.length; i++) if (this.heights[i]! < minH) minH = this.heights[i]!
+    const skirtSize = 40000
+    const skirtGeo = new THREE.PlaneGeometry(skirtSize, skirtSize, 1, 1)
+    const skirtUv = skirtGeo.attributes.uv as THREE.BufferAttribute
+    for (let i = 0; i < skirtUv.count; i++) skirtUv.setXY(i, (skirtUv.getX(i) * skirtSize) / 9, (skirtUv.getY(i) * skirtSize) / 9)
+    const skirt = new THREE.Mesh(skirtGeo, mat)
+    skirt.rotation.x = -Math.PI / 2
+    skirt.position.set(cx, minH - 0.5, cz)
+    skirt.receiveShadow = false
+    skirt.name = 'terrainSkirt'
+    skirt.updateMatrix()
+    skirt.matrixAutoUpdate = false
+    this.group.add(skirt)
+  }
+
+  private committed = false
+  /**
+   * First upload of the vertex data. Called once the track meshes have pushed the terrain
+   * under the road (clampUnder), so the grid is built and uploaded a single time.
+   */
+  commit() {
+    if (this.committed) return
+    this.committed = true
     this.refresh()
   }
 
-  /** Re-upload vertex positions and normals from the height grid. */
-  private refresh() {
+  /** Index (0..15) of the 4×4 terrain chunk containing world (x, z) — the tree bucket key. */
+  chunkIndex(x: number, z: number): number {
+    const ci = THREE.MathUtils.clamp(Math.floor(((x - this.x0) / (this.dx * this.NX)) * this.CH), 0, this.CH - 1)
+    const cj = THREE.MathUtils.clamp(Math.floor(((z - this.z0) / (this.dz * this.NZ)) * this.CH), 0, this.CH - 1)
+    return ci + cj * this.CH
+  }
+
+  /** Re-upload vertex positions and normals from the height grid (only the chunks in `dirty` when given). */
+  private refresh(dirty?: Set<number>) {
     const gx = this.NX + 1, gz = this.NZ + 1
     const H = this.heights
     const cw = this.NX / this.CH, cd = this.NZ / this.CH
     for (const mesh of this.chunks) {
       const [ci, cj] = mesh.userData.chunk as [number, number]
+      if (dirty && !dirty.has(ci + cj * this.CH)) continue
       const pos = mesh.geometry.attributes.position as THREE.BufferAttribute
       const nrm = mesh.geometry.attributes.normal as THREE.BufferAttribute
       for (let j = 0; j <= cd; j++) {
@@ -180,14 +222,22 @@ export class Terrain {
         if (viol > lower[k2]!) lower[k2] = viol
       }
     }
-    let changed = false
+    // a lowered grid vertex belongs to up to four chunks (shared edges): mark them all
+    const dirty = new Set<number>()
+    const cw = this.NX / this.CH, cd = this.NZ / this.CH
     for (let k = 0; k < lower.length; k++) {
       if (lower[k]! > 0) {
         H[k] = H[k]! - lower[k]!
-        changed = true
+        const i = k % gx, j = Math.floor(k / gx)
+        for (const ci of [Math.floor((i - 1) / cw), Math.floor(i / cw)]) {
+          for (const cj of [Math.floor((j - 1) / cd), Math.floor(j / cd)]) {
+            if (ci >= 0 && cj >= 0 && ci < this.CH && cj < this.CH) dirty.add(ci + cj * this.CH)
+          }
+        }
       }
     }
-    if (changed) this.refresh()
+    // before commit() the first full upload will pick the changes up anyway
+    if (dirty.size && this.committed) this.refresh(dirty)
   }
 
   private base(x: number, z: number): number {
@@ -306,19 +356,20 @@ export interface Environment {
   /** Ground surface beside the road (shared with the track meshes and barriers). */
   ground: Ground
   ferrisWheel: THREE.Group | null
-  update: (dt: number) => void
+  /** per frame; `cameraPos` drives the crowd density LOD and yaw */
+  update: (dt: number, cameraPos?: THREE.Vector3) => void
 }
 
-export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): Environment {
+export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7): Environment {
   const group = new THREE.Group()
-  const terrain = new Terrain(track)
+  const terrain = new Terrain(track, quality.terrain)
   group.add(terrain.group)
   const ground = makeGround(track, (x, z) => terrain.heightAt(x, z), (x, z) => terrain.meshHeightAt(x, z))
   const rng = new Rng(seed)
   const hw = track.halfWidth
 
   // --- spectators: instanced billboards per seat (LOD back to the crowd texture far away) ---
-  const crowd = buildCrowd(track, crowdBudget)
+  const crowd = buildCrowd(track, quality.crowd, 11, quality.msaa > 0)
   for (const o of crowd.objects) group.add(o)
 
   // --- grandstands (merged: one mesh each for seats, structure and roofs) -------------------
@@ -381,19 +432,67 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
    * Box standing on the ground at (s, lateral) — its base follows the verge / terrain there,
    * not the road plane. `onPlane` keeps it on the road plane instead (pit apron, garages).
    */
-  const placeBox = (s: number, lateral: number, length: number, depth: number, height: number, mats: THREE.Material | THREE.Material[], yOffset = 0, onPlane = false) => {
-    const geo = new THREE.BoxGeometry(depth, height, length)
-    const mesh = new THREE.Mesh(geo, mats)
+  /**
+   * Single-material boxes are collected per (material, caster flag) and merged into one mesh
+   * each at the end (≈10 draws instead of ≈180); multi-material boxes stay individual meshes.
+   * Returns the placement matrix (world).
+   */
+  const buckets = new Map<string, { mat: THREE.Material; cast: boolean; geos: THREE.BufferGeometry[] }>()
+  const boxMatrix = (s: number, lateral: number, height: number, yOffset: number, onPlane: boolean, out: THREE.Matrix4) => {
     const h = track.headingAt(s)
     track.pointAt(s, lateral, _p)
     const base = onPlane ? 0 : ground.yAt(s, lateral)
-    mesh.position.set(_p.x, _p.y + base + height / 2 + yOffset, _p.z)
+    _p.y += base + height / 2 + yOffset
     _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz))
-    mesh.quaternion.setFromRotationMatrix(_m)
-    mesh.castShadow = true
-    mesh.receiveShadow = true
-    group.add(mesh)
-    return mesh
+    _q.setFromRotationMatrix(_m)
+    return out.compose(_p, _q, _one)
+  }
+  const placeBox = (s: number, lateral: number, length: number, depth: number, height: number, mats: THREE.Material | THREE.Material[], yOffset = 0, onPlane = false, cast = true, uvFn?: (uv: THREE.BufferAttribute) => void) => {
+    const geo = new THREE.BoxGeometry(depth, height, length)
+    if (uvFn) uvFn(geo.attributes.uv as THREE.BufferAttribute)
+    const m = boxMatrix(s, lateral, height, yOffset, onPlane, new THREE.Matrix4())
+    if (Array.isArray(mats)) {
+      const mesh = new THREE.Mesh(geo, mats)
+      mesh.applyMatrix4(m)
+      mesh.castShadow = cast
+      mesh.receiveShadow = true
+      group.add(mesh)
+      return m
+    }
+    geo.applyMatrix4(m)
+    const key = `${mats.uuid}|${cast ? 1 : 0}`
+    let b = buckets.get(key)
+    if (!b) buckets.set(key, (b = { mat: mats, cast, geos: [] }))
+    b.geos.push(geo)
+    return m
+  }
+  const flushBoxes = () => {
+    for (const b of buckets.values()) {
+      const merged = mergeGeometries(b.geos, false)
+      if (!merged) continue
+      for (const g of b.geos) g.dispose()
+      const mesh = new THREE.Mesh(merged, b.mat)
+      mesh.castShadow = b.cast
+      mesh.receiveShadow = true
+      mesh.name = 'props'
+      group.add(mesh)
+    }
+    buckets.clear()
+  }
+  /** one InstancedMesh for a run of same-sized, per-instance-coloured boxes */
+  const instancedBoxes = (length: number, depth: number, height: number, items: { m: THREE.Matrix4; color: THREE.Color }[], roughness: number, cast: boolean, name: string) => {
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(depth, height, length), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness }), items.length)
+    items.forEach((it, i) => {
+      inst.setMatrixAt(i, it.m)
+      inst.setColorAt(i, it.color)
+    })
+    inst.instanceMatrix.needsUpdate = true
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true
+    inst.castShadow = cast
+    inst.receiveShadow = true
+    inst.name = name
+    group.add(inst)
+    return inst
   }
   const pitCentre = track.wrap(pit.boxStartS + 5 * pit.boxSpacing)
   // main pit building behind the pit lane: open garages facing the lane (and the track), the
@@ -412,25 +511,27 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
     placeBox(pitCentre, back + 0.6, length, 1.2, 4.6, buildingMat, 0, true)
     // team-coloured interior back walls + the fascia above each bay opening
     const teams = TEAM_ORDER.map((id) => TEAMS[id])
+    const walls: { m: THREE.Matrix4; color: THREE.Color }[] = []
+    const boards: { m: THREE.Matrix4; color: THREE.Color }[] = []
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: EMISSIVE.garageStrip.color, emissiveIntensity: EMISSIVE.garageStrip.intensity * emissiveScale() })
+    const cartMat = new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.7 })
+    const tyreStackMat = new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.9 })
     for (let t = 0; t < teams.length; t++) {
       const team = teams[t]!
       const s = track.wrap(pit.boxStartS + t * pit.boxSpacing)
-      const wallMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(team.body), roughness: 0.6 })
-      placeBox(s, back + 1.5, pit.boxSpacing - 1.5, 0.3, 4.4, wallMat, 0, true)
-      const fascia = new THREE.MeshStandardMaterial({ map: garageTexture(), roughness: 0.6 })
-      const f = placeBox(s, front - 0.2, pit.boxSpacing - 1.5, 0.25, 1.1, fascia, 3.4, true)
-      const tex = garageTexture().clone()
-      tex.repeat.set(1 / teams.length, 0.15)
-      tex.offset.set(t / teams.length, 0.55)
-      tex.needsUpdate = true
-      ;(f.material as THREE.MeshStandardMaterial).map = tex
+      walls.push({ m: boxMatrix(s, back + 1.5, 4.4, 0, true, new THREE.Matrix4()), color: new THREE.Color(team.body) })
+      // the fascia shows this team's slice of the one façade texture: baked into the box uv
+      // (every face — only the lane face is visible) instead of a cloned, offset texture per team
+      placeBox(s, front - 0.2, pit.boxSpacing - 1.5, 0.25, 1.1, garageMat, 3.4, true, false, (uv) => {
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, (t + uv.getX(i)) / teams.length, 0.55 + uv.getY(i) * 0.15)
+      })
       // lit ceiling strips in the bay (bloom on the high tier)
-      const lamp = placeBox(s, centre, pit.boxSpacing - 6, 6, 0.1, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2dd, emissiveIntensity: 4 }), 4.3, true)
-      lamp.castShadow = false
-      // a couple of props: tool carts / tyre stacks
-      placeBox(s - 6, centre - 2, 1.2, 1.0, 1.1, new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.7 }), 0, true)
-      placeBox(s + 7, centre - 3, 0.7, 0.7, 1.3, new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.9 }), 0, true)
+      placeBox(s, centre, pit.boxSpacing - 6, 6, 0.1, lampMat, 4.3, true, false)
+      // a couple of props: tool carts / tyre stacks (interior: never cast)
+      placeBox(s - 6, centre - 2, 1.2, 1.0, 1.1, cartMat, 0, true, false)
+      placeBox(s + 7, centre - 3, 0.7, 0.7, 1.3, tyreStackMat, 0, true, false)
     }
+    instancedBoxes(pit.boxSpacing - 1.5, 0.3, 4.4, walls, 0.6, false, 'garageWalls')
     // columns between the bays along the pit-lane face
     for (let t = 0; t <= teams.length; t++) {
       const s = track.wrap(pit.boxStartS + t * pit.boxSpacing - pit.boxSpacing / 2)
@@ -439,14 +540,14 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
     placeBox(pitCentre, centre, length + 4, depth + 2, 1.2, buildingMat, height, true) // roof slab
     placeBox(pitCentre, front + 0.8, length - 4, 2.2, 5, glassMat, height + 0.6, true) // hospitality deck rail over the lane
     // pit gantries: a post at the garage line carrying an arm over the working lane with the number board
+    const gantryMat = new THREE.MeshStandardMaterial({ color: 0x2c2f35, roughness: 0.5, metalness: 0.6 })
     for (let t = 0; t < teams.length; t++) {
       const s = track.wrap(pit.boxStartS + t * pit.boxSpacing)
-      const gantryMat = new THREE.MeshStandardMaterial({ color: 0x2c2f35, roughness: 0.5, metalness: 0.6 })
       placeBox(s, front + 0.6, 0.3, 0.3, 4.2, gantryMat, 0, true)
-      placeBox(s, front + 4.3, 0.3, 7.6, 0.3, gantryMat, 4.2, true)
-      const board = placeBox(s, pit.laneOffset - 2.5, 2.4, 0.15, 1.2, new THREE.MeshStandardMaterial({ color: new THREE.Color(teams[t]!.body), roughness: 0.5 }), 3.0, true)
-      board.castShadow = false
+      placeBox(s, front + 4.3, 0.3, 7.6, 0.3, gantryMat, 4.2, true, false)
+      boards.push({ m: boxMatrix(s, pit.laneOffset - 2.5, 1.2, 3.0, true, new THREE.Matrix4()), color: new THREE.Color(teams[t]!.body) })
     }
+    instancedBoxes(2.4, 0.15, 1.2, boards, 0.5, false, 'pitBoards')
     // race control tower rising out of the building at the line
     placeBox(2, centre - 0.5, 16, depth + 1, 22, [glassMat, buildingMat, buildingRoofMat, buildingMat, buildingMat, buildingMat], 0, true)
   }
@@ -454,7 +555,7 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
   const truckMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 })
   for (let i = 0; i < 16; i++) {
     const s = track.wrap(5580 + i * 21)
-    placeBox(s, -48 - (i % 2) * 18, 14, 4.5, 4, truckMat)
+    placeBox(s, -48 - (i % 2) * 18, 14, 4.5, 4, truckMat, 0, false, false)
   }
   for (let i = 0; i < 7; i++) {
     const s = track.wrap(5600 + i * 44)
@@ -542,9 +643,9 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
     for (let s = 160; s < track.length - 100; s += 330) {
       const side: 1 | -1 = marshal++ % 2 ? -1 : 1
       const lat = side * (track.halfWidthAt(s) + 7.5)
-      placeBox(s, lat, 2.4, 1.8, 1.3, hutMat)
-      placeBox(s, lat, 2.4, 1.85, 0.25, stripeMat, 0.6)
-      placeBox(s, lat, 2.5, 1.9, 0.12, buildingRoofMat, 1.3)
+      placeBox(s, lat, 2.4, 1.8, 1.3, hutMat, 0, false, false)
+      placeBox(s, lat, 2.4, 1.85, 0.25, stripeMat, 0.6, false, false)
+      placeBox(s, lat, 2.5, 1.9, 0.12, buildingRoofMat, 1.3, false, false)
       const poleS = s + 1.8
       track.pointAt(poleS, lat, _p, ground.yAt(poleS, lat))
       const pole = new THREE.CylinderGeometry(0.03, 0.03, 3.6, 6)
@@ -579,8 +680,9 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
   // --- rubbered-in braking zones (dark streaks laid down before the slow corners) ---------------
   {
     const rubberTex = brakingRubberTexture()
-    const rubberMat = new THREE.MeshBasicMaterial({ map: rubberTex, transparent: true, opacity: 0.55, color: 0x101012, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
-    rubberMat.alphaMap = rubberTex
+    // lit rubber so the streaks take the asphalt's shading (polygon offset keeps it off the road
+    // surface on the reversed-Z path; three flips the offset sign there)
+    const rubberMat = new THREE.MeshStandardMaterial({ map: rubberTex, alphaMap: rubberTex, color: 0x101012, roughness: 0.85, metalness: 0, transparent: true, opacity: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
     const geos: THREE.BufferGeometry[] = []
     for (const z of OVERTAKE_ZONES) {
       const from = z.s - 40
@@ -594,19 +696,26 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
   }
 
   // --- TV camera masts -------------------------------------------------------------------------
-  const mastMat = new THREE.MeshStandardMaterial({ color: 0x2c2f35, roughness: 0.6, metalness: 0.5 })
-  const mastGeo = new THREE.CylinderGeometry(0.18, 0.25, 9, 8)
-  const camGeo = new THREE.BoxGeometry(0.7, 0.5, 1.1)
-  for (const s of TV_CAMERA_SPOTS) {
-    const side = cameraSide(track, s)
-    track.pointAt(s, side * (hw + 9), _p, ground.yAt(s, side * (hw + 9)))
-    const mast = new THREE.Mesh(mastGeo, mastMat)
-    mast.position.set(_p.x, _p.y + 3.5, _p.z)
-    mast.castShadow = true
-    const cam = new THREE.Mesh(camGeo, mastMat)
-    cam.position.set(_p.x, _p.y + 8.3, _p.z)
-    group.add(mast, cam)
+  {
+    const mastMat = new THREE.MeshStandardMaterial({ color: 0x2c2f35, roughness: 0.6, metalness: 0.5 })
+    const mastGeo = new THREE.CylinderGeometry(0.18, 0.25, 9, 8)
+    const camGeo = new THREE.BoxGeometry(0.7, 0.5, 1.1)
+    const masts = new THREE.InstancedMesh(mastGeo, mastMat, TV_CAMERA_SPOTS.length)
+    const cams = new THREE.InstancedMesh(camGeo, mastMat, TV_CAMERA_SPOTS.length)
+    TV_CAMERA_SPOTS.forEach((s, i) => {
+      const side = cameraSide(track, s)
+      track.pointAt(s, side * (hw + 9), _p, ground.yAt(s, side * (hw + 9)))
+      masts.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 3.5, _p.z))
+      cams.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 8.3, _p.z))
+    })
+    masts.instanceMatrix.needsUpdate = true
+    cams.instanceMatrix.needsUpdate = true
+    masts.castShadow = true
+    masts.name = 'tvMasts'
+    group.add(masts, cams)
   }
+  // every single-material box placed above, merged per material
+  flushBoxes()
 
   // --- Ferris wheel (the Suzuka landmark beside the main straight) -----------------------------
   const ferrisWheel = new THREE.Group()
@@ -663,15 +772,12 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
     ], false)!
     const trunk = new THREE.CylinderGeometry(0.35, 0.5, 4, 6)
     trunk.translate(0, 2, 0)
-    const count = 3000
+    const count = quality.trees
     const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 })
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a3d25, roughness: 0.9 })
-    const canopies = new THREE.InstancedMesh(canopy, canopyMat, count)
-    const trunks = new THREE.InstancedMesh(trunk, trunkMat, count)
-    canopies.castShadow = true
-    trunks.castShadow = true
+    const matrices: THREE.Matrix4[] = []
+    const colors: THREE.Color[] = []
     const b = track.bounds
-    const color = new THREE.Color()
     let placed = 0
     let tries = 0
     const wheelPos = ferrisWheel.position
@@ -699,30 +805,27 @@ export function buildEnvironment(track: Track, crowdBudget = 12000, seed = 7): E
       const sc = rng.range(0.7, 1.45)
       _s.set(sc, sc * rng.range(0.85, 1.2), sc)
       _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.next() * Math.PI * 2)
-      _m.compose(_p.set(x, y - 0.3, z), _q, _s)
-      canopies.setMatrixAt(placed, _m)
-      trunks.setMatrixAt(placed, _m)
-      color.setHSL(0.26 + rng.next() * 0.09, 0.45 + rng.next() * 0.3, 0.2 + rng.next() * 0.14)
-      canopies.setColorAt(placed, color)
+      matrices.push(new THREE.Matrix4().compose(_p.set(x, y - 0.3, z), _q, _s))
+      colors.push(new THREE.Color().setHSL(0.26 + rng.next() * 0.09, 0.45 + rng.next() * 0.3, 0.2 + rng.next() * 0.14))
       placed++
     }
-    canopies.count = placed
-    trunks.count = placed
-    canopies.instanceMatrix.needsUpdate = true
-    trunks.instanceMatrix.needsUpdate = true
-    if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true
-    group.add(canopies, trunks)
+    // one InstancedMesh per terrain chunk (16) so the follow cameras and the cascades cull the
+    // far side of the circuit; canopies cast only on the high tier, trunks never
+    const bucketOf = (_i: number, m: THREE.Matrix4) => terrain.chunkIndex(m.elements[12]!, m.elements[14]!)
+    for (const inst of bucketedInstancedMeshes(canopy, canopyMat, matrices, colors, bucketOf, { castShadow: quality.treeShadows, name: 'canopies' })) group.add(inst)
+    for (const inst of bucketedInstancedMeshes(trunk, trunkMat, matrices, null, bucketOf, { castShadow: false, name: 'trunks' })) group.add(inst)
   }
 
   const wheel = ferrisWheel.getObjectByName('wheel')
   const flagTime = group.userData.flagTime as { value: number }
-  const update = (dt: number) => {
+  const update = (dt: number, cameraPos?: THREE.Vector3) => {
     if (wheel) {
       wheel.rotation.z += dt * 0.05
       for (const g of wheel.children) if (g.name === 'gondola') g.rotation.z = -wheel.rotation.z
     }
     flagTime.value += dt
     crowd.time.value += dt
+    if (cameraPos) crowd.update(cameraPos)
   }
 
   return { group, terrain, ground, ferrisWheel, update }

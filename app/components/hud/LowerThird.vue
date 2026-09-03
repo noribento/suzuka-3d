@@ -1,15 +1,10 @@
 <script setup lang="ts">
 import { formatLapTime } from '~/sim/race'
 const { store } = useRaceStore()
-const now = ref(performance.now())
-let timer = 0
-onMounted(() => {
-  timer = window.setInterval(() => (now.value = performance.now()), 250)
-})
-onBeforeUnmount(() => clearInterval(timer))
 const d = computed(() => {
   const lt = store.lowerThird
-  if (!lt || now.value > lt.until) return undefined
+  // store.nowMs is the render loop's coarse clock (4 Hz), enough for a 6 s card
+  if (!lt || store.nowMs > lt.until) return undefined
   return store.drivers[lt.driver]
 })
 const compoundName = (c: string) => (c === 'S' ? 'SOFT' : c === 'M' ? 'MEDIUM' : 'HARD')

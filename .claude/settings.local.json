@@ -16,7 +16,10 @@
       "Bash(timeout 600 pnpm typecheck)",
       "Bash(timeout 600 pnpm sim -- --laps 53 --seeds 2)",
       "Bash(echo \"EXIT $?\")",
-      "Bash(LD_LIBRARY_PATH=/tmp/claude-1000/-home-user-projects-suzuka-3d/d17e3fab-b769-4edb-a950-b003db4f8294/scratchpad/chromelibs/usr/lib/x86_64-linux-gnu timeout 900 pnpm test:e2e)"
+      "Bash(LD_LIBRARY_PATH=/tmp/claude-1000/-home-user-projects-suzuka-3d/d17e3fab-b769-4edb-a950-b003db4f8294/scratchpad/chromelibs/usr/lib/x86_64-linux-gnu timeout 900 pnpm test:e2e)",
+      "Bash(node -e \"console.log\\(34*1.2/34, \\(34*1.2\\)/34 <= 1.2\\)\")",
+      "Bash(pnpm typecheck *)",
+      "Bash(echo \"exit $?\")"
     ]
   }
 }

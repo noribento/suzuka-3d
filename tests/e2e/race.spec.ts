@@ -33,6 +33,8 @@ test.describe('Suzuka 3D broadcast', () => {
   test('runs the start sequence and the race gets under way', async ({ page }) => {
     const issues = await openRace(page)
     await startRace(page)
+    // the lights-out banner is a broadcast event with a short lifetime: check it first
+    await expect(page.locator('.banner', { hasText: 'LIGHTS OUT' })).toBeVisible()
 
     const before = await readClock(page)
     await page.waitForTimeout(3000)
@@ -44,9 +46,6 @@ test.describe('Suzuka 3D broadcast', () => {
     const gaps = await page.locator('.tower .row .gap:not(.leader)').allTextContents()
     expect(gaps).toHaveLength(21)
     for (const g of gaps) expect(g).toMatch(/^\+\d+\.\d{3}$|^\+\d LAPS?$|^IN PIT$/)
-
-    // the lights-out banner is a broadcast event
-    await expect(page.locator('.banner', { hasText: 'LIGHTS OUT' })).toBeVisible()
     expect(issues.errors, issues.errors.join('\n')).toEqual([])
   })
 

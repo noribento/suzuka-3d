@@ -42,6 +42,20 @@ function smoothstep(t: number): number {
 export function makeGround(track: Track, terrainHeightAt: (x: number, z: number) => number, meshHeightAt: (x: number, z: number) => number = terrainHeightAt): Ground {
   const L = track.length
   const sOver = track.crossing.sOver
+  // The analytic terrain height is the expensive part of every drape sample (a spatial hash
+  // plus dozens of noise evaluations) and the ribbons ask for it ~100k times at start-up.
+  // Memoise it on a 0.25 m grid — far below the 2–4 m ribbon step, so the surface is the
+  // same analytic one (the crossover tolerance above is untouched).
+  const memo = new Map<number, number>()
+  const heightMemo = (x: number, z: number): number => {
+    const key = ((Math.round(x * 4) & 0xffff) << 16) ^ (Math.round(z * 4) & 0xffff)
+    let h = memo.get(key)
+    if (h === undefined) {
+      h = terrainHeightAt(x, z)
+      memo.set(key, h)
+    }
+    return h
+  }
   const runoffWidth = (s: number): number => {
     // the bridge deck is hw + 1.2 wide; the verge is back to full width 110 m from the crossing
     const d = Math.abs(signedDelta(sOver, s, L))
@@ -51,9 +65,12 @@ export function makeGround(track: Track, terrainHeightAt: (x: number, z: number)
     const off = Math.abs(lateral) - track.halfWidthAt(s)
     if (off <= 0) return 0
     const w = runoffWidth(s)
-    if (off <= Math.min(FLAT_STRIP, w)) return STRIP_DROP
+    // the ribbon's outer edge is placed at exactly hw + w, and (hw + w) - hw lands a rounding
+    // error beyond w: without the tolerance that edge drops to the terrain, which hangs a
+    // curtain of grass from the crossover deck down to the road underneath
+    if (off <= Math.min(FLAT_STRIP, w) + 1e-3) return STRIP_DROP
     track.pointAt(s, lateral, _p)
-    return (off <= w ? terrainHeightAt(_p.x, _p.z) + RUNOFF_LIFT : meshHeightAt(_p.x, _p.z)) - _p.y
+    return (off <= w ? heightMemo(_p.x, _p.z) + RUNOFF_LIFT : meshHeightAt(_p.x, _p.z)) - _p.y
   }
   const worldY = (s: number, lateral: number): number => {
     const y = yAt(s, lateral)

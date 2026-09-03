@@ -180,6 +180,17 @@ export class RaceSim {
     return this.track.halfWidthAt(s) - CAR_HALF_WIDTH - 0.3
   }
 
+  /** Calibrated (speed-model) curvature at s, linearly interpolated like Track.kappaLineAt. Pure accessor. */
+  kappaPhysAt(s: number): number {
+    const t = this.track
+    const u = t.wrap(s) / t.ds
+    const i0 = Math.floor(u)
+    const i = i0 % t.n
+    const j = (i + 1) % t.n
+    const f = u - i0
+    return this.kappaPhys[i]! * (1 - f) + this.kappaPhys[j]! * f
+  }
+
   // ---------------------------------------------------------------- setup
 
   /**
@@ -315,7 +326,14 @@ export class RaceSim {
     this.status = 'lights'
     this.lights = 0
     this.lightsTimer = 0
-    this.lightsHold = 0.7 + this.rng.next() * 1.8
+    // FIA procedure: five lamps a second apart, then a random 0.2–3 s hold before they go out
+    // (one rng draw, like the expression it replaced, so the seeded stream position is unchanged)
+    this.lightsHold = this.rng.range(0.2, 3.0)
+  }
+
+  /** Seconds since the start sequence began (0 while on the grid). */
+  get lightsElapsed(): number {
+    return this.status === 'lights' ? this.lightsTimer : 0
   }
 
   // ---------------------------------------------------------------- queries
@@ -379,7 +397,8 @@ export class RaceSim {
     if (this.status === 'grid') return
     if (this.status === 'lights') {
       this.lightsTimer += dt
-      this.lights = Math.min(5, Math.floor(this.lightsTimer) + 1)
+      // lamp n lights at t = n s: a full beat before the first one
+      this.lights = Math.min(5, Math.floor(this.lightsTimer))
       if (this.lightsTimer > 5 + this.lightsHold) {
         this.lights = 0
         this.status = 'racing'
@@ -842,14 +861,18 @@ export function formatSector(t: number | null | undefined): string {
 }
 
 /**
- * Eight-speed gearbox: overall ratios (rpm per m/s) chosen so 8th tops out at 92 m/s just
- * under the 12 000 rpm limiter, with the close-ratio spread of a modern F1 box. Upshifts at
- * 11 800 rpm; on the overrun the box holds a gear until the revs fall below ~8 000.
+ * Eight-speed gearbox: overall ratios (rpm per m/s) with the progressive spread of a modern
+ * F1 box (big steps low down, close at the top). 8th reaches the limiter right at VMAX
+ * (92 m/s → 11 900 rpm, so the end of the main straight bounces off the 12 000 rpm limiter),
+ * 7th tops out at 84 m/s (130R stays in 7th/8th), the hairpin (~70 km/h) sits in 2nd at
+ * ~8 000 rpm and 1st is a launch gear (up to 85 km/h). Upshifts at 11 800 rpm; on the overrun
+ * the box holds a gear until the revs fall below ~7 600. Only the HUD and the engine sound
+ * read this table — the sim never feeds gearFor back into the car speed.
  */
-const GEAR_RATIOS = [0, 275, 205, 168, 141, 121, 106, 93, 82.5] // rpm per m/s, index = gear
-const REV_LIMIT = 12000
-const UPSHIFT = 11800
-const DOWNSHIFT = 8200
+const GEAR_RATIOS = [0, 500, 415, 305, 235, 190, 160, 140, 129.5] // rpm per m/s, index = gear
+export const REV_LIMIT = 12000
+export const UPSHIFT = 11800
+const DOWNSHIFT = 7600
 
 export function gearFor(v: number, prevGear = 0, throttle = 1): { gear: number; rpm: number } {
   if (v < 1) return { gear: 0, rpm: 5000 }
@@ -857,8 +880,9 @@ export function gearFor(v: number, prevGear = 0, throttle = 1): { gear: number; 
   // shift up while over the upshift point, down while the revs would drop too low
   while (g < 8 && v * GEAR_RATIOS[g]! > UPSHIFT) g++
   while (g > 1 && v * GEAR_RATIOS[g]! < DOWNSHIFT) g--
-  // under braking the driver short-shifts down one gear early for engine braking
-  if (throttle < 0.2 && g > 1 && v * GEAR_RATIOS[g - 1]! < UPSHIFT - 600) g--
+  // under braking the driver short-shifts down one gear early for engine braking (never into
+  // 1st: that is the launch gear)
+  if (throttle < 0.2 && g > 2 && v * GEAR_RATIOS[g - 1]! < UPSHIFT - 600) g--
   const rpm = Math.min(REV_LIMIT, v * GEAR_RATIOS[g]!)
   return { gear: g, rpm }
 }

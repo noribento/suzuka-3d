@@ -48,6 +48,11 @@ export interface HudDriver {
   stints: { compound: Compound; laps: number }[]
   /** best speed-trap reading (km/h) */
   trapKmh: number
+  /** road-wheel steer angle (rad, + = left) — written for the selected driver only */
+  steer: number
+  /** brake disc temperatures (°C, hotter wheel of the axle) — selected driver only */
+  brakeTempF: number
+  brakeTempR: number
 }
 
 export interface Battle {
@@ -94,6 +99,11 @@ export interface RaceStore {
   timeOfDay: number
   /** engine / crowd audio on */
   audio: boolean
+  /**
+   * The user has clicked or pressed a key at least once. Browsers only allow audio after such a
+   * gesture, so the start sequence waits for it (with a fallback) so the countdown can be heard.
+   */
+  interacted: boolean
   /** the closest fight in the top ten, if any within a second */
   battle: Battle | null
   /** driver card shown for a few seconds after a selection (driver index) */
@@ -102,6 +112,8 @@ export interface RaceStore {
   speedTrap: { driver: number; kmh: number } | null
   fps: number
   winner: number | null
+  /** coarse wall clock (performance.now(), written from the render loop at ~4 Hz) for timed HUD elements */
+  nowMs: number
 }
 
 const store = reactive<RaceStore>({
@@ -127,11 +139,13 @@ const store = reactive<RaceStore>({
   weather: { air: 27, track: 41, wind: 2.4, humidity: 58 },
   timeOfDay: 14,
   audio: true,
+  interacted: false,
   battle: null,
   lowerThird: null,
   speedTrap: null,
   fps: 0,
   winner: null,
+  nowMs: 0,
 })
 
 let eventId = 0

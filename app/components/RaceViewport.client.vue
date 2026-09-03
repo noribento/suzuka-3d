@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import * as THREE from 'three'
-import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getTrack, type Pose } from '~/sim/track'
-import { RaceSim, formatLapTime, gearFor } from '~/sim/race'
+import { RaceSim, formatLapTime, gearFor, type RaceStatus } from '~/sim/race'
 import { DRIVERS, TEAMS } from '~/data/drivers'
 import { CIRCUIT } from '~/data/suzuka'
 import { toMap } from '~/sim/projection'
 import { createScene, type SceneContext } from '~/three/scene'
+import { probeCapabilities } from '~/three/quality'
+import { freezeStatic } from '~/three/instancing'
+import { markAllDirty, textureBytes } from '~/three/textures'
 import { buildTrackMeshes, type TrackMeshes } from '~/three/track-mesh'
 import { buildEnvironment, type Environment } from '~/three/environment'
 import { buildCarModel, CAR_DIMENSIONS, type CarModel } from '~/three/car-model'
@@ -15,6 +17,8 @@ import { buildBarriers } from '~/three/barriers'
 import { ParticleSystem, SkidMarks } from '~/three/particles'
 import { RaceAudio, type CarAudioState } from '~/three/audio'
 import { CameraRig, type CameraTarget } from '~/three/cameras'
+import { EMISSIVE, emissiveScale, setEmissiveTier } from '~/three/emissive'
+import { DISC_FRONT, DISC_REAR, GRID_DISC_C, LOCK_SPIKE_C, stepDiscTemp } from '~/sim/brake-thermal'
 import { useRaceStore, type CameraMode, type HudDriver } from '~/composables/useRaceStore'
 
 const { store, pushEvent, select, setCamera, selectByPosition } = useRaceStore()
@@ -24,23 +28,43 @@ const labelLayer = ref<HTMLDivElement>()
 
 let ctx: SceneContext | null = null
 let rig: CameraRig | null = null
-let labelRenderer: CSS2DRenderer | null = null
 let env: Environment | null = null
 let trackMeshes: TrackMeshes | null = null
 let race: RaceSim | null = null
 let models: CarModel[] = []
-let labelObjects: CSS2DObject[] = []
 let labelEls: HTMLDivElement[] = []
+/** per-car label visibility decided in the loop (before projection) */
+const labelVisible = new Uint8Array(22)
+const _lv = new THREE.Vector3()
 let compoundCache: string[] = []
 let raf = 0
 let resizeObserver: ResizeObserver | null = null
 let gridTimer = 0
 let lastHud = 0
+let lastNowMs = 0
 let lastGapToggle = 0
 let fpsAcc = 0
 let fpsCount = 0
+/** fps-driven render-resolution scale (high tier): 1 → 0.85 → 0.7 with hysteresis; `?res=0` pins it */
+const resCtl = { k: 1, low: 0, high: 0, enabled: typeof location === 'undefined' || new URLSearchParams(location.search).get('res') !== '0' }
 let pointerDown: { x: number; y: number } | null = null
 let framesRendered = 0
+/** real-time clock for effects (rain-light flash, …): advances while not paused, reset on restart */
+let fxClock = 0
+/** last start-lamp state written to the gantry materials; the same transition fires the countdown tones */
+let prevLights = 0
+let prevStatus: RaceStatus | '' = ''
+let audioFailed = false
+let setupMs = 0
+// dev-only per-section frame timings (ms, exponential average and running max), read by scripts/perf-probe.mjs
+const PERF = import.meta.dev
+const perf = { sim: 0, place: 0, fx: 0, cam: 0, audio: 0, render: 0, labels: 0, hud: 0 }
+const perfMax = { sim: 0, place: 0, fx: 0, cam: 0, audio: 0, render: 0, labels: 0, hud: 0 }
+function mark(section: keyof typeof perf, t0: number) {
+  const ms = performance.now() - t0
+  perf[section] += (ms - perf[section]) * 0.05
+  if (ms > perfMax[section]) perfMax[section] = ms
+}
 const timer = new THREE.Timer()
 let lastOvertakeBanner = 0
 let sparks: ParticleSystem | null = null
@@ -57,6 +81,9 @@ const _m = new THREE.Matrix4()
 const _target = new THREE.Vector3()
 const _fwd = new THREE.Vector3()
 const _carUp = new THREE.Vector3(0, 1, 0)
+const _sunLocal = new THREE.Vector3()
+const _qInv = new THREE.Quaternion()
+const _camFwd = new THREE.Vector3()
 const camTarget: CameraTarget = { position: new THREE.Vector3(), tangent: new THREE.Vector3(), normal: new THREE.Vector3(), speed: 0, s: 0, aLon: 0, aLat: 0, rpm: 0 }
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
@@ -104,6 +131,9 @@ function makeHudDrivers(): HudDriver[] {
     gridPosition: idx + 1,
     stints: [],
     trapKmh: 0,
+    steer: 0,
+    brakeTempF: 0,
+    brakeTempR: 0,
   }))
 }
 
@@ -123,6 +153,9 @@ function initRace() {
   store.lowerThird = null
   store.speedTrap = null
   gridTimer = 0
+  fxClock = 0
+  prevLights = 0
+  prevStatus = ''
   motion.length = 0
   trapArmed.fill(1)
   race.cars.forEach((car, i) => {
@@ -139,49 +172,93 @@ function initRace() {
   syncHud(true)
 }
 
-function buildLabel(idx: number): CSS2DObject {
+/** A car label: an absolutely positioned element in the label layer, placed by placeLabels(). */
+function buildLabel(idx: number) {
   const d = DRIVERS[idx]!
   const el = document.createElement('div')
   el.className = 'car-label'
   el.style.setProperty('--team', TEAMS[d.team].tv)
+  el.style.position = 'absolute'
+  el.style.left = '0'
+  el.style.top = '0'
+  el.style.display = 'none'
   el.innerHTML = `<span class="pos"></span><span class="code">${d.code}</span>`
   el.addEventListener('pointerdown', (e) => {
     e.stopPropagation()
     select(idx)
   })
   labelEls[idx] = el
-  const obj = new CSS2DObject(el)
-  obj.position.set(0, 2.0, 0)
-  obj.center.set(0.5, 1.1)
-  return obj
+  labelLayer.value?.appendChild(el)
+}
+
+/**
+ * Project the 22 car labels straight through the camera (replaces CSS2DRenderer, which walked
+ * the whole scene twice per frame and sorted it for 22 elements). display:none keeps the
+ * hidden state CSS2D used, so `.car-label:visible` means the same thing.
+ */
+function placeLabels() {
+  if (!rig || !container.value) return
+  const w = container.value.clientWidth
+  const h = container.value.clientHeight
+  for (let i = 0; i < models.length; i++) {
+    const el = labelEls[i]
+    if (!el) continue
+    let show = labelVisible[i] === 1
+    if (show) {
+      _lv.copy(models[i]!.root.position)
+      _lv.y += 2.0
+      // stacking by view distance (NDC z is not comparable across the reversed / log depth paths)
+      const dist = _lv.distanceTo(rig.camera.position)
+      _lv.project(rig.camera)
+      show = Math.abs(_lv.x) <= 1.1 && Math.abs(_lv.y) <= 1.1
+      if (show) {
+        const x = Math.round((_lv.x + 1) * 0.5 * w * 2) / 2
+        const y = Math.round((1 - _lv.y) * 0.5 * h * 2) / 2
+        el.style.transform = `translate(-50%, -110%) translate(${x}px, ${y}px)`
+        el.style.zIndex = String(Math.max(0, 20000 - Math.round(dist)))
+      }
+    }
+    const display = show ? '' : 'none'
+    if (el.style.display !== display) el.style.display = display
+  }
 }
 
 function setup() {
   if (!canvas.value || !container.value || !labelLayer.value) return
+  const t0 = performance.now()
   rig = new CameraRig(track, container.value)
-  ctx = createScene(canvas.value, rig.camera, track.center)
-  labelRenderer = new CSS2DRenderer({ element: labelLayer.value })
+  // the GPU is probed on a throwaway context first: the tier decides context-creation flags
+  ctx = createScene(canvas.value, rig.camera, track.center, probeCapabilities())
+  const q = ctx.quality
+  // the emissive budget depends on whether bloom exists — decide before any lit material is built
+  setEmissiveTier(ctx.tier)
 
-  env = buildEnvironment(track, ctx.tier === 'high' ? 30000 : 6000)
+  env = buildEnvironment(track, q)
   ctx.scene.add(env.group)
   trackMeshes = buildTrackMeshes(track, env.terrain, env.ground)
+  // the track meshes pushed the terrain under the road: upload the grid once, now
+  env.terrain.commit()
   ctx.scene.add(trackMeshes.group)
-  ctx.scene.add(buildBarriers(track, ctx.tier, env.ground))
+  const barriers = buildBarriers(track, q, env.ground)
+  ctx.scene.add(barriers)
+  // nothing in these trees moves except the Ferris wheel: compute their matrices once
+  freezeStatic(env.group, env.ferrisWheel ? [env.ferrisWheel] : [])
+  freezeStatic(trackMeshes.group)
+  freezeStatic(barriers)
   // effects: sparks off the plank, tyre smoke, skid marks
-  sparks = new ParticleSystem({ capacity: ctx.tier === 'high' ? 2048 : 512, kind: 'spark', additive: true, gravity: 9.81, drag: 2.4 })
-  smoke = new ParticleSystem({ capacity: ctx.tier === 'high' ? 768 : 256, kind: 'smoke', additive: false, gravity: -0.5, drag: 1.6 })
-  marks = new SkidMarks(4000)
+  sparks = new ParticleSystem({ capacity: q.sparks, kind: 'spark', additive: true, gravity: 9.81, drag: 2.4 })
+  smoke = new ParticleSystem({ capacity: q.smoke, kind: 'smoke', additive: false, gravity: -0.5, drag: 1.6 })
+  marks = new SkidMarks(q.skidQuads)
   ctx.scene.add(sparks.points, smoke.points, marks.mesh)
   ctx.setTimeOfDay(store.timeOfDay)
 
   models = DRIVERS.map((d, idx) => {
-    const m = buildCarModel(d, 'M')
+    const m = buildCarModel(d, 'M', ctx!.tier === 'high')
     m.root.userData.carIndex = idx
-    m.root.add(buildLabel(idx))
+    buildLabel(idx)
     ctx!.scene.add(m.root)
     return m
   })
-  labelObjects = models.map((m) => m.root.children.find((c) => c instanceof CSS2DObject) as CSS2DObject)
   ctx.setupMaterials(ctx.scene)
 
   initRace()
@@ -189,19 +266,58 @@ function setup() {
   resizeObserver = new ResizeObserver(onResize)
   resizeObserver.observe(container.value)
   store.ready = true
-  if (import.meta.dev) (window as unknown as { __suzuka: unknown }).__suzuka = { THREE, ctx, rig, track, env, trackMeshes, models, race }
+  setupMs = performance.now() - t0
+  if (import.meta.dev) {
+    // debug hook for the e2e suite and the probe scripts (getters keep restart / audio creation live)
+    ;(window as unknown as { __suzuka: unknown }).__suzuka = {
+      THREE, ctx, rig, track, env, trackMeshes, models, motion, store, perf, perfMax,
+      get race() { return race },
+      get audio() { return audio },
+      RaceAudio,
+      get setupMs() { return setupMs },
+      steerTune: STEER,
+      resCtl,
+      textureBytes,
+    }
+  }
+  // GPU reset: keep the context restorable, stop the loop, and re-upload everything on return
+  canvas.value.addEventListener('webglcontextlost', onContextLost)
+  canvas.value.addEventListener('webglcontextrestored', onContextRestored)
+  raf = requestAnimationFrame(loop)
+}
+
+let contextLost = false
+function onContextLost(e: Event) {
+  e.preventDefault()
+  contextLost = true
+  cancelAnimationFrame(raf)
+}
+function onContextRestored() {
+  if (!contextLost || !ctx) return
+  contextLost = false
+  // canvases are still there: flag every cached texture, rebuild the CSM programs, redo the maps
+  markAllDirty()
+  ctx.refreshMaterials(ctx.scene)
+  ctx.forceShadowUpdate()
+  framesRendered = 0
+  timer.update()
+  timer.update()
+  cancelAnimationFrame(raf)
   raf = requestAnimationFrame(loop)
 }
 
 function onResize() {
-  if (!container.value || !ctx || !rig || !labelRenderer) return
+  if (!container.value || !ctx || !rig) return
   const w = container.value.clientWidth
   const h = container.value.clientHeight
   ctx.setSize(w, h)
-  labelRenderer.setSize(w, h)
+  if (labelLayer.value) {
+    labelLayer.value.style.width = `${w}px`
+    labelLayer.value.style.height = `${h}px`
+  }
   const px = h * ctx.renderer.getPixelRatio()
-  sparks?.setViewport(px)
-  smoke?.setViewport(px)
+  sparks?.setViewport(px, w * ctx.renderer.getPixelRatio())
+  smoke?.setViewport(px, w * ctx.renderer.getPixelRatio())
   rig.camera.aspect = w / h
   rig.camera.updateProjectionMatrix()
 }
@@ -221,8 +337,31 @@ interface CarMotion {
   lockTimer: number
   wasBraking: boolean
   bumpPhase: number
+  /** previous frame's heading (rad, track convention), NaN before the first frame */
+  prevPsi: number
+  /** curvature of the path the body actually sweeps (1/m, + = left), low-passed */
+  kPath: number
+  /** bicycle-model road-wheel steer angle (rad, + = left) */
+  steer: number
+  /** per-wheel spin multiplier [FL, RL, FR, RR]: 0 for a locked wheel, >1 under wheelspin */
+  spinFactor: Float32Array
+  /** brake disc temperatures (°C) [FL, RL, FR, RR] */
+  brakeT: Float32Array
+  /** braking energy per unit mass this frame (m²/s²) */
+  brakeE: number
+  /** last frame's pedal, so a braking zone that ends inside a long frame still counts */
+  prevBrake: number
+  /** locked wheel whose lock-onset spike has been applied (-1 = none) */
+  lockShown: number
+  /** drum / upright warm-through temperature (°C): lags the hottest disc with τ ≈ 5 s */
+  drumT: number
 }
 const motion: CarMotion[] = []
+/**
+ * Steering tunables: driver preview of the racing line (s), understeer gradient (rad per g of
+ * lateral acceleration), road-wheel lock (rad, 20°) and the κ_path low-pass rate (1/s, τ≈0.083 s).
+ */
+const STEER = { lead: 0.2, usGrad: 0.012, lock: 0.35, kRate: 12 }
 let fxRng = 1
 
 function rnd(): number {
@@ -244,6 +383,7 @@ function wheelLocal(w: number, out: THREE.Vector3): THREE.Vector3 {
  * the occasional front lock-up into a slow corner and from wheelspin off the line.
  */
 function updateEffects(i: number, mo: CarMotion, simDt: number) {
+  mo.spinFactor.fill(1)
   if (!sparks || !smoke || !marks || simDt <= 0) return
   const car = race!.cars[i]!
   const m = models[i]!
@@ -267,12 +407,13 @@ function updateEffects(i: number, mo: CarMotion, simDt: number) {
       mo.sparkAcc -= 1
       _tmp.set((rnd() - 0.5) * 0.8, 0.03, -0.6 + rnd() * 1.4).applyQuaternion(q).add(p)
       const k = 0.82 + rnd() * 0.12
-      const heat = 0.6 + rnd() * 0.7
+      const sp = EMISSIVE.spark
+      const heat = (sp.heatMin + rnd() * (sp.heatMax - sp.heatMin)) * emissiveScale()
       sparks.emit(
         _tmp.x, _tmp.y, _tmp.z,
         _vel.x * k + (rnd() - 0.5) * 5, 0.4 + rnd() * 2.2, _vel.z * k + (rnd() - 0.5) * 5,
         0.09 + rnd() * 0.07, 0.3 + rnd() * 0.45,
-        9 * heat, 3.4 * heat, 0.7 * heat, groundY + 0.01,
+        sp.rgb[0] * heat, sp.rgb[1] * heat, sp.rgb[2] * heat, groundY + 0.01,
       )
     }
   } else {
@@ -288,6 +429,9 @@ function updateEffects(i: number, mo: CarMotion, simDt: number) {
   mo.wasBraking = braking
   const wheelspin = race!.status === 'racing' && race!.time < 2.4 && v > 0.5 && v < 26 && car.launchFactor < 0.87
   if (mo.lockTimer > 0 || wheelspin) {
+    // a locked wheel stops turning; spinning rears turn faster than the road speed
+    if (wheelspin) mo.spinFactor[1] = mo.spinFactor[3] = 1.6
+    if (mo.lockTimer > 0) mo.spinFactor[mo.lockWheel] = 0
     const wheelsOn = wheelspin ? [1, 3] : [mo.lockWheel]
     for (const w of wheelsOn) {
       wheelLocal(w, _tmp).applyQuaternion(q).add(p)
@@ -321,7 +465,7 @@ function updateEffects(i: number, mo: CarMotion, simDt: number) {
 function placeCar(i: number, simDt: number) {
   const car = race!.cars[i]!
   const m = models[i]!
-  const mo = (motion[i] ??= { prevV: car.v, prevLat: car.lateral, aLon: 0, aLat: 0, slip: 0, sparkAcc: 0, smokeAcc: 0, lockWheel: -1, lockTimer: 0, wasBraking: false, bumpPhase: 0 })
+  const mo = (motion[i] ??= { prevV: car.v, prevLat: car.lateral, aLon: 0, aLat: 0, slip: 0, sparkAcc: 0, smokeAcc: 0, lockWheel: -1, lockTimer: 0, wasBraking: false, bumpPhase: 0, prevPsi: NaN, kPath: 0, steer: 0, spinFactor: new Float32Array([1, 1, 1, 1]), brakeT: new Float32Array(4).fill(GRID_DISC_C), brakeE: 0, prevBrake: 0, lockShown: -1, drumT: GRID_DISC_C })
   track.poseAt(car.s, car.lateral, pose)
   if (simDt > 0) {
     // accelerations and the yaw the lateral motion implies (a lane change is a real
@@ -330,7 +474,13 @@ function placeCar(i: number, simDt: number) {
     mo.aLon += ((car.v - mo.prevV) / simDt - mo.aLon) * k
     const vLat = (car.lateral - mo.prevLat) / simDt
     mo.slip += (Math.atan2(vLat, Math.max(car.v, 6)) - mo.slip) * Math.min(1, simDt * 14)
-    mo.aLat = car.v * car.v * pose.kappa + vLat * 0.5
+    // lateral g from the curvature the speed model actually believes (calibrated to the apex
+    // targets) — the raw centreline curvature reads up to 3× too high in the fast corners
+    mo.aLat = car.v * car.v * race!.kappaPhysAt(car.s) + vLat * 0.5
+    // braking energy per unit mass, ½Δv² integrates a·v exactly over any frame length; the pedal
+    // is sampled at the end of the frame, so also count a frame in which braking just ended
+    mo.brakeE = car.brake > 0 || mo.prevBrake > 0 ? Math.max(0, (mo.prevV * mo.prevV - car.v * car.v) * 0.5) : 0
+    mo.prevBrake = car.brake
     mo.prevV = car.v
     mo.prevLat = car.lateral
   }
@@ -343,53 +493,114 @@ function placeCar(i: number, simDt: number) {
   _carUp.set(-pose.nx * sr, cr, -pose.nz * sr)
   _m.lookAt(_target, m.root.position, _carUp)
   m.root.quaternion.setFromRotationMatrix(_m)
+  if (simDt > 0) {
+    // steering follows the arc the body actually sweeps (κ_path = Δψ/Δs from the forward vector,
+    // low-passed to kill the 2 m tangent-interpolation noise) plus the driver's ~0.2 s preview
+    // of the racing line, which leads the wheels into the corner and unwinds them past the apex;
+    // a small understeer gradient adds lock with lateral g, as on a real car
+    const psi = Math.atan2(-_fwd.z, _fwd.x)
+    const ds = car.v * simDt
+    if (ds > 0.05 && Number.isFinite(mo.prevPsi)) {
+      let dpsi = psi - mo.prevPsi
+      if (dpsi > Math.PI) dpsi -= 2 * Math.PI
+      else if (dpsi < -Math.PI) dpsi += 2 * Math.PI
+      mo.kPath += (dpsi / ds - mo.kPath) * Math.min(1, simDt * STEER.kRate)
+    }
+    mo.prevPsi = psi
+    const kCmd = mo.kPath + track.kappaLineAt(car.s + car.v * STEER.lead) - track.kappaLineAt(car.s)
+    const target = Math.atan(CAR_DIMENSIONS.wheelbase * kCmd) + STEER.usGrad * THREE.MathUtils.clamp(mo.aLat / 9.81, -5, 5)
+    mo.steer += (THREE.MathUtils.clamp(target, -STEER.lock, STEER.lock) - mo.steer) * Math.min(1, simDt * 10)
+  }
+  // effects first: they decide this frame's lock-up / wheelspin state for the spin loop
+  updateEffects(i, mo, simDt)
   const spin = (car.v * simDt) / CAR_DIMENSIONS.wheelRadius
-  for (const w of m.wheels) w.rotation.x -= spin
-  const steer = THREE.MathUtils.clamp(Math.atan(CAR_DIMENSIONS.wheelbase * pose.kappa) * 1.6 + mo.slip * 1.2, -0.45, 0.45)
-  for (const g of m.frontSteer) g.rotation.y = steer
-  m.setSteer(steer)
-  m.setDrs(car.drsOpen)
-  // only nearby cars cast shadows (three cascades re-render every caster)
-  m.setShadows(rig!.camera.position.distanceToSquared(m.root.position) < 320 * 320)
-  m.setDynamics({ aLon: mo.aLon, aLat: mo.aLat, v: car.v, brake: car.brake, dt: simDt })
+  for (let w = 0; w < 4; w++) m.wheels[w]!.rotation.x += spin * mo.spinFactor[w]!
+  for (let w = 0; w < m.midWheels.length; w++) m.midWheels[w]!.rotation.x += spin * mo.spinFactor[w]!
+  m.setSteer(mo.steer)
+  m.setDrs(car.drsOpen, simDt)
+  // shadow casting by distance (every caster is re-rendered per cascade): the detailed car
+  // within casterGateLod0, the cheap LOD-1/2 meshes out to casterGateLod1, the contact blob beyond
+  const d2 = rig!.camera.position.distanceToSquared(m.root.position)
+  const g0 = ctx!.quality.casterGateLod0, g1 = ctx!.quality.casterGateLod1
+  const level: 0 | 1 | 3 = d2 < g0 * g0 ? 0 : d2 < g1 * g1 ? 1 : 3
+  m.setShadows(level)
+  _sunLocal.copy(ctx!.sunDirection).applyQuaternion(_qInv.copy(m.root.quaternion).invert())
+  m.setContactShadow(_sunLocal, level < 3, simDt)
+  m.setDynamics({ aLon: mo.aLon, aLat: mo.aLat, v: car.v, dt: simDt })
+  // brake discs: a locked wheel gets a one-off spike at lock onset and no braking heat while it
+  // slides (the rubber takes the energy); the others heat with the frame's braking energy
+  if (simDt > 0) {
+    if (mo.lockWheel >= 0 && mo.lockWheel !== mo.lockShown) mo.brakeT[mo.lockWheel] = mo.brakeT[mo.lockWheel]! + LOCK_SPIKE_C
+    mo.lockShown = mo.lockWheel
+    for (let w = 0; w < 4; w++) {
+      const front = w === 0 || w === 2
+      mo.brakeT[w] = stepDiscTemp(mo.brakeT[w]!, w === mo.lockWheel ? 0 : mo.brakeE, car.v, simDt, front ? DISC_FRONT : DISC_REAR)
+    }
+  }
+  if (simDt > 0) mo.drumT += (Math.max(mo.brakeT[0]!, mo.brakeT[1]!, mo.brakeT[2]!, mo.brakeT[3]!) - mo.drumT) * Math.min(1, simDt / 5)
+  m.setBrakeTemps(mo.brakeT, mo.drumT)
   m.setWear(car.tyreAge)
   const st = race!.status
-  m.setRainLight(car.pitState !== 'none' || st === 'grid' || st === 'lights' ? 'flash' : st === 'racing' ? 'on' : 'off', race!.time + i * 0.13)
+  // dry-weather rear light: pit-limiter / grid flash, and the MGU-K harvest flash under braking or
+  // a lift (throttle is 0.35 when coasting, 1 when driving — race.ts), otherwise off
+  const inPit = car.pitState !== 'none'
+  const harvesting = st === 'racing' && !inPit && car.v > 15 && (car.brake > 0 || car.throttle < 0.5)
+  m.setRainLight(inPit || st === 'grid' || st === 'lights' || harvesting ? 'flash' : 'off', fxClock + i * 0.13)
   if (compoundCache[i] !== car.compound) {
     compoundCache[i] = car.compound
     m.setCompound(car.compound)
   }
-  updateEffects(i, mo, simDt)
 }
 
 function loop() {
   raf = requestAnimationFrame(loop)
-  if (!ctx || !rig || !race || !env || !trackMeshes || !labelRenderer) return
+  if (!ctx || !rig || !race || !env || !trackMeshes) return
   timer.update()
   const rawDt = timer.getDelta()
+  // real-time delta: drives the camera, the audio, the effect clocks and the start sequence
   const dt = Math.min(rawDt, 0.1)
   let simDt = 0
+  let t0 = PERF ? performance.now() : 0
   if (!store.paused) {
-    simDt = dt * store.simSpeed
+    // the simulated slice is capped (20 substeps) so a stalled frame never snowballs into a
+    // longer stall; at 60 fps even 8× stays far below the cap
+    simDt = Math.min(dt * store.simSpeed, 0.4)
+    fxClock += dt
     if (race.status === 'grid') {
+      // hold the grid until the first click/key so an AudioContext exists for the countdown,
+      // but never for more than a few seconds
       gridTimer += dt
-      if (gridTimer > 2.2) race.startLights()
+      if (gridTimer > 2.2 && (store.interacted || gridTimer > 8)) race.startLights()
     }
-    race.step(simDt)
+    // the light sequence runs in real time at 1× (so the countdown can be heard) and is only
+    // compressed up to 4× when the race is fast-forwarded
+    race.step(race.status === 'lights' ? dt * Math.min(store.simSpeed, 4) : simDt)
   }
+  if (PERF) { mark('sim', t0); t0 = performance.now() }
   for (let i = 0; i < models.length; i++) placeCar(i, simDt)
+  if (PERF) { mark('place', t0); t0 = performance.now() }
   // a light westerly drifts the smoke across the track
   const wind = store.weather.wind
   sparks?.update(simDt, wind * 0.3, -wind * 0.2)
   smoke?.update(simDt, wind * 0.9, -wind * 0.5)
 
-  // start lights on the gantry (HDR emissive so they bloom on the high tier)
-  trackMeshes.startLampMaterials.forEach((mat, i) => {
-    const on = race!.status === 'lights' && i < race!.lights
-    mat.emissive.setHex(on ? 0xff1a1a : 0x000000)
-    mat.emissiveIntensity = on ? 12 : 0
-    mat.color.setHex(on ? 0xff2020 : 0x3a0000)
-  })
+  // start lights on the gantry (HDR emissive so they bloom on the high tier): the materials are
+  // rewritten only when a lamp changes, and the same transition fires the countdown tones
+  const lights = race.status === 'lights' ? race.lights : 0
+  if (lights !== prevLights || race.status !== prevStatus) {
+    trackMeshes.startLampMaterials.forEach((mat, i) => {
+      const on = i < lights
+      mat.emissive.setHex(on ? EMISSIVE.startLamp.color : 0x000000)
+      mat.emissiveIntensity = on ? EMISSIVE.startLamp.on * emissiveScale() : 0
+      mat.color.setHex(on ? EMISSIVE.startLamp.bodyOn : EMISSIVE.startLamp.bodyOff)
+    })
+    // one tone per lamp (a long frame that skips a lamp still gets one), a longer one at lights out
+    if (lights > prevLights) audio?.startTone('light')
+    if (prevStatus === 'lights' && race.status === 'racing') audio?.startTone('go')
+    prevLights = lights
+    prevStatus = race.status
+  }
+  if (PERF) { mark('fx', t0); t0 = performance.now() }
 
   // camera
   if (store.cameraMode === 'director' && race.status === 'racing') runDirector(performance.now())
@@ -412,37 +623,63 @@ function loop() {
   }
   rig.update(dt, target, store.paused ? 1 : store.simSpeed)
   store.tvCamName = rig.mode === 'tv' ? rig.tvCamName : ''
-  if (rig.mode === 'overview' || !target) ctx.updateShadows('overview', rig.camera.position.distanceTo(rig.controls.target))
+  const dOverview = rig.mode === 'overview' || !target ? rig.camera.position.distanceTo(rig.controls.target) : 0
+  if (rig.mode === 'overview' || !target) ctx.updateShadows('overview', dOverview)
   else ctx.updateShadows('follow', rig.camera.position.distanceTo(target.position))
+  if (ctx.post) {
+    // depth-reading passes follow the shot: AO in follow modes, DoF on the tv long lens,
+    // camera-motion blur scaled by the subject's speed (none while paused: the camera is static)
+    ctx.post.setMode(rig.mode)
+    if (target) ctx.post.setFocus(rig.camera.position.distanceTo(target.position), rig.camera.fov)
+    const blurGain = rig.mode === 'onboard' ? 1 : rig.mode === 'chase' ? 0.6 : rig.mode === 'tv' ? 0.4 : 0
+    ctx.post.setBlur(target && !store.paused && ctx.quality.motionBlur ? THREE.MathUtils.clamp(target.speed / 90, 0, 1) * blurGain : 0)
+  }
 
   // labels: when zoomed far out in the overview only tag the leaders + the selected car
   const showLabels = store.labels && rig.mode !== 'onboard'
-  const farOut = rig.mode === 'overview' && rig.camera.position.distanceTo(rig.controls.target) > 1000
-  labelObjects.forEach((l, i) => {
-    const car = race!.cars[i]!
-    l.visible = showLabels && (!farOut || car.position <= 3 || i === sel)
-  })
-  env.update(simDt)
+  const farOut = rig.mode === 'overview' && dOverview > 1000
+  // CSS2D's own behind-the-camera test reads NDC z, which a reversed-Z projection folds back
+  // into range for points behind the lens — cull those here with the view direction instead
+  _camFwd.set(0, 0, -1).applyQuaternion(rig.camera.quaternion)
+  const camPos = rig.camera.position
+  for (let i = 0; i < models.length; i++) {
+    const car = race.cars[i]!
+    const m = models[i]!
+    const inFront = (m.root.position.x - camPos.x) * _camFwd.x + (m.root.position.y - camPos.y) * _camFwd.y + (m.root.position.z - camPos.z) * _camFwd.z > 0
+    labelVisible[i] = showLabels && inFront && (!farOut || car.position <= 3 || i === sel) ? 1 : 0
+  }
+  env.update(simDt, rig.camera.position)
+  if (PERF) { mark('cam', t0); t0 = performance.now() }
 
-  // audio (created on the first user gesture; voices follow the nearest cars)
+  // audio: created on the first user gesture (a click that landed before setup() still counts —
+  // the browser's user activation is sticky); voices follow the nearest cars
+  if (!audio && store.interacted && !audioFailed) startAudio()
   if (audio) {
     for (let i = 0; i < models.length; i++) {
-      const st = (audioStates[i] ??= { position: new THREE.Vector3(), velocity: new THREE.Vector3(), rpm: 0, throttle: 0, gear: 0, v: 0, running: false })
+      const st = (audioStates[i] ??= { position: new THREE.Vector3(), velocity: new THREE.Vector3(), rpm: 0, throttle: 0, brake: 0, drsOpen: false, gear: 0, v: 0, running: false })
       const car = race.cars[i]!
       const d = store.drivers[i]!
       st.position.copy(models[i]!.root.position)
       st.velocity.set(0, 0, car.v).applyQuaternion(models[i]!.root.quaternion)
-      st.rpm = gearFor(car.v, d.gear, car.throttle).rpm
+      // gear and rpm from the same gearFor() call (the HUD's d.gear lags by up to 33 ms)
+      const g = gearFor(car.v, d.gear, car.throttle)
+      st.rpm = g.rpm
+      st.gear = g.gear
       st.throttle = car.throttle
-      st.gear = d.gear
+      st.brake = car.brake
+      st.drsOpen = car.drsOpen
       st.v = car.v
-      st.running = race.status !== 'grid' && !store.paused
+      st.running = !store.paused
     }
-    audio.update(dt, audioStates, rig.camera, rig.mode, ctx.scene)
+    audio.update(dt, audioStates, rig.camera, rig.mode, ctx.scene, { status: race.status, lights: race.lights, lightsElapsed: race.lightsElapsed, time: race.time, simSpeed: store.simSpeed })
   }
+  if (PERF) { mark('audio', t0); t0 = performance.now() }
 
-  ctx.render(dt)
-  labelRenderer.render(ctx.scene, rig.camera)
+  marks?.update(simDt)
+  ctx.render(dt, store.weather.wind)
+  if (PERF) { mark('render', t0); t0 = performance.now() }
+  placeLabels()
+  if (PERF) { mark('labels', t0); t0 = performance.now() }
   if (++framesRendered === 1) ctx.refreshMaterials(ctx.scene)
 
   const now = performance.now()
@@ -452,10 +689,31 @@ function loop() {
     store.fps = Math.round(fpsCount / fpsAcc)
     fpsAcc = 0
     fpsCount = 0
+    if (ctx.tier === 'high' && resCtl.enabled) {
+      // drop after 2 consecutive slow seconds, raise only after 4 fast ones (no oscillation)
+      if (store.fps < 48) { resCtl.low++; resCtl.high = 0 }
+      else if (store.fps > 58) { resCtl.high++; resCtl.low = 0 }
+      else { resCtl.low = 0; resCtl.high = 0 }
+      let k = resCtl.k
+      if (resCtl.low >= 2 && k > 0.71) { k -= 0.15; resCtl.low = 0 }
+      else if (resCtl.high >= 4 && k < 0.99) { k += 0.15; resCtl.high = 0 }
+      k = Math.min(1, Math.max(0.7, Math.round(k * 100) / 100))
+      if (k !== resCtl.k) {
+        resCtl.k = k
+        ctx.setResolutionScale(k)
+        onResize() // targets + particle point sizes follow the new pixel ratio
+      }
+    }
   }
   if (now - lastHud > 33) {
     lastHud = now
     syncHud(false)
+    if (PERF) mark('hud', t0)
+  }
+  // coarse wall clock for the HUD's timed elements (banner expiry, lower third), 4 Hz
+  if (now - lastNowMs > 250) {
+    lastNowMs = now
+    store.nowMs = now
   }
   if (now - lastGapToggle > 12000) {
     lastGapToggle = now
@@ -524,6 +782,13 @@ function syncHud(full: boolean) {
     }
     d.throttle = car.throttle
     d.brake = car.brake
+    // steering and disc temperatures only for the car the telemetry panel shows (3 writes/sync)
+    if (car.idx === store.selected) {
+      const mo = motion[car.idx]
+      d.steer = mo?.steer ?? 0
+      d.brakeTempF = mo ? Math.round(Math.max(mo.brakeT[0]!, mo.brakeT[2]!)) : 0
+      d.brakeTempR = mo ? Math.round(Math.max(mo.brakeT[1]!, mo.brakeT[3]!)) : 0
+    }
     d.drs = car.drsOpen
     d.drsEligible = car.drsEligible
     d.compound = car.compound
@@ -579,6 +844,7 @@ function syncHud(full: boolean) {
         if (e.position <= 10 && race.leaderLapsCompleted >= 1 && nowMs - lastOvertakeBanner > 4000) {
           lastOvertakeBanner = nowMs
           pushEvent({ kind: 'overtake', title: 'OVERTAKE', text: `${code(e.car)} passes ${code(e.passed)} for P${e.position}`, color: color(e.car), ttl: 4500 })
+          audio?.cue('overtake', e.position <= 3 ? 1 : 0.6)
           director.lastEventCar = e.car
         }
         break
@@ -593,6 +859,7 @@ function syncHud(full: boolean) {
       case 'chequered':
         if (race.cars[e.car]!.position === 1) {
           pushEvent({ kind: 'flag', title: 'CHEQUERED FLAG', text: `${full(e.car)} WINS THE JAPANESE GRAND PRIX`, color: color(e.car), ttl: 12000 })
+          audio?.cue('chequered')
         }
         break
     }
@@ -671,26 +938,34 @@ function runDirector(nowMs: number) {
 }
 watch(() => store.audio, (on) => {
   audio?.setMuted(!on)
+  if (!on) audio?.cancelCues()
   if (on) startAudio()
+})
+watch(() => store.paused, (p) => {
+  if (p) audio?.cancelCues()
 })
 
 /** Browsers only allow audio after a user gesture — create the context on the first click/key. */
 function startAudio() {
   if (audio || !store.audio || !rig || !ctx || typeof AudioContext === 'undefined') return
   try {
-    track.pointAt(200, track.halfWidth + 30, _tmp, 8)
-    audio = new RaceAudio(rig.camera, _tmp.clone(), ctx.scene)
+    // crowd beds at the main grandstand and the Spoon-side stand
+    const crowdAt = [200, 3400].map((s) => track.pointAt(s, track.halfWidth + 30, _tmp, 8).clone())
+    audio = new RaceAudio(rig.camera, crowdAt, ctx.scene, { tier: ctx.tier })
     audio.resume()
   } catch {
     audio = null
+    audioFailed = true
   }
 }
 function onFirstGesture() {
+  store.interacted = true
   startAudio()
   audio?.resume()
 }
 watch(() => store.restartToken, () => {
   if (!race) return
+  audio?.cancelCues()
   store.selected = -1
   store.cameraMode = 'overview'
   rig?.setMode('overview')
@@ -699,16 +974,41 @@ watch(() => store.restartToken, () => {
   initRace()
 })
 
+/** Hidden tab: stop the frame loop (and the engine audio); on return the first delta is ~0. */
+let hidden = false
+function onVisibility() {
+  if (document.hidden) {
+    if (hidden) return
+    hidden = true
+    cancelAnimationFrame(raf)
+    audio?.suspend()
+  } else if (hidden) {
+    hidden = false
+    // a lost context restarts the loop itself when it comes back
+    if (!ctx || contextLost) return
+    // two updates so getDelta() on the next frame does not report the whole hidden period
+    timer.update()
+    timer.update()
+    cancelAnimationFrame(raf)
+    raf = requestAnimationFrame(loop)
+    if (store.audio) audio?.resume()
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('pointerdown', onFirstGesture)
   window.addEventListener('keydown', onFirstGesture)
+  document.addEventListener('visibilitychange', onVisibility)
   // let the loading screen paint before the (synchronous) scene build
   setTimeout(setup, 30)
 })
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
+  canvas.value?.removeEventListener('webglcontextlost', onContextLost)
+  canvas.value?.removeEventListener('webglcontextrestored', onContextRestored)
+  document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('pointerdown', onFirstGesture)
   window.removeEventListener('keydown', onFirstGesture)
@@ -716,6 +1016,9 @@ onBeforeUnmount(() => {
   rig?.dispose()
   sparks?.dispose()
   smoke?.dispose()
+  marks?.dispose()
+  for (const el of labelEls) el.remove()
+  audio?.cancelCues()
   audio?.dispose()
   ctx?.dispose()
 })

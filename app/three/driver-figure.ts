@@ -5,13 +5,21 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
  * Driver figure for the cockpit: shoulders, torso, HANS device, arms to the steering wheel,
  * and the wheel itself. Car frame: +Z forward, +X left, +Y up; the helmet sits at
  * (0, 0.79, 0.4) so the shoulders are just below the cockpit rim (~0.69).
+ *
+ * The arms are split so the hands can ride the rim: the upper arms are static, the gloves are
+ * built in wheel-local space (parent them under the wheel pivot) and each forearm is a unit
+ * capsule the car model stretches between the fixed elbow and the rotated hand every frame.
  */
 
 export interface DriverFigure {
   /** static body (torso, shoulders, HANS) — race suit colour */
   body: THREE.BufferGeometry
-  /** arms + gloves: black */
-  arms: THREE.BufferGeometry
+  /** upper arms, shoulder → elbow (static): black */
+  upperArms: THREE.BufferGeometry
+  /** one forearm capsule, axis +Y, length FOREARM_LEN0 between the cap centres, centred at the origin */
+  forearm: THREE.BufferGeometry
+  /** both gloves, in wheel-local space (translated by −wheelPivot) */
+  gloves: THREE.BufferGeometry
   /** steering wheel rim + spokes (carbon) */
   wheel: THREE.BufferGeometry
   /** wheel display face */
@@ -20,6 +28,12 @@ export interface DriverFigure {
   wheelPivot: THREE.Vector3
   /** wheel axis (points out of the wheel face towards the driver) */
   wheelAxis: THREE.Vector3
+  /** elbow positions [left, right] in car space (fixed) */
+  elbows: [THREE.Vector3, THREE.Vector3]
+  /** hand positions [left, right] on the rim in car space, at zero lock */
+  hands: [THREE.Vector3, THREE.Vector3]
+  /** rest length of the forearm capsule (elbow → hand minus the cap radius) */
+  forearmLen: number
 }
 
 let cached: DriverFigure | null = null
@@ -33,10 +47,13 @@ function capsule(r: number, len: number, a: THREE.Vector3, b: THREE.Vector3): TH
   return g
 }
 
+const FOREARM_R = 0.035
+
 export function driverFigure(): DriverFigure {
   if (cached) return cached
   const body: THREE.BufferGeometry[] = []
-  const arms: THREE.BufferGeometry[] = []
+  const upperArms: THREE.BufferGeometry[] = []
+  const gloves: THREE.BufferGeometry[] = []
 
   // shoulders + upper torso, reclined ~40° like a real seating position
   const torso = new THREE.SphereGeometry(0.2, 16, 10)
@@ -84,25 +101,35 @@ export function driverFigure(): DriverFigure {
   rim.translate(wheelPivot.x, wheelPivot.y, wheelPivot.z)
   face.translate(wheelPivot.x, wheelPivot.y, wheelPivot.z)
 
-  // arms: shoulders (±0.17, 0.6, 0.5) → elbows → hands on the rim at (±0.15, 0.62, 0.86)
+  // arms: shoulders (±0.17, 0.6, 0.5) → elbows (fixed) → hands on the rim at (±0.15, 0.62, 0.86)
+  const elbows: THREE.Vector3[] = []
+  const hands: THREE.Vector3[] = []
   for (const sgn of [1, -1]) {
     const shoulder = new THREE.Vector3(sgn * 0.17, 0.6, 0.5)
     const elbow = new THREE.Vector3(sgn * 0.2, 0.5, 0.66)
     const hand = new THREE.Vector3(sgn * 0.15, 0.62, 0.86)
-    arms.push(capsule(0.04, shoulder.distanceTo(elbow) - 0.04, shoulder, elbow))
-    arms.push(capsule(0.035, elbow.distanceTo(hand) - 0.035, elbow, hand))
+    upperArms.push(capsule(0.04, shoulder.distanceTo(elbow) - 0.04, shoulder, elbow))
     const glove = new THREE.SphereGeometry(0.045, 8, 6)
-    glove.translate(hand.x, hand.y, hand.z)
-    arms.push(glove)
+    glove.translate(hand.x - wheelPivot.x, hand.y - wheelPivot.y, hand.z - wheelPivot.z)
+    gloves.push(glove)
+    elbows.push(elbow)
+    hands.push(hand)
   }
+  const forearmLen = elbows[0]!.distanceTo(hands[0]!) - FOREARM_R
+  const forearm = new THREE.CapsuleGeometry(FOREARM_R, forearmLen, 3, 8)
 
   cached = {
     body: mergeGeometries(body.map(strip), false)!,
-    arms: mergeGeometries(arms.map(strip), false)!,
+    upperArms: mergeGeometries(upperArms.map(strip), false)!,
+    forearm: strip(forearm),
+    gloves: mergeGeometries(gloves.map(strip), false)!,
     wheel: strip(rim),
     wheelFace: strip(face),
     wheelPivot,
     wheelAxis,
+    elbows: [elbows[0]!, elbows[1]!],
+    hands: [hands[0]!, hands[1]!],
+    forearmLen,
   }
   return cached
 }

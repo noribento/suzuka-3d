@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { APEX_SPEED_TARGETS, CIRCUIT, SAUSAGE_KERB_CORNERS } from '~/data/suzuka'
 import { forwardDelta, type Track } from '~/sim/track'
-import { asphaltMaps, boardTexture, concreteMaps, gravelMaps, grassMaps, kerbMaps, type MaterialMaps } from './textures'
+import { ASPHALT_LINE_FRAC, asphaltMaps, boardTexture, concreteMaps, gravelMaps, grassMaps, kerbMaps, macroMap, type MaterialMaps } from './textures'
 import { FLAT_STRIP, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
 import type { Terrain } from './environment'
 
@@ -93,7 +93,12 @@ export function profileRibbonGeometry(track: Track, s0: number, s1: number, edge
 }
 
 /** Vertical wall along a lateral offset, from yBottom(s) to yTop(s) (both relative to track height). */
-export function wallGeometry(track: Track, s0: number, s1: number, lat: Fn, yBottom: Fn, yTop: Fn, step = 4, vScale = 8): THREE.BufferGeometry {
+/**
+ * Vertical strip along the track between two height functions. `vScale` is metres per texture
+ * tile along the wall; `uScale` (optional) is metres per tile up the wall — without it one tile
+ * spans the whole height.
+ */
+export function wallGeometry(track: Track, s0: number, s1: number, lat: Fn, yBottom: Fn, yTop: Fn, step = 4, vScale = 8, uScale?: number): THREE.BufferGeometry {
   const len = forwardDelta(s0, s1, track.length) || track.length
   const segs = Math.max(1, Math.ceil(len / step))
   const pos: number[] = []
@@ -106,7 +111,8 @@ export function wallGeometry(track: Track, s0: number, s1: number, lat: Fn, yBot
     pos.push(_p.x, _p.y, _p.z)
     track.pointAt(s, lat(s), _p, yTop(s))
     pos.push(_p.x, _p.y, _p.z)
-    uv.push(d / vScale, 0, d / vScale, 1)
+    const vTop = uScale ? (yTop(s) - yBottom(s)) / uScale : 1
+    uv.push(d / vScale, 0, d / vScale, vTop)
     if (i < segs) {
       const a = i * 2
       idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
@@ -118,6 +124,33 @@ export function wallGeometry(track: Track, s0: number, s1: number, lat: Fn, yBot
   g.setIndex(idx)
   g.computeVertexNormals()
   return g
+}
+
+/**
+ * Macro variation: a second, very low-frequency texture modulates albedo (×0.85–1.15 → the
+ * map stores 0.68–0.92, rescaled here) and roughness so a tiling surface stops repeating.
+ * `scale` maps the material's uv into the macro texture (one macro period per 1/scale uv
+ * units). Installed as an onBeforeCompile patch; setupMaterials chains it under CSM.
+ */
+export function addMacro(mat: THREE.MeshStandardMaterial, scale: THREE.Vector2, stripes = 0) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMacro = { value: macroMap() }
+    shader.uniforms.uMacroScale = { value: scale }
+    shader.uniforms.uStripes = { value: stripes }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uMacro;
+        uniform vec2 uMacroScale;
+        uniform float uStripes;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        float macro = texture2D(uMacro, vMapUv * uMacroScale).r * 1.25;
+        diffuseColor.rgb *= macro;
+        // mown bands: four per texture tile along v, alternately darker / lighter
+        diffuseColor.rgb *= mix(1.0, mod(floor(vMapUv.y * 4.0), 2.0) < 0.5 ? 0.86 : 1.06, uStripes);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
+  }
+  mat.customProgramCacheKey = () => 'macro'
 }
 
 function pbr(maps: MaterialMaps, extra: THREE.MeshStandardMaterialParameters = {}, normalScale = 1): THREE.MeshStandardMaterial {
@@ -155,6 +188,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
 
   // --- asphalt (the cross-slope is applied inside track.pointAt) -----------------------
   const asphaltMat = pbr(asphaltMaps(true), {}, 0.7)
+  // one macro period across the road and every 300 m along it (the base tile is 20 m)
+  addMacro(asphaltMat, new THREE.Vector2(1, 20 / 300))
   const surface = new THREE.Mesh(ribbonGeometry(track, 0, 0, hwAt, (s) => -hwAt(s), zero, zero, 2, 20), asphaltMat)
   surface.name = 'asphalt'
   surface.receiveShadow = true
@@ -162,7 +197,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   groundGeos.push(surface.geometry)
 
   // --- run-off grass: a flat strip under the kerbs, then draped over the terrain (see ground.ts) ---
-  const grassMat = pbr(grassMaps(true), {}, 0.8)
+  const grassMat = pbr(grassMaps(false), {}, 0.8)
+  addMacro(grassMat, new THREE.Vector2(0.25, 8 / 120), 1)
   const runoffGeo = (side: 1 | -1) => {
     const edges: [Fn, Fn][] = RUNOFF_OFFSETS.map((off) => {
       const lat: Fn = (s) => side * (hwAt(s) + (off * ground.runoffWidth(s)) / RUNOFF_WIDTH)
@@ -314,7 +350,17 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   // --- pit lane: between the pit wall and the garages, plus the entry / exit roads ----------
   const pitLat = (s: number) => track.pitLateralAt(s) ?? pit.laneOffset
   const halfLane = pit.laneWidth / 2
-  const pitMat = pbr(asphaltMaps(false), {}, 0.7)
+  // the pit lane samples the lined asphalt with its u range inset past the painted edge lines
+  // (cloned textures share the upload; only the transform differs) — no second asphalt set
+  const lined = asphaltMaps(true)
+  const inset = (t: THREE.Texture) => {
+    const c = t.clone()
+    c.repeat.set(1 - 2 * ASPHALT_LINE_FRAC, 1)
+    c.offset.set(ASPHALT_LINE_FRAC, 0)
+    return c
+  }
+  const pitMat = pbr({ map: inset(lined.map), normalMap: lined.normalMap && inset(lined.normalMap), roughnessMap: lined.roughnessMap && inset(lined.roughnessMap) }, {}, 0.7)
+  addMacro(pitMat, new THREE.Vector2(1, 20 / 300))
   const pitLane = new THREE.Mesh(ribbonGeometry(track, pit.entryS, pit.exitS, (s) => pitLat(s) + halfLane, (s) => pitLat(s) - halfLane, () => 0.01, () => 0.01, 3, 20, pit.laneWidth / 13), pitMat)
   pitLane.name = 'pitLane'
   pitLane.receiveShadow = true
@@ -352,7 +398,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   group.add(concreteMesh)
 
   // --- grid slots + start line ----------------------------------------------------
-  const gridMat = new THREE.MeshBasicMaterial({ color: 0xf4f4f4 })
+  // lit (not Basic) so the paint darkens under the gantry / pit-building shadow and at low sun
+  const gridMat = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.55, metalness: 0 })
   for (let k = 0; k < 22; k++) {
     const behind = 14 + 8 * k
     const s = track.wrap(-behind)
@@ -364,13 +411,17 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   whiteGeos.push(ribbonGeometry(track, L - 0.5, 0.5, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1))
   const whiteLines = new THREE.Mesh(mergeGeometries(whiteGeos, false)!, gridMat)
   whiteLines.name = 'whiteLines'
+  whiteLines.receiveShadow = true
   group.add(whiteLines)
   // DRS detection / activation markings
-  const drsMat = new THREE.MeshBasicMaterial({ color: 0xffd400 })
-  group.add(new THREE.Mesh(mergeGeometries([
+  const drsMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.55, metalness: 0 })
+  const drsLines = new THREE.Mesh(mergeGeometries([
     ribbonGeometry(track, CIRCUIT.drs.detection, CIRCUIT.drs.detection + 0.4, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1),
     ribbonGeometry(track, CIRCUIT.drs.start, CIRCUIT.drs.start + 0.4, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1),
-  ], false)!, drsMat))
+  ], false)!, drsMat)
+  drsLines.name = 'drsLines'
+  drsLines.receiveShadow = true
+  group.add(drsLines)
 
   // --- start gantry with the five light clusters ------------------------------------
   const steel = new THREE.MeshStandardMaterial({ color: 0x3c3f46, roughness: 0.45, metalness: 0.8 })

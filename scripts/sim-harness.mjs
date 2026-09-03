@@ -216,3 +216,43 @@ if (SEEDS > 1) {
 }
 
 if (JSON_OUT) console.log(JSON.stringify(report, null, 2))
+
+// ---------------------------------------------------------------- brake disc temperatures (--brakes)
+// Print-only tuning table for app/sim/brake-thermal.ts: runs its own race (same seed, separate
+// RaceSim, so nothing above changes) with the renderer's per-wheel disc model and reports, for the
+// best car on laps ≥ 2, the peak front/rear temperature within ±60 m of each apex target and the
+// minimum front temperature on the back straight (s 3900-4700).
+if (args.includes('--brakes')) {
+  const { stepDiscTemp, DISC_FRONT, DISC_REAR, GRID_DISC_C } = await import('../app/sim/brake-thermal.ts')
+  const race = new RaceSim(track, SEED0, 53)
+  race.totalLaps = Math.min(race.totalLaps, Math.max(LAPS, 3))
+  for (const c of race.cars) c.pitLap = race.totalLaps + 5 // no stops: a clean flying-lap profile
+  race.startLights()
+  const car = race.cars.reduce((a, b) => (a.gripBase > b.gripBase ? a : b))
+  const h = 1 / 50
+  let prevV = car.v, prevBrake = 0
+  const T = new Float32Array(4).fill(GRID_DISC_C)
+  const peaks = targets.map((t) => ({ name: t.name, s: t.s, F: 0, R: 0 }))
+  let minStraight = Infinity, minEsses = Infinity, tMax = 0
+  let guard = 0
+  while (race.status !== 'finished' && guard++ < 50 * 3600) {
+    race.step(h)
+    if (race.status !== 'racing') continue
+    const dE = car.brake > 0 || prevBrake > 0 ? Math.max(0, (prevV * prevV - car.v * car.v) / 2) : 0
+    prevBrake = car.brake
+    prevV = car.v
+    for (let w = 0; w < 4; w++) T[w] = stepDiscTemp(T[w], dE, car.v, h, w % 2 === 0 ? DISC_FRONT : DISC_REAR)
+    if (car.lapsCompleted < 1) continue
+    const f = Math.max(T[0], T[2]), r = Math.max(T[1], T[3])
+    tMax = Math.max(tMax, f, r)
+    for (const p of peaks) {
+      if (Math.abs(signedDelta(p.s, car.s, track.length)) < 60) { p.F = Math.max(p.F, f); p.R = Math.max(p.R, r) }
+    }
+    if (car.s >= 3900 && car.s <= 4700) minStraight = Math.min(minStraight, Math.min(T[0], T[2]))
+    if (car.s >= 876 && car.s <= 1314) minEsses = Math.min(minEsses, f)
+  }
+  log(`\nbrake disc temperatures (°C, ${car.driver.code}, laps ≥ 2; heat F ${DISC_FRONT.heat} R ${DISC_REAR.heat}, conv F ${DISC_FRONT.conv} R ${DISC_REAR.conv}):`)
+  log('  name         s   peakF  peakR')
+  for (const p of peaks) log(`  ${p.name.padEnd(10)} ${String(Math.round(p.s)).padStart(5)}   ${String(Math.round(p.F)).padStart(4)}   ${String(Math.round(p.R)).padStart(4)}`)
+  log(`  back straight min F ${Math.round(minStraight)}, Esses min F ${Math.round(minEsses)}, overall max ${Math.round(tMax)}`)
+}

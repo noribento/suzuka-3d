@@ -1,15 +1,10 @@
 <script setup lang="ts">
 const { store } = useRaceStore()
-const now = ref(performance.now())
-let timer = 0
-onMounted(() => {
-  timer = window.setInterval(() => {
-    now.value = performance.now()
-    const keep = store.events.filter((e) => now.value - e.t < e.ttl)
-    if (keep.length !== store.events.length) store.events = keep
-  }, 250)
+// expire banners on the render loop's coarse clock (no timer of its own)
+watch(() => store.nowMs, (now) => {
+  const keep = store.events.filter((e) => now - e.t < e.ttl)
+  if (keep.length !== store.events.length) store.events = keep
 })
-onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <template>

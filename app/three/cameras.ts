@@ -23,6 +23,11 @@ function noise1(t: number): number {
   return Math.sin(t * 12.9898) * 0.5 + Math.sin(t * 78.233 + 1.3) * 0.3 + Math.sin(t * 37.719 + 2.1) * 0.2
 }
 
+/** Slow hand-on-the-tripod wobble in [-1, 1] (0.7–3 Hz). */
+function wobble(t: number): number {
+  return Math.sin(t * 4.4) * 0.5 + Math.sin(t * 11.3 + 1.3) * 0.3 + Math.sin(t * 18.8 + 2.1) * 0.2
+}
+
 interface TvCamera {
   s: number
   position: THREE.Vector3
@@ -31,6 +36,11 @@ interface TvCamera {
 
 const _v = new THREE.Vector3()
 const _look = new THREE.Vector3()
+const _dir = new THREE.Vector3()
+const _up = new THREE.Vector3(0, 1, 0)
+
+/** Per-mode near plane (metres); far stays at 20 km (the sky and the cloud dome are inside). */
+const NEAR: Record<CameraMode, number> = { overview: 8, heli: 2, chase: 0.5, onboard: 0.2, tv: 0.5, director: 0.5 }
 
 function sectionShort(s: number): string {
   for (const sec of SECTIONS) {
@@ -48,6 +58,8 @@ export class CameraRig {
   private heliAngle = 0
   private smoothPos = new THREE.Vector3()
   private smoothLook = new THREE.Vector3()
+  /** TV mode: unit viewing direction and its angular velocity (rad/s) */
+  private lookDir = new THREE.Vector3()
   private lookVel = new THREE.Vector3()
   private smoothFov = 40
   private justSwitched = true
@@ -98,6 +110,8 @@ export class CameraRig {
     if (mode === 'onboard') this.camera.fov = 75
     else if (mode === 'chase') this.camera.fov = 55
     else if (mode === 'heli') this.camera.fov = 38
+    // the near plane follows the shot: nothing sits closer than this to the lens in each mode
+    this.camera.near = NEAR[mode]
     this.camera.updateProjectionMatrix()
   }
 
@@ -116,7 +130,7 @@ export class CameraRig {
     const p = target.position
     const t = target.tangent
     const n = target.normal
-    const up = new THREE.Vector3(0, 1, 0)
+    const up = _up
     const k = this.justSwitched ? 1 : 1 - Math.exp(-dt * 5)
     const v = target.speed
     switch (this.mode) {
@@ -194,21 +208,30 @@ export class CameraRig {
         this.tvCamName = `CAM ${this.tvIndex + 1} · ${cam.name}`
         this.camera.position.copy(cam.position)
         _look.copy(p).addScaledVector(up, 0.6)
+        _dir.copy(_look).sub(cam.position).normalize()
         if (this.justSwitched) {
-          this.smoothLook.copy(_look)
+          this.lookDir.copy(_dir)
           this.lookVel.set(0, 0, 0)
         } else {
-          // a camera operator: a damped spring on the framing that lags a car passing close by
-          // and overshoots slightly as it recovers, with a cap on how fast the head can pan
-          const stiffness = 40, damping = 12
-          const step = Math.min(dt, 0.05)
-          _v.copy(_look).sub(this.smoothLook).multiplyScalar(stiffness).addScaledVector(this.lookVel, -damping)
-          this.lookVel.addScaledVector(_v, step)
-          const dist0 = this.smoothLook.distanceTo(cam.position)
-          const maxPan = ((120 * Math.PI) / 180) * dist0 // m/s of look-point travel at 120°/s
-          if (this.lookVel.length() > maxPan) this.lookVel.setLength(maxPan)
-          this.smoothLook.addScaledVector(this.lookVel, step)
+          // a camera operator: a damped spring on the viewing *direction* (not on a point in
+          // the world), so the lag behind a car sweeping past is the same small fraction of
+          // the picture whatever the lens and distance, with a cap on how fast the head pans.
+          // Lag = angular rate × damping / stiffness (0.04 s), slightly under-damped.
+          const stiffness = 2000, damping = 80
+          const maxPan = (180 * Math.PI) / 180
+          let remaining = Math.min(dt, 0.25)
+          while (remaining > 0) {
+            const step = Math.min(remaining, 0.005)
+            remaining -= step
+            _v.copy(_dir).sub(this.lookDir).multiplyScalar(stiffness).addScaledVector(this.lookVel, -damping)
+            this.lookVel.addScaledVector(_v, step)
+            if (this.lookVel.lengthSq() > maxPan * maxPan) this.lookVel.setLength(maxPan)
+            this.lookDir.addScaledVector(this.lookVel, step).normalize()
+            // keep the angular velocity tangent to the unit sphere
+            this.lookVel.addScaledVector(this.lookDir, -this.lookVel.dot(this.lookDir))
+          }
         }
+        this.smoothLook.copy(cam.position).addScaledVector(this.lookDir, 100)
         this.camera.lookAt(this.smoothLook)
         const dist = cam.position.distanceTo(p)
         // frame the car at ~1/6 of the picture height; long lenses go down to a 2° field of view
@@ -216,10 +239,11 @@ export class CameraRig {
         this.smoothFov += (fov - this.smoothFov) * (this.justSwitched ? 1 : 1 - Math.exp(-dt * 4))
         this.camera.fov = this.smoothFov
         this.camera.updateProjectionMatrix()
-        // long-lens tremble: a fixed angular wobble looks bigger the tighter the shot
-        const tremble = ((0.012 * Math.PI) / 180) * (35 / this.smoothFov)
-        this.camera.rotateX(tremble * noise1(this.time * 5.1))
-        this.camera.rotateY(tremble * noise1(this.time * 4.3 + 7.0))
+        // long-lens tremble: a slow wobble of 0.2 % of the picture height, whatever the lens
+        // (a fixed angle would grow to a tenth of the frame on the 2° lenses)
+        const tremble = ((this.smoothFov * Math.PI) / 180) * 0.002
+        this.camera.rotateX(tremble * wobble(this.time))
+        this.camera.rotateY(tremble * wobble(this.time + 7.0))
         break
       }
     }

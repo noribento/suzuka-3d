@@ -5,6 +5,9 @@ const { store } = useRaceStore()
 const d = computed(() => (store.selected >= 0 ? store.drivers[store.selected] : undefined))
 const rpmSegs = computed(() => (d.value ? Math.round(((d.value.rpm - 5000) / 7500) * 14) : 0))
 const compoundName = (c: string) => (c === 'S' ? 'SOFT' : c === 'M' ? 'MEDIUM' : 'HARD')
+// hand wheel: 9× the road-wheel angle, clamped at the ±120° binding limit; + steer (left) is anticlockwise
+const wheelDeg = computed(() => (d.value ? Math.max(-120, Math.min(120, -d.value.steer * 9 * 57.2958)) : 0))
+const tempColor = (t: number) => (t < 400 ? '#8a8f99' : t < 700 ? '#c0392b' : t < 950 ? '#ff8c1a' : '#ffd400')
 </script>
 
 <template>
@@ -39,6 +42,13 @@ const compoundName = (c: string) => (c === 'S' ? 'SOFT' : c === 'M' ? 'MEDIUM' :
         <div class="pedals">
           <div class="pedal thr"><div class="fill" :style="{ height: d.throttle * 100 + '%' }" /></div>
           <div class="pedal brk"><div class="fill" :style="{ height: d.brake * 100 + '%' }" /></div>
+        </div>
+        <div class="wheelcol">
+          <div class="wheel" :style="{ transform: 'rotate(' + wheelDeg + 'deg)' }"><span class="spoke" /><span class="mark" /></div>
+          <div class="btemp">
+            <span :style="{ color: tempColor(d.brakeTempF) }">F {{ d.brakeTempF }}°</span>
+            <span :style="{ color: tempColor(d.brakeTempR) }">R {{ d.brakeTempR }}°</span>
+          </div>
         </div>
         <div class="drs" :class="{ open: d.drs, eligible: d.drsEligible && !d.drs }">DRS</div>
       </div>
@@ -182,6 +192,50 @@ const compoundName = (c: string) => (c === 'S' ? 'SOFT' : c === 'M' ? 'MEDIUM' :
 .pedal .fill { width: 100%; transition: height 0.08s linear; }
 .thr .fill { background: #35d07f; }
 .brk .fill { background: #ff3b3b; }
+.wheelcol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.wheel {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.55);
+  box-sizing: border-box;
+  transition: transform 0.06s linear;
+}
+.wheel .spoke {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: rgba(255, 255, 255, 0.45);
+}
+.wheel .mark {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 4px;
+  height: 8px;
+  margin-left: -2px;
+  background: #ffd400;
+  border-radius: 1px;
+}
+.btemp {
+  display: flex;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .drs {
   height: 22px;
   line-height: 22px;

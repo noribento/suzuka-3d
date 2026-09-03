@@ -5,7 +5,8 @@ import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import { ribbonGeometry, wallGeometry } from './track-mesh'
 import type { Ground } from './ground'
 import { armcoMaps, chainLinkTexture, tecproTexture, tyreWallTexture } from './textures'
-import type { QualityTier } from './scene'
+import type { Quality } from './quality'
+import { bucketedInstancedMeshes } from './instancing'
 
 type Fn = (s: number) => number
 
@@ -39,7 +40,7 @@ function inZone(track: Track, s: number, z: Zone): boolean {
  * The elevated bridge section already has its own rails and is skipped; the pit building
  * side of the main straight is closed by the pit wall instead of Armco.
  */
-export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): THREE.Group {
+export function buildBarriers(track: Track, quality: Quality, ground: Ground): THREE.Group {
   const group = new THREE.Group()
   group.name = 'barriers'
   const L = track.length
@@ -87,6 +88,7 @@ export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): 
   const postGeo = new THREE.BoxGeometry(0.12, 0.85, 0.16)
   const postMat = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.6, metalness: 0.7 })
   const postMatrices: THREE.Matrix4[] = []
+  const postS: number[] = []
   for (const side of [1, -1] as const) {
     // split into runs that avoid the bridge (and the pit wall on the right)
     const segments: [number, number][] = []
@@ -108,6 +110,7 @@ export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): 
         track.pointAt(s, lat(s), _p, groundAt(s, lat(s)) + 0.42)
         _q.setFromRotationMatrix(_m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
         postMatrices.push(new THREE.Matrix4().compose(_p, _q, _one))
+        postS.push(s)
       }
     }
   }
@@ -115,10 +118,8 @@ export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): 
   rails.name = 'armco'
   rails.castShadow = true
   group.add(rails)
-  const posts = new THREE.InstancedMesh(postGeo, postMat, postMatrices.length)
-  postMatrices.forEach((m, i) => posts.setMatrixAt(i, m))
-  posts.instanceMatrix.needsUpdate = true
-  group.add(posts)
+  // posts in 500 m runs so a follow camera only draws the ones around it
+  for (const inst of bucketedInstancedMeshes(postGeo, postMat, postMatrices, null, (i) => Math.floor(postS[i]! / 500), { name: 'armcoPosts' })) group.add(inst)
 
   /** front face + top of a block wall standing on the ground between `lat` and `back` */
   const blockWall = (z: Zone, lat: Fn, back: Fn, height: number, faceStep: number, faceV: number, faceGeos: THREE.BufferGeometry[], topGeos: THREE.BufferGeometry[]) => {
@@ -162,10 +163,12 @@ export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): 
   group.add(tec)
 
   // --- debris fencing in front of the spectator areas (skipped on the software tier) ---------
-  if (tier === 'high') {
-    const fenceMat = new THREE.MeshStandardMaterial({ map: chainLinkTexture(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 })
+  if (quality.fence) {
+    const a2c = quality.msaa > 0
+    const fenceMat = new THREE.MeshStandardMaterial({ map: chainLinkTexture(), alphaTest: a2c ? 0.3 : 0.45, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 })
     const fenceGeos: THREE.BufferGeometry[] = []
     const fencePostMatrices: THREE.Matrix4[] = []
+    const fencePostS: number[] = []
     const zones: Zone[] = GRANDSTANDS.map(([from, to, side]) => ({ from: from - 20, to: to + 20, side }))
     // pit side of the main straight: on the verge along the entry road, on top of the pit wall, then along the exit road
     zones.push({ from: pit.entryS, to: wallZone.from, side: -1 })
@@ -174,7 +177,8 @@ export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): 
     for (const z of zones) {
       const lat: Fn = z.lat ?? ((s) => z.side * (hwAt(s) + dist(s, z.side) + 0.35))
       const base: Fn = z.base ?? ((s) => groundAt(s, lat(s)))
-      fenceGeos.push(wallGeometry(track, z.from, z.to, lat, (s) => base(s) + 0.8, (s) => base(s) + 3.6, 4, 0.2))
+      // 20 cm diamonds both ways: 14 tiles up the 2.8 m of mesh
+      fenceGeos.push(wallGeometry(track, z.from, z.to, lat, (s) => base(s) + 0.8, (s) => base(s) + 3.6, 4, 0.2, 0.2))
       const len = forwardDelta(z.from, z.to, L)
       for (let d = 0; d <= len; d += 4) {
         const s = z.from + d
@@ -182,15 +186,14 @@ export function buildBarriers(track: Track, tier: QualityTier, ground: Ground): 
         track.pointAt(s, lat(s), _p, base(s) + 2.2)
         _q.setFromRotationMatrix(_m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
         fencePostMatrices.push(new THREE.Matrix4().compose(_p, _q, new THREE.Vector3(0.8, 3.3, 0.8)))
+        fencePostS.push(track.wrap(s))
       }
     }
     const fence = new THREE.Mesh(mergeGeometries(fenceGeos, false)!, fenceMat)
     fence.name = 'debrisFence'
     group.add(fence)
-    const fencePosts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.1, 1, 0.1), postMat, fencePostMatrices.length)
-    fencePostMatrices.forEach((m, i) => fencePosts.setMatrixAt(i, m))
-    fencePosts.instanceMatrix.needsUpdate = true
-    group.add(fencePosts)
+    const fencePostGeo = new THREE.BoxGeometry(0.1, 1, 0.1)
+    for (const inst of bucketedInstancedMeshes(fencePostGeo, postMat, fencePostMatrices, null, (i) => Math.floor(fencePostS[i]! / 500), { name: 'fencePosts' })) group.add(inst)
   }
 
   return group

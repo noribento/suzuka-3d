@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { COMPOUND_COLORS, DRIVERS, TEAMS, type Compound, type Driver } from '~/data/drivers'
-import { carbonMaps, contactShadowTexture, flakeNormalMap, liveryTexture, numberTexture, podLiveryTexture, rimMaps, tyreMaps } from './textures'
+import { brakeDiscMaps, carbonMaps, contactShadowTexture, flakeNormalMap, liveryTexture, numberTexture, podLiveryTexture, rimMaps, tyreMaps } from './textures'
 import { driverFigure } from './driver-figure'
+import { EMISSIVE, brakeDiscEmissive, emissiveScale } from './emissive'
 
 /**
  * 2026-regulation Formula 1 car.
@@ -23,6 +24,15 @@ const RIM_R = 0.2286 // 18"
 const FRONT_TYRE_W = 0.27
 const REAR_TYRE_W = 0.375
 const RIDE = 0.05
+/** hand wheel : road wheel ratio (real F1 ≈ 8–10:1) and the binding limit of the hand wheel (±120°) */
+const HAND_RATIO = 9
+const HAND_LIMIT = 2.094
+/** fraction of full Ackermann geometry applied to the front wheels */
+const ACKERMANN = 0.6
+/** kingpin caster (12°) and static negative camber, front 3.4° / rear 1.5° (rad) */
+const CASTER = 0.209
+const CAMBER_F = 0.059
+const CAMBER_R = 0.026
 
 // ---------------------------------------------------------------------------------------------
 // geometry helpers
@@ -136,6 +146,14 @@ function mirrorX(src: THREE.BufferGeometry): THREE.BufferGeometry {
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(w, h, d)
+  // world-scale uv (metres) so the carbon weave has the same size as on the extruded parts
+  // (BoxGeometry emits 0..1 per face; faces in the order +x, -x, +y, -y, +z, -z, 4 vertices each)
+  const uv = g.attributes.uv as THREE.BufferAttribute
+  const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]] as const
+  for (let i = 0; i < uv.count; i++) {
+    const f = faces[Math.floor(i / 4)]!
+    uv.setXY(i, uv.getX(i) * f[0], uv.getY(i) * f[1])
+  }
   g.rotateX(rx)
   g.rotateY(ry)
   g.rotateZ(rz)
@@ -148,6 +166,8 @@ const _b = new THREE.Vector3()
 const _q = new THREE.Quaternion()
 const _m = new THREE.Matrix4()
 const _Y = new THREE.Vector3(0, 1, 0)
+const _hand = new THREE.Vector3()
+const _dir = new THREE.Vector3()
 
 /** Slim rod between two points (suspension arms, pylons). */
 function rod(ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number, flat = 1): THREE.BufferGeometry {
@@ -155,6 +175,9 @@ function rod(ax: number, ay: number, az: number, bx: number, by: number, bz: num
   _b.set(bx, by, bz)
   const len = _a.distanceTo(_b)
   const g = new THREE.CylinderGeometry(r, r, len, 8, 1)
+  // world-scale uv (metres): u around the circumference, v along the rod
+  const uv = g.attributes.uv as THREE.BufferAttribute
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2 * Math.PI * r, uv.getY(i) * len)
   g.scale(flat, 1, 1)
   _q.setFromUnitVectors(_Y, _b.clone().sub(_a).normalize())
   _m.compose(_a.clone().add(_b).multiplyScalar(0.5), _q, new THREE.Vector3(1, 1, 1))
@@ -249,6 +272,15 @@ interface SharedGeometry {
   rimRear: THREE.BufferGeometry
   drumFront: THREE.BufferGeometry
   drumRear: THREE.BufferGeometry
+  discFront: THREE.BufferGeometry
+  discRear: THREE.BufferGeometry
+  discStubFront: THREE.BufferGeometry
+  discStubRear: THREE.BufferGeometry
+  /** LOD 1 (animated wheels): the dark parts without the tyres */
+  darkLowBody: THREE.BufferGeometry
+  /** LOD 1 wheel bodies: tyre + closed drum */
+  wheelLowFront: THREE.BufferGeometry
+  wheelLowRear: THREE.BufferGeometry
   tcam: THREE.BufferGeometry
   rearLight: THREE.BufferGeometry
   numberPlate: THREE.BufferGeometry
@@ -423,9 +455,36 @@ function buildShared(): SharedGeometry {
     g.rotateZ(Math.PI / 2)
     return g
   }
+  // brake drum: closed outboard cap, open inboard end (the disc is seen through it). Lathe y maps
+  // to −X after the rotation, so the cap at −(hw−0.04) lands at +X = outboard in wheel space.
   const drum = (w: number) => {
+    const hw = w / 2
+    const g = new THREE.LatheGeometry([
+      new THREE.Vector2(0, -(hw - 0.04)),
+      new THREE.Vector2(RIM_R - 0.01, -(hw - 0.04)),
+      new THREE.Vector2(RIM_R - 0.01, hw - 0.04),
+    ], 24)
+    g.rotateZ(Math.PI / 2)
+    return g
+  }
+  // closed cylinder for the LOD1 wheels
+  const drumLow = (w: number) => {
     const g = new THREE.CylinderGeometry(RIM_R - 0.01, RIM_R - 0.01, w - 0.08, 24, 1, false)
     g.rotateZ(Math.PI / 2)
+    return g
+  }
+  // disc annulus (rIn 0.085, 32 mm thick), profile order = texture v bands: face, barrel, face, bore;
+  // centred at xc (negative = inboard)
+  const disc = (rOut: number, xc: number) => {
+    const g = new THREE.LatheGeometry([
+      new THREE.Vector2(0.085, -0.016),
+      new THREE.Vector2(rOut, -0.016),
+      new THREE.Vector2(rOut, 0.016),
+      new THREE.Vector2(0.085, 0.016),
+      new THREE.Vector2(0.085, -0.016),
+    ], 32)
+    g.rotateZ(Math.PI / 2)
+    g.translate(xc, 0, 0)
     return g
   }
 
@@ -446,12 +505,18 @@ function buildShared(): SharedGeometry {
   const lowParts: THREE.BufferGeometry[] = [carbonMerged, darkMerged]
   lowParts.push(rearFlap.clone().rotateX(0.5).translate(REAR_FLAP_PIVOT.x, REAR_FLAP_PIVOT.y, REAR_FLAP_PIVOT.z))
   lowParts.push(frontFlaps.clone().rotateX(0.2).translate(FRONT_FLAP_PIVOT.x, FRONT_FLAP_PIVOT.y, FRONT_FLAP_PIVOT.z))
+  // LOD1 on the high tier animates its wheels, so the body is also baked without them
+  const darkLowBody = mergeGeometries(lowParts.map(strip), false)!
   for (const sgn of [1, -1]) {
     lowParts.push(tyreF.clone().translate(sgn * FRONT_TRACK_HALF, WHEEL_R, WHEELBASE / 2))
     lowParts.push(tyreR.clone().translate(sgn * REAR_TRACK_HALF, WHEEL_R, -WHEELBASE / 2))
   }
   const darkLow = mergeGeometries(lowParts.map(strip), false)!
   const hull = mergeGeometries([body, podL, podR, paintMerged, darkLow].map(strip), false)!
+  const drumLowF = drumLow(FRONT_TYRE_W), drumLowR = drumLow(REAR_TYRE_W)
+  // LOD1 wheel: tyre + closed drum in one mesh (a tyre alone shows a hole where the rim is)
+  const wheelLowFront = mergeGeometries([tyreF, drumLowF].map(strip), false)!
+  const wheelLowRear = mergeGeometries([tyreR, drumLowR].map(strip), false)!
 
   return {
     body,
@@ -470,6 +535,15 @@ function buildShared(): SharedGeometry {
     rimRear: rim(REAR_TYRE_W),
     drumFront: drum(FRONT_TYRE_W),
     drumRear: drum(REAR_TYRE_W),
+    // the disc sits 3 cm inside the drum's open inboard end
+    discFront: disc(0.16, -(FRONT_TYRE_W / 2 - 0.07)),
+    discRear: disc(0.14, -(REAR_TYRE_W / 2 - 0.07)),
+    // LOD1 glow stubs: the same annulus just outside the closed low drum's inboard face
+    discStubFront: disc(0.16, -(FRONT_TYRE_W / 2 - 0.02)),
+    discStubRear: disc(0.14, -(REAR_TYRE_W / 2 - 0.02)),
+    darkLowBody,
+    wheelLowFront,
+    wheelLowRear,
     tcam,
     rearLight,
     numberPlate,
@@ -498,6 +572,7 @@ function strip(g: THREE.BufferGeometry): THREE.BufferGeometry {
 let carbonMat: THREE.MeshPhysicalMaterial | null = null
 let darkMat: THREE.MeshStandardMaterial | null = null
 let rimMat: THREE.MeshStandardMaterial | null = null
+let drumMat: THREE.MeshStandardMaterial | null = null
 let visorMat: THREE.MeshPhysicalMaterial | null = null
 let shadowMat: THREE.MeshBasicMaterial | null = null
 const tyreMats: Partial<Record<Compound, THREE.MeshPhysicalMaterial>> = {}
@@ -522,6 +597,8 @@ function sharedMaterials() {
     darkMat = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.85, metalness: 0.05 })
     const rim = rimMaps()
     rimMat = new THREE.MeshStandardMaterial({ map: rim.map, normalMap: rim.normalMap, roughnessMap: rim.roughnessMap, roughness: 1, metalness: 0.85 })
+    // the drum is open inboard: DoubleSide or its interior culls to the sky
+    drumMat = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide })
     // dark tinted visor with the thin-film shimmer of a real iridium coating
     visorMat = new THREE.MeshPhysicalMaterial({ color: 0x0a0a12, roughness: 0.08, metalness: 0.6, clearcoat: 1, clearcoatRoughness: 0.03, iridescence: 0.6, iridescenceIOR: 1.6 })
     shadowMat = new THREE.MeshBasicMaterial({ map: contactShadowTexture(), transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false })
@@ -542,8 +619,6 @@ export interface CarDynamics {
   aLat: number
   /** speed (m/s) */
   v: number
-  /** brake pedal 0..1 */
-  brake: number
   /** simulation time step (s), 0 when paused */
   dt: number
 }
@@ -556,27 +631,45 @@ export interface CarModel {
   chassis: THREE.Group
   wheels: THREE.Object3D[]
   frontSteer: THREE.Group[]
+  /** LOD1 spinning wheel bodies (same order as `wheels`), empty unless built with animatedMid */
+  midWheels: THREE.Object3D[]
+  midSteer: THREE.Group[]
   drsFlap: THREE.Mesh
   setCompound: (c: Compound) => void
-  setDrs: (open: boolean) => void
-  /** per-frame body motion and brake glow from the car's accelerations */
+  setDrs: (open: boolean, dt: number) => void
+  /** per-frame body motion from the car's accelerations */
   setDynamics: (d: CarDynamics) => void
+  /** brake disc temperatures (°C) in wheel order [FL, RL, FR, RR] → blackbody emissive per disc */
+  setBrakeTemps: (t: ArrayLike<number>, drumT?: number) => void
   /** tyre wear (laps on the set) — worn rubber goes matte and grey */
   setWear: (laps: number) => void
-  /** rain light: solid when running, flashing in the pit lane / on the grid, off otherwise */
+  /** rain light: flash = pit limiter / grid / ERS harvesting; on = wet running (unused today); off = dry running */
   setRainLight: (mode: 'off' | 'on' | 'flash', time: number) => void
-  /** road-wheel steer angle (rad); the steering wheel in the cockpit turns ~2.5× as far */
+  /** bicycle-model road-wheel angle (rad, + = left); applies Ackermann to both fronts and turns the cockpit wheel (9×, ±120°) */
   setSteer: (angle: number) => void
-  /** enable/disable shadow casting (only the detailed LOD casts, and only when close) */
-  setShadows: (on: boolean) => void
+  /** shadow casting by distance: 0 = detailed LOD casts, 1 = only the LOD-1/2 meshes, 3 = none (contact blob only) */
+  setShadows: (level: 0 | 1 | 3) => void
+  /** contact-shadow blob: `sunLocal` is the sun direction in car space; `casting` = a real cascaded shadow is being drawn */
+  setContactShadow: (sunLocal: THREE.Vector3, casting: boolean, dt: number) => void
 }
 
-function smoothstep(t: number): number {
-  t = t < 0 ? 0 : t > 1 ? 1 : t
-  return t * t * (3 - 2 * t)
+const _rgb = [0, 0, 0]
+/**
+ * Disc emissive from its temperature: the Draper blackbody ramp (linear RGB, so setRGB avoids
+ * the sRGB decode of the hex path) and an intensity that crosses the bloom luminance threshold
+ * only above ~950 °C (see emissive.ts). Returns the tier-scaled intensity.
+ */
+function discEmissive(tempC: number, out: THREE.Color): number {
+  const i = brakeDiscEmissive(tempC, _rgb)
+  out.setRGB(_rgb[0]!, _rgb[1]!, _rgb[2]!)
+  return i * emissiveScale()
 }
 
-export function buildCarModel(driver: Driver, compound: Compound): CarModel {
+/**
+ * Build one car. `animatedMid` (high tier) gives LOD1 steerable/spinning wheels with glow stubs;
+ * on the low tier LOD1 keeps the baked wheels and `midWheels` is empty.
+ */
+export function buildCarModel(driver: Driver, compound: Compound, animatedMid = false): CarModel {
   if (!shared) shared = buildShared()
   sharedMaterials()
   const team = TEAMS[driver.team]
@@ -599,10 +692,7 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
   const flapMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(team.accent), ...gloss })
   const helmetMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(driver.helmet), roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08, envMapIntensity: 0.7 })
   const secondCar = DRIVERS.find((d) => d.team === driver.team) !== driver
-  // brake discs glow through the drum vents under heavy braking (HDR emissive → bloom)
-  const brakeFront = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, emissive: 0xff2a00, emissiveIntensity: 0, roughness: 0.7 })
-  const brakeRear = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, emissive: 0xff2a00, emissiveIntensity: 0, roughness: 0.7 })
-  const rearLightMat = new THREE.MeshStandardMaterial({ color: 0x5a0000, emissive: 0xff1a1a, emissiveIntensity: 5, roughness: 0.3 })
+  const rearLightMat = new THREE.MeshStandardMaterial({ color: 0x5a0000, emissive: EMISSIVE.rainLight.color, emissiveIntensity: EMISSIVE.rainLight.on * emissiveScale(), roughness: 0.3 })
 
   const body = new THREE.Mesh(shared.body, bodyMat)
   const podL = new THREE.Mesh(shared.podL, podMat)
@@ -615,7 +705,8 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
   const tcam = new THREE.Mesh(shared.tcam, secondCar ? tcamMats.yellow! : tcamMats.black!)
   const rearLight = new THREE.Mesh(shared.rearLight, rearLightMat)
   const plate = new THREE.Mesh(shared.numberPlate, new THREE.MeshBasicMaterial({ map: numberTexture(driver.number, secondCar ? '#111' : '#f5ff00', secondCar ? '#f5ff00' : '#111') }))
-  const shadow = new THREE.Mesh(shared.shadow, shadowMat!)
+  // per-car material: the blob fades while the car casts a real shadow (setContactShadow)
+  const shadow = new THREE.Mesh(shared.shadow, shadowMat!.clone())
   shadow.renderOrder = 1
 
   const rearFlap = new THREE.Mesh(shared.rearFlap, flapMat)
@@ -632,8 +723,12 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
   root.add(shadow)
 
   // LOD 1: livery body + pods + team-colour paint + one dark mesh with the wheels baked in
+  // (low tier) or, on the high tier, the dark body plus four animated wheels so steer, spin and
+  // disc glow survive the 140 m switch (TV lenses follow a car to ~280 m)
   const mid = new THREE.Group()
-  mid.add(new THREE.Mesh(shared.body, bodyMat), new THREE.Mesh(shared.podL, podMat), new THREE.Mesh(shared.podR, podMat), new THREE.Mesh(shared.paint, paintMat), new THREE.Mesh(shared.darkLow, darkMat!))
+  mid.add(new THREE.Mesh(shared.body, bodyMat), new THREE.Mesh(shared.podL, podMat), new THREE.Mesh(shared.podR, podMat), new THREE.Mesh(shared.paint, paintMat))
+  if (!animatedMid) mid.add(new THREE.Mesh(shared.darkLow, darkMat!))
+  else mid.add(new THREE.Mesh(shared.darkLowBody, darkMat!))
   lod.addLevel(mid, 140)
   // LOD 2: a single hull in the team colour
   const hull = new THREE.Mesh(shared.hull, paintMat)
@@ -643,53 +738,119 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
   const fig = driverFigure()
   const suitMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(team.accent), roughness: 0.85 })
   const driverBody = new THREE.Mesh(fig.body, suitMat)
-  const driverArms = new THREE.Mesh(fig.arms, darkMat!)
+  const driverArms = new THREE.Mesh(fig.upperArms, darkMat!)
   driverBody.castShadow = true
+  casters.push(driverBody)
   const wheelGroup = new THREE.Group()
   wheelGroup.position.copy(fig.wheelPivot)
   const wheelRim = new THREE.Mesh(fig.wheel, carbonMat!)
   const wheelFace = new THREE.Mesh(fig.wheelFace, new THREE.MeshStandardMaterial({ color: 0x0a0c10, emissive: 0x2244ff, emissiveIntensity: 0.6, roughness: 0.3 }))
   wheelRim.position.copy(fig.wheelPivot).negate()
   wheelFace.position.copy(fig.wheelPivot).negate()
-  wheelGroup.add(wheelRim, wheelFace)
-  chassis.add(driverBody, driverArms, wheelGroup)
+  // the gloves ride the rim (wheel-local); each forearm is a stretch bone from the fixed elbow
+  // to the rotated hand so the elbows never swing through the cockpit sides at full lock
+  // fig.gloves is already expressed relative to the wheel pivot, so it sits at the group origin
+  const gloves = new THREE.Mesh(fig.gloves, darkMat!)
+  wheelGroup.add(wheelRim, wheelFace, gloves)
+  const forearms = [new THREE.Mesh(fig.forearm, darkMat!), new THREE.Mesh(fig.forearm, darkMat!)]
+  chassis.add(driverBody, driverArms, wheelGroup, forearms[0]!, forearms[1]!)
 
   const wheels: THREE.Object3D[] = []
   const frontSteer: THREE.Group[] = []
-  const tyres: THREE.Mesh[] = []
-  let tyreMat: THREE.MeshPhysicalMaterial = tyreMats[compound]!.clone()
+  // one material per car, cloned here (before ctx.setupMaterials) so it gets the CSM patch
+  const tyreMat: THREE.MeshPhysicalMaterial = tyreMats[compound]!.clone()
+  // one brake material per wheel (order follows `wheels`: FL, RL, FR, RR) so each disc glows with
+  // its own temperature; all 4 are created here, before ctx.setupMaterials, and share one program
+  const brakeMats: THREE.MeshStandardMaterial[] = []
+  const discMaps = brakeDiscMaps()
+  // per-car drum material so the drum interior can warm through (faint, never blooms)
+  const drumMatCar = drumMat!.clone()
   const makeWheel = (front: boolean, sgn: number) => {
     const g = new THREE.Group()
     const tyre = new THREE.Mesh(front ? shared!.tyreFront : shared!.tyreRear, tyreMat)
     const rim = new THREE.Mesh(front ? shared!.rimFront : shared!.rimRear, rimMat!)
-    const drum = new THREE.Mesh(front ? shared!.drumFront : shared!.drumRear, front ? brakeFront : brakeRear)
+    const brakeMat = new THREE.MeshStandardMaterial({ map: discMaps.map, emissiveMap: discMaps.emissiveMap, roughnessMap: discMaps.roughnessMap, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.6, metalness: 0.1 })
+    brakeMats.push(brakeMat)
+    const drum = new THREE.Mesh(front ? shared!.drumFront : shared!.drumRear, drumMatCar)
+    const disc = new THREE.Mesh(front ? shared!.discFront : shared!.discRear, brakeMat)
     tyre.castShadow = true
     tyre.receiveShadow = true
     casters.push(tyre)
-    g.add(tyre, rim, drum)
+    g.add(tyre, rim, drum, disc)
     if (sgn < 0) g.rotation.y = Math.PI // rim dish faces outwards on the right-hand side
-    tyres.push(tyre)
     return g
   }
   for (const sgn of [1, -1]) {
+    // steer carrier with 12° caster: Euler XYZ = Rx·Ry, so the steer Ry acts about the rearward-
+    // leaning kingpin and the outer wheel gains negative camber with lock for free
     const steer = new THREE.Group()
     steer.position.set(sgn * FRONT_TRACK_HALF, WHEEL_R, WHEELBASE / 2)
+    steer.rotation.x = -CASTER
+    // static camber on its own pivot: Rz(+γ) leans the top toward −X, so sgn·γ is inward on both sides
+    const camberF = new THREE.Group()
+    camberF.rotation.z = sgn * CAMBER_F
     const wf = makeWheel(true, sgn)
-    steer.add(wf)
+    camberF.add(wf)
+    steer.add(camberF)
     full.add(steer)
     wheels.push(wf)
     frontSteer.push(steer)
+    const hubR = new THREE.Group()
+    hubR.position.set(sgn * REAR_TRACK_HALF, WHEEL_R, -WHEELBASE / 2)
+    hubR.rotation.z = sgn * CAMBER_R
     const wr = makeWheel(false, sgn)
-    wr.position.set(sgn * REAR_TRACK_HALF, WHEEL_R, -WHEELBASE / 2)
-    full.add(wr)
+    hubR.add(wr)
+    full.add(hubR)
     wheels.push(wr)
   }
+  // LOD1 animated wheels (high tier): same order as `wheels`; the glow stub shares the wheel's
+  // brake material and is only visible while that disc emits
+  const midWheels: THREE.Object3D[] = []
+  const midSteer: THREE.Group[] = []
+  const midStubs: THREE.Mesh[] = []
+  if (animatedMid) {
+    for (const sgn of [1, -1]) {
+      for (const front of [true, false]) {
+        const carrier = new THREE.Group()
+        carrier.position.set(sgn * (front ? FRONT_TRACK_HALF : REAR_TRACK_HALF), WHEEL_R, front ? WHEELBASE / 2 : -WHEELBASE / 2)
+        const body = new THREE.Mesh(front ? shared.wheelLowFront : shared.wheelLowRear, tyreMat)
+        if (sgn < 0) body.rotation.y = Math.PI
+        const stub = new THREE.Mesh(front ? shared.discStubFront : shared.discStubRear, brakeMats[midWheels.length]!)
+        stub.visible = false
+        body.add(stub)
+        carrier.add(body)
+        mid.add(carrier)
+        midWheels.push(body)
+        midStubs.push(stub)
+        if (front) midSteer.push(carrier)
+      }
+    }
+  }
+  // the LOD-1/2 meshes cast too, gated by distance in setShadows (LOD.update hides the inactive
+  // levels before the shadow pass, so only the visible level is ever rasterised)
+  const lowCasters: THREE.Mesh[] = [hull]
+  mid.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) lowCasters.push(o as THREE.Mesh)
+  })
+  for (const c of lowCasters) c.castShadow = true
   root.userData.carIndex = -1
-  let shadowsOn = true
-  const setShadows = (on: boolean) => {
-    if (on === shadowsOn) return
-    shadowsOn = on
-    for (const m of casters) m.castShadow = on
+  let lastLevel: 0 | 1 | 3 = 0
+  const setShadows = (level: 0 | 1 | 3) => {
+    if (level === lastLevel) return
+    lastLevel = level
+    for (const c of casters) c.castShadow = level === 0
+    for (const c of lowCasters) c.castShadow = level <= 1
+  }
+  const setContactShadow = (sunLocal: THREE.Vector3, casting: boolean, dt: number) => {
+    // the blob slides away from the sun and grows as the sun drops, and fades while the real
+    // (cascaded) shadow is present so the ground is not darkened twice
+    const offset = 0.35 / Math.max(0.25, sunLocal.y)
+    shadow.position.set(-sunLocal.x * offset, 0, -sunLocal.z * offset)
+    const grow = 1 + 0.3 * (1 - sunLocal.y)
+    shadow.scale.set(grow, 1, grow)
+    const mat = shadow.material as THREE.MeshBasicMaterial
+    const target = casting ? 0.18 : 0.5
+    if (dt > 0) mat.opacity += (target - mat.opacity) * (1 - Math.exp(-8 * dt))
   }
 
   let wearLaps = 0
@@ -699,10 +860,13 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
     tyreMat.roughness = 0.75 + 0.25 * w
     tyreMat.color.setScalar(1 - 0.12 * w)
   }
+  // swap the (cached, same-format) compound textures on the one per-car material: a clone would
+  // lose the CSM onBeforeCompile patch (Material.copy does not carry it) and allocate mid-race
   const setCompound = (c: Compound) => {
-    tyreMat.dispose()
-    tyreMat = tyreMats[c]!.clone()
-    for (const t of tyres) t.material = tyreMat
+    const t = tyreMaps(c, COMPOUND_COLORS[c])
+    tyreMat.map = t.map
+    tyreMat.normalMap = t.normalMap!
+    tyreMat.roughnessMap = t.roughnessMap!
     wearLaps = 0
     applyWear()
   }
@@ -711,18 +875,20 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
     wearLaps = laps
     applyWear()
   }
-  // active aero: closed = high-downforce Z-mode, open = low-drag X-mode
-  const setDrs = (open: boolean) => {
-    rearFlap.rotation.x = open ? 0.04 : 0.5
-    frontFlaps.rotation.x = open ? -0.02 : 0.2
+  // active aero: closed = high-downforce Z-mode, open = low-drag X-mode. The flaps ease over
+  // ~0.25 s to open and snap shut in ~0.08 s like real DRS; dt is the sim step so they hold when paused.
+  let drsF = 0
+  const setDrs = (open: boolean, dt: number) => {
+    drsF += ((open ? 1 : 0) - drsF) * Math.min(1, dt * (open ? 10 : 35))
+    rearFlap.rotation.x = 0.5 - 0.46 * drsF
+    frontFlaps.rotation.x = 0.2 - 0.22 * drsF
   }
-  setDrs(false)
+  setDrs(false, 1)
 
-  let heat = 0
   let jitterT = 0
   let rollF = 0
   let pitchF = 0
-  const setDynamics = ({ aLon, aLat, v, brake, dt }: CarDynamics) => {
+  const setDynamics = ({ aLon, aLat, v, dt }: CarDynamics) => {
     if (dt <= 0) return
     const k = Math.min(1, dt * 12)
     // F1 cars barely move on their springs: a couple of degrees at most
@@ -734,21 +900,53 @@ export function buildCarModel(driver: Driver, compound: Compound): CarModel {
     jitterT += dt
     const jitter = (Math.sin(jitterT * 47.0) * 0.6 + Math.sin(jitterT * 113.0) * 0.4) * 0.003 * (v / 90) ** 2
     chassis.position.y = -0.012 * (v / 90) ** 2 - Math.abs(Math.min(0, aLon)) * 0.0004 + jitter
-    // brake temperature: heat in ∝ pedal × speed, radiative cooling
-    heat = THREE.MathUtils.clamp(heat + (brake * v * 0.025 - heat * 0.7) * dt, 0, 1.5)
-    const glow = 3.2 * smoothstep(heat)
-    brakeFront.emissiveIntensity = glow
-    brakeRear.emissiveIntensity = glow * 0.35
+  }
+  const setBrakeTemps = (t: ArrayLike<number>, drumT = 0) => {
+    // drum warm-through at 12 % of the disc ramp: luminance stays < 0.7, so it glows without a halo
+    drumMatCar.emissiveIntensity = 0.12 * discEmissive(drumT, drumMatCar.emissive)
+    for (let w = 0; w < 4; w++) {
+      const mat = brakeMats[w]!
+      mat.emissiveIntensity = discEmissive(t[w]!, mat.emissive)
+      const stub = midStubs[w]
+      if (stub) stub.visible = mat.emissiveIntensity > 0
+    }
   }
 
   const setRainLight = (mode: 'off' | 'on' | 'flash', time: number) => {
-    rearLightMat.emissiveIntensity = mode === 'off' ? 0 : mode === 'on' ? 6 : (time * 4) % 1 < 0.5 ? 9 : 0.3
+    const rl = EMISSIVE.rainLight
+    rearLightMat.emissiveIntensity = (mode === 'off' ? 0 : mode === 'on' ? rl.on : (time * 4) % 1 < 0.5 ? rl.flashHi : rl.flashLo) * emissiveScale()
   }
-  const setSteer = (angle: number) => {
-    wheelGroup.quaternion.setFromAxisAngle(fig.wheelAxis, -angle * 2.5)
+  const setSteer = (delta: number) => {
+    // 60 % Ackermann: the inner wheel gets more lock (F1 runs partial/anti-Ackermann). R is signed,
+    // so the same formulas hold for both directions; |R| ≥ 9.3 m at the 0.35 rad lock keeps R ± track > 0.
+    const t = Math.tan(delta)
+    let dl = delta, dr = delta
+    if (Math.abs(t) > 1e-4) {
+      const R = WHEELBASE / t
+      dl = Math.atan(WHEELBASE / (R - FRONT_TRACK_HALF))
+      dr = Math.atan(WHEELBASE / (R + FRONT_TRACK_HALF))
+    }
+    frontSteer[0]!.rotation.y = delta + (dl - delta) * ACKERMANN
+    frontSteer[1]!.rotation.y = delta + (dr - delta) * ACKERMANN
+    if (midSteer.length === 2) {
+      midSteer[0]!.rotation.y = frontSteer[0]!.rotation.y
+      midSteer[1]!.rotation.y = frontSteer[1]!.rotation.y
+    }
+    // wheelAxis points at the driver, so +rotation moves the rim top left = a left turn (+delta)
+    wheelGroup.quaternion.setFromAxisAngle(fig.wheelAxis, THREE.MathUtils.clamp(delta * HAND_RATIO, -HAND_LIMIT, HAND_LIMIT))
+    for (let k = 0; k < 2; k++) {
+      _hand.copy(fig.hands[k]!).sub(fig.wheelPivot).applyQuaternion(wheelGroup.quaternion).add(fig.wheelPivot)
+      _dir.subVectors(_hand, fig.elbows[k]!)
+      const len = _dir.length()
+      const fa = forearms[k]!
+      fa.position.copy(fig.elbows[k]!).addScaledVector(_dir, 0.5)
+      fa.quaternion.setFromUnitVectors(_Y, _dir.divideScalar(len))
+      fa.scale.set(1, len / fig.forearmLen, 1)
+    }
   }
+  setSteer(0)
 
-  return { root, chassis, wheels, frontSteer, drsFlap: rearFlap, setCompound, setDrs, setDynamics, setWear, setRainLight, setSteer, setShadows }
+  return { root, chassis, wheels, frontSteer, midWheels, midSteer, drsFlap: rearFlap, setCompound, setDrs, setDynamics, setBrakeTemps, setWear, setRainLight, setSteer, setShadows, setContactShadow }
 }
 
 export const CAR_DIMENSIONS = { wheelbase: WHEELBASE, wheelRadius: WHEEL_R, frontTrackHalf: FRONT_TRACK_HALF, rearTrackHalf: REAR_TRACK_HALF, frontTyreWidth: FRONT_TYRE_W, rearTyreWidth: REAR_TYRE_W }

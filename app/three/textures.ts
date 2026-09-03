@@ -21,6 +21,12 @@ export function setMaxAnisotropy(v: number) {
   maxAnisotropy = Math.max(1, v)
 }
 
+let textureScale = 1
+/** Resolution multiplier of the large generated textures (1 on the high tier, 0.5 on low). Set before any texture is built. */
+export function setTextureScale(k: number) {
+  textureScale = k
+}
+
 // ---------------------------------------------------------------------------------------------
 // noise
 
@@ -168,6 +174,36 @@ function cached<T>(key: string, make: () => T): T {
   return t
 }
 
+function cachedTextures(): THREE.Texture[] {
+  const out: THREE.Texture[] = []
+  for (const v of cache.values()) {
+    if ((v as THREE.Texture).isTexture) out.push(v as THREE.Texture)
+    else if (v && typeof v === 'object') for (const t of Object.values(v as Record<string, unknown>)) if ((t as THREE.Texture)?.isTexture) out.push(t as THREE.Texture)
+  }
+  return out
+}
+
+/** Approximate GPU footprint of every generated texture (RGBA8 + mips), for the dev hook. */
+export function textureBytes(): number {
+  let bytes = 0
+  for (const t of cachedTextures()) {
+    const img = t.image as { width?: number; height?: number } | undefined
+    if (img?.width && img?.height) bytes += img.width * img.height * 4 * 1.33
+  }
+  return Math.round(bytes)
+}
+
+/** After a WebGL context restore: every cached canvas must be uploaded again. */
+export function markAllDirty() {
+  for (const t of cachedTextures()) t.needsUpdate = true
+}
+
+/** Free every generated texture (the canvases go with them) and empty the cache. */
+export function disposeAll() {
+  for (const t of cachedTextures()) t.dispose()
+  cache.clear()
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const c = new THREE.Color(hex)
   return [c.r * 255, c.g * 255, c.b * 255]
@@ -249,8 +285,11 @@ export function asphaltMaps(withLines = true): MaterialMaps {
   })
 }
 
-/** Grass, tile ≈ 8 m. Striped variant carries mown bands (two per tile). */
-export function grassMaps(striped: boolean): MaterialMaps {
+/**
+ * Grass, tile ≈ 8 m. The mown bands of the run-off (two per tile) are added by the macro patch
+ * (track-mesh.ts addMacro, `stripes`) so the terrain and the run-off share one texture.
+ */
+export function grassMaps(striped = false): MaterialMaps {
   return cached(`grass-${striped}`, () => {
     const w = 1024, h = 1024
     const n = new Noise2(3)
@@ -289,6 +328,9 @@ export function grassMaps(striped: boolean): MaterialMaps {
 }
 
 /** Gravel trap: individually shaded pebbles on a sand bed, tile ≈ 3 m. */
+/** Fraction of the asphalt texture's width taken by one painted edge line (asphaltMaps(true)). */
+export const ASPHALT_LINE_FRAC = Math.round((0.15 / 13) * 1024) / 1024
+
 export function gravelMaps(): MaterialMaps {
   return cached('gravel', () => {
     const w = 1024, h = 1024
@@ -536,9 +578,10 @@ export function rimMaps(): MaterialMaps {
  * canvas y = 1 − around (around: 0 bottom → 0.25 left flank → 0.5 top → 0.75 right flank → 1 bottom).
  */
 export function liveryTexture(teamId: TeamId, number: number): THREE.Texture {
-  return cached(`livery-${teamId}-${number}`, () => {
+  return cached(`livery-${teamId}-${number}-${textureScale}`, () => {
     const team = TEAMS[teamId]
-    const w = 2048, h = 1024
+    // 2048×1024 on the high tier (the number decals are read in close-ups), half on low
+    const w = Math.round(2048 * textureScale), h = Math.round(1024 * textureScale)
     const { c, ctx } = canvas(w, h)
     const yOf = (around: number) => (1 - around) * h
     paintLiveryBase(ctx, w, h, team)
@@ -611,9 +654,9 @@ export function liveryTexture(teamId: TeamId, number: number): THREE.Texture {
 
 /** Sidepod livery (same uv convention as the body, no numbers). */
 export function podLiveryTexture(teamId: TeamId): THREE.Texture {
-  return cached(`pods-${teamId}`, () => {
+  return cached(`pods-${teamId}-${textureScale}`, () => {
     const team = TEAMS[teamId]
-    const w = 1024, h = 512
+    const w = Math.round(1024 * textureScale), h = Math.round(512 * textureScale)
     const { c, ctx } = canvas(w, h)
     paintLiveryBase(ctx, w, h, team)
     // accent on the sidepod top surface, fading into the coke-bottle
@@ -777,6 +820,12 @@ export function spectatorAtlas(): THREE.Texture {
       const y0 = Math.floor(i / 4) * cell
       const cx = x0 + cell / 2
       const seated = i % 3 !== 0
+      // 8 px padding top and bottom of the cell (the billboard uv is inset the same amount) so
+      // mip-mapped sampling never bleeds a neighbour's feet into a head
+      ctx.save()
+      ctx.translate(0, y0 + 8)
+      ctx.scale(1, 112 / 128)
+      ctx.translate(0, -y0)
       // legs / lower body
       ctx.fillStyle = pants[Math.floor(rng() * pants.length)]!
       if (seated) ctx.fillRect(cx - 22, y0 + 92, 44, 30)
@@ -807,6 +856,7 @@ export function spectatorAtlas(): THREE.Texture {
       ctx.beginPath()
       ctx.arc(cx, y0 + 20, 13, Math.PI, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
     }
     const tex = makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
     tex.flipY = true
@@ -979,8 +1029,11 @@ export function labelTexture(text: string, bg: string, fg: string, w = 256, h = 
 
 /** Cumulus layer: tileable FBM coverage with soft edges, transparent elsewhere; fades out towards the horizon (v→0). */
 export function cloudTexture(): THREE.Texture {
-  return cached('clouds', () => {
-    const w = 1024, h = 512
+  return cached(`clouds-${textureScale}`, () => {
+    // 2048×1024 with a seventh octave on the high tier, half of that on low
+    const big = textureScale >= 1
+    const w = big ? 2048 : 1024, h = big ? 1024 : 512
+    const k = w / 1024
     const { c, ctx } = canvas(w, h)
     const img = ctx.createImageData(w, h)
     const d = img.data
@@ -991,7 +1044,7 @@ export function cloudTexture(): THREE.Texture {
       const v = 1 - y / h
       const horizon = smooth((v - 0.06) / 0.25)
       for (let x = 0; x < w; x++) {
-        const f = n.fbm(x / 64, y / 64, 16, 8, 6, 0.55)
+        const f = n.fbm(x / (64 * k), y / (64 * k), 16, 8, big ? 7 : 6, 0.55)
         const cover = smooth((f - 0.52) / 0.16) * horizon
         const shade = 235 + (n.value(x / 30, y / 30, 34, 17) - 0.5) * 40
         d[i] = shade
@@ -1050,23 +1103,87 @@ export function treeLineTexture(): THREE.Texture {
 }
 
 /** Soft round sprite (alpha in the RGB, additive) for sparks and smoke. */
+/**
+ * Low-frequency brightness/roughness variation (0.85–1.15 grey) tiled over hundreds of metres
+ * by the macro patch in track-mesh.ts, so the 20 m asphalt/grass tiles stop reading as a repeat.
+ */
+export function macroMap(): THREE.Texture {
+  return cached('macro', () => {
+    const w = 512, h = 512
+    const n = new Noise2(101)
+    const c = paint(w, h, (x, y, out) => {
+      const f = n.fbm(x / 64, y / 64, 8, 8, 4, 0.55)
+      const v = (0.85 + 0.3 * f) * 255 * 0.8
+      out[0] = v
+      out[1] = v
+      out[2] = v
+    })
+    return makeTexture(c, { srgb: false })
+  })
+}
+
+/** Streak profile of a skid mark: u across the tyre (tread grooves), v along it (broken by noise). */
+export function skidTexture(): THREE.Texture {
+  return cached('skid', () => {
+    const w = 128, h = 512
+    const n = new Noise2(313)
+    const c = paint(w, h, (x, y, out) => {
+      const u = x / w
+      const groove = 1 - 0.35 * Math.pow(Math.max(0, Math.cos(u * Math.PI * 2 * 5)), 8)
+      const nse = n.fbm(x / 8, y / 32, 16, 16, 3, 0.55)
+      const a = Math.min(1, groove * (0.45 + nse * 0.9)) * 255
+      out[0] = a
+      out[1] = a
+      out[2] = a
+    })
+    return makeTexture(c, { srgb: false })
+  })
+}
+
+/**
+ * Particle sprites. Sparks: one radial core (64×64). Smoke: a 3×1 strip (192×64) of three
+ * differently shaped puffs; the particle shader picks a cell per particle.
+ */
 export function spriteTexture(kind: 'spark' | 'smoke'): THREE.Texture {
   return cached(`sprite-${kind}`, () => {
-    const w = 64, h = 64
-    const { c, ctx } = canvas(w, h)
-    ctx.clearRect(0, 0, w, h)
-    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2)
     if (kind === 'spark') {
+      const w = 64, h = 64
+      const { c, ctx } = canvas(w, h)
+      ctx.clearRect(0, 0, w, h)
+      const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2)
       g.addColorStop(0, 'rgba(255,255,255,1)')
       g.addColorStop(0.25, 'rgba(255,255,255,0.8)')
       g.addColorStop(1, 'rgba(255,255,255,0)')
-    } else {
-      g.addColorStop(0, 'rgba(255,255,255,0.55)')
-      g.addColorStop(0.5, 'rgba(255,255,255,0.25)')
-      g.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, w, h)
+      return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
     }
-    ctx.fillStyle = g
-    ctx.fillRect(0, 0, w, h)
+    const cell = 64, w = cell * 3, h = cell
+    const { c, ctx } = canvas(w, h)
+    ctx.clearRect(0, 0, w, h)
+    const rng = mulberry(77)
+    for (let k = 0; k < 3; k++) {
+      // a soft core plus a few offset lobes: three distinct puff silhouettes
+      const cx = k * cell + cell / 2, cy = cell / 2
+      const lobes = 3 + k
+      for (let l = 0; l < lobes; l++) {
+        const a = (l / lobes) * Math.PI * 2 + rng() * 0.8
+        const r = cell * (0.12 + rng() * 0.1)
+        const ox = Math.cos(a) * r, oy = Math.sin(a) * r
+        const g = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, cell * 0.3)
+        g.addColorStop(0, 'rgba(255,255,255,0.32)')
+        g.addColorStop(0.55, 'rgba(255,255,255,0.14)')
+        g.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = g
+        ctx.fillRect(k * cell, 0, cell, cell)
+      }
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, cell * 0.48)
+      g.addColorStop(0, 'rgba(255,255,255,0.4)')
+      g.addColorStop(0.5, 'rgba(255,255,255,0.18)')
+      g.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(k * cell, 0, cell, cell)
+    }
     return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
   })
 }
@@ -1109,5 +1226,45 @@ export function boardTexture(): THREE.Texture {
       ctx.fillRect(i * 256, 0, 3, h)
     }
     return makeTexture(c)
+  })
+}
+
+// ---------------------------------------------------------------------------------------------
+// brake disc (cluster A / A10)
+
+/**
+ * Carbon-carbon brake disc as a polar strip: u around the disc, v along the lathe profile —
+ * [0, 0.25] inboard face (radial, bore → rim), [0.25, 0.5] outer barrel, [0.5, 0.75] outboard
+ * face (rim → bore), [0.75, 1] bore. The emissive map carries the friction ring (the faces
+ * glow, the bore does not) with vane and hot-spot modulation so a hot disc reads as a ring
+ * of uneven heat rather than a flat orange puck.
+ */
+export function brakeDiscMaps(): MaterialMaps & { emissiveMap: THREE.Texture } {
+  return cached('brake-disc', () => {
+    const w = 256, h = 64
+    const n = new Noise2(97)
+    const rough = new Float32Array(w * h)
+    const emis = new Float32Array(w * h)
+    const c = paint(w, h, (x, y, out) => {
+      const u = x / w, v = 1 - y / h
+      const band = Math.floor(v * 4) // 0 inboard face, 1 barrel, 2 outboard face, 3 bore
+      const t = v * 4 - band
+      // radial coordinate on the faces (0 bore → 1 rim); the inboard face runs bore → rim, the outboard rim → bore
+      const rad = band === 0 ? t : band === 2 ? 1 - t : band === 1 ? 1 : 0
+      const vane = 0.5 + 0.5 * Math.cos(u * Math.PI * 2 * 48)
+      // drill holes on the faces: 24 around, on a ring at ~65 % radius
+      const hole = band === 0 || band === 2 ? (0.5 + 0.5 * Math.cos(u * Math.PI * 2 * 24)) > 0.985 && Math.abs(rad - 0.65) < 0.05 ? 1 : 0 : 0
+      const grain = (n.fbm(x / 8, y / 4, 32, 16, 3) - 0.5) * 16
+      let g = 40 + grain + (band === 1 ? -6 * (1 - vane) : 0) // dark carbon grey, vane shading on the barrel
+      if (hole) g = 12
+      out[0] = g
+      out[1] = g + 1
+      out[2] = g + 3
+      const ring = band === 1 ? 0.8 : band === 3 ? 0 : smooth((rad - 0.3) / 0.05) * (1 - smooth((rad - 0.95) / 0.04))
+      const spots = 0.75 + 0.25 * n.fbm(u * 8, v * 4, 8, 4, 3)
+      emis[y * w + x] = Math.min(1, ring * (0.85 + 0.15 * vane) * spots) * (hole ? 0 : 1)
+      rough[y * w + x] = 0.55 + 0.15 * n.value(x / 8, y / 4, 32, 16)
+    })
+    return { map: makeTexture(c), roughnessMap: grayMap(rough, w, h), emissiveMap: grayMap(emis, w, h) }
   })
 }
