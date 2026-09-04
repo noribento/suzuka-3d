@@ -1,8 +1,56 @@
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import type { Compound } from '~/data/drivers'
+import type { RaceEvent } from '~/sim/race'
 
 export type CameraMode = 'overview' | 'heli' | 'chase' | 'onboard' | 'tv' | 'director'
 export type RaceStatus = 'loading' | 'grid' | 'lights' | 'racing' | 'finished'
+
+// --- broadcast (world-feed) graphics state, only rendered in the tv / director camera modes ---
+/** what the timing tower's right column shows (cycled by the graphics director) */
+export type TowerMode = 'interval' | 'leader' | 'tyre' | 'gained' | 'stops'
+export type StrapKind = 'fastest' | 'pit' | 'speed' | 'leader' | 'flag'
+export type PaneKind = 'tracker' | 'weather' | 'strategy'
+/** the tower header's LAP block: plain, DRS ENABLED (green) or the chequered flag */
+export type HeaderState = 'lap' | 'drs' | 'chequered'
+/** race events forwarded to the graphics director (RaceSim events plus the HUD's speed trap) */
+export type FeedEvent = RaceEvent | { type: 'speedTrap'; car: number; kmh: number; t: number }
+export interface FeedItem { id: number; t: number; ev: FeedEvent }
+/** the single alert strap launched beside the tower header */
+export interface Strap {
+  id: number
+  kind: StrapKind
+  driver: number
+  /** wall-clock launch time and hold (ms) */
+  t: number
+  hold: number
+  time?: number
+  stationary?: number
+  from?: Compound
+  to?: Compound
+  entryPosition?: number
+  /** rejoin position: live while the car is still in the lane, frozen at the pit exit */
+  rejoin?: number
+  kmh?: number
+}
+export interface BroadcastState {
+  towerMode: TowerMode
+  /** dev / test override: pins the tower mode (null = the director cycles it) */
+  towerLock: TowerMode | null
+  header: HeaderState
+  headerUntil: number
+  strap: Strap | null
+  /** lower third; `key` changes on every launch so a re-cut to the same driver replays the entrance */
+  nameStrap: { driver: number; t: number; hold: number; key: number } | null
+  pane: { kind: PaneKind; t: number; hold: number } | null
+  /** hysteresis-filtered battle for the bottom-centre widget (the classic store.battle is untouched) */
+  battle: { position: number; ahead: number; behind: number; t: number } | null
+  /** keeps the onboard cluster up briefly after a cut away so a hard cut does not pop it */
+  onboardUntil: number
+  /** M key in broadcast mode: keep the driver tracker on air whenever the pane slot is free */
+  trackerPinned: boolean
+  /** wall clock at which the classic classification panel may appear in broadcast mode */
+  classificationAt: number | null
+}
 
 export interface HudDriver {
   idx: number
@@ -53,6 +101,17 @@ export interface HudDriver {
   /** brake disc temperatures (°C, hotter wheel of the axle) — selected driver only */
   brakeTempF: number
   brakeTempR: number
+  // --- broadcast tower fields (stepped per 200 m mini-sector, one truncated decimal) ---
+  tvGap: string
+  tvInterval: string
+  /** floor(s / 200) at the last tvGap refresh (−1 = never) */
+  miniSector: number
+  /** car index ahead at the last refresh (an interval never refers to a car that is no longer ahead) */
+  aheadIdx: number
+  /** last committed position change: direction and a token that re-keys the chip flash animation */
+  posFlash: { dir: 1 | -1; key: number } | null
+  /** wall clock until which the row reads OUT after leaving the pit lane */
+  pitOutUntil: number
 }
 
 export interface Battle {
@@ -114,6 +173,21 @@ export interface RaceStore {
   winner: number | null
   /** coarse wall clock (performance.now(), written from the render loop at ~4 Hz) for timed HUD elements */
   nowMs: number
+  /** the shot actually on air: rig.mode (the director's sub-shot while cameraMode is 'director') */
+  shot: CameraMode
+  /** wall clock until which the control bar stays visible in broadcast mode (any input extends it) */
+  uiUntil: number
+  /** race events for the graphics director (newest 16) and a counter that bumps on every push */
+  feed: FeedItem[]
+  feedSeq: number
+  /** bumps on every selection; `selectSource` says whether a person or the director chose */
+  selectSeq: number
+  selectSource: 'manual' | 'director'
+  bc: BroadcastState
+}
+
+export function initialBroadcastState(): BroadcastState {
+  return { towerMode: 'interval', towerLock: null, header: 'lap', headerUntil: 0, strap: null, nameStrap: null, pane: null, battle: null, onboardUntil: 0, trackerPinned: false, classificationAt: null }
 }
 
 const store = reactive<RaceStore>({
@@ -146,20 +220,44 @@ const store = reactive<RaceStore>({
   fps: 0,
   winner: null,
   nowMs: 0,
+  shot: 'overview',
+  uiUntil: 0,
+  feed: [],
+  feedSeq: 0,
+  selectSeq: 0,
+  selectSource: 'manual',
+  bc: initialBroadcastState(),
 })
 
+/** Broadcast (world-feed) graphics are on air in the tv and director camera modes. */
+const broadcast = computed(() => store.cameraMode === 'tv' || store.cameraMode === 'director')
+
 let eventId = 0
+let feedId = 0
 
 export function useRaceStore() {
   const pushEvent = (e: Omit<HudEvent, 'id' | 't'>) => {
     store.events.push({ ...e, id: ++eventId, t: performance.now() })
     if (store.events.length > 4) store.events.splice(0, store.events.length - 4)
   }
-  const select = (idx: number) => {
+  /** Forward a race event to the graphics director (cheap in every mode; only read in broadcast). */
+  const pushFeed = (ev: FeedEvent) => {
+    store.feed.push({ id: ++feedId, t: performance.now(), ev })
+    if (store.feed.length > 16) store.feed.splice(0, store.feed.length - 16)
+    store.feedSeq++
+  }
+  /** Any input keeps the control bar visible for 3 s in broadcast mode. */
+  const wake = () => {
+    store.uiUntil = performance.now() + 3000
+  }
+  const select = (idx: number, source: 'manual' | 'director' = 'manual') => {
     store.selected = idx
-    if (idx >= 0) store.lowerThird = { driver: idx, until: performance.now() + 6000 }
+    store.selectSource = source
+    store.selectSeq++
+    if (idx >= 0 && source === 'manual') store.lowerThird = { driver: idx, until: performance.now() + 6000 }
   }
   const setCamera = (mode: CameraMode) => {
+    wake()
     store.cameraMode = mode
     if (mode !== 'overview' && store.selected < 0) store.selected = store.order[0] ?? 0
   }
@@ -169,9 +267,16 @@ export function useRaceStore() {
     const cur = store.selected >= 0 ? order.indexOf(store.selected) : -1
     const next = Math.min(order.length - 1, Math.max(0, cur + delta))
     store.selected = order[next] ?? store.selected
+    store.selectSource = 'manual'
+    store.selectSeq++
   }
   const restart = () => {
     store.restartToken++
   }
-  return { store, pushEvent, select, setCamera, selectByPosition, restart }
+  const resetBroadcast = () => {
+    store.bc = initialBroadcastState()
+    store.feed = []
+    store.shot = 'overview'
+  }
+  return { store, broadcast, pushEvent, pushFeed, wake, select, setCamera, selectByPosition, restart, resetBroadcast }
 }

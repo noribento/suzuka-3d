@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { CameraMode } from '~/composables/useRaceStore'
-const { store, setCamera, restart } = useRaceStore()
+const { store, broadcast, setCamera, restart } = useRaceStore()
+// broadcast mode: the bar is operator chrome, shown for 3 s after any input (store.uiUntil) or while hovered
+const visible = computed(() => !broadcast.value || store.uiUntil > store.nowMs)
 
 const cams: { id: CameraMode; label: string; key: string }[] = [
   { id: 'overview', label: 'OVERVIEW', key: '1' },
@@ -20,7 +22,8 @@ const clock = computed(() => {
 </script>
 
 <template>
-  <div class="controls">
+  <transition name="ctl">
+  <div v-show="visible" class="controls" :class="{ broadcast }">
     <div class="group">
       <button v-for="c in cams" :key="c.id" :class="{ on: store.cameraMode === c.id }" :title="`Key ${c.key}`" @click="setCamera(c.id)">{{ c.label }}</button>
     </div>
@@ -38,6 +41,7 @@ const clock = computed(() => {
       <span class="clock">{{ clock }}</span>
     </label>
   </div>
+  </transition>
 </template>
 
 <style scoped>
@@ -89,6 +93,10 @@ button.danger:hover { background: #7a0f0f; color: #fff; }
 .time input { flex: 1; accent-color: var(--f1-red); height: 4px; cursor: pointer; }
 .time .sun { color: #ffcc55; font-size: 12px; }
 .time .clock { min-width: 34px; text-align: right; color: #fff; }
+.controls.broadcast:hover { opacity: 1; }
+.ctl-enter-active { transition: opacity 0.2s ease-out, transform 0.2s ease-out; }
+.ctl-leave-active { transition: opacity 0.4s ease-in, transform 0.4s ease-in; }
+.ctl-enter-from, .ctl-leave-to { opacity: 0; transform: translateY(8px); }
 @media (max-width: 900px) {
   .controls { left: 18px; right: 18px; width: auto; }
 }

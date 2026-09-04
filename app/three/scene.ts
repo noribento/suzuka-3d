@@ -2,9 +2,27 @@ import * as THREE from 'three'
 import { Sky } from 'three/addons/objects/Sky.js'
 import { CSM } from 'three/addons/csm/CSM.js'
 import { disposeAll, setMaxAnisotropy, setTextureScale } from './textures'
-import { createPostChain, type PostChain } from './post'
+import { createPostChain, type PostChain, type SunFrame } from './post'
 import { buildSkyExtras } from './sky-extras'
 import { QUALITY, pickTier, probeCapabilities, type Capabilities, type Quality, type QualityTier } from './quality'
+import {
+  CUT_JUMP_M,
+  SKY_FRAG_ANCHOR,
+  SKY_MAIN_ANCHOR,
+  SUN_DISC_RADIANCE,
+  SUN_DISC_SOFT,
+  SUN_GLSL_PARS,
+  SUN_GLSL_SUN,
+  adaptEv,
+  adaptTau,
+  aureolePeak,
+  baseExposure,
+  discColour,
+  elevationWeight,
+  glareTargetEv,
+  sunFrameWeight,
+} from './sun-model'
+import type { CameraMode } from '~/composables/useRaceStore'
 
 export type ShadowMode = 'overview' | 'follow'
 /**
@@ -27,7 +45,10 @@ export interface SceneContext {
   caps: Capabilities
   depthMode: DepthMode
   post: PostChain | null
-  /** Render one frame (through the post chain on the high tier); `wind` (m/s) drifts the clouds. */
+  /**
+   * Render one frame (through the post chain on the high tier) after adapting the exposure to
+   * where the sun sits in the frame; `wind` (m/s) drifts the clouds.
+   */
   render: (dt: number, wind?: number) => void
   /** Resize the renderer and the post-processing targets (CSS pixels). */
   setSize: (w: number, h: number) => void
@@ -75,6 +96,11 @@ export function sunDirectionAt(hour: number): THREE.Vector3 {
   const east = Math.cos(el) * Math.sin(az)
   const north = Math.cos(el) * Math.cos(az)
   return new THREE.Vector3(east, Math.max(0.03, Math.sin(el)), -north).normalize()
+}
+
+/** 1 at midday, 0 near the horizon: drives the light colour, the disc colour and the glare strength. */
+function warmthOf(sun: THREE.Vector3): number {
+  return THREE.MathUtils.smoothstep(Math.asin(sun.y), 0.05, 0.5)
 }
 
 /**
@@ -156,7 +182,8 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   renderer.setPixelRatio(basePixelRatio)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.NeutralToneMapping
-  renderer.toneMappingExposure = 0.92
+  // re-derived every frame by render(): the time-of-day base level × the sun-facing adaptation
+  renderer.toneMappingExposure = baseExposure(1)
   renderer.shadowMap.enabled = true
   // the cascades are re-rendered only when something that shadows can see has changed (see render())
   renderer.shadowMap.autoUpdate = false
@@ -176,22 +203,45 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   // --- sun: computed from the time of day at Suzuka (34.84° N) on race day (early October) ------
   const sunDirection = sunDirectionAt(14)
   const sunColor = new THREE.Color(0xffedd4)
+  let warm = warmthOf(sunDirection)
 
   // --- sky + image-based lighting -----------------------------------------------------------
   const sky = new Sky()
   sky.scale.setScalar(15000)
   const u = sky.material.uniforms
-  u.turbidity!.value = 3.2
-  u.rayleigh!.value = 1.1
-  u.mieCoefficient!.value = 0.0028
-  u.mieDirectionalG!.value = 0.85
+  // Preetham preset: clear early-autumn air (turbidity 2.5), a slightly deeper blue (rayleigh
+  // 1.2) and a small, sharply forward-peaked Mie lobe (0.0007, g 0.955) so the circumsolar
+  // brightening falls off like a Buie θ⁻² aureole instead of a 15° plateau over the bloom threshold
+  u.turbidity!.value = 2.5
+  u.rayleigh!.value = 1.2
+  u.mieCoefficient!.value = 0.0007
+  u.mieDirectionalG!.value = 0.955
   u.sunPosition!.value.copy(sunDirection)
+  // r185's own disc (≈3×10⁵ linear, 0.53° across, past the half-float ceiling) and its
+  // procedural cloud patches are off; the fragment patch below draws a bounded sun instead
+  u.showSunDisc!.value = 0
+  u.cloudCoverage!.value = 0
+  u.cloudDensity!.value = 0
+  u.uDiscRadiance = { value: SUN_DISC_RADIANCE }
+  u.uDiscColor = { value: new THREE.Color(...discColour(warm)) }
+  u.uAureolePeak = { value: aureolePeak(warm) }
+  // the rim is wider on the low tier, which has neither MSAA nor SMAA to smooth a 0.6 px edge
+  u.uDiscSoft = { value: SUN_DISC_SOFT[tier] }
   // Sky pins its depth to the far plane with z = w, which is the NEAR plane once the depth
   // range is reversed (NDC z 1 → nearest); far is 0 there.
   sky.material.vertexShader = sky.material.vertexShader.replace(
     'gl_Position.z = gl_Position.w;',
     '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif',
   )
+  // Bounded sun (see ./sun-model.ts): the declarations and the knee go in front of main(), and the
+  // line that writes the sky becomes aureole → knee (≤ SKY_MAX 3.0 < bloom threshold) → disc.
+  // Both replacements are exact strings of r185's Sky.js; a three upgrade that moves them would
+  // silently bring the 3×10⁵ disc back, so a miss is an error (the e2e suite fails on console.error).
+  const skyFrag = sky.material.fragmentShader
+  const withPars = skyFrag.replace(SKY_MAIN_ANCHOR, () => `${SUN_GLSL_PARS}\n${SKY_MAIN_ANCHOR}`)
+  const withSun = withPars.replace(SKY_FRAG_ANCHOR, () => SUN_GLSL_SUN)
+  if (withPars === skyFrag || withSun === withPars) console.error('Sky.js shader changed: sun bound not applied')
+  sky.material.fragmentShader = withSun
   scene.add(sky)
   // Image-based lighting comes from a bounded analytic dome (the Sky shader's sun disk overflows
   // the half-float PMREM target, and the blur then spreads NaN across the whole map).
@@ -363,14 +413,17 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
     sunMoved = true
     scheduleEnvironment()
     // low sun: warmer, dimmer light, longer haze
-    const elevation = Math.asin(sunDirection.y)
-    const warm = THREE.MathUtils.smoothstep(elevation, 0.05, 0.5)
+    warm = warmthOf(sunDirection)
     sunColor.setHex(0xffa860).lerp(new THREE.Color(0xffedd4), warm)
     for (const light of csm.lights) {
       light.color.copy(sunColor)
       light.intensity = 2.9 * (0.5 + 0.5 * warm)
     }
-    renderer.toneMappingExposure = 0.92 * (0.82 + 0.18 * warm)
+    // the disc and its aureole warm up with the light (the disc is not extinguished: its colour is the sunset)
+    const [dr, dg, db] = discColour(warm)
+    ;(u.uDiscColor!.value as THREE.Color).setRGB(dr, dg, db)
+    u.uAureolePeak!.value = aureolePeak(warm)
+    // exposure: owned by render() (base level for `warm` × the sun-facing adaptation)
     if (post) post.grade.uniforms.uWarm!.value = warm
     ;(scene.fog as THREE.FogExp2).color.setHex(0xe0c8a8).lerp(new THREE.Color(0xc4d3e3), warm)
     ;(scene.fog as THREE.FogExp2).density = FOG_DENSITY * (1 + 0.5 * (1 - warm))
@@ -380,9 +433,57 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   }
 
   const post = q.post ? createPostChain(renderer, scene, camera, q, depthMode) : null
+
+  // --- exposure: a camera pointed at the sun stops down ------------------------------------------
+  // The adapted offset `ev` (stops) follows a target set by how much of the sun is in the frame
+  // (sunFrameWeight × the horizon fade), gated by the probe's visibility on the high tier (an
+  // occluded sun must not darken the picture); the low tier has no probe and assumes visible.
+  // Closing is fast and opening slow like an auto-exposure, the tv rig's iris is slower both
+  // ways, and a cut (camera jump over CUT_JUMP_M, or a mode change) arrives already exposed.
+  let ev = 0
+  let lastMode: CameraMode | null = null
+  const lastExposureCam = new THREE.Vector3(NaN, NaN, NaN)
+  const _sunNdc = new THREE.Vector3()
+  const sunFrame: SunFrame = { ndcX: 0, ndcY: 0, cosFwd: 0, elevation: 0, viewDir: new THREE.Vector3(), colour: new THREE.Color(), ev: 0 }
+  const adaptExposure = (dt: number) => {
+    // the camera was moved this frame but not yet re-derived by the renderer: refresh so the
+    // projection below describes THIS frame (post.render repeats the two lines for its reprojection)
+    camera.updateMatrixWorld()
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+    _sunNdc.copy(sunDirection).multiplyScalar(5000).add(camera.position).project(camera)
+    sunFrame.viewDir.copy(sunDirection).transformDirection(camera.matrixWorldInverse)
+    const cosFwd = -sunFrame.viewDir.z
+    const elevation = elevationWeight(sunDirection.y)
+    const weight = sunFrameWeight(_sunNdc.x, _sunNdc.y, cosFwd) * elevation
+    const vis = post ? post.sunVisibility(dt) : 1
+    const target = glareTargetEv(weight, vis, warm)
+    const mode = post ? post.mode : null
+    // NaN on the first frame counts as a jump: no ramp from 0 on frame one either
+    const jumped = !(camera.position.distanceToSquared(lastExposureCam) <= CUT_JUMP_M * CUT_JUMP_M)
+    if (jumped || mode !== lastMode) {
+      ev = target
+    } else {
+      const tau = adaptTau(mode)
+      ev = adaptEv(ev, target, dt, tau.darken, tau.brighten)
+    }
+    lastExposureCam.copy(camera.position)
+    lastMode = mode
+    renderer.toneMappingExposure = baseExposure(warm) * 2 ** ev
+    if (post) {
+      sunFrame.ndcX = _sunNdc.x
+      sunFrame.ndcY = _sunNdc.y
+      sunFrame.cosFwd = cosFwd
+      sunFrame.elevation = elevation
+      sunFrame.colour.copy(u.uDiscColor!.value as THREE.Color)
+      sunFrame.ev = ev
+      post.setSun(sunFrame)
+    }
+  }
+
   const render = (dt: number, wind = 2) => {
     renderer.info.reset()
-    extras.update(dt, sunDirection, camera, wind)
+    extras.update(dt, sunDirection, wind)
+    adaptExposure(dt)
     renderer.shadowMap.needsUpdate = shadowDirty
     shadowDirty = false
     sunMoved = false

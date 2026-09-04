@@ -14,7 +14,16 @@
 
 export type EmissiveTier = 'high' | 'low'
 
-/** UnrealBloomPass luminance threshold (post.ts). */
+/**
+ * UnrealBloomPass luminance threshold (post.ts).
+ *
+ * Ordering contract with the sun (app/three/sun-model.ts, asserted by scripts/sun-model-check.mjs):
+ *
+ *   kneed sky ≤ SKY_MAX 3.0 < BLOOM_THRESHOLD 4.5 < emitters ≤ ~17 < SUN_PROBE_MIN 30 < sun disc 41–58
+ *
+ * The sky never blooms, every emitter sized below still does, and only the disc trips the
+ * sun-visibility probe — so nothing here may reach 30, and the disc may not drop below it.
+ */
 export const BLOOM_THRESHOLD = 4.5
 
 /**

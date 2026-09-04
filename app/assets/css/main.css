@@ -103,3 +103,43 @@ body,
 @media (max-width: 1600px) {
   .hint { display: none; }
 }
+
+/* --- broadcast (world-feed) package tokens: 2025-26 styling, authored on a 1920x1080 canvas --- */
+:root {
+  --bc-font-varsity: 'Graduate', 'Titillium Web', sans-serif;
+  --bc-red: #e10600;
+  --bc-purple: #b96bff;
+  --bc-purple-ink: #6e2fd0;
+  --bc-gain: #10ff35;
+  --bc-loss: #e40030;
+  --bc-drs: #23d18b;
+  --bc-drs-ink: #04331c;
+  --bc-yellow: #f8d500;
+  --bc-tyre-S: #e93324;
+  --bc-tyre-M: #fed100;
+  --bc-tyre-H: #f4f4f4;
+  --bc-panel: rgba(8, 8, 14, 0.9);
+  --bc-panel-2: #1c1c25;
+  --bc-chip: #f4f3ee;
+  --bc-ink: #f2f2f2;
+  --bc-mute: #9a9aa6;
+  --bc-mute-2: #d1d1d1;
+  --ease-std: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+}
+
+/* the layer itself: children carry their own timelines, the root only fades */
+.bc-layer-enter-active { transition: opacity 0.25s linear; }
+.bc-layer-leave-active { transition: opacity 0.3s ease-in; }
+.bc-layer-enter-from, .bc-layer-leave-to { opacity: 0; }
+
+/* reduced motion: every broadcast timeline collapses to its end state; the state machines stay exact */
+@media (prefers-reduced-motion: reduce) {
+  .hud.broadcast .bc *, .hud.broadcast .bc *::before, .hud.broadcast .bc *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+}

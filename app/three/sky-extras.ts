@@ -1,22 +1,20 @@
 import * as THREE from 'three'
-import { cloudTexture, flareTexture, treeLineTexture } from './textures'
+import { cloudTexture, treeLineTexture } from './textures'
 import type { Quality } from './quality'
 
 /**
- * Backdrop extras: a slowly drifting, sun-lit cloud layer, a sun flare drawn in screen space,
- * and a distant tree-line ring that hides the edge of the terrain.
+ * Backdrop extras: a slowly drifting, sun-lit cloud layer and a distant tree-line ring that
+ * hides the edge of the terrain. The sun itself (disc, aureole) is drawn by the Sky shader
+ * patch and the lens flare by the grade pass — see ./sun-model.ts.
  */
 
 export interface SkyExtras {
   group: THREE.Group
-  /** call every frame with the current sun direction (unit), camera and wind speed (m/s) */
-  update: (dt: number, sun: THREE.Vector3, camera: THREE.PerspectiveCamera, wind?: number) => void
+  /** call every frame with the current sun direction (unit) and wind speed (m/s) */
+  update: (dt: number, sun: THREE.Vector3, wind?: number) => void
   /** sun colour and warmth (1 = midday, 0 = sunset) for the cloud shading; from setTimeOfDay */
   setSun: (color: THREE.Color, warm: number) => void
 }
-
-const _ndc = new THREE.Vector3()
-const _dir = new THREE.Vector3()
 
 // The cloud dome is a hand-written material so it can be lit: bases darken away from the sun,
 // the sun side warms up at low sun, and the layer drifts with the wind. The logdepthbuf chunks
@@ -104,63 +102,15 @@ export function buildSkyExtras(centre: THREE.Vector3, quality?: Quality): SkyExt
     group.add(ring)
   }
 
-  // --- sun flare: a bright core sprite at the sun plus two ghosts along the line to the centre
-  const flares: THREE.Sprite[] = []
-  let core: THREE.Sprite | null = null, ghost1: THREE.Sprite | null = null, ghost2: THREE.Sprite | null = null
-  if (!quality || quality.flare) {
-    const flareTex = flareTexture()
-    const mk = (size: number, color: number, opacity: number) => {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareTex, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, fog: false, toneMapped: false }))
-      s.scale.setScalar(size)
-      s.renderOrder = 100
-      return s
-    }
-    core = mk(0.9, 0xfff2d0, 0.75)
-    ghost1 = mk(0.35, 0xffc890, 0.22)
-    ghost2 = mk(0.6, 0x90c8ff, 0.12)
-    flares.push(core, ghost1, ghost2)
-    for (const f of flares) group.add(f)
-  }
-
   const setSun = (color: THREE.Color, warm: number) => {
     cloudUniforms.uSunColor.value.copy(color)
     cloudUniforms.uWarm.value = warm
   }
 
-  const update = (dt: number, sun: THREE.Vector3, camera: THREE.PerspectiveCamera, wind = 2) => {
-    if (clouds) {
-      cloudUniforms.uTime.value += dt * Math.max(0.2, wind)
-      cloudUniforms.uSun.value.copy(sun)
-    }
-    if (!core || !ghost1 || !ghost2) return
-    // sun in normalised device coordinates
-    _ndc.copy(sun).multiplyScalar(5000).add(camera.position).project(camera)
-    const behind = _ndc.z > 1 || sun.dot(_dir.set(0, 0, -1).applyQuaternion(camera.quaternion)) < 0
-    const inFrame = !behind && Math.abs(_ndc.x) < 1.35 && Math.abs(_ndc.y) < 1.35
-    if (!inFrame) {
-      for (const f of flares) f.visible = false
-      return
-    }
-    // fade as the sun leaves the frame
-    const edge = Math.max(Math.abs(_ndc.x), Math.abs(_ndc.y))
-    const fade = 1 - THREE.MathUtils.smoothstep(edge, 0.9, 1.35)
-    // the sprites sit just beyond the near plane (the overview uses an 8 m near plane)
-    const dist = Math.max(2, camera.near * 2.5)
-    const place = (s: THREE.Sprite, t: number, base: number, size: number) => {
-      // t = 0 at the sun, 1 at the screen centre, >1 beyond
-      const nx = _ndc.x * (1 - t)
-      const ny = _ndc.y * (1 - t)
-      _dir.set(nx, ny, 0.5).unproject(camera).sub(camera.position).normalize()
-      s.position.copy(camera.position).addScaledVector(_dir, dist)
-      ;(s.material as THREE.SpriteMaterial).opacity = base * fade
-      s.scale.setScalar(size)
-      s.visible = true
-    }
-    // scale the sprites to a fraction of the view height at that distance
-    const k = dist * Math.tan((camera.fov * Math.PI) / 360)
-    place(core, 0, 0.75, 0.55 * k)
-    place(ghost1, 0.45, 0.22, 0.18 * k)
-    place(ghost2, 1.25, 0.12, 0.32 * k)
+  const update = (dt: number, sun: THREE.Vector3, wind = 2) => {
+    if (!clouds) return
+    cloudUniforms.uTime.value += dt * Math.max(0.2, wind)
+    cloudUniforms.uSun.value.copy(sun)
   }
 
   return { group, update, setSun }

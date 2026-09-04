@@ -1059,23 +1059,6 @@ export function cloudTexture(): THREE.Texture {
   })
 }
 
-/** Radial flare sprite. */
-export function flareTexture(): THREE.Texture {
-  return cached('flare', () => {
-    const w = 128, h = 128
-    const { c, ctx } = canvas(w, h)
-    ctx.clearRect(0, 0, w, h)
-    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2)
-    g.addColorStop(0, 'rgba(255,255,255,1)')
-    g.addColorStop(0.2, 'rgba(255,255,255,0.55)')
-    g.addColorStop(0.5, 'rgba(255,255,255,0.12)')
-    g.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = g
-    ctx.fillRect(0, 0, w, h)
-    return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
-  })
-}
-
 /** Silhouette of a wooded ridge line (opaque below, ragged canopy on top), tiles along u. */
 export function treeLineTexture(): THREE.Texture {
   return cached('treeline', () => {

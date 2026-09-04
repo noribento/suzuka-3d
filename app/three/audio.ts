@@ -29,6 +29,29 @@ const TAU = Math.PI * 2
 const NODE_BUDGET = { low: 150, high: 300 } as const
 /** Own-car test for the onboard timbre: the T-cam sits 1.36 m from the car root (cameras.ts), refDistance is 9 m. */
 const OWN_CAR_DIST = 4
+/**
+ * Start-light cue in the F1-game convention: one identical, short electronic "bip" as each red
+ * lamp comes on — a 1.5 kHz fundamental with weak 2nd/3rd partials (−14 / −24 dB), a click-like
+ * 1.5 ms onset, ~100 ms long, dry, no pitch motion. Lights out itself is silent (the real gantry
+ * makes no sound at all; only the crowd reacts, see cue('lightsOut')). Times are seconds after
+ * the scheduled onset; `peak` is the amplitude on the sfx bus (×0.8 to the listener), chosen to
+ * sit ~6–10 dB above the idling grid drone and only ~1.6 dB into the bus compressor's knee.
+ */
+export const LAMP_BEEP = {
+  f0: 1500,
+  /** relative amplitudes of the 1st/2nd/3rd partials (PeriodicWave, normalised to a peak of 1) */
+  partials: [1, 0.2, 0.06],
+  peak: 0.3,
+  /** scheduled one render quantum ahead so the attack is rendered from 0, never as a jump */
+  lookahead: 0.004,
+  attack: 0.0015,
+  hold: 0.035,
+  /** −60 dB point of the exponential decay */
+  decayTo: 0.105,
+  /** linear ramp to exactly 0 (an exponential ramp cannot reach it) */
+  end: 0.115,
+  stop: 0.13,
+} as const
 
 export interface RaceAudioOptions {
   /** high: 10 HRTF voices with every optional layer; low (SwiftShader / e2e): 6 equalpower voices */
@@ -189,6 +212,35 @@ function softClipCurve(k = 3, bias = 0): Float32Array<ArrayBuffer> {
     c[i] = Math.tanh(k * (x + bias)) / Math.tanh(k)
   }
   return c
+}
+
+/** The lamp beep's waveform: sine plus weak 2nd/3rd partials (default normalisation → summed peak = 1). */
+function makeBeepWave(ctx: BaseAudioContext): PeriodicWave {
+  const p = LAMP_BEEP.partials
+  return ctx.createPeriodicWave(new Float32Array([0, 0, 0, 0]), new Float32Array([0, p[0], p[1], p[2]]))
+}
+
+/**
+ * Schedule one lamp beep at `t0` on the audio clock: click-like attack, short plateau, exponential
+ * tail to −60 dB, then a linear ramp to exactly 0 so stop() never leaves a step. Shared by the live
+ * sfx bus and the offline probe (renderBeep) so the two cannot drift apart.
+ */
+function scheduleBeep(ctx: BaseAudioContext, wave: PeriodicWave, out: AudioNode, t0: number): { osc: OscillatorNode; gain: GainNode } {
+  const b = LAMP_BEEP
+  const osc = ctx.createOscillator()
+  osc.setPeriodicWave(wave)
+  osc.frequency.value = b.f0
+  const gain = ctx.createGain()
+  const g = gain.gain
+  g.setValueAtTime(0, t0)
+  g.linearRampToValueAtTime(b.peak, t0 + b.attack)
+  g.setValueAtTime(b.peak, t0 + b.hold)
+  g.exponentialRampToValueAtTime(b.peak * 1e-3, t0 + b.decayTo)
+  g.linearRampToValueAtTime(0, t0 + b.end)
+  osc.connect(gain).connect(out)
+  osc.start(t0)
+  osc.stop(t0 + b.stop)
+  return { osc, gain }
 }
 
 interface EngineShared {
@@ -520,6 +572,18 @@ export class RaceAudio {
     return buf.getChannelData(0)
   }
 
+  /**
+   * Render one lamp beep offline (no sfx gain, no compressor) for the audio e2e spec: onset at
+   * 20 ms, 48 kHz mono, 250 ms long so the silence after the tail can be checked too.
+   */
+  static async renderBeep(): Promise<Float32Array> {
+    const sr = 48000
+    const ctx = new OfflineAudioContext(1, Math.floor(sr * 0.25), sr)
+    scheduleBeep(ctx, makeBeepWave(ctx), ctx.destination, 0.02)
+    const buf = await ctx.startRendering()
+    return buf.getChannelData(0)
+  }
+
   readonly listener: THREE.AudioListener
   private readonly ctx: AudioContext
   private readonly voices: Voice[] = []
@@ -531,13 +595,15 @@ export class RaceAudio {
   private swellTarget = 0
   /** seconds (frame dt) the swell target is held before it decays */
   private swellHold = 0
-  /** one-shot cues still sounding (countdown tones), stopped by cancelCues() */
+  /** one-shot cues still sounding (start-light beeps), stopped by cancelCues() */
   private live: { osc: OscillatorNode; gain: GainNode }[] = []
+  /** the lamp beep's waveform, built once per context */
+  private readonly beepWave: PeriodicWave
   private readonly tier: QualityTier
   private readonly maxVoices: number
   /** bus compressor on the listener output (three's mute gain sits upstream of it) */
   readonly comp: DynamicsCompressorNode
-  /** non-positional one-shot bus (countdown tones), through the listener gain so ♪ mutes it */
+  /** non-positional one-shot bus (start-light beeps), through the listener gain so ♪ mutes it */
   private readonly sfx: GainNode
   private nodeCount = 0
   private muted = false
@@ -581,6 +647,7 @@ export class RaceAudio {
     this.sfx = this.mk(ctx.createGain())
     this.sfx.gain.value = 0.8
     this.sfx.connect(this.listener.getInput())
+    this.beepWave = makeBeepWave(ctx)
     // shared engine resources; the bank-beat LFO (1.7 Hz, ±9 cents) is one pair of nodes for all voices
     let lfo: AudioNode | null = null
     if (this.tier === 'high') {
@@ -706,33 +773,21 @@ export class RaceAudio {
   }
 
   /**
-   * One-shot start-sequence tone on the SFX bus: a short 880 Hz beep per lamp, a two-note
-   * (D6 + A6) half-second tone at lights out. Rides the listener gain, so ♪ mutes it.
+   * Start-light beep on the SFX bus — the F1-game convention: one short, clean 1.5 kHz bip as each
+   * red lamp comes on, all five identical, nothing at lights out (the crowd swell is cued separately
+   * by the viewport). Rides the listener gain, so ♪ mutes it; registered in `live` so cancelCues()
+   * (mute, pause, restart, unmount) can stop it mid-beep.
    */
-  startTone(kind: 'light' | 'go') {
-    if (kind === 'go') this.cue('lightsOut') // the crowd reacts to the same instant
+  lampBeep() {
+    // a beep for a lamp lit while muted / before the gesture must not fire on unmute
     if (this.muted || this.ctx.state !== 'running') return
-    const t0 = this.ctx.currentTime
-    const notes = kind === 'light' ? [[880, 0.11, 0.22]] : [[1174.7, 0.5, 0.28], [1760, 0.5, 0.28]]
-    for (const [freq, dur, peak] of notes) {
-      const osc = this.ctx.createOscillator()
-      osc.type = 'sine'
-      osc.frequency.value = freq!
-      const gain = this.ctx.createGain()
-      gain.gain.setValueAtTime(0, t0)
-      gain.gain.linearRampToValueAtTime(peak!, t0 + 0.005)
-      gain.gain.exponentialRampToValueAtTime(1e-4, t0 + dur!)
-      osc.connect(gain).connect(this.sfx)
-      osc.start(t0)
-      osc.stop(t0 + dur! + 0.02)
-      const entry = { osc, gain }
-      this.live.push(entry)
-      osc.onended = () => {
-        const i = this.live.indexOf(entry)
-        if (i >= 0) this.live.splice(i, 1)
-        osc.disconnect()
-        gain.disconnect()
-      }
+    const entry = scheduleBeep(this.ctx, this.beepWave, this.sfx, this.ctx.currentTime + LAMP_BEEP.lookahead)
+    this.live.push(entry)
+    entry.osc.onended = () => {
+      const i = this.live.indexOf(entry)
+      if (i >= 0) this.live.splice(i, 1)
+      entry.osc.disconnect()
+      entry.gain.disconnect()
     }
   }
 

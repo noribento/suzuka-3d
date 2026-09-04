@@ -54,6 +54,7 @@ export interface Quality {
   anisotropy: number
   fence: boolean
   clouds: boolean
+  /** lens flare (horizontal streak + ghosts) drawn by the grade pass around a visible sun — needs `post`; the veil is always on there */
   flare: boolean
   ring: boolean
   /** HDR post chain (bloom, grade) */

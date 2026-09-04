@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getTrack, type Pose } from '~/sim/track'
-import { RaceSim, formatLapTime, gearFor, type RaceStatus } from '~/sim/race'
+import { RaceSim, formatGapTv, formatLapTime, gearFor, type RaceStatus } from '~/sim/race'
 import { DRIVERS, TEAMS } from '~/data/drivers'
 import { CIRCUIT } from '~/data/suzuka'
 import { toMap } from '~/sim/projection'
@@ -21,7 +21,7 @@ import { EMISSIVE, emissiveScale, setEmissiveTier } from '~/three/emissive'
 import { DISC_FRONT, DISC_REAR, GRID_DISC_C, LOCK_SPIKE_C, stepDiscTemp } from '~/sim/brake-thermal'
 import { useRaceStore, type CameraMode, type HudDriver } from '~/composables/useRaceStore'
 
-const { store, pushEvent, select, setCamera, selectByPosition } = useRaceStore()
+const { store, broadcast, pushEvent, pushFeed, wake, select, setCamera, selectByPosition, resetBroadcast } = useRaceStore()
 const container = ref<HTMLDivElement>()
 const canvas = ref<HTMLCanvasElement>()
 const labelLayer = ref<HTMLDivElement>()
@@ -51,7 +51,7 @@ let pointerDown: { x: number; y: number } | null = null
 let framesRendered = 0
 /** real-time clock for effects (rain-light flash, …): advances while not paused, reset on restart */
 let fxClock = 0
-/** last start-lamp state written to the gantry materials; the same transition fires the countdown tones */
+/** last start-lamp state written to the gantry materials; the same transition fires the start-light beeps */
 let prevLights = 0
 let prevStatus: RaceStatus | '' = ''
 let audioFailed = false
@@ -134,8 +134,23 @@ function makeHudDrivers(): HudDriver[] {
     steer: 0,
     brakeTempF: 0,
     brakeTempR: 0,
+    tvGap: '',
+    tvInterval: '',
+    miniSector: -1,
+    aheadIdx: -1,
+    posFlash: null,
+    pitOutUntil: 0,
   }))
 }
+
+/**
+ * Position changes for the broadcast tower are committed only once the new position has held
+ * for POS_SETTLE_MS: the 30 Hz sort flips cars running side by side several times a second,
+ * while the real tower reorders at timing loops.
+ */
+const POS_SETTLE_MS = 400
+const posPending: { committed: number; pos: number; since: number }[] = []
+let flashKey = 0
 
 function initRace() {
   race = new RaceSim(track, (Date.now() % 100000) + 17, CIRCUIT.laps)
@@ -158,6 +173,10 @@ function initRace() {
   prevStatus = ''
   motion.length = 0
   trapArmed.fill(1)
+  posPending.length = 0
+  resetBroadcast()
+  director.hint = null
+  director.follow = -1
   race.cars.forEach((car, i) => {
     const m = models[i]
     if (m) {
@@ -585,7 +604,7 @@ function loop() {
   smoke?.update(simDt, wind * 0.9, -wind * 0.5)
 
   // start lights on the gantry (HDR emissive so they bloom on the high tier): the materials are
-  // rewritten only when a lamp changes, and the same transition fires the countdown tones
+  // rewritten only when a lamp changes, and the same transition fires the start-light beep
   const lights = race.status === 'lights' ? race.lights : 0
   if (lights !== prevLights || race.status !== prevStatus) {
     trackMeshes.startLampMaterials.forEach((mat, i) => {
@@ -594,9 +613,9 @@ function loop() {
       mat.emissiveIntensity = on ? EMISSIVE.startLamp.on * emissiveScale() : 0
       mat.color.setHex(on ? EMISSIVE.startLamp.bodyOn : EMISSIVE.startLamp.bodyOff)
     })
-    // one tone per lamp (a long frame that skips a lamp still gets one), a longer one at lights out
-    if (lights > prevLights) audio?.startTone('light')
-    if (prevStatus === 'lights' && race.status === 'racing') audio?.startTone('go')
+    // one identical beep per lamp (the F1-game cue); lights out itself is silent — only the crowd reacts
+    if (lights > prevLights) audio?.lampBeep()
+    if (prevStatus === 'lights' && race.status === 'racing') audio?.cue('lightsOut')
     prevLights = lights
     prevStatus = race.status
   }
@@ -623,6 +642,7 @@ function loop() {
   }
   rig.update(dt, target, store.paused ? 1 : store.simSpeed)
   store.tvCamName = rig.mode === 'tv' ? rig.tvCamName : ''
+  if (store.shot !== rig.mode) store.shot = rig.mode
   const dOverview = rig.mode === 'overview' || !target ? rig.camera.position.distanceTo(rig.controls.target) : 0
   if (rig.mode === 'overview' || !target) ctx.updateShadows('overview', dOverview)
   else ctx.updateShadows('follow', rig.camera.position.distanceTo(target.position))
@@ -635,8 +655,9 @@ function loop() {
     ctx.post.setBlur(target && !store.paused && ctx.quality.motionBlur ? THREE.MathUtils.clamp(target.speed / 90, 0, 1) * blurGain : 0)
   }
 
-  // labels: when zoomed far out in the overview only tag the leaders + the selected car
-  const showLabels = store.labels && rig.mode !== 'onboard'
+  // labels: when zoomed far out in the overview only tag the leaders + the selected car;
+  // the world feed only tags cars on helicopter shots (its AR tags)
+  const showLabels = store.labels && (broadcast.value ? rig.mode === 'heli' : rig.mode !== 'onboard')
   const farOut = rig.mode === 'overview' && dOverview > 1000
   // CSS2D's own behind-the-camera test reads NDC z, which a reversed-Z projection folds back
   // into range for points behind the lens — cull those here with the view direction instead
@@ -731,20 +752,45 @@ function syncHud(full: boolean) {
   const orderChanged = order.some((c, i) => store.order[i] !== c.idx)
   if (orderChanged || full) store.order = order.map((c) => c.idx)
   const leader = order[0]!
+  const nowMs = performance.now()
   for (const car of race.cars) {
     const d = store.drivers[car.idx]!
     const m = models[car.idx]!
     d.position = car.position
+    d.positionDelta = d.gridPosition - car.position
+    // broadcast chip flash: commit a position change once it has settled (see POS_SETTLE_MS)
+    const pp = (posPending[car.idx] ??= { committed: car.position, pos: car.position, since: nowMs })
+    if (full || race.status !== 'racing' || race.time <= 12) {
+      pp.committed = pp.pos = car.position
+    } else if (car.position !== pp.committed) {
+      if (pp.pos !== car.position) {
+        pp.pos = car.position
+        pp.since = nowMs
+      } else if (nowMs - pp.since >= POS_SETTLE_MS) {
+        d.posFlash = { dir: car.position < pp.committed ? 1 : -1, key: ++flashKey }
+        pp.committed = car.position
+      }
+    } else {
+      pp.pos = car.position
+    }
     d.lapsCompleted = Math.max(0, car.lapsCompleted)
     const inPit = car.pitState !== 'none'
     d.inPit = inPit
     d.pitState = car.pitState
     d.pitStops = car.pitStops
+    // broadcast gaps step per 200 m mini-sector (and whenever the pit / lapped / car-ahead state changes)
+    const mini = inPit ? -2 : car.finished ? -3 : Math.floor(car.s / 200)
+    const aheadIdx = car.position > 1 ? order[car.position - 2]!.idx : -1
+    const stepTv = full || mini !== d.miniSector || aheadIdx !== d.aheadIdx
     if (car.position === 1) {
       d.gapText = ''
       d.intervalText = ''
       d.gapSec = 0
       d.intervalSec = 0
+      if (stepTv) {
+        d.tvGap = inPit ? 'PIT' : ''
+        d.tvInterval = d.tvGap
+      }
     } else {
       const down = race.lapsDown(car)
       const g = race.gap(car, leader)
@@ -755,6 +801,14 @@ function syncHud(full: boolean) {
       d.intervalSec = iv
       const downAhead = Math.floor((ahead.totalDist - car.totalDist) / track.length)
       d.intervalText = inPit ? 'IN PIT' : downAhead > 0 ? `+${downAhead} LAP${downAhead > 1 ? 'S' : ''}` : `+${iv.toFixed(3)}`
+      if (stepTv) {
+        d.tvGap = inPit ? 'PIT' : down > 0 ? `+${down} LAP${down > 1 ? 'S' : ''}` : formatGapTv(g)
+        d.tvInterval = inPit ? 'PIT' : downAhead > 0 ? `+${downAhead} LAP${downAhead > 1 ? 'S' : ''}` : formatGapTv(iv)
+      }
+    }
+    if (stepTv) {
+      d.miniSector = mini
+      d.aheadIdx = aheadIdx
     }
     d.lastLap = car.lastLap
     d.bestLap = car.bestLap
@@ -775,7 +829,10 @@ function syncHud(full: boolean) {
       if (kmh > d.trapKmh) d.trapKmh = kmh
       if (!store.speedTrap || kmh > store.speedTrap.kmh) {
         store.speedTrap = { driver: car.idx, kmh }
-        if (race.leaderLapsCompleted >= 1) pushEvent({ kind: 'info', title: 'SPEED TRAP', text: `${DRIVERS[car.idx]!.code}  ${kmh} KM/H`, color: TEAMS[DRIVERS[car.idx]!.team].tv, ttl: 4000 })
+        if (race.leaderLapsCompleted >= 1) {
+          pushEvent({ kind: 'info', title: 'SPEED TRAP', text: `${DRIVERS[car.idx]!.code}  ${kmh} KM/H`, color: TEAMS[DRIVERS[car.idx]!.team].tv, ttl: 4000 })
+          pushFeed({ type: 'speedTrap', car: car.idx, kmh, t: race.time })
+        }
       }
     } else if (car.s < 1000) {
       trapArmed[car.idx] = 1
@@ -830,6 +887,8 @@ function syncHud(full: boolean) {
     const code = (i: number) => DRIVERS[i]?.code ?? ''
     const full = (i: number) => `${DRIVERS[i]?.firstName ?? ''} ${DRIVERS[i]?.lastName ?? ''}`.toUpperCase()
     const color = (i: number) => TEAMS[DRIVERS[i]!.team].tv
+    // every race event also reaches the broadcast graphics director (it decides what goes on air)
+    pushFeed(e)
     switch (e.type) {
       case 'lightsOut':
         pushEvent({ kind: 'info', title: 'LIGHTS OUT', text: "AND AWAY WE GO — JAPANESE GRAND PRIX", color: '#e10600', ttl: 5000 })
@@ -855,6 +914,17 @@ function syncHud(full: boolean) {
         break
       case 'drsEnabled':
         pushEvent({ kind: 'drs', title: 'DRS ENABLED', text: 'Overtaking aid available on the main straight', color: '#00c853', ttl: 5000 })
+        break
+      case 'pitIn':
+        // the world feed follows a front-runner into the pits when nothing else is happening
+        if (e.position <= 12 && !store.battle && director.follow < 0 && !director.hint) director.hint = { car: e.car, shot: 'tv', hold: 25000, follow: true }
+        break
+      case 'pitOut':
+        store.drivers[e.car]!.pitOutUntil = performance.now() + 3000
+        break
+      case 'newLeader':
+        director.lastEventCar = e.car
+        if (director.follow < 0) director.hint = { car: e.car, shot: 'tv', hold: 8000, follow: false }
         break
       case 'chequered':
         if (race.cars[e.car]!.position === 1) {
@@ -892,6 +962,7 @@ function onPointerUp(e: PointerEvent) {
 }
 
 function onKey(e: KeyboardEvent) {
+  wake()
   if ((e.target as HTMLElement)?.tagName === 'INPUT') return
   switch (e.key) {
     case '1': setCamera('overview'); break
@@ -920,11 +991,49 @@ watch(() => store.timeOfDay, (h) => ctx?.setTimeOfDay(h))
  * following whatever is happening — the closest battle, the car that just set a fastest
  * lap, pitted or overtook — and otherwise the leaders.
  */
-const director = { until: 0, lastEventCar: -1 }
-function runDirector(nowMs: number) {
-  if (!rig || !race || nowMs < director.until) return
-  const hold = 6000 + Math.random() * 6000
+const director: {
+  until: number
+  lastCut: number
+  lastEventCar: number
+  /** a story the feed should cut to next (pit entry of a front-runner, a new leader) */
+  hint: { car: number; shot: CameraMode; hold: number; follow: boolean } | null
+  /** car being followed through its pit stop (-1 = none) and the follow's deadline */
+  follow: number
+  followUntil: number
+} = { until: 0, lastCut: 0, lastEventCar: -1, hint: null, follow: -1, followUntil: 0 }
+function directorCut(nowMs: number, driver: number, sub: CameraMode, hold: number) {
   director.until = nowMs + hold
+  director.lastCut = nowMs
+  select(driver, 'director')
+  rig?.setMode(sub)
+}
+function runDirector(nowMs: number) {
+  if (!rig || !race) return
+  // a hinted story wins as soon as the current shot has had a moment on air
+  if (director.hint && nowMs - director.lastCut >= 2500) {
+    const h = director.hint
+    director.hint = null
+    if (h.follow) {
+      director.follow = h.car
+      director.followUntil = nowMs + h.hold
+    }
+    directorCut(nowMs, h.car, h.shot, h.hold)
+    return
+  }
+  // following a pit stop: trackside on the way in, a static close-up while stationary, trackside out
+  if (director.follow >= 0) {
+    const car = race.cars[director.follow]!
+    if (car.pitState === 'none' || nowMs > director.followUntil) {
+      director.follow = -1
+      director.until = Math.min(director.until, nowMs + 2500)
+    } else {
+      const want: CameraMode = car.pitState === 'box' ? 'chase' : 'tv'
+      if (rig.mode !== want) rig.setMode(want)
+      return
+    }
+  }
+  if (nowMs < director.until) return
+  const hold = 6000 + Math.random() * 6000
   let driver = -1
   const r = Math.random()
   if (store.battle && r < 0.6) driver = store.battle.behind
@@ -933,8 +1042,7 @@ function runDirector(nowMs: number) {
   director.lastEventCar = -1
   const pick = Math.random()
   const sub: CameraMode = pick < 0.5 ? 'tv' : pick < 0.75 ? 'onboard' : pick < 0.9 ? 'chase' : 'heli'
-  store.selected = driver
-  rig.setMode(sub)
+  directorCut(nowMs, driver, sub, hold)
 }
 watch(() => store.audio, (on) => {
   audio?.setMuted(!on)
@@ -959,9 +1067,14 @@ function startAudio() {
   }
 }
 function onFirstGesture() {
+  wake()
   store.interacted = true
   startAudio()
   audio?.resume()
+}
+/** Broadcast mode hides the control bar; a moving pointer brings it back (at most 2 writes/s). */
+function onPointerMove() {
+  if (performance.now() > store.uiUntil - 2500) wake()
 }
 watch(() => store.restartToken, () => {
   if (!race) return
@@ -981,6 +1094,8 @@ function onVisibility() {
     if (hidden) return
     hidden = true
     cancelAnimationFrame(raf)
+    // a beep in flight would freeze with the clock and finish on resume: drop it first
+    audio?.cancelCues()
     audio?.suspend()
   } else if (hidden) {
     hidden = false
@@ -999,6 +1114,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('pointerdown', onFirstGesture)
   window.addEventListener('keydown', onFirstGesture)
+  window.addEventListener('pointermove', onPointerMove, { passive: true })
   document.addEventListener('visibilitychange', onVisibility)
   // let the loading screen paint before the (synchronous) scene build
   setTimeout(setup, 30)
@@ -1012,6 +1128,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('pointerdown', onFirstGesture)
   window.removeEventListener('keydown', onFirstGesture)
+  window.removeEventListener('pointermove', onPointerMove)
   resizeObserver?.disconnect()
   rig?.dispose()
   sparks?.dispose()

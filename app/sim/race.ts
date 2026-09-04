@@ -50,12 +50,24 @@ export interface CarSim {
   brake: number
   inDirtyAir: boolean
   gapAheadSec: number
+  /** race time and position when the car turned into the pit entry (broadcast pit graphics) */
+  pitEntryTime: number
+  pitEntryPos: number
+  /** stationary time drawn for the current / last stop (s) */
+  pitStationary: number
 }
 
 export type RaceEvent =
   | { type: 'fastestLap'; car: number; time: number; t: number }
   | { type: 'overtake'; car: number; passed: number; position: number; t: number }
-  | { type: 'pit'; car: number; compound: Compound; t: number }
+  /** turned into the pit entry */
+  | { type: 'pitIn'; car: number; position: number; t: number }
+  /** left the box: new compound fitted, `from` was the old one, `stationary` the box time */
+  | { type: 'pit'; car: number; compound: Compound; from: Compound; stationary: number; entryPosition: number; t: number }
+  /** rejoined the track at the end of the pit lane; `total` = pit entry to exit (s) */
+  | { type: 'pitOut'; car: number; position: number; entryPosition: number; total: number; t: number }
+  /** the car in P1 changed (after the launch settles; pit-cycle leader changes included) */
+  | { type: 'newLeader'; car: number; previous: number; t: number }
   | { type: 'drsEnabled'; t: number }
   | { type: 'lightsOut'; t: number }
   | { type: 'chequered'; car: number; t: number }
@@ -297,6 +309,9 @@ export class RaceSim {
         brake: 0,
         inDirtyAir: false,
         gapAheadSec: Infinity,
+        pitEntryTime: 0,
+        pitEntryPos: 0,
+        pitStationary: 0,
       })
     })
   }
@@ -486,6 +501,10 @@ export class RaceSim {
     this.order.forEach((c, i) => (c.position = i + 1))
     if (!emitEvents) return
     if (this.status === 'racing' && this.time > 12) {
+      // a new race leader (the launch shuffle before 12 s is not announced, like the overtakes)
+      const lead = this.order[0]!
+      const prevLead = this.lastOrderIdx[0]
+      if (prevLead !== undefined && prevLead !== lead.idx) this.events.push({ type: 'newLeader', car: lead.idx, previous: prevLead, t: this.time })
       const prevPos = new Map<number, number>()
       this.lastOrderIdx.forEach((idx, i) => prevPos.set(idx, i + 1))
       for (const c of this.order) {
@@ -581,6 +600,9 @@ export class RaceSim {
         car.pitState = 'entering'
         car.passTarget = -1
         car.passSide = 0
+        car.pitEntryTime = this.time
+        car.pitEntryPos = car.position
+        this.events.push({ type: 'pitIn', car: car.idx, position: car.position, t: this.time })
       }
     }
     if (car.pitState !== 'none') {
@@ -602,6 +624,7 @@ export class RaceSim {
           if (toBox < 0.6 && car.v < 0.8) {
             car.pitState = 'box'
             car.pitTimer = 2.1 + this.rng.next() * 1.2
+            car.pitStationary = car.pitTimer
             car.v = 0
           }
         }
@@ -613,11 +636,12 @@ export class RaceSim {
         car.brake = 1
         if (car.pitTimer <= 0) {
           car.pitState = 'exiting'
+          const from = car.compound
           car.compound = car.nextCompound
           car.tyreAge = 0
           car.pitStops++
           car.pitLap = -1
-          this.events.push({ type: 'pit', car: car.idx, compound: car.compound, t: this.time })
+          this.events.push({ type: 'pit', car: car.idx, compound: car.compound, from, stationary: car.pitStationary, entryPosition: car.pitEntryPos, t: this.time })
         }
         return
       }
@@ -627,6 +651,7 @@ export class RaceSim {
         if (toLimitEnd < L / 2 && sinceEntry < this.pitTotal) target = Math.min(target, limit)
         if (sinceEntry >= this.pitTotal - 2) {
           car.pitState = 'none'
+          this.events.push({ type: 'pitOut', car: car.idx, position: car.position, entryPosition: car.pitEntryPos, total: this.time - car.pitEntryTime, t: this.time })
         }
       }
       // simple following inside the pit lane
@@ -853,6 +878,15 @@ export function formatLapTime(t: number | null | undefined): string {
 export function formatGap(t: number): string {
   if (!Number.isFinite(t)) return '—'
   return `+${t.toFixed(3)}`
+}
+
+/**
+ * Broadcast (2026 world feed) gap: ONE decimal, TRUNCATED — 0.999 reads +0.9, never +1.0.
+ * The 1e-6 nudge keeps binary artefacts (0.3 → 0.29999…) from truncating a step early.
+ */
+export function formatGapTv(t: number): string {
+  if (!Number.isFinite(t)) return '—'
+  return `+${(Math.floor(t * 10 + 1e-6) / 10).toFixed(1)}`
 }
 
 export function formatSector(t: number | null | undefined): string {

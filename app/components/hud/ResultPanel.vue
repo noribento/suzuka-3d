@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { formatLapTime } from '~/sim/race'
-const { store, restart } = useRaceStore()
+const { store, broadcast, restart } = useRaceStore()
 const top = computed(() => store.order.slice(0, 3).map((i) => store.drivers[i]!))
-const visible = computed(() => store.status === 'finished' && store.winner !== null && !dismissed.value)
+// in broadcast mode the world feed's chequered sequence (header, RACE WINNER strap, winner lower third) plays first
+const visible = computed(() => store.status === 'finished' && store.winner !== null && !dismissed.value && (!broadcast.value || (store.bc.classificationAt !== null && store.nowMs >= store.bc.classificationAt)))
 const dismissed = ref(false)
 watch(() => store.restartToken, () => (dismissed.value = false))
 </script>

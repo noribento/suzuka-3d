@@ -159,6 +159,57 @@ test.describe('procedural engine audio', () => {
     expect(Math.abs(again.mid - full.mid)).toBeLessThan(0.01)
     expect(Math.abs(again.high - full.high)).toBeLessThan(0.01)
 
+    // start-light beep (F1-game convention): 1.5 kHz, ~100 ms, dry, identical every time.
+    // Goertzel on the 30 ms plateau resolves ~33 Hz, hence the ±40 Hz tolerance.
+    const beep = await page.evaluate(async () => {
+      const dbg = (window as unknown as { __suzuka: { RaceAudio: { renderBeep(): Promise<Float32Array> } } }).__suzuka
+      const sr = 48000
+      const a = await dbg.RaceAudio.renderBeep()
+      const b = await dbg.RaceAudio.renderBeep()
+      const goertzel = (x: Float32Array, from: number, to: number, hz: number) => {
+        const k = (2 * Math.PI * hz) / sr
+        const c = 2 * Math.cos(k)
+        let s0 = 0, s1 = 0, s2 = 0
+        for (let i = from; i < to; i++) {
+          s0 = x[i]! + c * s1 - s2
+          s2 = s1
+          s1 = s0
+        }
+        return s1 * s1 + s2 * s2 - c * s1 * s2
+      }
+      let peak = 0
+      for (let i = 0; i < a.length; i++) peak = Math.max(peak, Math.abs(a[i]!))
+      const from = Math.floor(0.025 * sr), to = Math.floor(0.055 * sr)
+      let peakHz = 0, best = -1
+      for (let hz = 1000; hz <= 2200; hz += 10) {
+        const p = goertzel(a, from, to, hz)
+        if (p > best) { best = p; peakHz = hz }
+      }
+      const h2Db = 10 * Math.log10(goertzel(a, from, to, 2 * peakHz) / best)
+      const span = (frac: number) => {
+        let first = -1, last = -1
+        for (let i = 0; i < a.length; i++) if (Math.abs(a[i]!) > peak * frac) { if (first < 0) first = i; last = i }
+        return ((last - first) / sr) * 1000
+      }
+      let tailMax = 0
+      for (let i = Math.floor(0.16 * sr); i < a.length; i++) tailMax = Math.max(tailMax, Math.abs(a[i]!))
+      let diff = 0
+      for (let i = 0; i < a.length; i++) diff = Math.max(diff, Math.abs(a[i]! - b[i]!))
+      return { peak, peakHz, h2Db, span40Ms: span(0.01), span60Ms: span(0.001), tailMax, diff }
+    })
+    console.log(`[audio] lamp beep: ${beep.peakHz} Hz, peak ${beep.peak.toFixed(3)}, H2 ${beep.h2Db.toFixed(1)} dB, -40 dB span ${beep.span40Ms.toFixed(0)} ms, -60 dB span ${beep.span60Ms.toFixed(0)} ms, tail ${beep.tailMax.toExponential(1)}`)
+    expect(Math.abs(beep.peakHz - 1500)).toBeLessThan(40)
+    expect(beep.peak).toBeGreaterThanOrEqual(0.27)
+    expect(beep.peak).toBeLessThanOrEqual(0.33)
+    expect(beep.h2Db).toBeGreaterThanOrEqual(-18)
+    expect(beep.h2Db).toBeLessThanOrEqual(-10)
+    expect(beep.span40Ms).toBeGreaterThanOrEqual(70)
+    expect(beep.span40Ms).toBeLessThanOrEqual(100)
+    expect(beep.span60Ms).toBeGreaterThanOrEqual(90)
+    expect(beep.span60Ms).toBeLessThanOrEqual(125)
+    expect(beep.tailMax).toBeLessThan(1e-4)
+    expect(beep.diff).toBe(0)
+
     expect(issues.errors, issues.errors.join('\n')).toEqual([])
   })
 })
