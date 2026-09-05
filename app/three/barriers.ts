@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CIRCUIT, GRANDSTANDS } from '~/data/suzuka'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import { ribbonGeometry, wallGeometry } from './track-mesh'
+import { gravelRuns, ribbonGeometry, wallGeometry } from './track-mesh'
 import type { Ground } from './ground'
 import { armcoMaps, chainLinkTexture, tecproTexture, tyreWallTexture } from './textures'
 import type { Quality } from './quality'
@@ -49,16 +49,14 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
   const hwAt: Fn = (s) => track.halfWidthAt(s)
   const groundAt = (s: number, lat: number) => ground.yAt(s, lat)
 
-  // corners with gravel traps get their barrier pushed out to the trap's far edge
-  const gravel: Zone[] = []
+  // gravel traps come from the OSM-derived run-off table (RUNOFF_ZONES via track-mesh.ts
+  // gravelRuns): the barrier line moves out to the trap's far edge (capped so it stays on the
+  // draped verge) and a tyre wall stands behind it
+  const gravel: (Zone & { outer: number })[] = []
   const tyreZones: Zone[] = []
-  for (const c of track.corners) {
-    const len = forwardDelta(c.from, c.to, L)
-    if (c.maxKappa > 1 / 170 && len > 30) {
-      const outside: 1 | -1 = c.sign > 0 ? -1 : 1
-      gravel.push({ from: c.from - 30, to: c.to + 40, side: outside })
-      tyreZones.push({ from: c.from - 20, to: c.to + 30, side: outside })
-    }
+  for (const run of gravelRuns(track)) {
+    gravel.push({ from: run.from, to: run.to, side: run.side, outer: Math.min(40, Math.max(25, run.outer)) })
+    tyreZones.push({ from: run.from + 8, to: run.to - 8, side: run.side })
   }
   const tecpro: Zone[] = [
     { from: cross.sOver + 100, to: 4900, side: -1 }, // 130R outside (after the crossover embankment)
@@ -74,7 +72,7 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
   /** distance of the barrier line from the road edge on `side` */
   const dist = (s: number, side: 1 | -1): number => {
     let d = 11
-    for (const z of gravel) if (z.side === side && inZone(track, s, z)) d = Math.max(d, 25)
+    for (const z of gravel) if (z.side === side && inZone(track, s, z)) d = Math.max(d, z.outer)
     // close to the road along the pit straight on the grandstand side; behind the pit lane on the other
     if (side > 0 && (s > 5480 || s < 470)) d = 9
     if (side < 0 && inZone(track, s, pitZone)) d = pit.laneWidth + 6

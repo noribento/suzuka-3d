@@ -2,10 +2,9 @@ import * as THREE from 'three'
 import { GRANDSTANDS } from '~/data/suzuka'
 import { Rng } from '~/sim/random'
 import type { Track } from '~/sim/track'
-import { addMacro } from './track-mesh'
 import { makeGround, type Ground } from './ground'
 import { buildCrowd } from './crowd'
-import { grassMaps } from './textures'
+import { grassSurfaceMaterial } from './materials'
 import { QUALITY, type Quality } from './quality'
 import { BoxPlacer } from './boxes'
 import type { AssetRegistry } from './assets'
@@ -51,7 +50,8 @@ export class Terrain {
   private readonly heights: Float32Array
   private readonly chunks: THREE.Mesh[] = []
 
-  constructor(private track: Track, grid: [number, number] = [256, 192]) {
+  /** the asset pack (null / empty on the low tier); the track meshes read it from here */
+  constructor(private track: Track, grid: [number, number] = [256, 192], readonly assets: AssetRegistry | null = null) {
     this.NX = grid[0]
     this.NZ = grid[1]
     for (let s = 0; s < track.length; s += 90) {
@@ -69,10 +69,9 @@ export class Terrain {
     this.dx = w / this.NX
     this.dz = d / this.NZ
     for (let j = 0; j < gz; j++) for (let i = 0; i < gx; i++) this.heights[j * gx + i] = this.heightAt(this.x0 + i * this.dx, this.z0 + j * this.dz)
-    const grass = grassMaps(false)
-    const mat = new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.normalMap, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 1, metalness: 0 })
-    // terrain uv = xz / 9: one macro period every 250 m
-    addMacro(mat, new THREE.Vector2(9 / 250, 9 / 250))
+    // terrain uv = xz / 9; withered_grass at its 2 m tile on the high tier, the procedural SEASON
+    // tile otherwise, one macro period every 250 m either way (materials.ts grassSurfaceMaterial)
+    const mat = grassSurfaceMaterial(assets, [9, 9], [250, 250], 0.7)
     this.group = new THREE.Group()
     this.group.name = 'terrain'
     const cw = this.NX / this.CH, cd = this.NZ / this.CH
@@ -393,7 +392,7 @@ export interface Environment {
 
 export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Environment {
   const group = new THREE.Group()
-  const terrain = new Terrain(track, quality.terrain)
+  const terrain = new Terrain(track, quality.terrain, assets)
   group.add(terrain.group)
   const ground = makeGround(track, (x, z) => terrain.heightAt(x, z), (x, z) => terrain.meshHeightAt(x, z))
   // only the trees draw from this generator (the crowd seeds its own)

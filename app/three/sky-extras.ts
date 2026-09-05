@@ -96,7 +96,7 @@ export function buildSkyExtras(centre: THREE.Vector3, quality?: Quality): SkyExt
   if (!quality || quality.ring) {
     // outside the 3400 × 2600 m terrain rectangle's short sides, tall enough to close the horizon
     const ringGeo = new THREE.CylinderGeometry(1900, 1900, 70, 96, 1, true)
-    const ringMat = new THREE.MeshBasicMaterial({ map: treeLineTexture(), transparent: true, alphaTest: a2c ? 0.3 : 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, color: 0x2e4a2a })
+    const ringMat = new THREE.MeshBasicMaterial({ map: treeLineTexture(), transparent: true, alphaTest: a2c ? 0.3 : 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, color: 0x3a4a38 })
     const ring = new THREE.Mesh(ringGeo, ringMat)
     ring.position.set(centre.x, centre.y + 40, centre.z)
     group.add(ring)
