@@ -63,7 +63,7 @@ export const SECTIONS: CornerInfo[] = [
   { from: 450, to: 830, name: 'Turns 1-2 (First Curve)', short: 'T1-2' },
   { from: 830, to: 1000, name: 'Run to the Esses', short: 'T2 exit' },
   { from: 1000, to: 1660, name: 'Turns 3-6 (S Curves)', short: 'S Curves' },
-  { from: 1660, to: 2040, name: 'Turn 7 (Dunlop Curve)', short: 'Dunlop' },
+  { from: 1660, to: 2040, name: 'Turn 7 (NIPPO Corner)', short: 'NIPPO' },
   { from: 2040, to: 2160, name: 'Turn 8 (Degner 1)', short: 'Degner 1' },
   { from: 2160, to: 2300, name: 'Turn 9 (Degner 2)', short: 'Degner 2' },
   { from: 2300, to: 2520, name: 'Turn 10 (Crossover)', short: 'Crossover' },
@@ -72,7 +72,7 @@ export const SECTIONS: CornerInfo[] = [
   { from: 3450, to: 3980, name: 'Turns 13-14 (Spoon Curve)', short: 'Spoon' },
   { from: 3980, to: 4740, name: 'Back Straight', short: 'Back Str.' },
   { from: 4740, to: 5060, name: 'Turn 15 (130R)', short: '130R' },
-  { from: 5060, to: 5340, name: 'Turns 16-17 (Casio Triangle)', short: 'Chicane' },
+  { from: 5060, to: 5340, name: 'Turns 16-17 (Astemo Chicane)', short: 'Chicane' },
   { from: 5340, to: 5520, name: 'Turn 18', short: 'T18' },
 ]
 
@@ -239,7 +239,7 @@ export const APEX_SPEED_TARGETS: { s: number; kmh: number; name: string }[] = [
   { s: 1004, kmh: 200, name: 'T4' },
   { s: 1132, kmh: 215, name: 'T5' },
   { s: 1314, kmh: 180, name: 'T6' },
-  { s: 1548, kmh: 215, name: 'Dunlop' },
+  { s: 1548, kmh: 215, name: 'NIPPO' },
   { s: 2062, kmh: 230, name: 'Degner 1' },
   { s: 2222, kmh: 140, name: 'Degner 2' },
   { s: 2674, kmh: 70, name: 'Hairpin' },

@@ -213,7 +213,8 @@ const store = reactive<RaceStore>({
   tvCamName: '',
   gapMode: 'gap',
   restartToken: 0,
-  weather: { air: 27, track: 41, wind: 2.4, humidity: 58 },
+  // late-March race afternoon (spec SEASONS.spring.weather)
+  weather: { air: 15, track: 26, wind: 2.4, humidity: 45 },
   timeOfDay: 14,
   audio: true,
   interacted: false,

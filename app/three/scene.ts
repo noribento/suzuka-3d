@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { SEASON, SEASONS } from '~/data/suzuka-facilities-spec'
 import { Sky } from 'three/addons/objects/Sky.js'
 import { CSM } from 'three/addons/csm/CSM.js'
 import { disposeAll, setMaxAnisotropy, setTextureScale } from './textures'
@@ -82,12 +83,18 @@ export interface SceneContext {
 
 /**
  * Sun direction (world: x = east, y = up, z = south) for a local-time hour at Suzuka on the
- * Japanese GP weekend (early October: declination ≈ -4.6°, solar noon ≈ 11:45 JST).
+ * reproduced race day (SEASONS[SEASON]; spring = 29 March 2026).
+ *
+ * Declination δ = 23.44° · sin(360° · (284 + N) / 365) with N the day of the year: N = 88
+ * (29 Mar) → +3.2°; N = 278 (5 Oct, the previous default) → −4.6°. Solar noon in JST =
+ * 12 h − (λ − 135°) / 15° · 1 h − EoT = 12 − 0.102 h (136.53° E is 1.53° east of the 135° JST
+ * meridian) − EoT, with the equation of time ≈ −5 min on 29 Mar → 11.98 h (≈ 11:59) and
+ * ≈ +11 min on 5 Oct → 11.75 h. The hour angle is then H = 15°/h · (hour − noon).
  */
 export function sunDirectionAt(hour: number): THREE.Vector3 {
   const lat = (34.84 * Math.PI) / 180
-  const dec = (-4.6 * Math.PI) / 180
-  const H = ((hour - 11.75) * 15 * Math.PI) / 180
+  const dec = (SEASONS[SEASON].declinationDeg * Math.PI) / 180
+  const H = ((hour - SEASONS[SEASON].solarNoonH) * 15 * Math.PI) / 180
   const sinEl = Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(H)
   const el = Math.asin(THREE.MathUtils.clamp(sinEl, -1, 1))
   // azimuth from north, clockwise
@@ -124,8 +131,10 @@ function colourLightingDome(dome: THREE.Mesh, sun: THREE.Vector3) {
   const dir = new THREE.Vector3()
   const zenith = new THREE.Color(0.55, 0.68, 1.0)
   const horizon = new THREE.Color(0.9, 0.93, 1.0)
-  const ground = new THREE.Color(0.32, 0.36, 0.22)
-  const deep = new THREE.Color(0.16, 0.18, 0.11)
+  // ground bounce off the late-March dormant turf (spec SEASON_GRASS mid ≈ #B5A47E): warmer and
+  // a little brighter than the October green it replaces, still sky-tinted towards the horizon
+  const ground = new THREE.Color(0.42, 0.38, 0.26)
+  const deep = new THREE.Color(0.21, 0.19, 0.13)
   const warm = new THREE.Color(1.0, 0.86, 0.66)
   const c = new THREE.Color()
   for (let i = 0; i < pos.count; i++) {
@@ -278,7 +287,8 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   scene.environmentIntensity = 0.5
 
   // soft ground bounce (the sky dome already lights from above through the environment map)
-  const hemi = new THREE.HemisphereLight(0xd6e4f5, 0x6f7f48, 0.28)
+  // ground colour = the dormant straw of the verges, not summer green
+  const hemi = new THREE.HemisphereLight(0xd6e4f5, 0x8a7f62, 0.28)
   scene.add(hemi)
 
   // --- cascaded shadow maps ---------------------------------------------------------------------

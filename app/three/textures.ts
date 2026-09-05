@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Compound } from '~/data/drivers'
 import { TEAMS, type Team, type TeamId } from '~/data/drivers'
+import { COLOURS, SEASON, SEASON_GRASS } from '~/data/suzuka-facilities-spec'
 
 /**
  * Procedural PBR textures (no external assets). Everything is generated once from
@@ -307,10 +308,14 @@ export function asphaltMaps(withLines = true): MaterialMaps {
         smooth(1 - Math.abs(u - 0.31 + laneEdge) / 0.16),
         smooth(1 - Math.abs(u - 0.69 - laneEdge) / 0.16),
       )
-      const rubber = lane * (0.55 + 0.45 * n2.fbm(u * 16, v * 32, 16, 32, 3))
+      // The lined tile is the racing surface. The run-off variant (no lines) repeats across wide
+      // aprons nobody drives on: no rubbered lanes, no marbles at the tile edges (they would
+      // streak every 13 m), and a touch lighter — the weathered aprons read paler than the track
+      // in the reference photos (spoon_2026, off_b2_main).
+      const rubber = withLines ? lane * (0.55 + 0.45 * n2.fbm(u * 16, v * 32, 16, 32, 3)) : 0
       // tyre marbles / pick-up towards the edges (streaked along v, which is how they really lie)
-      const marbles = smooth((Math.abs(u - 0.5) - 0.38) / 0.1) * n2.fbm(u * 128, v * 64, 128, 64, 2) * 0.35
-      let base = 58 + (hgt - 0.5) * 80 + (patch - 0.5) * 20
+      const marbles = withLines ? smooth((Math.abs(u - 0.5) - 0.38) / 0.1) * n2.fbm(u * 128, v * 64, 128, 64, 2) * 0.35 : 0
+      let base = 58 + (hgt - 0.5) * 80 + (patch - 0.5) * 20 + (withLines ? 0 : 6)
       base -= rubber * 26
       base += marbles * 10
       let r = base + 5, g = base + 3, b = base - 1
@@ -336,16 +341,18 @@ export function asphaltMaps(withLines = true): MaterialMaps {
       rough[y * w + x] = roughness
     })
     const map = makeTexture(c, { wrap: THREE.RepeatWrapping, aniso: groundAniso() })
-    map.wrapS = THREE.ClampToEdgeWrapping
+    // the lined tile spans the road exactly once (clamped in u); the run-off tile repeats across
+    const wrapU = withLines ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping
+    map.wrapS = wrapU
     // Per-axis strength: the texel is 6.35 mm × 39.1 mm, a 6:1 aspect, so one scalar would read
     // as a corrugation across the road. Each central difference is divided by the metres its
     // axis covers, and the material's old normalScale 0.7 is folded in here so the stored
     // normals ARE the shading normals (which is what the Toksvig mip chain will need).
     const K = 3.2 * (ASPHALT_WIDTH_M / 1024) * 0.7
     const normalMap = normalMapFrom(height, w, h, K / (ASPHALT_WIDTH_M / w), K / (ASPHALT_TILE_M / h), groundAniso())
-    normalMap.wrapS = THREE.ClampToEdgeWrapping
+    normalMap.wrapS = wrapU
     const roughnessMap = grayMap(rough, w, h, groundAniso())
-    roughnessMap.wrapS = THREE.ClampToEdgeWrapping
+    roughnessMap.wrapS = wrapU
     return { map, normalMap, roughnessMap }
   })
 }
@@ -400,14 +407,22 @@ export function asphaltDetailMaps(): MaterialMaps {
 }
 
 /**
- * Grass, tile ≈ 8 m. The mown bands of the run-off (two per tile) are added by the macro patch
- * (track-mesh.ts addMacro, `stripes`) so the terrain and the run-off share one texture.
+ * Grass, tile ≈ 8 m, in the SEASON palette (suzuka-facilities-spec SEASON_GRASS). Late-March
+ * dormant 高麗芝 is straw-coloured with darker khaki clumps and a scatter of olive blades that
+ * never went fully dormant; the October green is kept under `SEASON = 'autumn'`. Everything
+ * larger than the tile — macro variation, the 30–60 m green-up patches — is the material's job
+ * (materials.ts addGrassSurface), so the terrain and the run-off share this one texture. The
+ * mown stripes (`striped`) are no longer drawn anywhere: the photos show none trackside.
  */
 export function grassMaps(striped = false): MaterialMaps {
-  return cached(`grass-${striped}-${textureScale}`, () => {
+  const pal = SEASON_GRASS[SEASON]
+  return cached(`grass-${SEASON}-${striped}-${textureScale}`, () => {
     const [w, h] = scaled(1024, 1024)
     const n = new Noise2(3)
     const n2 = new Noise2(31)
+    // hexToSrgb, not hexToRgb: the palette is measured sRGB and the canvas is an sRGB map (hexToRgb
+    // hands back the linear working-space components three converts to, half as bright)
+    const sun = hexToSrgb(pal.sun), shade = hexToSrgb(pal.shade), olive = hexToSrgb(pal.patch), soil = hexToSrgb(pal.dirt)
     const height = new Float32Array(w * h)
     const c = paint(w, h, (x, y, out) => {
       const u = x / w, v = y / h
@@ -417,14 +432,21 @@ export function grassMaps(striped = false): MaterialMaps {
       const broad = n2.fbm(u * 4, v * 4, 4, 4, 3, 0.6)
       const dirt = smooth((n2.fbm(u * 6, v * 6, 6, 6, 3, 0.5) - 0.66) / 0.12) * 0.5
       const hgt = blades * 0.6 + clumps * 0.4
-      // colour: yellow-green in the light clumps, blue-green in the shade, brown where worn
-      const t = clumps * 0.6 + blades * 0.4
-      let r = lerp(58, 122, t) + (broad - 0.5) * 30
-      let g = lerp(96, 150, t) + (broad - 0.5) * 24
-      let b = lerp(34, 52, t) + (broad - 0.5) * 10
-      r = lerp(r, 128, dirt * 0.7)
-      g = lerp(g, 108, dirt * 0.7)
-      b = lerp(b, 70, dirt * 0.7)
+      // colour: shaded → sunlit along the clump / blade shading (biased light: the dormant sward
+      // is mostly lit straw), ±8 % from the broad noise, worn to bare soil in a few spots
+      const t = Math.min(1, 0.15 + (clumps * 0.6 + blades * 0.4) * 0.95)
+      const k = 1 + (broad - 0.5) * 0.16
+      let r = lerp(shade[0], sun[0], t) * k
+      let g = lerp(shade[1], sun[1], t) * k
+      let b = lerp(shade[2], sun[2], t) * k
+      // stray olive blades where a coarse noise peaks (the big patches come from the shader mask)
+      const green = smooth((n2.fbm(u * 8, v * 8, 8, 8, 2, 0.5) - 0.58) / 0.16) * 0.3
+      r = lerp(r, olive[0], green)
+      g = lerp(g, olive[1], green)
+      b = lerp(b, olive[2], green)
+      r = lerp(r, soil[0], dirt * 0.7)
+      g = lerp(g, soil[1], dirt * 0.7)
+      b = lerp(b, soil[2], dirt * 0.7)
       if (striped) {
         const band = Math.floor(v * 4) % 2 === 0 ? 1 : 0
         const k = band ? 0.86 : 1.06
@@ -1375,5 +1397,90 @@ export function brakeDiscMaps(): MaterialMaps & { emissiveMap: THREE.Texture } {
       rough[y * w + x] = 0.55 + 0.15 * n.value(x / 8, y / 4, 32, 16)
     })
     return { map: makeTexture(c), roughnessMap: grayMap(rough, w, h), emissiveMap: grayMap(emis, w, h) }
+  })
+}
+
+// ---------------------------------------------------------------------------------------------
+// dormant-grass green-up mask and painted run-off surfaces
+
+/**
+ * sRGB hex → 0–255 sRGB components, untouched. hexToRgb() above goes through THREE.Color, which
+ * converts to the linear working space — right for a uniform, wrong for texels of an sRGB canvas
+ * (the makeTexture default), where the measured palette must land as measured.
+ */
+function hexToSrgb(hex: string): [number, number, number] {
+  const v = parseInt(hex.replace('#', ''), 16)
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+}
+
+/** Metres one tile of greenUpMask() covers. */
+export const GREENUP_TILE_M = 160
+
+/**
+ * Where the dormant turf has started to green up: blobs 30–60 m across (R channel, 0 = straw,
+ * 1 = fully olive), tiling every GREENUP_TILE_M. Sampled by addGrassSurface (materials.ts) on
+ * the terrain and the run-off alike, so a patch that starts on the verge continues onto the
+ * hills instead of stopping at the ribbon edge.
+ */
+export function greenUpMask(): THREE.Texture {
+  return cached('greenup', () => {
+    const w = 256, h = 256
+    const n = new Noise2(211)
+    const c = paint(w, h, (x, y, out) => {
+      // 4 lattice cells per tile = 40 m blobs; a finer octave frays the edges so the patches
+      // read as sward, not as spots
+      const f = n.fbm(x / 64, y / 64, 4, 4, 3, 0.5)
+      const edge = n.fbm(x / 16, y / 16, 16, 16, 2, 0.5)
+      const v = smooth((f - 0.55) / 0.12) * (0.7 + 0.6 * edge) * 255
+      out[0] = v
+      out[1] = v
+      out[2] = v
+    })
+    return makeTexture(c, { srgb: false })
+  })
+}
+
+/** u sub-ranges of apronPaintTexture(): blue + white chevrons (tiles along v), turquoise, green. */
+export const APRON_UV = { chevrons: [0.02, 0.48], turquoise: [0.53, 0.72], green: [0.78, 0.97] } as const
+/** Metres of s one v tile of the apron atlas covers (sets the chevron pitch). */
+export const APRON_TILE_M = 6
+/** The bright green painted edge strips (T1–T2, pit exit, T18); hex from off_b2_main, UNVERIFIED. */
+export const STRIP_GREEN = '#36a848'
+
+/**
+ * One atlas for every painted run-off surface, so all the decals share a material: the
+ * hairpin's deep blue with white diagonal chevrons (u 0–0.5), the chicane's turquoise
+ * (u 0.5–0.75) and the bright green edge strips (u 0.75–1). Colours come from the spec's
+ * COLOURS; the same worn, mottled paint runs through every region (hairpin_2026 shows the blue
+ * heavily weathered). The guard bands in APRON_UV keep the bilinear taps inside a region.
+ */
+export function apronPaintTexture(): THREE.Texture {
+  return cached('apronPaint', () => {
+    const w = 512, h = 256
+    const n = new Noise2(401)
+    const blue = hexToSrgb(COLOURS.apronBlue.mid)
+    const white = hexToSrgb(COLOURS.chevronWhite.mid)
+    const turquoise = hexToSrgb(COLOURS.apronTurquoise.lit)
+    const green = hexToSrgb(STRIP_GREEN)
+    const c = paint(w, h, (x, y, out) => {
+      const u = x / w
+      // paint wear: darker, greyer blotches (tileable in v; u never crosses a region boundary)
+      const wear = n.fbm(x / 32, y / 32, 16, 8, 3, 0.55)
+      const grime = smooth((wear - 0.56) / 0.14)
+      let col: [number, number, number]
+      if (u < 0.5) {
+        // 45° stripes in texel space, 64 px pitch (h is a multiple, so the pattern tiles in v);
+        // the white is itself worn thin
+        const stripe = (x + y) % 64 < 18 ? smooth((n.fbm(x / 8, y / 8, 64, 32, 2) - 0.3) / 0.3) : 0
+        col = [lerp(blue[0], white[0], stripe), lerp(blue[1], white[1], stripe), lerp(blue[2], white[2], stripe)]
+      } else if (u < 0.75) col = [turquoise[0], turquoise[1], turquoise[2]]
+      else col = [green[0], green[1], green[2]]
+      const k = 0.88 + 0.24 * wear
+      const grey = (col[0] + col[1] + col[2]) / 3
+      out[0] = lerp(col[0] * k, grey * 0.75, grime * 0.35)
+      out[1] = lerp(col[1] * k, grey * 0.75, grime * 0.35)
+      out[2] = lerp(col[2] * k, grey * 0.75, grime * 0.35)
+    })
+    return makeTexture(c, { aniso: groundAniso() })
   })
 }
