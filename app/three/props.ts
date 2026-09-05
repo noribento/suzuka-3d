@@ -3,8 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { APEX_SPEED_TARGETS, CIRCUIT, OVERTAKE_ZONES, TV_CAMERA_SPOTS } from '~/data/suzuka'
 import { signedDelta, type Track } from '~/sim/track'
 import { ribbonGeometry } from './track-mesh'
-import type { Ground } from './ground'
-import type { BoxPlacer } from './boxes'
+import type { EnvBuildContext } from './environment'
 import { brakingRubberTexture, labelTexture } from './textures'
 
 const _p = new THREE.Vector3()
@@ -18,7 +17,8 @@ const _q = new THREE.Quaternion()
  * the hut roofs merge into the same mesh as the rest of that material.
  * Returns the flag-wave clock (also left on `group.userData.flagTime`), advanced per frame.
  */
-export function buildTracksideProps(track: Track, ground: Ground, group: THREE.Group, boxes: BoxPlacer, hutRoofMat: THREE.Material): { flagTime: { value: number } } {
+export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Material): { flagTime: { value: number } } {
+  const { track, ground, group, boxes } = ctx
   const hw = track.halfWidth
   const flagTime = { value: 0 }
 

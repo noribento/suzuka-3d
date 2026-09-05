@@ -1,9 +1,7 @@
 import * as THREE from 'three'
 import { CIRCUIT } from '~/data/suzuka'
 import { TEAMS, TEAM_ORDER } from '~/data/drivers'
-import type { Track } from '~/sim/track'
-import type { Ground } from './ground'
-import type { BoxPlacer } from './boxes'
+import type { EnvBuildContext } from './environment'
 import { boardTexture, garageTexture } from './textures'
 import { EMISSIVE, emissiveScale } from './emissive'
 
@@ -16,7 +14,8 @@ import { EMISSIVE, emissiveScale } from './emissive'
  * Returns the building roof material: the marshal huts reuse it, which keeps their roofs in the
  * same merged mesh.
  */
-export function buildLegacyPitComplex(track: Track, ground: Ground, boxes: BoxPlacer): { buildingRoofMat: THREE.MeshStandardMaterial } {
+export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.MeshStandardMaterial } {
+  const { track, boxes } = ctx
   // --- pit building, race control, paddock ------------------------------------------------
   const pit = CIRCUIT.pit
   const garageMat = new THREE.MeshStandardMaterial({ map: garageTexture(), roughness: 0.7 })

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { GRANDSTANDS } from '~/data/suzuka'
 import { Rng } from '~/sim/random'
 import type { Track } from '~/sim/track'
 import { addMacro } from './track-mesh'
@@ -7,8 +8,9 @@ import { buildCrowd } from './crowd'
 import { grassMaps } from './textures'
 import { QUALITY, type Quality } from './quality'
 import { BoxPlacer } from './boxes'
-import { buildLegacyStands } from './stands'
-import { buildLegacyPitComplex } from './pit-complex'
+import type { AssetRegistry } from './assets'
+import { buildStands } from './stands'
+import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
 import { buildFerrisWheel, buildTrees } from './vegetation'
 
@@ -349,6 +351,36 @@ export class Terrain {
   }
 }
 
+/** A stand's footprint band in track coordinates, used to keep trees (and later props) off it. */
+export interface StandZone {
+  from: number
+  to: number
+  side: 1 | -1
+  /** outer edge of the stand, metres from the centreline */
+  lateralBack: number
+}
+
+/**
+ * Everything the environment builders share. One object instead of a growing parameter list, so
+ * a builder can pick up a new dependency (the asset pack, the terrain) without touching the
+ * call sites in buildEnvironment.
+ */
+export interface EnvBuildContext {
+  track: Track
+  terrain: Terrain
+  ground: Ground
+  /** the environment root every builder adds to */
+  group: THREE.Group
+  quality: Quality
+  /** external asset pack; null / empty registry on the low tier — builders keep a procedural fallback */
+  assets: AssetRegistry | null
+  /** shared box placer (single-material boxes merge per material across builders; flushed once) */
+  boxes: BoxPlacer
+  /** the trees' generator (seed 7); the crowd seeds its own */
+  rng: Rng
+  standZones: StandZone[]
+}
+
 export interface Environment {
   group: THREE.Group
   terrain: Terrain
@@ -359,7 +391,7 @@ export interface Environment {
   update: (dt: number, cameraPos?: THREE.Vector3) => void
 }
 
-export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7): Environment {
+export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Environment {
   const group = new THREE.Group()
   const terrain = new Terrain(track, quality.terrain)
   group.add(terrain.group)
@@ -371,24 +403,29 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   const crowd = buildCrowd(track, quality.crowd, 11, quality.msaa > 0)
   for (const o of crowd.objects) group.add(o)
 
-  // --- grandstands (merged: one mesh each for seats, structure and roofs) -------------------
-  buildLegacyStands(track, ground, group)
-
   // one placer shared by the pit complex and the props, so their single-material boxes merge
   // per material across both
   const boxes = new BoxPlacer(track, ground, group)
+  const hw = track.halfWidth
+  const ctx: EnvBuildContext = {
+    track, terrain, ground, group, quality, assets, boxes, rng,
+    standZones: GRANDSTANDS.map(([from, to, side, depth]) => ({ from, to, side, lateralBack: hw + 11 + depth })),
+  }
+
+  // --- grandstands (merged: one mesh each for seats, structure and roofs) -------------------
+  buildStands(ctx)
   // --- pit building, race control, paddock, Dunlop bridge ---------------------------------
-  const { buildingRoofMat } = buildLegacyPitComplex(track, ground, boxes)
+  const { buildingRoofMat } = buildPitComplex(ctx)
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
-  const { flagTime } = buildTracksideProps(track, ground, group, boxes, buildingRoofMat)
+  const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
   // every single-material box placed above, merged per material
   boxes.flush()
 
-  // --- Ferris wheel (the Suzuka landmark beside the main straight) -----------------------------
-  const ferrisWheel = buildFerrisWheel(track, terrain, group)
+  // --- Ferris wheel (the Suzuka landmark behind the final-corner stands) ------------------------
+  const ferrisWheel = buildFerrisWheel(ctx)
 
   // --- trees -------------------------------------------------------------------------------
-  buildTrees(track, terrain, quality, rng, group, ferrisWheel)
+  buildTrees(ctx, ferrisWheel)
 
   const wheel = ferrisWheel.getObjectByName('wheel')
   const update = (dt: number, cameraPos?: THREE.Vector3) => {

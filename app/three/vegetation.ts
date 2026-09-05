@@ -1,10 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { GRANDSTANDS } from '~/data/suzuka'
-import type { Rng } from '~/sim/random'
-import type { Track } from '~/sim/track'
-import type { Terrain } from './environment'
-import type { Quality } from './quality'
+import { FERRIS_WHEEL } from '~/data/suzuka-facilities-spec'
+import type { EnvBuildContext } from './environment'
 import { bucketedInstancedMeshes } from './instancing'
 
 const _p = new THREE.Vector3()
@@ -17,18 +14,20 @@ const _s = new THREE.Vector3()
  * `group`; its child named 'wheel' turns (the caller animates it), so it must be kept out of
  * `freezeStatic`.
  */
-export function buildFerrisWheel(track: Track, terrain: Terrain, group: THREE.Group): THREE.Group {
+export function buildFerrisWheel(ctx: EnvBuildContext): THREE.Group {
+  const { track, terrain, group } = ctx
   const ferrisWheel = new THREE.Group()
   {
-    const s = 330
-    track.pointAt(s, 215, _p)
+    // the real サーキットホイール: OSM footprint centroid behind the final-corner stands, 50.4 m
+    // high, 48 m across, 36 gondolas (see FERRIS_WHEEL); it stands on ground ~7.6 m above the track
+    track.enToWorld(FERRIS_WHEEL.en[0], FERRIS_WHEEL.en[1], _p)
     const groundY = terrain.meshHeightAt(_p.x, _p.z)
     ferrisWheel.position.set(_p.x, groundY, _p.z)
-    const h = track.headingAt(s)
+    const h = track.headingAt(FERRIS_WHEEL.s)
     _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz))
     ferrisWheel.quaternion.setFromRotationMatrix(_m)
-    const R = 36
-    const hub = R + 6
+    const R = FERRIS_WHEEL.diameter / 2
+    const hub = FERRIS_WHEEL.height - R
     const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.5, metalness: 0.3 })
     const wheel = new THREE.Group()
     wheel.name = 'wheel'
@@ -45,8 +44,8 @@ export function buildFerrisWheel(track: Track, terrain: Terrain, group: THREE.Gr
       spoke.rotation.z = (i / 12) * Math.PI
       wheel.add(spoke)
     }
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2
+    for (let i = 0; i < FERRIS_WHEEL.gondolas; i++) {
+      const a = (i / FERRIS_WHEEL.gondolas) * Math.PI * 2
       const g = new THREE.Mesh(gondolaGeo, new THREE.MeshStandardMaterial({ color: colors[i % colors.length], roughness: 0.4 }))
       g.position.set(Math.cos(a) * R, Math.sin(a) * R, 0)
       g.name = 'gondola'
@@ -72,8 +71,8 @@ export function buildFerrisWheel(track: Track, terrain: Terrain, group: THREE.Gr
  * order, so the caller's seeded generator decides the woods; run this after the Ferris wheel
  * is placed.
  */
-export function buildTrees(track: Track, terrain: Terrain, quality: Quality, rng: Rng, group: THREE.Group, ferrisWheel: THREE.Group) {
-  const hw = track.halfWidth
+export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
+  const { track, terrain, quality, rng, group, standZones } = ctx
   const canopy = mergeGeometries([
     (() => { const g = new THREE.ConeGeometry(3.2, 7, 7); g.translate(0, 6.5, 0); return g })(),
     (() => { const g = new THREE.ConeGeometry(2.4, 5, 7); g.translate(0, 9.5, 0); return g })(),
@@ -100,9 +99,9 @@ export function buildTrees(track: Track, terrain: Terrain, quality: Quality, rng
       const inPitZone = s >= 5540 || s <= 90
       if (inPitZone && near.lateral > -125 && near.lateral < 80) continue
       let inStand = false
-      for (const [from, to, side, depth] of GRANDSTANDS) {
+      for (const { from, to, side, lateralBack } of standZones) {
         const inS = from < to ? s >= from - 15 && s <= to + 15 : s >= from - 15 || s <= to + 15
-        if (inS && Math.sign(near.lateral) === side && Math.abs(near.lateral) < hw + depth + 26) inStand = true
+        if (inS && Math.sign(near.lateral) === side && Math.abs(near.lateral) < lateralBack + 26) inStand = true
       }
       if (inStand) continue
     }

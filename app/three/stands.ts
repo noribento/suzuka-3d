@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { GRANDSTANDS } from '~/data/suzuka'
-import { forwardDelta, type Track } from '~/sim/track'
+import { forwardDelta } from '~/sim/track'
 import { ribbonGeometry, wallGeometry } from './track-mesh'
-import type { Ground } from './ground'
+import type { EnvBuildContext } from './environment'
 import { crowdTexture } from './textures'
 
 const _p = new THREE.Vector3()
@@ -13,7 +13,8 @@ const _p = new THREE.Vector3()
  * caps and (optionally) a roof on columns, merged into one mesh each for seats, structure and
  * roofs. Slated to be replaced by the footprint-based stand generator.
  */
-export function buildLegacyStands(track: Track, ground: Ground, group: THREE.Group) {
+export function buildStands(ctx: EnvBuildContext) {
+  const { track, ground, group } = ctx
   const hw = track.halfWidth
   const seatMat = new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.9 })
   const structMat = new THREE.MeshStandardMaterial({ color: 0x8d9096, roughness: 0.8, side: THREE.DoubleSide })

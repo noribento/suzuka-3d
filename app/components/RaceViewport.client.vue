@@ -272,7 +272,7 @@ async function setup() {
     if (disposed) return
   }
 
-  env = buildEnvironment(track, q)
+  env = buildEnvironment(track, q, 7, assets)
   ctx.scene.add(env.group)
   trackMeshes = buildTrackMeshes(track, env.terrain, env.ground)
   // the track meshes pushed the terrain under the road: upload the grid once, now
