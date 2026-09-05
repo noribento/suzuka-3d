@@ -97,7 +97,8 @@ try {
     // a few frames so the shadow cascades refit and the resolution scaler settles
     await page.waitForTimeout(tier === '1' ? 6000 : 2500)
     const file = join(out, `${name}.png`)
-    await page.screenshot({ path: file })
+    // the software rasteriser needs well over the 30 s default for a high-tier frame
+    await page.screenshot({ path: file, timeout: tier === '1' ? 600000 : 60000 })
     const info = await page.evaluate(() => ({ calls: window.__suzuka.ctx.renderer.info.render.calls, tris: window.__suzuka.ctx.renderer.info.render.triangles }))
     console.log(`${name.padEnd(22)} ${file}  calls ${info.calls}  tris ${info.tris}`)
   }

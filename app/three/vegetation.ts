@@ -141,7 +141,7 @@ function treePrototype(kind: 'evergreen' | 'deciduous'): THREE.BufferGeometry {
  * the woods; run this after the Ferris wheel is placed.
  */
 export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
-  const { track, terrain, quality, rng, group, standZones } = ctx
+  const { track, terrain, quality, rng, group, standZones, keepOut } = ctx
   const season = SEASONS[SEASON]
   const evergreenGeo = treePrototype('evergreen')
   const deciduousGeo = treePrototype('deciduous')
@@ -186,6 +186,15 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
       if (inStand) continue
     }
     if (Math.hypot(x - wheelPos.x, z - wheelPos.z) < 60) continue
+    // buildings and paving placed by the other builders
+    let blocked = false
+    for (const k of keepOut) {
+      if (Math.hypot(x - k.x, z - k.z) < k.r) {
+        blocked = true
+        break
+      }
+    }
+    if (blocked) continue
     // denser woods further from the track
     if (near.d < 120 && rng.next() < 0.55) continue
     // kind: the season's mix, with the cherries pulled into their zones (rare outside them)

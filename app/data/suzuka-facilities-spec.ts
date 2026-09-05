@@ -505,6 +505,45 @@ export const STANDS: StandDef[] = [
     stackedWith: ['E2'],
     unverified: ['E-1 row count (not published)', 'E-1 / E-2 boundary'],
   },
+  // temporary scaffold blocks on the plateaux behind D and E (change yearly; sizes from the
+  // 2024–2026 aerials: ≤ 10 m tall, 14–18 rows). Not in OSM.
+  {
+    id: 'D_temp',
+    name: 'D 仮設（逆バンクオアシス台地）',
+    osmWays: [],
+    sRange: [1250, 1385],
+    side: 1,
+    lateralFront: 53.5,
+    lateralBack: 65,
+    structure: 'scaffold',
+    tiers: [{ id: 'D-temp', rows: 14, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
+    aisles: { pitch: 12, width: 1.0 },
+    frontHeight: 12.5, // the plateau behind D-1/D-2 (+10.6..+14); the scaffold reaches down to it
+    platform: 'Scaffold on the 逆バンクオアシス plateau behind D-1 / D-2',
+    permanent: false,
+    fence: 'none',
+    stackedWith: ['D1_4'],
+    unverified: ['position and size (changes yearly; not in OSM)'],
+  },
+  {
+    id: 'E_temp',
+    name: 'E 仮設（丘上台地）',
+    osmWays: [],
+    sRange: [1575, 1660],
+    side: 1,
+    // on the hilltop plateau the E-1 relief cuts 16–40 m behind the E-1 rows
+    lateralFront: [[1575, 72], [1600, 61], [1633, 55], [1660, 56]],
+    lateralBack: [[1575, 87], [1600, 76], [1633, 70], [1660, 71]],
+    structure: 'scaffold',
+    tiers: [{ id: 'E-temp', rows: 18, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
+    aisles: { pitch: 12, width: 1.0 },
+    frontHeight: [[1575, 12.3], [1600, 9.5], [1633, 7.6], [1660, 7.3]], // plateau (E-1 top + 1) + 0.4
+    platform: 'Scaffold on the hilltop plateau behind E-1 (58 m ASL)',
+    permanent: false,
+    fence: 'none',
+    stackedWith: ['E1'],
+    unverified: ['position and size (changes yearly; not in OSM)'],
+  },
   // ---- Degner → crossover (right side) --------------------------------------------------
   {
     id: 'G_cross',

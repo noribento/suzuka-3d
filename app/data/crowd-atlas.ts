@@ -27,6 +27,8 @@ export const CROWD_ATLAS = {
   padM: 0.08,
   /** rows per variant block: rows [0, figures) bare, [figures, 2·figures) with a cap */
   figures: 14,
+  /** the GLBs are authored at ≈ 2 units / m (male_standing is 3.832 tall): the bake's uniform scale to metres */
+  modelScale: 1.78 / 3.832,
 } as const
 
 export interface CrowdFigure {

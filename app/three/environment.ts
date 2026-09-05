@@ -389,6 +389,8 @@ export interface EnvBuildContext {
   /** the trees' generator (seed 7); the crowd seeds its own */
   rng: Rng
   standZones: StandZone[]
+  /** world-space discs (x, z, radius) the trees stay out of — filled by the builders that place buildings and paving */
+  keepOut: { x: number; z: number; r: number }[]
 }
 
 export interface Environment {
@@ -415,12 +417,13 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   const ctx: EnvBuildContext = {
     track, terrain, ground, group, quality, assets, boxes, rng,
     standZones: STANDS.map((d) => ({ from: d.sRange[0], to: d.sRange[1], side: d.side, lateralBack: lateralBackMax(d.lateralBack) })),
+    keepOut: [],
   }
 
   // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
   const stands = buildStands(ctx)
   // --- spectators: instanced billboards per seat, in 60 m bays ---------------------------------
-  const crowd = buildCrowd(track, stands.seats, quality.crowd, 11, quality.msaa > 0)
+  const crowd = buildCrowd(track, stands.seats, quality, assets, 11)
   for (const o of crowd.objects) group.add(o)
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)

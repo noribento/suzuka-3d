@@ -86,7 +86,10 @@ export interface Quality {
    * and zero external dependencies; `?assets=0|1` overrides (see `assetsOverride`).
    */
   assets: boolean
-  /** near-field 3D spectators (instanced meshes); the rest are impostors. 0 = impostors only */
+  /**
+   * near-field 3D spectators: a stand bay inside 55 m draws up to a third of this many of its
+   * front-row people as instanced figures, the rest of the bay stays impostors. 0 = impostors only
+   */
   crowdNear: number
   /** near-field grass blade instances (0 = the tiled ground texture alone) */
   grass: number

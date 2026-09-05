@@ -7,6 +7,10 @@ import type { EnvBuildContext } from './environment'
 import { brakingRubberTexture, labelTexture } from './textures'
 import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
+import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_RACEWAY, type OsmFeature } from '~/data/suzuka-facilities'
+import { BUILDINGS } from '~/data/suzuka-facilities-spec'
+import { addMacro } from './track-mesh'
+import { asphaltMaps } from './textures'
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
@@ -198,8 +202,244 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
   }
 
   buildPowerLines(ctx)
+  buildOsmBuildings(ctx)
+  buildSecondaryPaving(ctx)
 
   return { flagTime }
+}
+
+// ---------------------------------------------------------------- OSM building massing
+
+/** eaves height (m) of an OSM building from its tags, else from its use and footprint area */
+function buildingHeight(f: OsmFeature, area: number): number {
+  const t = f.tags
+  const explicit = Number(t.height)
+  if (explicit > 0) return explicit
+  const levels = Number(t['building:levels'])
+  if (levels > 0) return levels * 3.2 + 0.6
+  const name = t.name ?? ''
+  const kind = t.building ?? 'yes'
+  if (kind === 'roof') return 4.0
+  if (kind === 'industrial' || kind === 'warehouse') return area > 3000 ? 12 : 9
+  // the hotel wings (ノース館 / ウエスト館 / イースト館 / サウス館) are 4–5 storeys, the main building more
+  if (name.includes('ホテル')) return 19
+  if (name.endsWith('館')) return 14.5
+  if (name.includes('コースター')) return 16
+  if (area < 60) return 3.2
+  if (area < 300) return 4.5
+  if (area < 1500) return 7
+  if (area < 5000) return 10
+  return 12
+}
+
+/**
+ * Every OSM building on the modelled terrain that no other builder owns (the pit building, the
+ * spec'd buildings and the paddock box are the pit complex's): the Motopia park and its hotel
+ * behind the final corner, the works and warehouses behind the Esses and Turn 3, the west-area
+ * huts and gates. Flat massing — walls from the footprint, a level roof at the eaves height above
+ * the footprint's highest ground — in three material groups (park / works / canopies).
+ */
+function buildOsmBuildings(ctx: EnvBuildContext) {
+  const { track, terrain, group, keepOut } = ctx
+  const cx = track.center.x, cz = track.center.z
+  const inside = (x: number, z: number) => Math.abs(x - cx) < 1600 && Math.abs(z - cz) < 1200
+  const owned = new Set<number>([OSM_PIT_BUILDING.id, ...BUILDINGS.map((b) => b.osmWay).filter((id): id is number => id !== null)])
+  const inPaddock = (f: OsmFeature) => {
+    const [s, lat] = f.centroid
+    return lat < -57 && lat > -135 && (s > 5530 || s < 260) && !f.fold
+  }
+  const groups: Record<'park' | 'works' | 'canopy', { walls: THREE.BufferGeometry[]; roofs: THREE.BufferGeometry[] }> = {
+    park: { walls: [], roofs: [] },
+    works: { walls: [], roofs: [] },
+    canopy: { walls: [], roofs: [] },
+  }
+  const k = track.enScale
+  const v = new THREE.Vector3()
+  let count = 0
+  for (const f of OSM_BUILDINGS) {
+    if (!f.closed || f.en.length < 3 || owned.has(f.id) || inPaddock(f)) continue
+    // centroid and ground range of the footprint
+    let ce = 0, cn = 0
+    for (const [e, n] of f.en) {
+      ce += e / f.en.length
+      cn += n / f.en.length
+    }
+    track.enToWorld(ce, cn, v)
+    if (!inside(v.x, v.z)) continue
+    // buildings right beside the road were never modelled as boxes here: 6 m clearance of the verge
+    const near = terrain.distanceToTrack(v.x, v.z, 80)
+    if (near.i >= 0 && near.d < track.halfWidthAt(near.s) + 6) continue
+    let area = 0
+    let gMin = Infinity, gMax = -Infinity, rMax = 0
+    for (let i = 0; i < f.en.length; i++) {
+      const [e0, n0] = f.en[i]!, [e1, n1] = f.en[(i + 1) % f.en.length]!
+      area += (e0 * n1 - e1 * n0) / 2
+      track.enToWorld(e0, n0, v)
+      const g = terrain.meshHeightAt(v.x, v.z)
+      if (g < gMin) gMin = g
+      if (g > gMax) gMax = g
+      rMax = Math.max(rMax, Math.hypot(e0 - ce, n0 - cn) * k)
+    }
+    area = Math.abs(area)
+    if (area < 12) continue
+    const kind = f.tags.building ?? 'yes'
+    const eaves = buildingHeight(f, area)
+    const base = gMin - 0.4
+    const height = eaves + Math.min(6, gMax - gMin) + 0.4
+    const shape = new THREE.Shape(f.en.map(([e, n]) => new THREE.Vector2(e, n)))
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false })
+    // local EN (x = e, y = n, z = up) → world (x = e·k, y = z + base, z = −n·k)
+    geo.applyMatrix4(new THREE.Matrix4().set(k, 0, 0, 0, 0, 0, 1, base, 0, -k, 0, 0, 0, 0, 0, 1))
+    // ExtrudeGeometry's UVs are in shape units (metres): scale to a 4 m tile
+    const uv = geo.attributes.uv as THREE.BufferAttribute
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 4, uv.getY(i) / 4)
+    const bucket = kind === 'roof' ? groups.canopy : kind === 'industrial' || kind === 'warehouse' ? groups.works : groups.park
+    for (const g of geo.groups) {
+      const part = new THREE.BufferGeometry()
+      for (const name of ['position', 'normal', 'uv']) {
+        const a = geo.getAttribute(name) as THREE.BufferAttribute
+        part.setAttribute(name, new THREE.BufferAttribute((a.array as Float32Array).slice(g.start * a.itemSize, (g.start + g.count) * a.itemSize), a.itemSize))
+      }
+      ;(g.materialIndex === 0 ? bucket.roofs : bucket.walls).push(part)
+    }
+    geo.dispose()
+    track.enToWorld(ce, cn, v)
+    keepOut.push({ x: v.x, z: v.z, r: rMax + 6 })
+    count++
+  }
+  const mats = {
+    park: [new THREE.MeshStandardMaterial({ color: 0xece6d8, roughness: 0.8 }), new THREE.MeshStandardMaterial({ color: 0x9d9a94, roughness: 0.9 })],
+    works: [new THREE.MeshStandardMaterial({ color: 0xc9d0d6, roughness: 0.6, metalness: 0.15 }), new THREE.MeshStandardMaterial({ color: 0x8b9298, roughness: 0.7, metalness: 0.2 })],
+    canopy: [new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.8 }), new THREE.MeshStandardMaterial({ color: 0xb8b4ac, roughness: 0.8 })],
+  }
+  for (const key of ['park', 'works', 'canopy'] as const) {
+    const g = groups[key]
+    for (const [geos, mat, name] of [[g.walls, mats[key][0]!, 'Walls'], [g.roofs, mats[key][1]!, 'Roofs']] as const) {
+      if (!geos.length) continue
+      const merged = mergeGeometries(geos, false)
+      for (const x of geos) x.dispose()
+      if (!merged) continue
+      const mesh = new THREE.Mesh(merged, mat)
+      mesh.name = `osm${key[0]!.toUpperCase()}${key.slice(1)}${name}`
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      group.add(mesh)
+    }
+  }
+  if (import.meta.dev) console.info(`[props] ${count} OSM buildings massed`)
+}
+
+// ---------------------------------------------------------------- secondary paving
+
+/**
+ * Asphalt ribbon along a world polyline (open or closed), `width` metres wide, draped on the
+ * terrain mesh with `lift`; mitred joints from the averaged segment normals.
+ */
+function polylineRibbon(pts: THREE.Vector3[], width: number, closed: boolean, yAt: (x: number, z: number) => number, lift: number, tileM: number): THREE.BufferGeometry | null {
+  const n = pts.length
+  if (n < 2) return null
+  const count = closed ? n + 1 : n
+  const pos = new Float32Array(count * 6)
+  const uv = new Float32Array(count * 4)
+  const idx: number[] = []
+  let along = 0
+  const dir = new THREE.Vector3(), prev = new THREE.Vector3(), next = new THREE.Vector3(), side = new THREE.Vector3()
+  for (let i = 0; i < count; i++) {
+    const p = pts[i % n]!
+    const a = pts[(i - 1 + n) % n]!, b = pts[(i + 1) % n]!
+    prev.copy(p).sub(a).setY(0)
+    next.copy(b).sub(p).setY(0)
+    if (!closed && i === 0) prev.copy(next)
+    if (!closed && i === n - 1) next.copy(prev)
+    if (prev.lengthSq() > 0) prev.normalize()
+    if (next.lengthSq() > 0) next.normalize()
+    dir.copy(prev).add(next)
+    if (dir.lengthSq() < 1e-6) dir.copy(next)
+    dir.normalize()
+    side.set(dir.z, 0, -dir.x).multiplyScalar(width / 2)
+    if (i > 0) along += p.distanceTo(pts[(i - 1) % n]!)
+    for (const [j, sgn] of [[0, 1], [1, -1]] as const) {
+      const x = p.x + side.x * sgn, z = p.z + side.z * sgn
+      const o = (i * 2 + j) * 3
+      pos[o] = x
+      pos[o + 1] = yAt(x, z) + lift
+      pos[o + 2] = z
+      uv[(i * 2 + j) * 2] = j
+      uv[(i * 2 + j) * 2 + 1] = along / tileM
+    }
+    if (i < count - 1) {
+      const q = i * 2
+      idx.push(q, q + 2, q + 1, q + 1, q + 2, q + 3)
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * The asphalt that is not the Grand Prix lap: the two-wheel chicanes and slip roads (200R, the
+ * Astemo chicane and its bypass, the bike pit entry), the West Course pit lane, the South Course
+ * loop inside the west section and the kart tracks beside the Motopia park — all OSM raceway
+ * ways with surface=asphalt that are not part of the lap. Draped on the terrain, so they read as
+ * the grey ribbons the TV wide shots show across the infield.
+ */
+function buildSecondaryPaving(ctx: EnvBuildContext) {
+  const { track, terrain, group, keepOut } = ctx
+  const maps = asphaltMaps(false)
+  const mat = new THREE.MeshStandardMaterial({ map: maps.map, normalMap: maps.normalMap, roughnessMap: maps.roughnessMap, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+  addMacro(mat, new THREE.Vector2(40 / 250, 40 / 250))
+  const cx = track.center.x, cz = track.center.z
+  const inside = (x: number, z: number) => Math.abs(x - cx) < 1600 && Math.abs(z - cz) < 1200
+  /** the lap itself, its pit lane and the two-wheel / kart ways: widths by role */
+  const widthOf = (f: OsmFeature): number => {
+    const name = f.tags.name ?? ''
+    if (name.includes('カート')) return 7
+    if (name.includes('南コース')) return 10
+    if (name.includes('Pit Lane')) return 10
+    return 9
+  }
+  const geos: THREE.BufferGeometry[] = []
+  let count = 0
+  for (const f of OSM_RACEWAY) {
+    // the lap's own ways sit on the centreline (dmin ≈ 0 and their s range covers them): skip
+    // anything that hugs the road for its whole length; keep what leaves it
+    if (f.lateral[1] - f.lateral[0] < 6 && f.dmin < 4) continue
+    if (f.tags.name === 'Pit Lane') continue
+    const pts = f.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
+    if (!pts.every((p) => inside(p.x, p.z))) continue
+    const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => terrain.meshHeightAt(x, z), 0.06, 12)
+    if (!g) continue
+    geos.push(g)
+    // the kart and South Course loops are tree-free inside as well as on the ribbon
+    if (f.closed) {
+      let ce = 0, cn = 0
+      for (const p of pts) {
+        ce += p.x / pts.length
+        cn += p.z / pts.length
+      }
+      let r = 0
+      for (const p of pts) r = Math.max(r, Math.hypot(p.x - ce, p.z - cn))
+      if (r < 120) keepOut.push({ x: ce, z: cn, r: r + 8 })
+      else for (const p of pts) keepOut.push({ x: p.x, z: p.z, r: 14 })
+    } else for (const p of pts) keepOut.push({ x: p.x, z: p.z, r: 10 })
+    count++
+  }
+  if (geos.length) {
+    const merged = mergeGeometries(geos, false)
+    for (const g of geos) g.dispose()
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, mat)
+      mesh.name = 'secondaryPaving'
+      mesh.receiveShadow = true
+      mesh.renderOrder = 1
+      group.add(mesh)
+    }
+  }
+  if (import.meta.dev) console.info(`[props] ${count} secondary paved ways`)
 }
 
 /**
