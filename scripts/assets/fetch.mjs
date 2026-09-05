@@ -138,7 +138,13 @@ for (const src of SOURCES) {
   console.log(`${src.key} [${src.resolver}] ${src.site} — ${src.name}`)
   try {
     if (src.resolver === 'misc-local') checkLocal(src)
-    else await fetchSource(src)
+    else if (src.resolver === 'bake') {
+      // produced in-repo (scripts/assets/bake-crowd-atlas.mjs), nothing to download
+      for (const rel of Object.keys(src.files)) {
+        if (!existsSync(join(DL, src.key, rel))) throw new Error(`${rel} missing — run ${src.bakeScript}`)
+      }
+      console.log('  baked locally, present')
+    } else await fetchSource(src)
   } catch (err) {
     failures.push(`${src.key}: ${err.message}`)
     console.log(`  ✗ ${err.message}`)

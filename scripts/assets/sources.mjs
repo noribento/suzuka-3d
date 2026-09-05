@@ -21,7 +21,7 @@
 /** User-Agent for every request: poly.pizza needs the Mozilla prefix, Wikimedia wants a contact. */
 export const UA = 'Mozilla/5.0 (compatible; suzuka3d/0.1; +mailto:bhyg756@gmail.com)'
 
-export const RES_PX = { '1k': 1024, '2k': 2048 }
+export const RES_PX = { '1k': 1024, '2k': 2048, '4k': 4096 }
 
 /** Licences that may ever reach public/assets (checked by `import-misc.mjs --check`). */
 export const LICENCES = {
@@ -285,6 +285,27 @@ export const SOURCES = [
     entry: 'scene.gltf',
     licenceFile: 'license.txt',
     licenceMarker: 'CC-BY-4.0',
+  },
+  // Baked in-repo from the CC0 Quaternius / Eclair figures above (scripts/assets/bake-crowd-atlas.mjs):
+  // the far-field spectator impostor atlas. 128 px cells, one row per figure (14 poses, then the
+  // same 14 wearing a cap), columns = 8 yaws × 2 camera elevations. diff = lit RGBA with the
+  // clothing baked white / light grey; mask = R shirt+cap, G pants, B skin (what the runtime tints).
+  {
+    key: 'tex/crowd_atlas',
+    kind: 'texture',
+    site: 'Quaternius (baked by suzuka-3d)',
+    name: 'Spectator impostor atlas — Background Posed Humans Pack',
+    pageUrl: 'https://quaternius.com/packs/backgroundposedhumans.html',
+    author: 'Quaternius',
+    authorUrl: 'https://quaternius.com/packs/backgroundposedhumans.html',
+    credit: 'Background characters by Quaternius (GLB conversion by Eclair Assets); impostor atlas baked by scripts/assets/bake-crowd-atlas.mjs',
+    licence: 'CC0-1.0',
+    resolver: 'bake',
+    bakeScript: 'node scripts/assets/bake-crowd-atlas.mjs',
+    res: '4k', // keeps the 2048 × 4096 canvas as baked (loadRaw only shrinks above RES_PX)
+    use: 'far-field spectator impostors (8 yaws × 2 elevations × 28 figure rows)',
+    files: { 'crowd_atlas_diff.png': 'bake://crowd-atlas/diff', 'crowd_atlas_mask.png': 'bake://crowd-atlas/mask' },
+    maps: { diff: 'crowd_atlas_diff.png', mask: 'crowd_atlas_mask.png' },
   },
   // Kept for provenance / later phases, never imported: the Quaternius originals (FBX/OBJ/Blend)
   // behind the Eclair GLBs, and the Universal Base Characters + Animation Library (VAT crowd).

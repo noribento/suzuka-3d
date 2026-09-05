@@ -285,6 +285,18 @@ export const CREDITS: Credit[] = [
   },
   {
     kind: 'asset',
+    title: 'Spectator impostor atlas — Background Posed Humans Pack',
+    author: 'Quaternius',
+    authorUrl: 'https://quaternius.com/packs/backgroundposedhumans.html',
+    url: 'https://quaternius.com/packs/backgroundposedhumans.html',
+    site: 'Quaternius (baked by suzuka-3d)',
+    licence: 'CC0-1.0',
+    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    modified: true,
+    attribution: '"Spectator impostor atlas — Background Posed Humans Pack" by Quaternius (Quaternius (baked by suzuka-3d), https://quaternius.com/packs/backgroundposedhumans.html), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)',
+  },
+  {
+    kind: 'asset',
     title: 'Bleacher',
     author: 'JanStano',
     authorUrl: 'https://sketchfab.com/JanStano',
@@ -339,4 +351,4 @@ export const CREDITS: Credit[] = [
   },
 ]
 
-export const ASSETS_GENERATED = '2026-09-05T05:29:44.653Z'
+export const ASSETS_GENERATED = '2026-09-05T06:06:34.793Z'

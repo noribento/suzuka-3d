@@ -1,0 +1,190 @@
+<!doctype html>
+<!--
+  Spectator impostor bake page (driven by scripts/assets/bake-crowd-atlas.mjs).
+
+  Renders each posed figure from 8 yaws × 2 elevations into 128 px cells of one 2048² canvas
+  (one atlas row per figure: columns 0–7 = low camera, 8–15 = high camera, yaw 0 faces the
+  camera and increases clockwise seen from above). Two images come out of the same geometry:
+    colour  — lit, RGBA; clothing baked white / light grey so the runtime multiplies its own tint
+    mask    — unlit, R = shirt, G = pants, B = skin (what the runtime tints), black = shoes/other
+  Every cell covers CELL_M × CELL_M metres with the figure's feet PAD_M above the bottom edge, so
+  a fixed-size quad at runtime shows every figure at true scale.
+-->
+<meta charset="utf-8">
+<style>body{margin:0;background:#000}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+
+const params = new URLSearchParams(location.search)
+const CELL = Number(params.get('cell') ?? 128)
+const CELL_M = Number(params.get('cellM') ?? 2.0)   // metres covered by one cell edge
+const PAD_M = Number(params.get('padM') ?? 0.08)    // feet above the cell's bottom edge
+const YAWS = Number(params.get('yaws') ?? 8)
+const ELEVS = [Number(params.get('elev0') ?? 8), Number(params.get('elev1') ?? 32)] // camera pitch (deg, looking down)
+const COLS = YAWS * ELEVS.length                    // 16 → one row per figure
+const SIZE_W = Number(params.get('w') ?? 2048)
+const SIZE_H = Number(params.get('h') ?? 4096)
+// The pack is authored at ~2 units per metre (Male_Standing spans 3.83 units): one uniform factor
+// brings a standing man to 1.78 m and keeps every pose's proportions.
+const SCALE = Number(params.get('scale') ?? (1.78 / 3.832))
+
+const canvas = document.getElementById('c')
+canvas.width = SIZE_W
+canvas.height = SIZE_H
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true, premultipliedAlpha: false })
+renderer.setPixelRatio(1)
+renderer.setClearColor(0x000000, 0)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.setScissorTest(true)
+
+// Neutral, view-independent studio light: a hemisphere plus a key from the camera's side so the
+// baked shading never contradicts the runtime sun too strongly (the runtime adds its own).
+const scene = new THREE.Scene()
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.6))
+const key = new THREE.DirectionalLight(0xffffff, 1.1)
+scene.add(key)
+const cam = new THREE.OrthographicCamera(-CELL_M / 2, CELL_M / 2, CELL_M, 0, -20, 40)
+const loader = new GLTFLoader()
+
+const COLOUR_MATS = {
+  Shirt: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }),
+  Pants: new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.9 }),
+  Skin: new THREE.MeshStandardMaterial({ color: 0xd9a884, roughness: 0.7 }),
+  Shoes: new THREE.MeshStandardMaterial({ color: 0x2a2623, roughness: 0.8 }),
+}
+const MASK_MATS = {
+  Shirt: new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+  Pants: new THREE.MeshBasicMaterial({ color: 0x00ff00 }),
+  Skin: new THREE.MeshBasicMaterial({ color: 0x0000ff }),
+  Shoes: new THREE.MeshBasicMaterial({ color: 0x000000 }),
+}
+COLOUR_MATS.Cap = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 })
+MASK_MATS.Cap = MASK_MATS.Shirt
+
+/**
+ * A baseball cap for the 'cap' variant rows: dome + brim sized for the pack's heads, placed on
+ * the top of the Skin mesh (the head is its highest part; the brim points +z = the way the figure
+ * faces at yaw 0). Team caps are the most visible single feature of a Suzuka crowd.
+ */
+function makeCap (skinMesh, shirtMesh) {
+  const g = skinMesh.geometry
+  g.computeBoundingBox()
+  const pos = g.attributes.position
+  // The head is the highest skin near the torso axis — a raised arm (cheering, waving) reaches
+  // higher but sits well off the axis, so only vertices within ~13 cm of the shirt's centroid count.
+  let ax = 0, az = 0, an = 0
+  const sp = shirtMesh.geometry.attributes.position
+  for (let i = 0; i < sp.count; i++) { ax += sp.getX(i); az += sp.getZ(i); an++ }
+  ax /= Math.max(1, an); az /= Math.max(1, an)
+  const rMax = 0.13 / SCALE
+  let top = -Infinity
+  for (let i = 0; i < pos.count; i++) {
+    if (Math.hypot(pos.getX(i) - ax, pos.getZ(i) - az) < rMax) top = Math.max(top, pos.getY(i))
+  }
+  const h = g.boundingBox.max.y - g.boundingBox.min.y
+  let cx = 0, cz = 0, n = 0
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) > top - h * 0.08 && Math.hypot(pos.getX(i) - ax, pos.getZ(i) - az) < rMax) { cx += pos.getX(i); cz += pos.getZ(i); n++ }
+  }
+  cx /= Math.max(1, n); cz /= Math.max(1, n)
+  const r = 0.115 / SCALE
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), COLOUR_MATS.Cap)
+  dome.scale.set(1, 0.62, 1)
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.05, r * 1.05, 0.02 / SCALE, 12, 1, false, -Math.PI * 0.55, Math.PI * 1.1), COLOUR_MATS.Cap)
+  brim.position.set(0, 0, r * 0.35)
+  brim.scale.set(1, 1, 1.45)
+  const cap = new THREE.Group()
+  cap.add(dome, brim)
+  cap.position.set(cx, top - r * 0.35, cz)
+  cap.name = 'Cap'
+  return cap
+}
+
+const partOf = (mesh) => {
+  const n = (mesh.name || '').toLowerCase()
+  if (n.includes('shirt')) return 'Shirt'
+  if (n.includes('pant')) return 'Pants'
+  if (n.includes('skin')) return 'Skin'
+  if (n.includes('shoe')) return 'Shoes'
+  if (n.includes('cap')) return 'Cap'
+  return 'Shirt'
+}
+
+async function loadFigure (url, withCap) {
+  const gltf = await loader.loadAsync(url)
+  const root = gltf.scene
+  root.updateMatrixWorld(true)
+  // feet on y = 0, centred in x/z on the bounding box
+  const box = new THREE.Box3().setFromObject(root)
+  const centre = box.getCenter(new THREE.Vector3())
+  const pivot = new THREE.Group()
+  root.position.set(-centre.x, -box.min.y, -centre.z)
+  pivot.add(root)
+  pivot.scale.setScalar(SCALE)
+  const meshes = []
+  root.traverse((o) => { if (o.isMesh) { meshes.push(o); o.castShadow = false; o.receiveShadow = false } })
+  if (withCap) {
+    const skin = meshes.find((m) => partOf(m) === 'Skin')
+    const shirt = meshes.find((m) => partOf(m) === 'Shirt')
+    if (skin && shirt) {
+      const cap = makeCap(skin, shirt)
+      skin.parent.add(cap)
+      cap.traverse((o) => { if (o.isMesh) { o.name = 'Cap'; meshes.push(o) } })
+    }
+  }
+  return { pivot, meshes, height: (box.max.y - box.min.y) * SCALE, width: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * SCALE }
+}
+
+function renderCell (pivot, col, row, yawDeg, pitchDeg) {
+  // camera on a circle around the figure at the given pitch, looking at mid-height of the cell
+  const yaw = THREE.MathUtils.degToRad(yawDeg)
+  const pitch = THREE.MathUtils.degToRad(pitchDeg)
+  const d = 10
+  cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d + CELL_M / 2, Math.cos(yaw) * Math.cos(pitch) * d)
+  cam.up.set(0, 1, 0)
+  cam.lookAt(0, CELL_M / 2, 0)
+  // frame: the cell spans CELL_M vertically; the look-at point is CELL_M/2 above the feet, so in
+  // the camera's frame the feet sit (CELL_M/2)·cos(pitch) below centre — shift the window so they
+  // land PAD_M above the bottom edge regardless of pitch
+  cam.left = -CELL_M / 2
+  cam.right = CELL_M / 2
+  const groundOffset = (CELL_M / 2 - PAD_M) - (CELL_M / 2) * Math.cos(pitch)
+  cam.top = CELL_M / 2 + groundOffset
+  cam.bottom = -CELL_M / 2 + groundOffset
+  cam.updateProjectionMatrix()
+  key.position.copy(cam.position).add(new THREE.Vector3(-3, 6, 0))
+  key.target.position.set(0, CELL_M / 2, 0)
+  key.target.updateMatrixWorld()
+  const x = col * CELL
+  const y = SIZE_H - (row + 1) * CELL // GL rows from the bottom, atlas rows counted from the top
+  renderer.setViewport(x, y, CELL, CELL)
+  renderer.setScissor(x, y, CELL, CELL)
+  renderer.render(scene, cam)
+}
+
+window.bakeFigures = async function (figures, pass) {
+  renderer.clear()
+  const layout = []
+  for (let f = 0; f < figures.length; f++) {
+    const fig = await loadFigure(figures[f].url, !!figures[f].cap)
+    for (const m of fig.meshes) m.material = (pass === 'mask' ? MASK_MATS : COLOUR_MATS)[partOf(m)]
+    scene.add(fig.pivot)
+    for (let e = 0; e < ELEVS.length; e++) {
+      for (let k = 0; k < YAWS; k++) {
+        fig.pivot.rotation.y = 0
+        renderCell(fig.pivot, e * YAWS + k, f, (k / YAWS) * 360, ELEVS[e])
+      }
+    }
+    scene.remove(fig.pivot)
+    layout.push({ id: figures[f].id, row: f, height: Number(fig.height.toFixed(3)), width: Number(fig.width.toFixed(3)), tris: fig.meshes.reduce((s, m) => s + (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3, 0) })
+  }
+  renderer.setScissorTest(false)
+  const dataUrl = canvas.toDataURL('image/png')
+  renderer.setScissorTest(true)
+  return { dataUrl, layout, cell: CELL, cellM: CELL_M, padM: PAD_M, yaws: YAWS, elevs: ELEVS, cols: COLS, width: SIZE_W, height: SIZE_H, scale: SCALE }
+}
+window.bakeReady = true
+</script>

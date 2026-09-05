@@ -64,6 +64,11 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 - "Trees" by Quaternius (poly.pizza, https://poly.pizza/m/etFGNvsiFv), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/trees`
 
+### Quaternius (baked by suzuka-3d)
+
+- "Spectator impostor atlas — Background Posed Humans Pack" by Quaternius (Quaternius (baked by suzuka-3d), https://quaternius.com/packs/backgroundposedhumans.html), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/crowd_atlas/diff`, `tex/crowd_atlas/mask`
+
 ### Sketchfab
 
 - This work is based on "Bleacher" (https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b) by JanStano (https://sketchfab.com/JanStano) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px)
@@ -84,4 +89,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-05T05:29:44.653Z · 73 files · 28.72 MB
+Generated 2026-09-05T06:06:34.793Z · 75 files · 29.63 MB

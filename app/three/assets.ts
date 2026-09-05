@@ -23,7 +23,7 @@ import { assetsOverride, type Quality } from './quality'
 
 export type AssetKind = 'texture' | 'model'
 export type AssetFormat = 'ktx2' | 'webp' | 'glb'
-export type AssetRole = 'diff' | 'nor_gl' | 'arm' | 'opacity' | 'model'
+export type AssetRole = 'diff' | 'nor_gl' | 'arm' | 'opacity' | 'mask' | 'model'
 
 export interface ManifestAsset {
   kind: AssetKind

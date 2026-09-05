@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-05T05:29:44.653Z",
+  "generated": "2026-09-05T06:06:34.793Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -1340,6 +1340,50 @@
         "licence": "CC0-1.0",
         "author": "Lennart Demes",
         "sha256Source": "0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1"
+      },
+      "modified": true
+    },
+    "tex/crowd_atlas/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/crowd_atlas_diff.732eb65f.ktx2",
+      "format": "ktx2",
+      "bytes": 670713,
+      "width": 2048,
+      "height": 4096,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "aspect": 0.5,
+      "source": {
+        "site": "Quaternius (baked by suzuka-3d)",
+        "name": "Spectator impostor atlas — Background Posed Humans Pack",
+        "pageUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "url": "bake://crowd-atlas/diff",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "sha256Source": "defbc324e373f6b60953e0338c7127e288b78534f5e393262bdee163cc67620f"
+      },
+      "modified": true
+    },
+    "tex/crowd_atlas/mask": {
+      "kind": "texture",
+      "path": "/assets/tex/crowd_atlas_mask.67b9ecfe.ktx2",
+      "format": "ktx2",
+      "bytes": 285768,
+      "width": 2048,
+      "height": 4096,
+      "colorSpace": "linear",
+      "role": "mask",
+      "aspect": 0.5,
+      "source": {
+        "site": "Quaternius (baked by suzuka-3d)",
+        "name": "Spectator impostor atlas — Background Posed Humans Pack",
+        "pageUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "url": "bake://crowd-atlas/mask",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "sha256Source": "03551fadf519f92314f0a51207768a21c26f0822cb1c3b28088c01c4370a6afe"
       },
       "modified": true
     },
