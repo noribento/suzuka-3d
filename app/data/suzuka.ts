@@ -267,18 +267,6 @@ export const TV_CAMERA_SPOTS: number[] = [
   250, 640, 1180, 1500, 1960, 2230, 2640, 3100, 3650, 4350, 4900, 5250, 5560,
 ]
 
-/** Grandstands: [fromS, toS, side(+1 left / -1 right), depth(m), hasRoof] */
-export const GRANDSTANDS: [number, number, 1 | -1, number, boolean][] = [
-  [5560, 5818, 1, 26, true], // main grandstand (part A, before the line)
-  [0, 380, 1, 26, true], // main grandstand (part B, after the line)
-  [470, 780, 1, 16, false], // Turns 1-2
-  [1150, 1420, 1, 14, false], // S Curves outside
-  [2560, 2720, -1, 14, false], // Hairpin
-  [3540, 3800, -1, 16, false], // Spoon
-  [4820, 5000, -1, 14, false], // 130R
-  [5140, 5320, 1, 16, false], // Casio Triangle
-]
-
 export const CENTERLINE_EN: [number, number][] = [
   [681.79, -137.77], [802.93, -283.6], [944.63, -457.26], [957.6, -475.63], [964.82, -494.77],
   [968.57, -512.03], [968.29, -528.95], [966.19, -541.97], [949.66, -593.07], [941.8, -606.43],

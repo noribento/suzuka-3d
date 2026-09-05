@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { CIRCUIT, GRANDSTANDS } from '~/data/suzuka'
+import { CIRCUIT } from '~/data/suzuka'
+import { alongAt, STANDS } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import { gravelRuns, ribbonGeometry, wallGeometry } from './track-mesh'
 import type { Ground } from './ground'
@@ -23,6 +24,8 @@ interface Zone {
   lat?: Fn
   /** height of the base the zone stands on, relative to the road plane (default: the ground) */
   base?: Fn
+  /** top of the fence above its base (default 3.6 m) */
+  top?: number
 }
 
 function inZone(track: Track, s: number, z: Zone): boolean {
@@ -167,7 +170,25 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
     const fenceGeos: THREE.BufferGeometry[] = []
     const fencePostMatrices: THREE.Matrix4[] = []
     const fencePostS: number[] = []
-    const zones: Zone[] = GRANDSTANDS.map(([from, to, side]) => ({ from: from - 20, to: to + 20, side }))
+    // one run at the foot of every stand, 3 m in front of its first row (never inside the barrier
+    // line); 'double' adds a second run on the barrier line, 'low-centre' lowers the middle third,
+    // 'none' (the roofed hospitality boxes) has no fence of its own. The Q2 bars sit in the
+    // figure-8 fold where (s, lateral) is unreliable: the chicane's TecPro run covers them.
+    const zones: Zone[] = []
+    for (const d of STANDS) {
+      if (d.fence === 'none' || d.id === 'Q2') continue
+      const front: Fn = (s) => d.side * Math.max(Math.abs(alongAt(d.lateralFront, s, d.sRange)) - 3, hwAt(s) + dist(s, d.side) + 0.35)
+      const [from, to] = d.sRange
+      const len = forwardDelta(from, to, L)
+      if (d.fence === 'low-centre') {
+        zones.push({ from, to: from + len / 3, side: d.side, lat: front })
+        zones.push({ from: from + len / 3, to: from + (2 * len) / 3, side: d.side, lat: front, top: 2.4 })
+        zones.push({ from: from + (2 * len) / 3, to, side: d.side, lat: front })
+      } else {
+        zones.push({ from, to, side: d.side, lat: front })
+        if (d.fence === 'double') zones.push({ from, to, side: d.side })
+      }
+    }
     // pit side of the main straight: on the verge along the entry road, on top of the pit wall, then along the exit road
     zones.push({ from: pit.entryS, to: wallZone.from, side: -1 })
     zones.push({ from: wallZone.from, to: wallZone.to, side: -1, lat: () => pit.wallOffset, base: () => 1.2 })
@@ -175,15 +196,17 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
     for (const z of zones) {
       const lat: Fn = z.lat ?? ((s) => z.side * (hwAt(s) + dist(s, z.side) + 0.35))
       const base: Fn = z.base ?? ((s) => groundAt(s, lat(s)))
+      const top = z.top ?? 3.6
       // 20 cm diamonds both ways: 14 tiles up the 2.8 m of mesh
-      fenceGeos.push(wallGeometry(track, z.from, z.to, lat, (s) => base(s) + 0.8, (s) => base(s) + 3.6, 4, 0.2, 0.2))
+      fenceGeos.push(wallGeometry(track, z.from, z.to, lat, (s) => base(s) + 0.8, (s) => base(s) + top, 4, 0.2, 0.2))
       const len = forwardDelta(z.from, z.to, L)
+      const postH = top - 0.3
       for (let d = 0; d <= len; d += 4) {
         const s = z.from + d
         const h = track.headingAt(s)
-        track.pointAt(s, lat(s), _p, base(s) + 2.2)
+        track.pointAt(s, lat(s), _p, base(s) + 0.55 + postH / 2)
         _q.setFromRotationMatrix(_m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
-        fencePostMatrices.push(new THREE.Matrix4().compose(_p, _q, new THREE.Vector3(0.8, 3.3, 0.8)))
+        fencePostMatrices.push(new THREE.Matrix4().compose(_p, _q, new THREE.Vector3(0.8, postH, 0.8)))
         fencePostS.push(track.wrap(s))
       }
     }

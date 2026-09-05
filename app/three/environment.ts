@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { GRANDSTANDS } from '~/data/suzuka'
+import { STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import type { Track } from '~/sim/track'
 import { makeGround, type Ground } from './ground'
@@ -8,7 +8,7 @@ import { grassSurfaceMaterial } from './materials'
 import { QUALITY, type Quality } from './quality'
 import { BoxPlacer } from './boxes'
 import type { AssetRegistry } from './assets'
-import { buildStands } from './stands'
+import { buildStands, facilityRelief, lateralBackMax } from './stands'
 import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
 import { buildFerrisWheel, buildTrees } from './vegetation'
@@ -39,7 +39,7 @@ export class Terrain {
   /** Terrain chunks (a 4×4 grid so follow cameras can frustum-cull the far side). */
   readonly group: THREE.Group
   private coarse: { x: number; z: number; y: number }[] = []
-  private readonly flatZone = { from: 5540, to: 90, latMin: -100, latMax: 62 }
+  private readonly flatZone = { from: 5540, to: 90, latMin: -100, latMax: 66 }
   private readonly NX: number
   private readonly NZ: number
   private readonly CH = 4
@@ -346,6 +346,16 @@ export class Terrain {
       const cap = t.py[st.i]! + t.rollLift(t.roll[st.i]!, st.lat) - ROAD_CUT + FILL_SLOPE * softRamp(Math.abs(st.lat) - t.hw[st.i]! - 6, 4)
       if (cap < h) h = cap
     }
+    // facility relief, after the caps so it wins: the hillside / embankment platforms the
+    // stands stand on (C's cut terrace, the D5 grass bank, the D plateau, the E hill, the level
+    // GP Square platform behind the main grandstand). Fill samples max() with the natural
+    // ground, faded at the plateau edges; cut samples (the deck band of a stand cut into a
+    // hill) replace it. Every ramp starts under a stand's retaining wall or beyond the run-off
+    const relief = facilityRelief(x, z, t)
+    if (relief) {
+      const hr = relief[0]
+      if (relief[2] || hr > h) h += (hr - h) * relief[1]
+    }
     return h
   }
 }
@@ -398,21 +408,19 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // only the trees draw from this generator (the crowd seeds its own)
   const rng = new Rng(seed)
 
-  // --- spectators: instanced billboards per seat (LOD back to the crowd texture far away) ---
-  const crowd = buildCrowd(track, quality.crowd, 11, quality.msaa > 0)
-  for (const o of crowd.objects) group.add(o)
-
-  // one placer shared by the pit complex and the props, so their single-material boxes merge
-  // per material across both
+  // one placer shared by the stands, the pit complex and the props, so their single-material
+  // boxes merge per material across all of them
   const boxes = new BoxPlacer(track, ground, group)
-  const hw = track.halfWidth
   const ctx: EnvBuildContext = {
     track, terrain, ground, group, quality, assets, boxes, rng,
-    standZones: GRANDSTANDS.map(([from, to, side, depth]) => ({ from, to, side, lateralBack: hw + 11 + depth })),
+    standZones: STANDS.map((d) => ({ from: d.sRange[0], to: d.sRange[1], side: d.side, lateralBack: lateralBackMax(d.lateralBack) })),
   }
 
-  // --- grandstands (merged: one mesh each for seats, structure and roofs) -------------------
-  buildStands(ctx)
+  // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
+  const stands = buildStands(ctx)
+  // --- spectators: instanced billboards per seat, in 60 m bays ---------------------------------
+  const crowd = buildCrowd(track, stands.seats, quality.crowd, 11, quality.msaa > 0)
+  for (const o of crowd.objects) group.add(o)
   // --- pit building, race control, paddock, Dunlop bridge ---------------------------------
   const { buildingRoofMat } = buildPitComplex(ctx)
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
@@ -434,7 +442,10 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     }
     flagTime.value += dt
     crowd.time.value += dt
-    if (cameraPos) crowd.update(cameraPos)
+    if (cameraPos) {
+      stands.update(cameraPos)
+      crowd.update(cameraPos)
+    }
   }
 
   return { group, terrain, ground, ferrisWheel, update }
