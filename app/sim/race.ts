@@ -1,7 +1,15 @@
 import { APEX_SPEED_TARGETS, CIRCUIT, SECTIONS } from '~/data/suzuka'
 import { DRIVERS, TEAMS, TEAM_ORDER, type Compound, type Driver } from '~/data/drivers'
+import { GARAGE_ORDER, garageIndexOf, garageS } from '~/data/suzuka-facilities-spec'
 import { Rng } from './random'
 import { forwardDelta, signedDelta, type Track } from './track'
+
+// The garage allocation must name every team exactly once, or a car would stop in another
+// team's box (or fall back to its team index). A warning, not an error: the e2e suite fails on
+// console.error and the fallback keeps the race running.
+if (GARAGE_ORDER.length !== TEAM_ORDER.length || TEAM_ORDER.some((t) => garageIndexOf(t) < 0)) {
+  console.warn('[race] GARAGE_ORDER does not match TEAM_ORDER — pit boxes fall back to the team index')
+}
 
 export type RaceStatus = 'grid' | 'lights' | 'racing' | 'finished'
 export type PitState = 'none' | 'entering' | 'lane' | 'box' | 'exiting'
@@ -371,8 +379,16 @@ export class RaceSim {
     return this.track.pitLateralAt(s)
   }
 
+  /**
+   * Pit-stop position: the centre of the team's garage. Garages are allocated from the pit exit
+   * (garage 1 = T1 end) in GARAGE_ORDER, which is not TEAM_ORDER, so the car's team index maps
+   * through its TeamId; a team missing from GARAGE_ORDER (should not happen — see the module
+   * check below) falls back to its team index.
+   */
   boxS(car: CarSim): number {
-    return this.track.wrap(CIRCUIT.pit.boxStartS + car.teamIndex * CIRCUIT.pit.boxSpacing)
+    const team = TEAM_ORDER[car.teamIndex]
+    const g = team ? garageIndexOf(team) : -1
+    return this.track.wrap(garageS(g >= 0 ? g : car.teamIndex))
   }
 
   /** Time gap in seconds from `behind` to `ahead`, using checkpoint timestamps. */

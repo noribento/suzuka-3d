@@ -27,9 +27,15 @@ export const CIRCUIT = {
    * (real: 415 m), and the exit road continues on the inside of the straight to merge just
    * before the Turn 1 braking zone. Net pit loss ≈ 22 s.
    *
-   * Lateral layout on the straight (metres right of the centreline): track edge 7.5 →
-   * pit wall 9.4 → fast lane 10.5–14.5 → working lane / boxes 14.5–20.5 → garages 21–34 →
-   * paddock beyond.
+   * Lateral layout on the straight (metres right of the centreline, OSM way 184422099 for the
+   * building): track edge 7.5 → pit wall 9.4 → fast lane 10–15 → working lane / boxes 15–20 →
+   * apron 20–24.7 → garages 25.1–56.7 → paddock beyond.
+   *
+   * Garage positions: `garageS(index)` in ~/data/suzuka-facilities-spec is authoritative
+   * (12 garages of 28.33 m, garage 1 at the T1 / pit-exit end, allocated in GARAGE_ORDER).
+   * `boxStartS` is kept for backwards compatibility as garage 1's centre; the garages run
+   * TOWARDS the final corner from it (garageS(i) = boxStartS − i·boxSpacing), so the old
+   * `boxStartS + i·boxSpacing` formula must not be used.
    */
   pit: {
     entryS: 5340, // pit lane starts diverging here (after the chicane)
@@ -38,12 +44,12 @@ export const CIRCUIT = {
     exitS: 430, // rejoins the track at the entry of Turn 1
     entryRamp: 90, // metres over which the lane peels away from the track
     exitRamp: 180, // metres over which the exit road blends back
-    laneOffset: -15.5, // lane centreline, metres to the right of the track centreline
+    laneOffset: -15.0, // lane centreline, metres to the right of the track centreline (OSM fast lane −14.1 ± 0.4)
     laneWidth: 10, // fast lane + working lane
     wallOffset: -9.4, // pit wall (between track and pit lane)
-    garageFront: -21, // pit-lane face of the pit building
-    boxStartS: 5640, // first garage
-    boxSpacing: 26, // one box per team
+    garageFront: -25.1, // pit-lane face of the pit building (OSM)
+    boxStartS: 5887.6, // garage 1 centre at the T1 end = garageS(0); see the note above
+    boxSpacing: 28.33, // one F1 garage = 4 boxes × 7.083 m
     speedLimit: 80 / 3.6,
   },
   /** Default overview camera azimuth (degrees, east = 0, counter-clockwise). -90 = camera south of the circuit, north up. */
