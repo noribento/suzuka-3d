@@ -625,9 +625,11 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
   const tileOf = (key: string, dflt: number) => (reg?.entry(key) as { tile?: number } | null)?.tile ?? dflt
   const plasterTile = tileOf('tex/white_plaster_02/diff', 1)
   const concreteTile = tileOf('tex/concrete046/diff', 2)
+  // white panels: flat albedo over the plaster's normal / AO / roughness — the white_plaster_02
+  // photo albedo itself is a warm mid grey (linear mean #8f887c) and rendered as a brown wall
   const plaster = (extra?: THREE.MeshStandardMaterialParameters) =>
     reg
-      ? pbrFromAssets(reg, 'white_plaster_02', { fallback: () => new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra }), handBuiltUv: true, normalScale: 0.5, extra })
+      ? pbrFromAssets(reg, 'white_plaster_02', { fallback: () => new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra }), handBuiltUv: true, normalScale: 0.5, noMap: true, extra: { color: 0xe4e6e3, ...extra } })
       : new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra })
   const shellMat = plaster()
   const podMat = plaster({ vertexColors: true })
@@ -635,10 +637,10 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     ? pbrFromAssets(reg, 'concrete046', { fallback: () => new THREE.MeshStandardMaterial({ color: COLOURS.concrete.mid, roughness: 0.9 }), handBuiltUv: true, normalScale: 0.6 })
     : new THREE.MeshStandardMaterial({ color: COLOURS.concrete.mid, roughness: 0.9 })
   const pierMat = reg
-    ? pbrFromAssets(reg, 'plaster_grey_04', { fallback: () => new THREE.MeshStandardMaterial({ color: 0xa9acb0, roughness: 0.8 }), handBuiltUv: true, normalScale: 0.5 })
+    ? pbrFromAssets(reg, 'plaster_grey_04', { fallback: () => new THREE.MeshStandardMaterial({ color: 0xa9acb0, roughness: 0.8 }), handBuiltUv: true, normalScale: 0.5, noMap: true, extra: { color: 0xb4b7b8 } })
     : new THREE.MeshStandardMaterial({ color: 0xa9acb0, roughness: 0.8 })
   const buildingRoofMat = new THREE.MeshStandardMaterial({ color: COLOURS.roofTop.mid, roughness: 0.85 })
-  const glassMat = new THREE.MeshStandardMaterial({ color: PIT_BUILDING.glass, roughness: 0.12, metalness: 0.85 })
+  const glassMat = new THREE.MeshStandardMaterial({ color: PIT_BUILDING.glass, roughness: 0.12, metalness: 0.55, envMapIntensity: 1.3 })
   const darkMat = new THREE.MeshStandardMaterial({ color: LEADER_TOWER.colour, roughness: 0.6, metalness: 0.2 })
   const interiorMat = new THREE.MeshStandardMaterial({ color: 0x33363b, roughness: 0.9, side: THREE.DoubleSide })
   const railMat = new THREE.MeshStandardMaterial({ color: COLOURS.mullionWhite.mid, roughness: 0.4, metalness: 0.3 })

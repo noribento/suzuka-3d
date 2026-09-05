@@ -320,6 +320,159 @@ function localFrame(terrain: Terrain, origin: THREE.Vector3, along: THREE.Vector
 }
 
 // ---------------------------------------------------------------------------------------------
+// chord frames (StandDef.chord): a stand built straight along its OSM front edge
+
+/**
+ * The frame's u runs along the front chord, v points to the back (metres behind the chord), and
+ * heights ride on the road: the reference height at u is the road's at the lap position mapped
+ * linearly from the stand's sRange onto the chord. Derived from the track and the footprint
+ * alone (no terrain), so the relief zones can use it while the terrain grid is being sampled.
+ */
+interface ChordSpec {
+  origin: THREE.Vector3
+  along: THREE.Vector3
+  back: THREE.Vector3
+  len: number
+  /** OSM front / back edge as (u, v) polylines */
+  frontV: [number, number][]
+  backV: [number, number][]
+  sOf: (u: number) => number
+  uOf: (s: number) => number
+  yRef: (u: number) => number
+}
+
+const _pc = new THREE.Vector3()
+const chordCache = new WeakMap<Track, Map<string, ChordSpec | null>>()
+
+function chordSpec(track: Track, def: StandDef): ChordSpec | null {
+  if (!def.chord) return null
+  let cache = chordCache.get(track)
+  if (!cache) chordCache.set(track, (cache = new Map()))
+  const hit = cache.get(def.id)
+  if (hit !== undefined) return hit
+  const feat = OSM_STANDS.find((f) => f.id === def.osmWays[0])
+  const spec = feat ? buildChordSpec(track, def, feat) : null
+  cache.set(def.id, spec)
+  return spec
+}
+
+function buildChordSpec(track: Track, def: StandDef, feat: OsmFeature): ChordSpec {
+  const pts = feat.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
+  const n = pts.length
+  const ring = (i0: number, i1: number) => {
+    const out: THREE.Vector3[] = []
+    const end = ((i1 % n) + n) % n
+    for (let i = ((i0 % n) + n) % n; ; i = (i + 1) % n) {
+      out.push(pts[i]!)
+      if (i === end) break
+    }
+    return out
+  }
+  const front = ring(def.chord!.front[0], def.chord!.front[1])
+  const a = front[0]!, b = front[front.length - 1]!
+  const dir = b.clone().sub(a).setY(0).normalize()
+  // back: perpendicular to the front chord, towards the footprint's centroid
+  const centroid = pts.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / n)
+  const back = new THREE.Vector3(dir.z, 0, -dir.x)
+  if (centroid.clone().sub(a).dot(back) < 0) back.negate()
+  // along = back × up: the handedness of the track frame's (tangent, left normal), so the sweeps'
+  // winding faces up with side = 1 and u runs with the lap
+  const along = back.clone().cross(Y_UP).normalize()
+  const origin = (along.dot(a) <= along.dot(b) ? a : b).clone().setY(0)
+  const len = Math.abs(along.dot(b) - along.dot(a))
+  const uv = (p: THREE.Vector3): [number, number] => [along.dot(p) - along.dot(origin), back.dot(p) - back.dot(origin)]
+  /** ring chain → polyline in u (clamped to the chord), one value per u: the outermost for the back, the foremost for the front */
+  const polyline = (chain: THREE.Vector3[], pick: 'min' | 'max'): [number, number][] => {
+    const out: [number, number][] = []
+    for (const [u, v] of chain.map(uv).sort((p, q) => p[0] - q[0])) {
+      const uc = Math.min(len, Math.max(0, u))
+      const last = out[out.length - 1]
+      if (last && uc - last[0] < 0.05) {
+        if (pick === 'max' ? v > last[1] : v < last[1]) last[1] = v
+        continue
+      }
+      out.push([uc, v])
+    }
+    return out
+  }
+  const frontV = polyline(front, 'min')
+  const backV = polyline(ring(def.chord!.back[0], def.chord!.back[1]), 'max')
+  const L = track.length
+  const [s0, s1] = def.sRange
+  const span = forwardDelta(s0, s1, L) || L
+  const sOf = (u: number) => track.wrap(s0 + (span * Math.min(len, Math.max(0, u))) / len)
+  const uOf = (s: number) => Math.min(len, (forwardDelta(s0, s, L) / span) * len)
+  const yRef = (u: number) => track.pointAt(sOf(u), 0, _pc).y
+  return { origin, along, back, len, frontV, backV, sOf, uOf, yRef }
+}
+
+function chordFrame(terrain: Terrain, spec: ChordSpec): Frame {
+  const quat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(spec.back, Y_UP, spec.along))
+  const yaw = Math.atan2(-spec.back.x, -spec.back.z)
+  return {
+    u0: 0,
+    len: spec.len,
+    at: (u, v, y, out) => {
+      out.copy(spec.origin).addScaledVector(spec.along, u).addScaledVector(spec.back, v)
+      out.y = spec.yRef(u) + y
+      return out
+    },
+    quat: (_u, out) => out.copy(quat),
+    // the analytic surface: under the deck it is the relief (deck plane − 0.6), which is what
+    // the skirts and end walls must reach below
+    ground: (u, v) => {
+      _p2.copy(spec.origin).addScaledVector(spec.along, u).addScaledVector(spec.back, v)
+      return terrain.heightAt(_p2.x, _p2.z) - spec.yRef(u)
+    },
+    facingYaw: () => yaw,
+    sAt: (u) => spec.sOf(u),
+  }
+}
+
+/**
+ * The stand's definition re-expressed in its chord frame: u for s, v for lateral (row-1 centre
+ * 0.5 tread + 0.3 behind the OSM face, structure back 0.3 inside the OSM back). Tier-level
+ * lateral overrides are track figures and are dropped; the s-keyed heights are mapped through uOf.
+ */
+function chordLocalDef(def: StandDef, spec: ChordSpec): StandDef {
+  const t = def.tiers[0]!.tread
+  const conv = (v: AlongTrack | undefined): AlongTrack | undefined =>
+    typeof v === 'number' || v === undefined ? v : v.map(([s, h]) => [spec.uOf(s), h] as [number, number])
+  return {
+    ...def,
+    sRange: [0, spec.len],
+    side: 1,
+    lateralFront: spec.frontV.map(([u, v]) => [u, v + 0.5 * t + 0.3] as [number, number]),
+    lateralBack: spec.backV.map(([u, v]) => [u, v - 0.3] as [number, number]),
+    frontHeight: conv(def.frontHeight)!,
+    tiers: def.tiers.map((tier) => ({
+      ...tier,
+      sRange: tier.sRange ? ([spec.uOf(tier.sRange[0]), spec.uOf(tier.sRange[1])] as [number, number]) : undefined,
+      lateralFront: undefined,
+      frontHeight: conv(tier.frontHeight),
+    })),
+    roof: def.roof ? { ...def.roof, sRange: def.roof.sRange ? ([spec.uOf(def.roof.sRange[0]), spec.uOf(def.roof.sRange[1])] as [number, number]) : undefined } : undefined,
+  }
+}
+
+/**
+ * Structure depth (row-1 centre → back of the last walkway) and rise of a stand's stacked tiers
+ * at one place, clipping the rows against the footprint back `lb` the way resolveTiers does.
+ */
+function stackAt(def: StandDef, lfRow1: number, lb: number): { depth: number; rise: number } {
+  let lf = lfRow1, rise = 0, back = lfRow1
+  for (const tier of def.tiers) {
+    const t = tier.tread, walk = tier.aisleAfter ?? 0.6
+    const avail = lb - lf + 0.5 * t
+    const rows = avail <= 0.5 * t ? 1 : Math.max(1, Math.min(tier.rows, Math.round(avail / t)))
+    back = lf + rows * t - 0.5 * t + walk
+    rise += rows * tier.riser
+    lf = back + 0.5 * t
+  }
+  return { depth: back - lfRow1, rise }
+}
+
+// ---------------------------------------------------------------------------------------------
 // materials
 
 interface Mats {
@@ -358,17 +511,19 @@ function makeMaterials(ctx: EnvBuildContext): Mats {
   const corrugated = reg && corrugatedPhoto
     ? pbrFromAssets(reg, 'corrugatedsteel003', { fallback: () => new THREE.MeshStandardMaterial(), handBuiltUv: true })
     : new THREE.MeshStandardMaterial({ color: 0x9a9da0, roughness: 0.5, metalness: 0.6 })
-  const glassPhoto = photo('facade001')
-  const glass = reg && glassPhoto
-    ? pbrFromAssets(reg, 'facade001', { fallback: () => new THREE.MeshStandardMaterial(), handBuiltUv: true, extra: { side: THREE.DoubleSide } })
-    : new THREE.MeshStandardMaterial({ color: COLOURS.glassVip.mid, roughness: 0.18, metalness: 0.65, side: THREE.DoubleSide })
+  // pale green-blue glazing (panoramio 2013, img_main_v2) that reflects the sky dome. The
+  // Facade001 photo (dark blue-grey panes, mean #464d53) read as a black wall on the hospitality
+  // band, so it is not used here — the mullions are geometry anyway.
+  const glass = new THREE.MeshStandardMaterial({ color: COLOURS.glassVip.mid, roughness: 0.15, metalness: 0.5, envMapIntensity: 1.4, side: THREE.DoubleSide })
   const seat = reg && photo('plastic013a')
     ? pbrFromAssets(reg, 'plastic013a', { fallback: () => new THREE.MeshStandardMaterial(), handBuiltUv: true, normalScale: 0.5 })
     : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55 })
   return {
     terrace,
-    // the procedural tile averages ≈ #969696, the photo tile is a lighter, warmer concrete
-    concreteAvg: lin(concretePhoto ? '#b5b2ac' : '#969696'),
+    // the procedural tile averages ≈ #969696; the photo tile's linear-space mean is #ceceba
+    // (measured on the shipped KTX2) — the tint divides by this, so a wrong average shifts every
+    // concrete surface (the old #b5b2ac guess made the piers and treads read tan)
+    concreteAvg: lin(concretePhoto ? '#ceceba' : '#969696'),
     concreteTex: 1 / (concretePhoto ? tileOf('concrete046', 2.4) : 4),
     furniture: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.25 }),
     seat,
@@ -376,7 +531,7 @@ function makeMaterials(ctx: EnvBuildContext): Mats {
     corrugated,
     corrugatedTex: 1 / (corrugatedPhoto ? tileOf('corrugatedsteel003', 2) : 2),
     glass,
-    glassTex: 1 / (glassPhoto ? tileOf('facade001', 3) : 3),
+    glassTex: 1 / 3,
     board: new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.5 }),
     kiosk: new THREE.MeshStandardMaterial({ color: 0xd8d6d0, roughness: 0.7 }),
   }
@@ -690,11 +845,14 @@ function addTerraceStructure(b: Build, run: TierRun, opts: { skirtColour?: strin
   const wallRgb = tint('#9c9a95', avg)
   const skirtRgb = tint(opts.skirtColour ?? '#8f8d88', avg)
   const vFront: Fn = (u) => run.lf(u) - side * 0.5 * t
-  const groundBelow = (u: number, v: number) => frame.ground(u, v) - 2
+  // the terrain grid is sunk under the decks once every stand is built (clampUnder), by up to
+  // the grid's own error — metres where a hill meets a deck's end — so the skirts and end walls
+  // reach well below the pre-clamp ground (and its neighbours across) to keep daylight out
+  const groundBelow = (u: number, v: number) => Math.min(frame.ground(u, v), frame.ground(u, v - side * 7), frame.ground(u, v + side * 7)) - 5
   if (!opts.noSkirt) b.terrace.push(wall(frame, run.u0, run.len, vFront, (u) => groundBelow(u, vFront(u)), run.h0, 3, side < 0 ? 1 : -1, skirtRgb, mats.concreteTex))
   b.terrace.push(wall(frame, run.u0, run.len, run.vBack, (u) => groundBelow(u, run.vBack(u)), run.yTop, 3, side, wallRgb, mats.concreteTex))
   for (const [u, facing] of [[run.u0, -1], [run.u0 + run.len, 1]] as const) {
-    const poly = sectionPoly(b, run, u, groundMin(b, run, u) - 2)
+    const poly = sectionPoly(b, run, u, groundMin(b, run, u) - 5)
     const g = endWall(frame, u, poly, facing, wallRgb, mats.concreteTex)
     if (g) b.terrace.push(g)
   }
@@ -964,7 +1122,7 @@ function addV1Parapet(b: Build, run: TierRun) {
 
 /** C: rear concourse canopy on green steel columns, kiosks on the concourse. */
 function addConcourseCanopy(b: Build, run: TierRun) {
-  const { frame, side, mats, ctx } = b
+  const { frame, side, mats } = b
   const avg = mats.concreteAvg
   const green = lin('#2f6b52')
   const roofRgb = tint('#c9c8c4', avg)
@@ -981,10 +1139,12 @@ function addConcourseCanopy(b: Build, run: TierRun) {
     const u = run.u0 + d
     for (const v of [vIn(u) + side * 0.4, vOut(u) - side * 0.4]) b.furniture.push(box(frame, u, v, run.yTop(u), 0.35, yRoof(u) - run.yTop(u), 0.35, green))
   }
-  // kiosks / toilets along the back of the concourse (merged with the other props)
+  // kiosks / toilets along the back of the concourse, in the stand's own frame (C is built on
+  // a chord: a track-coordinate placement would land them in T3's fold)
+  const kioskRgb = tint('#d8d6d0', avg)
   for (let d = 9; d < run.len - 9; d += 37) {
     const u = run.u0 + d
-    ctx.boxes.place(frame.sAt(u), vOut(u) - side * 2.2, 8, 3.2, 2.7, mats.kiosk, run.yTop(u) - frame.ground(u, vOut(u) - side * 2.2), false, true)
+    b.terrace.push(box(frame, u, vOut(u) - side * 2.2, run.yTop(u), 3.2, 2.7, 8, kioskRgb))
   }
 }
 
@@ -1184,6 +1344,8 @@ export function buildStands(ctx: EnvBuildContext): Stands {
   const lod: Lodded[] = []
   const seats: SeatSlot[] = []
   const deckPts: number[] = []
+  /** [stand id, from, to) into deckPts — for the dev probes */
+  const deckRanges: [string, number, number][] = []
   const stats: string[] = []
   let totalTris = 0, totalInst = 0
   for (const def of STANDS) {
@@ -1206,20 +1368,26 @@ export function buildStands(ctx: EnvBuildContext): Stands {
       }
       continue
     }
-    const frame = trackFrame(track, ground, def.sRange[0], def.sRange[1])
-    const b = newBuild(ctx, def, frame, mats)
+    const spec = chordSpec(track, def)
+    const frame = spec ? chordFrame(terrain, spec) : trackFrame(track, ground, def.sRange[0], def.sRange[1])
+    const b = newBuild(ctx, spec ? chordLocalDef(def, spec) : def, frame, mats)
     buildStand(b)
     const r = finishStand(b, lod, seatGeo, tubeGeo)
     for (const s of b.seats) seats.push(s)
+    deckRanges.push([def.id, deckPts.length, deckPts.length + b.deckPts.length])
     for (const p of b.deckPts) deckPts.push(p)
     stats.push(`${def.id}: ${Math.round(r.tris)} tris, ${r.instances} inst, ${b.seats.length} seats`)
     totalTris += r.tris
     totalInst += r.instances
   }
   // the 13 m terrain grid is far coarser than the decks: sink it wherever it would show through
-  terrain.clampUnder(Float32Array.from(deckPts), 0.3)
+  const deckArr = Float32Array.from(deckPts)
+  terrain.clampUnder(deckArr, 0.3)
   if (import.meta.dev) {
     ctx.group.userData.standStats = stats
+    // the probe scripts check which deck vertices sink the terrain grid
+    ctx.group.userData.deckPts = deckArr
+    ctx.group.userData.deckRanges = deckRanges
     console.info(`[stands] ${STANDS.length} stands, ${Math.round(totalTris)} tris, ${totalInst} instances, ${seats.length} seats`)
   }
   const update = (cameraPos: THREE.Vector3) => {
@@ -1235,15 +1403,18 @@ export function buildStands(ctx: EnvBuildContext): Stands {
 // terrain relief
 
 /**
- * [height above the local track surface, blend weight, cut?, rank?]. A `cut` sample replaces
+ * [height above the local track surface, blend weight, mode?, rank?]. Mode `true` (cut) replaces
  * the natural ground either way (the deck band of a stand cut into a hill — without it the real
- * hillside behind E / D rises through the upper rows); a fill sample only ever raises it. Rank 0
+ * hillside behind E / D rises through the upper rows); `'cap'` only ever lowers it (the levelled
+ * service road in front of C's toe); a fill sample (undefined) only ever raises it. Rank 0
  * marks the ground under a stand (front bank, deck band, walkway), rank 1 (default) the ground
  * behind it: where two zones' frames both claim a point, the one that has a deck there wins.
  */
-export type Relief = [number, number, boolean?, number?]
+export type Relief = [number, number, (boolean | 'cap')?, number?]
 
-interface ReliefZone {
+/** A zone measured in (s, lateral) against its own stretch of centreline. */
+interface TrackZone {
+  kind: 'track'
   /** s range the zone claims, fades included */
   from: number
   to: number
@@ -1257,16 +1428,47 @@ interface ReliefZone {
   box?: [number, number, number, number]
 }
 
+/** A zone measured in the (u, v) frame of a chord-built stand (StandDef.chord). */
+interface ChordZone {
+  kind: 'chord'
+  chord: ChordSpec
+  /** the claim fades out over these metres before u = 0 and after u = len */
+  fade: [number, number]
+  /** v band the profile can claim */
+  vRange: [number, number]
+  profile: (u: number, v: number) => Relief | null
+  box: [number, number, number, number]
+}
+
+type ReliefZone = TrackZone | ChordZone
+
+function chordZone(chord: ChordSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile']): ChordZone {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+  for (const u of [-fade[0], chord.len + fade[1]]) {
+    for (const v of vRange) {
+      const x = chord.origin.x + chord.along.x * u + chord.back.x * v
+      const z = chord.origin.z + chord.along.z * u + chord.back.z * v
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (z < minZ) minZ = z
+      if (z > maxZ) maxZ = z
+    }
+  }
+  return { kind: 'chord', chord, fade, vRange, profile, box: [minX, maxX, minZ, maxZ] }
+}
+
 /** how far to the left of the centreline a zone can reach (the widest fade: E, lb + 70) */
 const RELIEF_REACH = 170
 
-function reliefZones(L: number): ReliefZone[] {
+function reliefZones(track: Track): ReliefZone[] {
+  const L = track.length
   const zones: ReliefZone[] = []
   const by = (id: string) => STANDS.find((s) => s.id === id)
   /** piecewise-linear ramp between (a0, h0) and (a1, h1) */
   const ramp = (a: number, a0: number, h0: number, a1: number, h1: number) => h0 + ((h1 - h0) * (a - a0)) / (a1 - a0)
   const under = (h: number): Relief => [h, 1, true, 0]
   const cut = (h: number): Relief => [h, 1, true]
+  const cap = (h: number): Relief => [h, 1, 'cap']
   const fill = (h: number, w = 1): Relief => [h, w]
   /**
    * A hill does not stop at the last row: the relief runs on past the stand ends and fades
@@ -1274,21 +1476,35 @@ function reliefZones(L: number): ReliefZone[] {
    * stand's end back under its first rows). No fade between the tiers of one stand, and
    * only a token one where another building stands right next door (B beside C's T2 end).
    */
-  const zone = (core: [number, number], fade: [number, number], profile: ReliefZone['profile']): ReliefZone =>
-    ({ from: core[0] - fade[0], to: core[1] + fade[1], core, fade, profile })
+  const zone = (core: [number, number], fade: [number, number], profile: TrackZone['profile']): TrackZone =>
+    ({ kind: 'track', from: core[0] - fade[0], to: core[1] + fade[1], core, fade, profile })
+  /** row-1 centre, front edge, platform height and structure back / top of a chord stand at u */
+  const chordSection = (local: StandDef, u: number) => {
+    const t = local.tiers[0]!.tread
+    const lf = alongAt(local.lateralFront, u, local.sRange)
+    const fh = alongAt(local.frontHeight, u, local.sRange) - 0.6
+    const { depth, rise } = stackAt(local, lf, alongAt(local.lateralBack, u, local.sRange))
+    return { front: lf - 0.5 * t, fh, lb: lf + depth, top: fh + rise }
+  }
   const C = by('C')
-  if (C) {
-    zones.push(zone(C.sRange, [4, 30], (s, a) => {
-        const lf = alongAt(C.lateralFront, s, C.sRange) - 0.4
-        const fh = alongAt(C.frontHeight, s, C.sRange) - 0.6
-        const lb = lf + 25.6
-        const top = fh + 30 * 0.3
-        // retaining wall at the toe (the 2009 service road runs in front of it)
-        if (a < lf - 1) return null
-        if (a < lf) return under(ramp(a, lf - 1, 0, lf, fh))
-        if (a < lb) return under(ramp(a, lf, fh, lb, top))
-        if (a < lb + 12) return cut(top)
-        if (a < lb + 42) return fill(top, 1 - (a - lb - 12) / 30)
+  const cSpec = C ? chordSpec(track, C) : null
+  if (C && cSpec) {
+    const local = chordLocalDef(C, cSpec)
+    zones.push(chordZone(cSpec, [4, 40], [-30, 120], (u, v) => {
+        const { front, fh, lb, top } = chordSection(local, u)
+        // the 2009 service road at the toe, ≈ 1 m under row 1: the natural hill in front of the
+        // Esses end stood above the toe and the 18 m terrain grid drew that mismatch as a
+        // sawtooth, so the ground between the run-off and the wall is capped to the road level
+        const toe = fh - 1.0
+        if (v < front - 25) return null
+        if (v < front - 6) return cap(Math.min(toe, ramp(v, front - 25, 0.3, front - 6, toe)))
+        // retaining wall: a 6 m ramp is the narrowest the grid resolves without aliasing
+        if (v < front) return under(ramp(v, front - 6, toe, front, fh))
+        if (v < lb) return under(ramp(v, front, fh, lb, top))
+        if (v < lb + 12) return cut(top)
+        // the hill behind the concourse is capped to a 40 % bank the grid can resolve (a fill
+        // only raised lower ground, so at the Esses end the hill met the concourse as a cliff)
+        if (v < lb + 42) return cap(ramp(v, lb + 12, top, lb + 42, top + 12))
         return null
     }))
   }
@@ -1331,34 +1547,54 @@ function reliefZones(L: number): ReliefZone[] {
       }))
     })
   }
-  const E = by('E')
-  if (E) {
-    E.tiers.forEach((tier, k) => {
-      const rows = tier.rows
-      const rake = tier.riser / tier.tread
-      zones.push(zone(tier.sRange ?? E.sRange, [k === 0 ? 20 : 0, k === E.tiers.length - 1 ? 30 : 0], (s, a) => {
-          const lf = alongAt(E.lateralFront, s, E.sRange) - 0.5
-          const fh = alongAt(E.frontHeight, s, E.sRange) - 0.6
-          const lb = lf + rows * 0.95
-          const top = fh + rows * 0.32
-          // the hilltop plateau (E temporary stand) sits just above the last row all along: the
-          // 58 m ASL figure is +15 over the track at the 逆バンク end but only ≈ +8 at the NIPPO end
-          const plateau = top + 1.0
-          // the bank in front rises at the deck's own rake, so bank and rows are one plane with no
-          // bend at row 1 (a bend there makes the coarse terrain grid overshoot the deck and
-          // leaves a metres-tall retaining wall once the grid is clamped back under it)
-          const a0 = Math.max(14, lf - fh / rake)
-          if (a < a0) return null
-          if (a < lf) return under(ramp(a, a0, 0, lf, fh))
-          if (a < lb) return under(ramp(a, lf, fh, lb, top))
-          if (a < lb + 10) return under(top)
-          // the plateau is cut as well: the procedural hills() behind E stands 2–3 m above it
-          if (a < lb + 16) return cut(ramp(a, lb + 10, top, lb + 16, plateau))
-          if (a < lb + 40) return cut(plateau)
-          if (a < lb + 70) return [plateau, 1 - (a - lb - 40) / 30, true]
-          return null
-      }))
-    })
+  // E: two blocks on one hillside. The hilltop plateau (E temporary stand) sits just above the
+  // last row all along: the 58 m ASL figure is +15 over the track at the 逆バンク end but only
+  // ≈ +8 at the NIPPO end. The bank in front rises at the deck's own rake, so bank and rows are
+  // one plane with no bend at row 1 (a bend there makes the coarse terrain grid overshoot the
+  // deck and leaves a metres-tall retaining wall once the grid is clamped back under it). The
+  // plateau is cut as well: the procedural hills() behind E stand 2–3 m above it. The 6 m stair
+  // gap between the blocks is bridged by the fades.
+  const E2 = by('E2')
+  const e2Spec = E2 ? chordSpec(track, E2) : null
+  if (E2 && e2Spec) {
+    const local = chordLocalDef(E2, e2Spec)
+    const tier = E2.tiers[0]!
+    const rake = tier.riser / tier.tread
+    zones.push(chordZone(e2Spec, [20, 6], [-60, 120], (u, v) => {
+        const { front, fh, lb, top } = chordSection(local, u)
+        const plateau = top + 1.0
+        const a0 = front - fh / rake
+        if (v < a0) return null
+        if (v < front) return under(ramp(v, a0, 0, front, fh))
+        if (v < lb) return under(ramp(v, front, fh, lb, top))
+        if (v < lb + 10) return under(top)
+        if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
+        if (v < lb + 40) return cut(plateau)
+        if (v < lb + 70) return [plateau, 1 - (v - lb - 40) / 30, true]
+        return null
+    }))
+  }
+  const E1 = by('E1')
+  if (E1) {
+    const tier = E1.tiers[0]!
+    const rows = tier.rows
+    const rake = tier.riser / tier.tread
+    zones.push(zone(E1.sRange, [6, 30], (s, a) => {
+        const lf = alongAt(E1.lateralFront, s, E1.sRange) - 0.5
+        const fh = alongAt(E1.frontHeight, s, E1.sRange) - 0.6
+        const lb = lf + rows * tier.tread
+        const top = fh + rows * tier.riser
+        const plateau = top + 1.0
+        const a0 = Math.max(14, lf - fh / rake)
+        if (a < a0) return null
+        if (a < lf) return under(ramp(a, a0, 0, lf, fh))
+        if (a < lb) return under(ramp(a, lf, fh, lb, top))
+        if (a < lb + 10) return under(top)
+        if (a < lb + 16) return cut(ramp(a, lb + 10, top, lb + 16, plateau))
+        if (a < lb + 40) return cut(plateau)
+        if (a < lb + 70) return [plateau, 1 - (a - lb - 40) / 30, true]
+        return null
+    }))
   }
   // main grandstand: the level fill platform behind V1 (GP Square) is ≈ 7.3 m above the track
   // (no fade along s: the A1 temporary stand starts 5 m past its end at track level)
@@ -1374,7 +1610,7 @@ function reliefZones(L: number): ReliefZone[] {
 
 const zoneCache = new WeakMap<Track, ReliefZone[]>()
 
-function zoneSamples(z: ReliefZone, track: Track): Int32Array {
+function zoneSamples(z: TrackZone, track: Track): Int32Array {
   if (z.samples) return z.samples
   const L = track.length
   const len = forwardDelta(z.from, z.to, L)
@@ -1408,10 +1644,32 @@ function zoneSamples(z: ReliefZone, track: Track): Int32Array {
  */
 export function facilityRelief(x: number, z: number, track: Track): Relief | null {
   let zones = zoneCache.get(track)
-  if (!zones) zoneCache.set(track, (zones = reliefZones(track.length)))
+  if (!zones) zoneCache.set(track, (zones = reliefZones(track)))
   let out: Relief | null = null
   let outRank = 2, outD2 = Infinity
   for (const zone of zones) {
+    if (zone.kind === 'chord') {
+      const box = zone.box
+      if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue
+      const c = zone.chord
+      const dx = x - c.origin.x, dz = z - c.origin.z
+      const u = dx * c.along.x + dz * c.along.z
+      const v = dx * c.back.x + dz * c.back.z
+      if (v < zone.vRange[0] || v > zone.vRange[1]) continue
+      const uc = Math.min(c.len, Math.max(0, u))
+      const t = u < 0 ? -u / Math.max(1e-6, zone.fade[0]) : (u - c.len) / Math.max(1e-6, zone.fade[1])
+      if (t >= 1) continue
+      const r = zone.profile(uc, v)
+      if (!r) continue
+      const w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
+      const rank = r[3] ?? 1
+      const d2 = v * v + (u - uc) * (u - uc)
+      if (out && (rank > outRank || (rank === outRank && d2 >= outD2))) continue
+      out = [c.yRef(uc) + r[0], w, r[2]]
+      outRank = rank
+      outD2 = d2
+      continue
+    }
     const samples = zoneSamples(zone, track)
     const box = zone.box!
     if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue
@@ -1420,15 +1678,24 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
     // behind E-2's rows is nearer to E-2's last samples than to its own, and a point beyond
     // either end of the stretch projects onto an end sample's normal with a meaningless lateral
     // (the run-off in front of E-2 read as "100 m behind E-1")
-    let best = Infinity, bi = -1
+    // Core samples are preferred over fade samples: on the inside of a bend (C's Esses end
+    // faces T3) a point beside the stand's tail is also abreast of samples past the stand,
+    // through the fold of the converging normals, and the nearer of those would only hand
+    // it a faded claim
+    const L = track.length
+    const coreLen = forwardDelta(zone.core[0], zone.core[1], L)
+    let best = Infinity, bi = -1, bestCore = false
     for (let k = 0; k < samples.length; k++) {
       const i = samples[k]!
       const dx = x - track.px[i]!, dz = z - track.pz[i]!
       const d2 = dx * dx + dz * dz
-      if (d2 >= best) continue
+      const core = forwardDelta(zone.core[0], i * track.ds, L) <= coreLen
+      if (bestCore && !core) continue
+      if (d2 >= best && core === bestCore) continue
       if (Math.abs(dx * track.tx[i]! + dz * track.tz[i]!) > track.ds) continue
       best = d2
       bi = i
+      bestCore = core
     }
     if (bi < 0) continue
     const dx = x - track.px[bi]!, dz = z - track.pz[bi]!
@@ -1439,8 +1706,6 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
     const r = zone.profile(sBi, lateral)
     if (!r) continue
     // fade the claim out past the stand's own ends
-    const L = track.length
-    const coreLen = forwardDelta(zone.core[0], zone.core[1], L)
     let w = r[1]
     if (forwardDelta(zone.core[0], sBi, L) > coreLen) {
       const before = forwardDelta(sBi, zone.core[0], L), after = forwardDelta(zone.core[1], sBi, L)

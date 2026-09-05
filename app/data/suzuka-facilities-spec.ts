@@ -95,6 +95,17 @@ export interface StandDef {
   stackedWith?: string[]
   /** enclosed glazed building instead of open rows (VIP) */
   enclosure?: { floors: number[]; glass: string; framePitch: number; roofTop: number }
+  /**
+   * Build the stand straight along its OSM front edge instead of sweeping it in track
+   * coordinates: vertex ranges [start, end] of the footprint ring (walking it forward) that form
+   * the front and the back edge. A stand on the inside of a bend whose rows lie beyond the
+   * bend's radius (C's Esses end against T3, E-2 inside NIPPO) folds over itself when swept in
+   * (s, lateral); the chord frame keeps the rows parallel to the real, straight front. Heights
+   * still ride on the road (the road height at the lap position mapped linearly from sRange
+   * onto the chord), and the s-keyed fields stay in track coordinates for the fences, the tree
+   * exclusion and the checks.
+   */
+  chord?: { front: [number, number]; back: [number, number] }
   /** what is still an estimate — see the header */
   unverified?: string[]
   notes?: string
@@ -161,7 +172,7 @@ export const COLOURS = {
   /** green signage strip between the columns under the VIP box */
   signageGreen: { lit: '#2a7f5c', mid: '#1f6b4a', shade: '#175238' },
   /** warm concrete piers under the VIP box */
-  pierConcrete: { lit: '#d0c7b5', mid: '#c2b8a4', shade: '#a89f8c' },
+  pierConcrete: { lit: '#dad6cc', mid: '#cdc8bc', shade: '#b0aa9d' },
   /** pit building facade (white panels, reads blue-grey in overcast photos) */
   pitFacade: { lit: '#E5EBED', mid: '#BEC1CF', shade: '#979CB0' },
   /** garage interior (CC0 photo) */
@@ -391,8 +402,12 @@ export const STANDS: StandDef[] = [
     sRange: [628, 958],
     side: 1,
     // the terrace front is straight in plan while the track bows away between T2 and the Esses
+    // and swings back at T3 (R 44–68 m): past s ≈ 840 the figures below are the nearest-sample
+    // projection through T3's fold and only serve the fences / checks — the stand itself is
+    // built straight along its OSM front (`chord`)
     lateralFront: [[628, 57.5], [653, 41], [669, 38.5], [805, 71.5], [837, 77], [869, 78], [889, 82], [917, 73], [941, 52], [953, 39], [958, 47.5]],
     lateralBack: [[628, 70.5], [643, 68.5], [651, 62], [667, 60.5], [739, 81], [791, 92.5], [841, 98.5], [867, 98.5], [891, 106], [917, 101], [941, 79], [951, 64], [958, 51.5]],
+    chord: { front: [0, 11], back: [12, 27] },
     structure: 'terrace',
     tiers: [
       { id: 'C-lower', rows: 10, ...TERRACE_BENCH, colour: COLOURS.benchGreyC.mid, aisleAfter: 0.8 },
@@ -447,27 +462,48 @@ export const STANDS: StandDef[] = [
     unverified: ['rows per block and the 22 → 16 row split at s ≈ 1285', 'temporary D block size (changes yearly)'],
   },
   {
-    id: 'E',
-    name: 'E NIPPOコーナー',
+    id: 'E2',
+    name: 'E-2 NIPPOコーナー（逆バンク側）',
     osmWays: [467982372],
-    sRange: [1414, 1668],
+    sRange: [1414, 1562],
     side: 1,
-    // the hill recedes from the track toward the 逆バンク end; row-1 centre = OSM face + 0.5 m
-    lateralFront: [[1414, 62.5], [1515, 53.5], [1539, 43.5], [1559, 37.5], [1573, 26.5], [1583, 21], [1589, 29], [1633, 18], [1668, 19]],
-    lateralBack: [[1414, 63.5], [1433, 80], [1507, 75], [1553, 78], [1569, 99.5], [1579, 61], [1593, 38.5], [1605, 33.5], [1611, 42], [1637, 36.5], [1668, 35.5]],
-    structure: 'terrace',
     // E-1 / E-2 sit side by side ALONG the track on one hillside terrace (Car Watch 2010, seat_e.html):
-    // E-2 at the 逆バンク end where the hill is 12 m above the track, E-1 at the NIPPO end near track level
-    tiers: [
-      { id: 'E-2', rows: 22, ...RC2009_BENCH, sRange: [1414, 1560] }, // 1.5× seat width in 2010
-      { id: 'E-1', rows: 20, ...RC2009_BENCH, sRange: [1560, 1668] },
-    ],
+    // E-2 at the 逆バンク end where the hill is 12 m above the track, E-1 at the NIPPO end near
+    // track level. E-2 lies on the inside of the NIPPO bend (R 49–109 m) with its rows 40–75 m
+    // from the centreline — beyond the bend's radius, where an (s, lateral) sweep folds over
+    // itself — so it is built straight along its OSM front (`chord`); the (s, lateral) figures
+    // below serve the fences, the tree exclusion and the checks
+    lateralFront: [[1414, 62.5], [1515, 53.5], [1556, 40], [1562, 36]],
+    lateralBack: [[1414, 64], [1433, 80], [1515, 75.5], [1562, 60]],
+    chord: { front: [11, 15], back: [16, 21] },
+    structure: 'terrace',
+    tiers: [{ id: 'E-2', rows: 22, ...RC2009_BENCH }], // 1.5× seat width in 2010
     aisles: { pitch: 14, width: 1.2 },
-    frontHeight: [[1414, 12], [1560, 7], [1620, 1.5], [1668, 0.7]], // DEM: hill +12 over the track at the 逆バンク end, +0.7 at the NIPPO end
+    frontHeight: [[1414, 12], [1515, 9.5], [1562, 8]], // DEM: hill +12 over the track at the 逆バンク end
     platform: '2009 RC terrace on a genuine 20 m hillside (steepest bank on the lap); hilltop plateau +15.2 (58 m ASL) with the 18-row E temporary stand; underground passage to GP Square and long stairs behind',
     permanent: true,
     fence: 'single',
-    unverified: ['E-1 / E-2 row counts (not published; ≈20 m OSM depth ÷ 0.95)', 'E-1 / E-2 boundary s ≈ 1560', 'temporary E block footprint'],
+    stackedWith: ['E1'],
+    unverified: ['E-2 row count (not published; ≈20 m OSM depth ÷ 0.95)', 'E-1 / E-2 boundary s ≈ 1562', 'temporary E block footprint'],
+  },
+  {
+    id: 'E1',
+    name: 'E-1 NIPPOコーナー',
+    osmWays: [467982372],
+    sRange: [1568, 1668],
+    side: 1,
+    // OSM outline smoothed: the notches at s ≈ 1583–1589 are stairs, not seating
+    lateralFront: [[1568, 35], [1600, 24], [1633, 18], [1668, 19]],
+    lateralBack: [[1568, 55.5], [1600, 44.5], [1633, 38.5], [1668, 39.5]],
+    structure: 'terrace',
+    tiers: [{ id: 'E-1', rows: 20, ...RC2009_BENCH }],
+    aisles: { pitch: 14, width: 1.2 },
+    frontHeight: [[1568, 5.2], [1600, 2.5], [1633, 1.0], [1668, 0.7]], // DEM: +0.7 at the NIPPO end
+    platform: 'NIPPO-end block of the E hillside terrace; the hilltop plateau (+15.2) continues behind it',
+    permanent: true,
+    fence: 'single',
+    stackedWith: ['E2'],
+    unverified: ['E-1 row count (not published)', 'E-1 / E-2 boundary'],
   },
   // ---- Degner → crossover (right side) --------------------------------------------------
   {
@@ -784,7 +820,8 @@ export const BUILDINGS: BuildingDef[] = [
 ]
 
 /** Helipad next to the medical centre (H mark circle). Position UNVERIFIED (from the 2009 dossier: "医務室横"). */
-export const HELIPAD = { s: 200, lateral: -48, radius: 8 }
+/** GSI z18 aerial: the H sits beside the medical centre at the final-corner end of the pit building. */
+export const HELIPAD = { s: 5566, lateral: -78, radius: 8 }
 
 // ---------------------------------------------------------------- pit complex
 
@@ -833,9 +870,12 @@ export const PIT_BUILDING = {
   /** 2F terrace: 100 black seats × 11 rooms cantilevered over the pit lane */
   terrace2F: { rows: 4, seatColour: '#2b2b2b' },
   podium: { s: 5579, width: 9.5, backdropHeight: 4.5, level: 1 },
-  controlPod: { sRange: [5554, 5605] as [number, number], top: 19 },
+  // the podium recess (garage 12, s≈5574–5579) sits right beside the glazed core in the podium
+  // photo, so the pod ends at the recess rather than at the earlier 5605 estimate
+  controlPod: { sRange: [5554, 5574] as [number, number], top: 19 },
   colour: COLOURS.pitFacade.mid,
-  glass: '#3d4a55',
+  /** 2F lounge glazing: mid blue-grey (dark tinted glass reflecting the sky; a darker base with high metalness rendered black) */
+  glass: '#7f8c98',
   unverified: ['all heights (±3 m)', 'podium s (±8 m)', 'control pod length'],
 } as const
 

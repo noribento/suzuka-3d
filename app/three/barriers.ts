@@ -173,11 +173,13 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
     // one run at the foot of every stand, 3 m in front of its first row (never inside the barrier
     // line); 'double' adds a second run on the barrier line, 'low-centre' lowers the middle third,
     // 'none' (the roofed hospitality boxes) has no fence of its own. The Q2 bars sit in the
-    // figure-8 fold where (s, lateral) is unreliable: the chicane's TecPro run covers them.
+    // figure-8 fold where (s, lateral) is unreliable: the chicane's TecPro run covers them. The
+    // chord-built stands (C, E-2) sit inside a bend where their (s, lateral) front folds, so
+    // their fence runs on the run-off edge instead.
     const zones: Zone[] = []
     for (const d of STANDS) {
       if (d.fence === 'none' || d.id === 'Q2') continue
-      const front: Fn = (s) => d.side * Math.max(Math.abs(alongAt(d.lateralFront, s, d.sRange)) - 3, hwAt(s) + dist(s, d.side) + 0.35)
+      const front: Fn = (s) => d.side * (d.chord ? hwAt(s) + dist(s, d.side) + 0.35 : Math.max(Math.abs(alongAt(d.lateralFront, s, d.sRange)) - 3, hwAt(s) + dist(s, d.side) + 0.35))
       const [from, to] = d.sRange
       const len = forwardDelta(from, to, L)
       if (d.fence === 'low-centre') {

@@ -24,6 +24,12 @@ export interface PbrFromAssetsOpts {
    * the bottom of the image) rather than authored for glTF. See the normalScale note below.
    */
   handBuiltUv?: boolean
+  /**
+   * Skip the photo albedo: normal + ARM maps over the flat `extra.color`. For surfaces whose real
+   * colour the photo does not have (the pit building's white panels on white_plaster_02, whose
+   * albedo is a warm mid grey): a colour multiplier can only darken a map, never whiten it.
+   */
+  noMap?: boolean
   /** anything else for the material (repeat / side / envMapIntensity …); applied last */
   extra?: THREE.MeshStandardMaterialParameters
 }
@@ -46,12 +52,12 @@ export interface PbrFromAssetsOpts {
  */
 export function pbrFromAssets(reg: AssetRegistry, asset: string, opts: PbrFromAssetsOpts): THREE.MeshStandardMaterial {
   const t = { ground: opts.ground }
-  const map = reg.texture(`tex/${asset}/diff`, t)
+  const map = opts.noMap ? null : reg.texture(`tex/${asset}/diff`, t)
   const normalMap = reg.texture(`tex/${asset}/nor_gl`, t)
   const arm = reg.texture(`tex/${asset}/arm`, t)
-  if (!map || !normalMap || !arm) return opts.fallback()
+  if ((!map && !opts.noMap) || !normalMap || !arm) return opts.fallback()
   const m = new THREE.MeshStandardMaterial({
-    map,
+    ...(map ? { map } : {}),
     normalMap,
     aoMap: arm,
     roughnessMap: arm,

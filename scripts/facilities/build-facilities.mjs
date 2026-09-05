@@ -181,7 +181,8 @@ const STAND_WAYS = {
   C: [184143133],
   D5: [469395390],
   D1_4: [469368057],
-  E: [467982372],
+  E2: [467982372], // E-2 and E-1 share the one OSM outline (split by the spec)
+  E1: [467982372],
   G_cross: [184102012, 184102013],
   H: [184004012], // UNVERIFIED: unnamed in OSM, identified as H (110R) from the ticket map
   I: [184105033],

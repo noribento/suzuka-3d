@@ -354,7 +354,8 @@ export class Terrain {
     const relief = facilityRelief(x, z, t)
     if (relief) {
       const hr = relief[0]
-      if (relief[2] || hr > h) h += (hr - h) * relief[1]
+      const mode = relief[2]
+      if (mode === true || (mode === 'cap' ? hr < h : hr > h)) h += (hr - h) * relief[1]
     }
     return h
   }
@@ -421,7 +422,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // --- spectators: instanced billboards per seat, in 60 m bays ---------------------------------
   const crowd = buildCrowd(track, stands.seats, quality.crowd, 11, quality.msaa > 0)
   for (const o of crowd.objects) group.add(o)
-  // --- pit building, race control, paddock, Dunlop bridge ---------------------------------
+  // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
   const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)

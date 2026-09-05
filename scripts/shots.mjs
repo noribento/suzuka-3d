@@ -20,6 +20,7 @@ const args = process.argv.slice(2)
 const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : d }
 const url = flag('--url', 'http://localhost:3100')
 const tier = flag('--tier', '0')
+const assets = flag('--assets', null) // '1' forces the external asset pack on (e.g. KTX2 checks on the low tier)
 const out = flag('--out', '.perf/shots')
 const only = flag('--preset', null)?.split(',')
 // --custom "name:sCam,latCam,hCam:sLook,latLook,hLook[:fov]" (repeatable) adds ad-hoc viewpoints
@@ -61,7 +62,7 @@ try {
   // the first load after a dependency change hits Vite's 504 "Outdated Optimize Dep" once
   for (let attempt = 0; ; attempt++) {
     errors.length = 0
-    await page.goto(`${url}/?fx=${tier}&res=0`, { waitUntil: 'domcontentloaded', timeout: 120000 })
+    await page.goto(`${url}/?fx=${tier}&res=0${assets ? `&assets=${assets}` : ''}`, { waitUntil: 'domcontentloaded', timeout: 120000 })
     try {
       await page.locator('.loading').waitFor({ state: 'hidden', timeout: attempt ? 240000 : 90000 })
       break
