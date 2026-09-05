@@ -13,7 +13,10 @@ F1 の TV 中継風の UI（タイミングタワー、テレメトリ、トラ�
 
 - **Nuxt 4** (SPA, `ssr: false`) + Vue 3.5 + TypeScript (strict)
 - **three.js** r185 — 3D シーン、CSM 影、`Sky`、`EffectComposer`（GTAO / bloom / 望遠 DoF / モーションブラー・グレード / SMAA）、`PositionalAudio`。ドライバータグはカメラ行列で直接投影しています（`CSS2DRenderer` は不使用）
-- 依存パッケージはこれだけです。3D モデル・テクスチャ・音声などの外部アセットは使っていません（フォントは Google Fonts の Titillium Web）。
+- 依存パッケージはこれだけです（フォントは Google Fonts の Titillium Web）。
+- **外部アセット**は高品質ティアだけが読み込みます: `public/assets/`（KTX2 テクスチャと meshopt 圧縮 GLB、合計約 30 MB、
+  すべて CC0 / CC-BY）。出典・ライセンス・ハッシュは `public/assets-manifest.json` に、表記は [CREDITS.md](CREDITS.md) と
+  アプリ内のクレジットパネルにあります。低負荷ティア（E2E もこちら）は従来どおり全てノイズ生成で、外部ファイルを一切読みません。
 
 ## Setup
 
@@ -29,6 +32,24 @@ pnpm exec nuxi typecheck
 `?fx=1` で強制的に高品質モードになります（既定では GPU があれば高品質、SwiftShader などソフトウェア描画なら低負荷）。
 ティアごとの数値は `app/three/quality.ts` の `QUALITY` に集約されています。高品質モードは fps に応じて描画解像度を
 1 → 0.85 → 0.7 に自動で落とします（`?res=0` で等倍に固定）。
+`?assets=0|1` でアセットパックの読み込みを強制できます（既定は高品質ティアで読む）。読み込めなかったファイルは
+個別に手続き生成へフォールバックし、`console.warn` に一覧が出ます（`console.error` は出ません）。
+
+### 外部アセットのパイプライン
+
+```bash
+node scripts/assets/fetch.mjs                 # Poly Haven / ambientCG / poly.pizza から misc/dl/ へ取得（ハッシュ検証）
+node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアトラスを焼く（Playwright、SwiftShader で可）
+node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
+node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 80 MB）・VRAM 見積・KTX2 mip の検査
+node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
+node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順の整合性
+node scripts/shots.mjs --assets 1             # 固定視点のスクリーンショット（--preset / --custom / --tier）
+```
+
+ログインが必要な素材（Eclair の CC0 人物 GLB、Sketchfab の CC-BY 座席、KTX-Software の `ktx` CLI）は `misc/`
+（gitignore 済み）に置くと `import-misc.mjs` が拾います。`nuxt.config.ts` の `routeRules` は `/assets/**` に
+immutable キャッシュを付けますが、これは Nitro 系のホストでだけ効きます（静的ホストでは各自のヘッダ設定で）。
 
 レースは最初のクリックまたはキー操作で始まります（「TAP / CLICK TO START」、操作が無くても 8 秒後に自動開始）。
 ブラウザの自動再生制限のため音はその操作後に作られ、スタートシグナルの 1 灯ごとの電子音もそこから鳴ります（消灯時は無音で、観客のどよめきだけが上がります）。
@@ -102,7 +123,12 @@ app/
     useHudScale.ts             # 1920×1080 の設計キャンバスをウィンドウに合わせて拡縮
     useTrackGeometry.ts        # コース形状の SVG パス（トラックマップとドライバートラッカーで共有）
   data/
-    suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム、レーシングラインのピン、コーナー速度目標、DRS、ピット、スタンド
+    suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム（DEM5A）、レーシングラインのピン、コーナー速度目標、DRS、ピット
+    suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ、ODbL、生成物）
+    suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット（手書き）
+    suzuka-power.ts            # 送電鉄塔・架線（OSM、生成物）
+    crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対）
+    credits.ts                 # アプリ内クレジット（生成物）
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
   sim/
     track.ts                   # スプライン（5807 m 正規化）、曲率、幅・カント・勾配、最小曲率レーシングライン、立体交差、ピットレーン
@@ -117,8 +143,15 @@ app/
     ground.ts                  # 路肩〜ランオフ〜地形の高さ関数（トラックサイドの全オブジェクトが参照）
     track-mesh.ts              # 路面（可変幅・カント）、断面つき縁石、ソーセージ縁石、グラベル、橋、ピットレーン、グリッド、シグナル
     barriers.ts                # Armco と支柱、タイヤバリア、TecPro、デブリフェンス
-    environment.ts             # 地形（チャンク）、スタンド、観客、開口ガレージ付きピットビル、パドック、ダンロップブリッジ、距離看板、マーシャルポスト、樹木
-    crowd.ts                   # インスタンス化された観客ビルボード（LOD）
+    environment.ts             # 地形（チャンク、施設のリリーフ）と各ビルダーの共有コンテキスト、観覧車
+    stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場）、弦フレーム、地形リリーフ
+    pit-complex.ts             # ピットビル（勾配追従スイープ、ガレージ、表彰台、ポッド、ビジョン）、リーダータワー、ピットウォール、パドック、水面
+    props.ts                   # 距離看板、マーシャルポスト＋デジタルフラッグ、TV カメラ塔、送電線、OSM 建物のマッシング、二輪・カート舗装
+    vegetation.ts              # 樹木（季節の常緑／裸木／桜の配分）
+    boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
+    crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD
+    assets.ts                  # アセットパックのローダー（manifest、KTX2 / meshopt、404 フォールバック、進捗）
+    materials.ts               # 実写 PBR マテリアルのファクトリ（ARM パック、hand-built UV の法線規約、芝の緑化ムラ）
     car-model.ts               # 2026 年規定のマシン（ロフト車体、翼型ウイング、可動フラップ、リバリー、キャスター／キャンバー付き足回り、ブレーキディスク、ドライバー人形、3 段階 LOD）
     driver-figure.ts           # ドライバーの胴体・腕（前腕はハンドルに追従）・ステアリングホイール
     particles.ts               # 火花（速度方向に伸びる）・タイヤスモークのパーティクル、テクスチャ付きで薄れるスキッドマーク
@@ -126,12 +159,16 @@ app/
     sun-model.ts               # 太陽の数値モデル（空の輝度の膝、ディスク・光輪、太陽に向いたときの露出適応、フレア表）— three 非依存で Node から検証可能
     audio.ts                   # WebAudio 合成のエンジン音（次数スタック、ターボ、MGU-K、シフト／オーバーラン、ドップラー）、風切り音、群衆、スタートシグナルの電子音、オフラインプローブ
     cameras.ts                 # カメラリグ（オンボードの振動・G、TV カメラの操作者モデル、ヘリのバンク）
-    textures.ts                # ノイズ生成の PBR テクスチャ（カラー／ノーマル／ラフネス）
+    textures.ts                # ノイズ生成の PBR テクスチャ（カラー／ノーマル／ラフネス）— 低負荷ティアと、アセットが無いときのフォールバック
 scripts/
   sim-harness.mjs              # Node 用シミュレーションハーネス（pnpm sim、--brakes でディスク温度表）
   perf-probe.mjs               # 描画コストの計測（draw call、三角形数、区間時間をカメラ／ティアごとに採取）
   sun-model-check.mjs          # 太陽モデルの不変条件（空の膝 < bloom 閾値 < 発光体 < プローブ < ディスク、露出の有界性、Sky.js のアンカー文字列）を Node で検証
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
+  shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
+  facilities-check.mjs         # スタンド／ピット定数／ガレージ順の整合性チェック
+  assets/                      # fetch / import-misc / bake-crowd-atlas / sources（アセットパイプライン）
+  facilities/                  # build-facilities（Overpass → TS）、build-power、dem-profile（DEM5A → 標高キーフレーム）
 ```
 
 ## Rendering notes
@@ -143,7 +180,16 @@ scripts/
   bloom の閾値 4.5 は REC709 輝度に対する値なので、発光値は `app/three/emissive.ts` で輝度基準に設計しています
   （スタートシグナル、約 950 °C 以上のブレーキディスク、火花、ピットガレージの照明だけが光り、低負荷モードでは全体を 0.4 倍）。
   影は追従カメラでは毎フレーム、俯瞰では 2〜3 フレームに 1 回だけ再描画し、車は高品質で 250 m 以内が詳細メッシュ・400 m 以内が LOD1/2、低負荷では 120 m 以内だけが影を落とします（それより遠くは太陽方向に伸びる接地ブロブ）。
-- **光と時刻**：太陽は鈴鹿（北緯 34.84°）の 10 月初旬の時刻から計算し、スライダーで 10:00〜17:30 を動かせます。
+- **季節と施設**：再現しているのは 2026 年日本 GP 決勝日（3 月 29 日）です。路肩の高麗芝は休眠期の麦わら色（刈込縞なし、
+  30〜60 m 周期の緑化ムラ）、桜が S 字・ヘアピン・パーク側に混じり、気象は 15 °C / 路温 26 °C。`SEASON`
+  （`app/data/suzuka-facilities-spec.ts`）を `'autumn'` にすると 10 月のパレットに戻ります。スタンド約 30 基は OSM の
+  フットプリント（ODbL）と座席図から生成し、C・E-2 のように曲線内側で (s, lateral) スイープが折り返す所は OSM 前縁の
+  弦に沿った直線フレームで組みます。段床の下の丘や台地は `facilityRelief` が地形に切り欠き／盛土します。ピットビルは
+  前面 lateral −25.1 / 奥行き 31.5 m の実寸で 2.8 % 勾配に追従し、ガレージ 1 は T1 側です。
+- **観客**：座席位置はスタンド生成器が返し、観客はその席に座ります（決勝の占有率 95 %、西エリアは疎）。高品質ティアは
+  CC0 の人物モデルから焼いた 8 方位 × 2 仰角のアトラスをビルボードで使い、上着・ズボン・肌を個体ごとに着色、
+  55 m 以内のベイは前列を 3D 人物で描きます。低負荷ティアは 16 体の手続きアトラスです。
+- **光と時刻**：太陽は鈴鹿（北緯 34.84°）の 3 月末（赤緯 +3.2°）の時刻から計算し、スライダーで 10:00〜17:30 を動かせます。
   低い太陽では色温度・露出・フォグを暖色側へ寄せます。環境光は解析的スカイドームを PMREM 化したもので、
   `Sky` シェーダは背景専用です。r185 の `Sky` が描く太陽ディスク（線形値で約 3×10⁵、半精度の上限超え）と内蔵の雲は無効化し、
   `app/three/sun-model.ts` の数値で自前の太陽を描いています: 実寸 0.533° のディスク（60 linear）、Buie 型の光輪、
@@ -168,8 +214,21 @@ scripts/
   減速時に稀にフロントがロックしてタイヤスモークとスキッドマークが残り、スタートではホイールスピンの煙が出ます。
 - **カメラ** (`app/three/cameras.ts`)：オンボードは回転数に同期した振動と横 G の傾き、TV カメラは減衰バネで追う操作者モデル
   （通過時に遅れて僅かにオーバーシュート、望遠でのぶれ、2°までズーム）、ヘリはコーナーでバンクします。
-- **テクスチャ** (`app/three/textures.ts`)：外部アセットなし。タイル可能なノイズからアスファルト、芝、グラベル、縁石、コンクリート、
-  カーボン、タイヤ、ホイール、リバリー、観客、ガレージ、看板、Armco、金網、タイヤバリア、TecPro、雲、火花などを生成しています。
+- **テクスチャ** (`app/three/textures.ts`, `app/three/materials.ts`)：低負荷ティアはタイル可能なノイズからアスファルト、芝、グラベル、縁石、
+  コンクリート、カーボン、タイヤ、ホイール、リバリー、観客、ガレージ、看板、Armco、金網、タイヤバリア、TecPro、雲、火花などを生成します。
+  高品質ティアは芝（Poly Haven withered_grass 2 K）、ピットレーン舗装、コンクリート、白壁、金網、座席などに写真 PBR（KTX2、ARM パック）を
+  重ね、無い場合は同じ手続きマテリアルへ落ちます。実在ロゴ・スポンサー名はテクスチャに描きません（説明的な文字と汎用パネルのみ）。
+
+## GPU で確認すること
+
+このリポジトリの検証はすべてソフトウェア描画（SwiftShader）で行っているため、高品質ティアの見た目は実 GPU で確認してください
+（`?fx=1`、必要なら `?assets=1`）:
+
+- KTX2 の転送先フォーマット（ASTC / BC7 / ETC2）で芝・アスファルト・コンクリートのタイルが正しく出ること、法線の向きが逆でないこと（低い横光で確認）
+- MSAA の alpha-to-coverage で観客・金網・樹木の縁がにじまないこと、55 m 以内の 3D 観客と遠景インポスターの切替が目立たないこと
+- グランドスタンドのガラス帯とピットビル 2F ガラスの空の反射、白壁の法線マップ、V1/V2/Q2 の座席インスタンス、スタンド屋根の影
+- 60 fps を保てること（保てなければ描画解像度が自動で下がります。`?assets=0` で差分を切り分け）
+- `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes
 

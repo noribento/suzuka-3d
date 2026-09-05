@@ -9,8 +9,8 @@ import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
 import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_RACEWAY, type OsmFeature } from '~/data/suzuka-facilities'
 import { BUILDINGS } from '~/data/suzuka-facilities-spec'
-import { addMacro } from './track-mesh'
-import { asphaltMaps } from './textures'
+import { addRoadSurface } from './track-mesh'
+import { ASPHALT_TILE_M, asphaltMaps } from './textures'
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
@@ -390,8 +390,9 @@ function polylineRibbon(pts: THREE.Vector3[], width: number, closed: boolean, yA
 function buildSecondaryPaving(ctx: EnvBuildContext) {
   const { track, terrain, group, keepOut } = ctx
   const maps = asphaltMaps(false)
-  const mat = new THREE.MeshStandardMaterial({ map: maps.map, normalMap: maps.normalMap, roughnessMap: maps.roughnessMap, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
-  addMacro(mat, new THREE.Vector2(40 / 250, 40 / 250))
+  // the run-off asphalt's own surface treatment (macro variation + detail), so the strips match the road
+  const mat = new THREE.MeshStandardMaterial({ map: maps.map, normalMap: maps.normalMap, roughnessMap: maps.roughnessMap, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+  addRoadSurface(mat, new THREE.Vector2(1, ASPHALT_TILE_M / 300), 9)
   const cx = track.center.x, cz = track.center.z
   const inside = (x: number, z: number) => Math.abs(x - cx) < 1600 && Math.abs(z - cz) < 1200
   /** the lap itself, its pit lane and the two-wheel / kart ways: widths by role */
@@ -411,7 +412,7 @@ function buildSecondaryPaving(ctx: EnvBuildContext) {
     if (f.tags.name === 'Pit Lane') continue
     const pts = f.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
     if (!pts.every((p) => inside(p.x, p.z))) continue
-    const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => terrain.meshHeightAt(x, z), 0.06, 12)
+    const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => terrain.meshHeightAt(x, z), 0.06, ASPHALT_TILE_M)
     if (!g) continue
     geos.push(g)
     // the kart and South Course loops are tree-free inside as well as on the ribbon
