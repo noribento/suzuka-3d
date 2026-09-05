@@ -77,53 +77,58 @@ export const SECTIONS: CornerInfo[] = [
 ]
 
 /**
- * Elevation keyframes [s, height(m)], following the real ~40 m profile: the pit straight
- * runs gently downhill into Turn 1, the exit of Turn 2 is the low point of the first
- * sector, the Esses climb continuously to the crest between Dunlop and Degner, the lap
- * drops under the bridge to the hairpin, rises through 200R, dips at Spoon, climbs the back
- * straight onto the bridge and falls again through 130R and the chicane. The over/under
- * pair of the crossover (s≈4691 / s≈2321) is separated by 7 m.
+ * Elevation keyframes [s, height(m)] derived from the GSI 5 m DEM — 標高は「基盤地図情報 数値標高
+ * モデル（DEM5A）」（国土地理院）（https://maps.gsi.go.jp/development/ichiran.html）をもとに作成。
+ * Regenerate with `node scripts/facilities/dem-profile.mjs`; the raw tiles stay outside the repo.
+ * Datum: project height = metres ASL − 10.73, so the start line keeps its 21.0 m and everything
+ * placed around it is unchanged. Method: median of 13 samples across the road every 5 m along
+ * the app's own centreline, the four spots where the bare-earth DEM shows a spectator tunnel or
+ * the crossover road *below* the deck repaired, Douglas–Peucker at 0.5 m, then the residual
+ * artefact notches (s≈1765/4670/5125) and a 0.5 m tunnel-edge kink at s≈105–130 on the main
+ * straight removed by hand — the Hermite interpolation in Track.elevationAt would turn those
+ * into visible bumps. The real profile spans 6.8 m (Turn 2 exit, s≈545) to 47.0 m (200R → Spoon,
+ * s≈3570): the pit straight falls at −3 % into Turn 1, the lap climbs from the Turn 2 exit
+ * through the Esses to the Dunlop crest (s≈1710), drops under the crossover (32.7 m at s≈2321),
+ * rises again to the hairpin → 200R → Spoon plateau (44–47 m, the highest part of the lap, not
+ * Degner as previously modelled), falls at −5 % onto the back straight, crosses the bridge
+ * (38.8 m at s≈4691, 6.0 m above the road beneath), peaks once more before the chicane (44.3 m)
+ * and drops −3 % through T18 back to the line.
  */
 export const ELEVATION_KEYFRAMES: [number, number][] = [
   [0, 21],
-  [200, 20],
-  [400, 18],
-  [520, 15],
-  [640, 12],
-  [760, 9.5],
-  [880, 9],
-  [1000, 10.5],
-  [1100, 13],
-  [1200, 16],
-  [1300, 19.5],
-  [1400, 23],
-  [1500, 26.5],
-  [1600, 30],
-  [1700, 33.5],
-  [1850, 38],
-  [2000, 43],
-  [2080, 45.5],
-  [2200, 44],
-  [2320, 37],
-  [2450, 31],
-  [2550, 27],
-  [2680, 24],
-  [2800, 24.5],
-  [3000, 27.5],
-  [3200, 30],
-  [3400, 29],
-  [3550, 26.5],
-  [3750, 24],
-  [3900, 25],
-  [4100, 28.5],
-  [4400, 35],
-  [4691, 44],
-  [4850, 42],
-  [5000, 38],
-  [5150, 32],
-  [5250, 28],
-  [5400, 25],
-  [5600, 22.5],
+  [490, 7.3],
+  [550, 6.8],
+  [910, 13.3],
+  [1265, 28.3],
+  [1320, 28.7],
+  [1420, 26.5],
+  [1470, 27.1],
+  [1640, 38.3],
+  [1710, 40.7],
+  [2065, 37.1],
+  [2245, 32.6],
+  [2380, 32.7],
+  [2460, 34.3],
+  [2635, 42.8],
+  [2685, 44.4],
+  [3005, 46.8],
+  [3065, 46],
+  [3160, 42.1],
+  [3215, 41.4],
+  [3415, 46],
+  [3570, 47],
+  [3775, 46.4],
+  [3825, 44.3],
+  [3945, 35.7],
+  [4025, 33.4],
+  [4125, 34.6],
+  [4310, 38.8],
+  [4675, 38.8],
+  [4830, 39.6],
+  [5160, 44.3],
+  [5280, 41.6],
+  [5375, 35.4],
+  [5475, 30.5],
 ]
 
 /**
@@ -161,14 +166,18 @@ export const WIDTH_KEYFRAMES: [number, number][] = [
 /**
  * Cross-slope keyframes [s, degrees], linearly interpolated. Positive values bank the
  * road into the local corner (outside edge higher), negative ones are off-camber.
- * Estimates, not survey data — Suzuka is mostly flat-crowned with mild banking.
+ * Turns 1–2 and the hairpin follow the DEM5A cross-slope ((h(+6) − h(−6)) / 12 ≈ 7 %, i.e.
+ * ≈4° banked into the corner, see scripts/facilities/dem-profile.mjs); the rest are still
+ * estimates — the DEM also hints at 2–3° in Degner 2, Dunlop and the 200R, but the road is
+ * ≤ 11 m wide there and the ±6 m samples reach the kerbs, so those were left alone. Suzuka is
+ * otherwise flat-crowned (straights read −0.1…−0.8 % of drainage fall).
  */
 export const CAMBER_KEYFRAMES: [number, number][] = [
   [0, 0],
   [400, 0],
-  [470, 2],
-  [560, 2.5],
-  [640, 3],
+  [470, 3.5],
+  [560, 3.5],
+  [640, 4],
   [720, 1],
   [800, 0],
   [860, 1],
@@ -182,7 +191,7 @@ export const CAMBER_KEYFRAMES: [number, number][] = [
   [2220, 2],
   [2280, 0],
   [2600, 0],
-  [2660, 3],
+  [2660, 4.5],
   [2740, 0],
   [3500, 0],
   [3600, 1],
