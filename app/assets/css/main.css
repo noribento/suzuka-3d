@@ -74,9 +74,17 @@ body,
 .loading .bar::after {
   content: '';
   display: block;
-  width: 40%;
+  /* --p is bound from store.loadProgress (0..1) */
+  width: calc(var(--p, 0) * 100%);
   height: 100%;
   background: var(--f1-red);
+  transition: width 0.2s ease-out;
+}
+
+/* nothing to measure yet (or the tier loads no external assets): the classic sweep */
+.loading .bar.indeterminate::after {
+  width: 40%;
+  transition: none;
   animation: load 1.1s infinite ease-in-out;
 }
 

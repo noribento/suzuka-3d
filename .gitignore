@@ -27,3 +27,6 @@ logs
 .env.*
 !.env.example
 .perf
+
+# Third-party asset drops + downloads (scripts/assets/*); public/assets/ is the converted, committed output
+misc/

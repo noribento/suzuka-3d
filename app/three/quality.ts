@@ -80,6 +80,20 @@ export interface Quality {
   dof: boolean
   motionBlur: boolean
   smaa: boolean
+  /**
+   * Load the external asset pack (`/assets-manifest.json`: photo PBR tiles, tree / seat / crowd
+   * models). Off on the low tier so the software-rasteriser (e2e) path stays at zero downloads
+   * and zero external dependencies; `?assets=0|1` overrides (see `assetsOverride`).
+   */
+  assets: boolean
+  /** near-field 3D spectators (instanced meshes); the rest are impostors. 0 = impostors only */
+  crowdNear: number
+  /** near-field grass blade instances (0 = the tiled ground texture alone) */
+  grass: number
+  /** individual seat instances on the stands (false = the flat seat ribbon texture) */
+  seatInstances: boolean
+  /** resolution class of the external textures picked from the manifest */
+  textureRes: '2k' | '1k'
 }
 
 export const QUALITY: Record<QualityTier, Quality> = {
@@ -99,7 +113,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     casterGateLod0: 250,
     casterGateLod1: 400,
     treeShadows: true,
-    crowd: 30000,
+    crowd: 65000,
     sparks: 2048,
     smoke: 768,
     skidQuads: 4000,
@@ -117,6 +131,11 @@ export const QUALITY: Record<QualityTier, Quality> = {
     dof: true,
     motionBlur: true,
     smaa: true,
+    assets: true,
+    crowdNear: 2000,
+    grass: 60000,
+    seatInstances: true,
+    textureRes: '2k',
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -155,6 +174,11 @@ export const QUALITY: Record<QualityTier, Quality> = {
     dof: false,
     motionBlur: false,
     smaa: false,
+    assets: false,
+    crowdNear: 0,
+    grass: 0,
+    seatInstances: false,
+    textureRes: '1k',
   },
 }
 
@@ -190,4 +214,16 @@ export function pickTier(caps: Capabilities): QualityTier {
   if (forced === '0') return 'low'
   if (forced === '1') return 'high'
   return caps.software ? 'low' : 'high'
+}
+
+/**
+ * `?assets=0` / `?assets=1` force the external asset pack off / on regardless of the tier
+ * (null = the tier decides). `assets=1` on the low tier is how the fallback path is exercised in
+ * headless Chromium; `assets=0` on a GPU shows the procedural-only look for comparison.
+ */
+export function assetsOverride(): boolean | null {
+  const v = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('assets') : null
+  if (v === '0') return false
+  if (v === '1') return true
+  return null
 }

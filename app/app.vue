@@ -29,7 +29,8 @@ const { store, broadcast } = useRaceStore()
     <div v-if="!store.ready" class="loading">
       <div class="brand">F1</div>
       <div class="sub">SUZUKA INTERNATIONAL RACING COURSE</div>
-      <div class="bar" />
+      <!-- real progress once the asset downloads report; an indeterminate sweep before that (and on the asset-less tier) -->
+      <div class="bar" :class="{ indeterminate: store.loadProgress === 0 }" :style="{ '--p': store.loadProgress }" />
     </div>
   </div>
 </template>

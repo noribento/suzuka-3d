@@ -23,6 +23,13 @@ export default defineNuxtConfig({
   vite: {
     optimizeDeps: { include: ['three'] },
   },
+  // Only content-hashed files live under /assets/ (scripts/assets/import-misc.mjs), so they can be
+  // cached forever; the unhashed /assets-manifest.json sits outside the rule and is fetched with
+  // `cache: 'no-cache'`. Route rules are a Nitro feature: a static host (`nuxt generate` + CDN /
+  // object storage) ignores them and needs the equivalent header configured on the host itself.
+  routeRules: {
+    '/assets/**': { headers: { 'cache-control': 'public, max-age=31536000, immutable' } },
+  },
   typescript: {
     strict: true,
   },

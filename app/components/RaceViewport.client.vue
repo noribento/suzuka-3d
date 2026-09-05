@@ -8,6 +8,7 @@ import { CIRCUIT } from '~/data/suzuka'
 import { toMap } from '~/sim/projection'
 import { createScene, type SceneContext } from '~/three/scene'
 import { probeCapabilities } from '~/three/quality'
+import { loadAssets, type AssetRegistry } from '~/three/assets'
 import { freezeStatic } from '~/three/instancing'
 import { markAllDirty, textureBytes } from '~/three/textures'
 import { buildTrackMeshes, type TrackMeshes } from '~/three/track-mesh'
@@ -27,6 +28,10 @@ const canvas = ref<HTMLCanvasElement>()
 const labelLayer = ref<HTMLDivElement>()
 
 let ctx: SceneContext | null = null
+/** external asset pack (empty registry on the low tier / `?assets=0`); owned here, disposed on unmount */
+let assets: AssetRegistry | null = null
+/** set by onBeforeUnmount: an async setup() that resumes after it must not touch the disposed scene */
+let disposed = false
 let rig: CameraRig | null = null
 let env: Environment | null = null
 let trackMeshes: TrackMeshes | null = null
@@ -242,7 +247,7 @@ function placeLabels() {
   }
 }
 
-function setup() {
+async function setup() {
   if (!canvas.value || !container.value || !labelLayer.value) return
   const t0 = performance.now()
   rig = new CameraRig(track, container.value)
@@ -251,6 +256,21 @@ function setup() {
   const q = ctx.quality
   // the emissive budget depends on whether bloom exists — decide before any lit material is built
   setEmissiveTier(ctx.tier)
+  // GPU reset: keep the context restorable, stop the loop, and re-upload everything on return.
+  // Registered BEFORE the await so a loss during the downloads is still caught.
+  canvas.value.addEventListener('webglcontextlost', onContextLost)
+  canvas.value.addEventListener('webglcontextrestored', onContextRestored)
+
+  // the external asset pack (photo PBR tiles, models) — an empty registry on the low tier, so the
+  // e2e path never waits on the network; the downloads own the first 70 % of the loading bar
+  assets = await loadAssets(ctx.renderer, q, undefined, (p) => { store.loadProgress = p * 0.7 })
+  if (disposed) return
+  if (assets.bytes() > 0) {
+    // let the 70 % mark paint before the synchronous scene build blocks the main thread
+    store.loadProgress = 0.7
+    await new Promise<void>((r) => setTimeout(r, 0))
+    if (disposed) return
+  }
 
   env = buildEnvironment(track, q)
   ctx.scene.add(env.group)
@@ -285,11 +305,12 @@ function setup() {
   resizeObserver = new ResizeObserver(onResize)
   resizeObserver.observe(container.value)
   store.ready = true
+  store.loadProgress = 1
   setupMs = performance.now() - t0
   if (import.meta.dev) {
     // debug hook for the e2e suite and the probe scripts (getters keep restart / audio creation live)
     ;(window as unknown as { __suzuka: unknown }).__suzuka = {
-      THREE, ctx, rig, track, env, trackMeshes, models, motion, store, perf, perfMax,
+      THREE, ctx, rig, track, env, trackMeshes, models, motion, store, perf, perfMax, assets,
       get race() { return race },
       get audio() { return audio },
       RaceAudio,
@@ -299,9 +320,6 @@ function setup() {
       textureBytes,
     }
   }
-  // GPU reset: keep the context restorable, stop the loop, and re-upload everything on return
-  canvas.value.addEventListener('webglcontextlost', onContextLost)
-  canvas.value.addEventListener('webglcontextrestored', onContextRestored)
   raf = requestAnimationFrame(loop)
 }
 
@@ -316,6 +334,7 @@ function onContextRestored() {
   contextLost = false
   // canvases are still there: flag every cached texture, rebuild the CSM programs, redo the maps
   markAllDirty()
+  assets?.markAllDirty()
   ctx.refreshMaterials(ctx.scene)
   ctx.forceShadowUpdate()
   framesRendered = 0
@@ -1116,11 +1135,18 @@ onMounted(() => {
   window.addEventListener('keydown', onFirstGesture)
   window.addEventListener('pointermove', onPointerMove, { passive: true })
   document.addEventListener('visibilitychange', onVisibility)
-  // let the loading screen paint before the (synchronous) scene build
-  setTimeout(setup, 30)
+  // let the loading screen paint before the scene build; a failed setup still drops the loading
+  // screen (the error is on the console) instead of leaving the page on the splash forever
+  setTimeout(() => {
+    setup().catch((err: unknown) => {
+      console.warn('[viewport] setup failed', err)
+      store.ready = true
+    })
+  }, 30)
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   cancelAnimationFrame(raf)
   canvas.value?.removeEventListener('webglcontextlost', onContextLost)
   canvas.value?.removeEventListener('webglcontextrestored', onContextRestored)
@@ -1137,6 +1163,7 @@ onBeforeUnmount(() => {
   for (const el of labelEls) el.remove()
   audio?.cancelCues()
   audio?.dispose()
+  assets?.dispose()
   ctx?.dispose()
 })
 </script>

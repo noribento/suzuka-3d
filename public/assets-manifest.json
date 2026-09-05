@@ -1,0 +1,1830 @@
+{
+  "version": 1,
+  "generated": "2026-09-05T05:29:44.653Z",
+  "tools": {
+    "sharp": "0.35.4",
+    "ktx": "4.4.2",
+    "gltfpack": "gltfpack@1.2.0",
+    "gltfTransform": "@gltf-transform/cli@4.5.0"
+  },
+  "assets": {
+    "model/crowd/eclair/female_hairstyle_1": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_hairstyle_1.785638ef.glb",
+      "format": "glb",
+      "bytes": 7384,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "6aaef01dc5ddd584b8d36cae8167296d8dcd3f5f29234884be8d5b155c06ab74",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Hairstyles_OBJ_Female_Hairstyle_1.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_hairstyle_2": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_hairstyle_2.8d806ed9.glb",
+      "format": "glb",
+      "bytes": 7288,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "c57eab06729f4a0e504d33c7d68e130643b1f131c081c5e7b230e015fd012e19",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Hairstyles_OBJ_Female_Hairstyle_2.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_hairstyle_3": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_hairstyle_3.3622f7cc.glb",
+      "format": "glb",
+      "bytes": 5928,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "a8475e88e796330ad464acc90770cad6419957c630a6d813770db89cd8a6cf26",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Hairstyles_OBJ_Female_Hairstyle_3.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_hairstyle_4": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_hairstyle_4.0f14a751.glb",
+      "format": "glb",
+      "bytes": 7068,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "f1f1d892e795f289c33a8d19e5ba6de2956f78cf6a9f017e80d0a0ec19e1f2e3",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Hairstyles_OBJ_Female_Hairstyle_4.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_lookingup": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_lookingup.9a6dc94f.glb",
+      "format": "glb",
+      "bytes": 20000,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "96cbc98683e4d1c635481f7e4ddc32c4565c7dde8db7be61d8d48e4de8acabf7",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_LookingUp.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_pickingup": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_pickingup.190ffe65.glb",
+      "format": "glb",
+      "bytes": 21240,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "c32532a360fcb0d3bb3368f3c0d9c858e39377b8c3162e0a8ff46e97cb86e41f",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_PickingUp.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_running": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_running.f79db61c.glb",
+      "format": "glb",
+      "bytes": 20420,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "629dc69ec44c259d4b29dfa0fa1eb234cf893cd83c8ef333a4de2251d378dbb3",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Running.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_sitting": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_sitting.c99f5527.glb",
+      "format": "glb",
+      "bytes": 20844,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "e2f4960a31bf72bdbdd375f60ddc42ecc1ee5ae7bcc9f3cec91c4373f8cdc18c",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Sitting.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_sitting_cheering": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_sitting_cheering.94cde891.glb",
+      "format": "glb",
+      "bytes": 20764,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "53cfa38ed2f50de680f13ab63804ca4037c1482ef66aba1380bdd3e916eaa5ee",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Sitting_Cheering.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_standing": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_standing.8febdac1.glb",
+      "format": "glb",
+      "bytes": 20512,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "0b42edf2c1790aa02a7f0a1049ee9286f9cd5071c62f5d155f5025298a9ef0bb",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Standing.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_standing_coveringeyes": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_standing_coveringeyes.2e7d1c0f.glb",
+      "format": "glb",
+      "bytes": 20556,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "778243011f1214773b38f54f7e288c823d1220a1e6b85992204a63c5a05279c3",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Standing_CoveringEyes.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_standing_hips": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_standing_hips.40486b7a.glb",
+      "format": "glb",
+      "bytes": 19980,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "61dde55786f96b43fca294093a292f248f66c087932b185b1599f75942717e89",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Standing_Hips.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/female_walking": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_female_walking.5e1ba5ec.glb",
+      "format": "glb",
+      "bytes": 20616,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "0cfd25cdb7a26fb02a53f51b45acb7dee30300a805bad0c62d916c8d5f3351e5",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Female_Walking.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_hairstyle_1": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_hairstyle_1.305b2b04.glb",
+      "format": "glb",
+      "bytes": 4608,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "8a667b4a45fa430b97740122fc3886890d8404000b2096f13203d54c0f9d4f32",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Hairstyles_OBJ_Male_Hairstyle_1.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_hairstyle_2": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_hairstyle_2.3c07342f.glb",
+      "format": "glb",
+      "bytes": 4824,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "147a610e0a001ac9c261814645bff1000f16e9c31818df6050706b0601e605e6",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Hairstyles_OBJ_Male_Hairstyle_2.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_hairstyle_3": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_hairstyle_3.555620e0.glb",
+      "format": "glb",
+      "bytes": 5276,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "6e380c3d09f0a3f1d19d95888b864429a0c8fca48a70b9b1dbacdc8a0c882968",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Hairstyles_OBJ_Male_Hairstyle_3.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_hairstyle_4": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_hairstyle_4.8d88092b.glb",
+      "format": "glb",
+      "bytes": 4692,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "80c926d21a3e08317219cf2b630cacc37b111f37c49025c5f59408573873383e",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Hairstyles_OBJ_Male_Hairstyle_4.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_lookingup": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_lookingup.d6539407.glb",
+      "format": "glb",
+      "bytes": 15424,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "9c26dc5cd10776ef15ec7e59a5b2bfd88118155ff9c1136028647b1fce182d2a",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_LookingUp.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_pickingup": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_pickingup.e85517ab.glb",
+      "format": "glb",
+      "bytes": 15880,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "a8a25efba9e9d85f9715809996a88d5d402a937dfd5169d5b0e05c768d1d813c",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_PickingUp.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_running": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_running.225db8df.glb",
+      "format": "glb",
+      "bytes": 15448,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "6955d2e728f74c5044090d4d630a109891d544503d1f297a4cd3a2fd35cc8385",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Running.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_sitting": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_sitting.5c2b8ba0.glb",
+      "format": "glb",
+      "bytes": 15584,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "2af7bb8e3b75406b58dba5e537511e68d45e123b94e9e71c3fdb1fe71aa9bae9",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Sitting.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_sitting_cheering": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_sitting_cheering.38c7c6f7.glb",
+      "format": "glb",
+      "bytes": 15440,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "0c58034cf5d34cacbd97fee18d663983ad64c8398315db265932a8a46b894217",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Sitting_Cheering.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_standing": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_standing.d3283fdc.glb",
+      "format": "glb",
+      "bytes": 15308,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "af4f929af06254be76b59ce9e9fc64b5d44984fa14401aa99efdc6c83f97b464",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Standing.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_standing_coveringeyes": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_standing_coveringeyes.23b642d2.glb",
+      "format": "glb",
+      "bytes": 15332,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "324295364129a007dfbf47b598b3718091f8757157cb8bad2ddee85aeae75db2",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Standing_CoveringEyes.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_standing_hips": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_standing_hips.232c379d.glb",
+      "format": "glb",
+      "bytes": 15344,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "e6c96df081e94699470c174ec4b9cdc4f6174cedc61056419bb2bf704b622a06",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Standing_Hips.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_standing_waving": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_standing_waving.2a48fa0e.glb",
+      "format": "glb",
+      "bytes": 15212,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "88b61b8b652e0a84f29ec1533fa73208cfe2265443a665601fdac09ee531d74c",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Standing_Waving.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/male_walking": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_male_walking.c3d107eb.glb",
+      "format": "glb",
+      "bytes": 15340,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "aad5cfa91728a17bcce01cd2e82b3e0d1afd3856b203478b23a3f710900e05e2",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Male_Male Poses_OBJ_Male_Walking.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/crowd/eclair/woman_standing_waving": {
+      "kind": "model",
+      "path": "/assets/models/crowd_eclair_woman_standing_waving.48107d8b.glb",
+      "format": "glb",
+      "bytes": 20052,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "Eclair Assets (itch.io)",
+        "name": "Background Posed Humans GLB Pack",
+        "pageUrl": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
+        "credit": "Background characters by Quaternius (GLB conversion by Eclair Assets)",
+        "url": "https://eclair-assets.itch.io/background-posed-humans-glb-pack-28-free-cc0-3d-models",
+        "sha256Source": "679f48da7f1f85f26da6f07875ade8f07e8f86fabd21b94ebebd8da77639e0e2",
+        "miscPath": "quaternius_background_posed_humans_glb_cc0_v1/models_glb/Female_Female Poses_OBJ_Woman_Standing_Waving.glb",
+        "licenceEvidence": "quaternius_background_posed_humans_glb_cc0_v1/source_reference/License.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/props/concrete_road_barrier": {
+      "kind": "model",
+      "path": "/assets/models/props_concrete_road_barrier.cb24abf3.glb",
+      "format": "glb",
+      "bytes": 438640,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Concrete Road Barrier",
+        "pageUrl": "https://polyhaven.com/a/concrete_road_barrier",
+        "licence": "CC0-1.0",
+        "author": "Rico Cilliers",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/concrete_road_barrier/concrete_road_barrier_1k.gltf",
+        "sha256Source": "c371e87d303fff3f0c9fbe88520f7837514364e5c66aac3244e115ffa673d061"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/props/security_camera_01": {
+      "kind": "model",
+      "path": "/assets/models/props_security_camera_01.7befa6c3.glb",
+      "format": "glb",
+      "bytes": 243932,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Security Camera 01",
+        "pageUrl": "https://polyhaven.com/a/security_camera_01",
+        "licence": "CC0-1.0",
+        "author": "Rico Cilliers",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/security_camera_01/security_camera_01_1k.gltf",
+        "sha256Source": "d2468fe353cd9f992a5549709cf9efcfae67e9fd17f80bf7ff3866e2881dd2ae"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/props/street_lamp_02": {
+      "kind": "model",
+      "path": "/assets/models/props_street_lamp_02.cdccf12f.glb",
+      "format": "glb",
+      "bytes": 265700,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Street Lamp 02",
+        "pageUrl": "https://polyhaven.com/a/street_lamp_02",
+        "licence": "CC0-1.0",
+        "author": "Rico Cilliers",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/street_lamp_02/street_lamp_02_1k.gltf",
+        "sha256Source": "3a8a42486c5dc4538a8b44aeeef502c64a1c9d0d42fa5610e37886c355337ff8"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/seats/arena_seat": {
+      "kind": "model",
+      "path": "/assets/models/seats_arena_seat.be9245ce.glb",
+      "format": "glb",
+      "bytes": 69756,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Low poly stadium/sports arena seats",
+        "pageUrl": "https://sketchfab.com/3d-models/low-poly-stadiumsports-arena-seats-6bbe4c85d2a4489dbe5918831be5d886",
+        "licence": "CC-BY-4.0",
+        "author": "anDDDres",
+        "authorUrl": "https://sketchfab.com/anDDDres",
+        "url": "https://sketchfab.com/3d-models/low-poly-stadiumsports-arena-seats-6bbe4c85d2a4489dbe5918831be5d886",
+        "sha256Source": "1999a8d6cac5e0f3bc06a81f15768c021f44dc693d06538abc91cbbc86657013",
+        "miscPath": "low_poly_stadiumsports_arena_seats.zip",
+        "licenceEvidence": "low_poly_stadiumsports_arena_seats.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/seats/bleacher": {
+      "kind": "model",
+      "path": "/assets/models/seats_bleacher.258f796b.glb",
+      "format": "glb",
+      "bytes": 5627336,
+      "role": "model",
+      "textures": [
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Bleacher",
+        "pageUrl": "https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b",
+        "licence": "CC-BY-4.0",
+        "author": "JanStano",
+        "authorUrl": "https://sketchfab.com/JanStano",
+        "url": "https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b",
+        "sha256Source": "722b8cef25aeb6e1922b6af796ed24546955ad6a1523d3e9c76ec158f04ea679",
+        "miscPath": "bleacher.zip",
+        "licenceEvidence": "bleacher.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 1024 px"
+      ]
+    },
+    "model/trees/autumn_tree": {
+      "kind": "model",
+      "path": "/assets/models/trees_autumn_tree.63f7b8d1.glb",
+      "format": "glb",
+      "bytes": 37644,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Autumn Tree",
+        "pageUrl": "https://poly.pizza/m/2lRubrT6Na",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/653f3101-2c31-4d15-9e54-3d81aeca345a.glb",
+        "sha256Source": "dcec1dcaa91c1b43a82dfc082c9b64b1e533bfb484b2de151d9817b3a1e07f03"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/trees/bush": {
+      "kind": "model",
+      "path": "/assets/models/trees_bush.1b43cf94.glb",
+      "format": "glb",
+      "bytes": 124660,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Bush",
+        "pageUrl": "https://poly.pizza/m/ooG6CkLyE8",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/6bbb833e-26cb-4bf9-ae67-a31b98e30bd9.glb",
+        "sha256Source": "917de9eee116cd439637abeca201ac0a823cb534c4618e15dcbca34d3a916782"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/trees/pine_a": {
+      "kind": "model",
+      "path": "/assets/models/trees_pine_a.6cbe3efb.glb",
+      "format": "glb",
+      "bytes": 834484,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Pine",
+        "pageUrl": "https://poly.pizza/m/igSu0cPoBz",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/712aaefa-ae7f-4cb3-8834-a1b8860df3b2.glb",
+        "sha256Source": "b2cc7f2e672f94a41925ba831af8b3db9cbe6621172fb6f2717881c81c074e18"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/trees/pine_b": {
+      "kind": "model",
+      "path": "/assets/models/trees_pine_b.8a1d8f14.glb",
+      "format": "glb",
+      "bytes": 847768,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Pine",
+        "pageUrl": "https://poly.pizza/m/79gmlLnweB",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/082c2026-56af-4e3f-bea7-9ae5de71101f.glb",
+        "sha256Source": "240e6f60c5b106a892c80490d7c710f20ef902b328b5e173c0a567334e4df972"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/trees/pine_c": {
+      "kind": "model",
+      "path": "/assets/models/trees_pine_c.5e5fa2a6.glb",
+      "format": "glb",
+      "bytes": 853592,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Pine",
+        "pageUrl": "https://poly.pizza/m/699sFuLCN2",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/c55b8641-4679-4a85-8bd8-2a20e79abecd.glb",
+        "sha256Source": "3a5db923999bd47281f1f38cf8451c1544acfad33d953892fa95ca74765be361"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/trees/pine_trees": {
+      "kind": "model",
+      "path": "/assets/models/trees_pine_trees.1a9f5414.glb",
+      "format": "glb",
+      "bytes": 26472,
+      "role": "model",
+      "textures": [],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Pine Trees",
+        "pageUrl": "https://poly.pizza/m/oYtDty0fR6",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/1d499f8b-5a1b-4966-9a35-10c0d3841e91.glb",
+        "sha256Source": "aea959025a31b0d250d7c94c96cf9456f9fcdaf9fb269790029d85adae3703c4"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/trees/trees": {
+      "kind": "model",
+      "path": "/assets/models/trees_trees.f69eda0e.glb",
+      "format": "glb",
+      "bytes": 1206052,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        },
+        {
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "source": {
+        "site": "poly.pizza",
+        "name": "Trees",
+        "pageUrl": "https://poly.pizza/m/etFGNvsiFv",
+        "licence": "CC0-1.0",
+        "author": "Quaternius",
+        "authorUrl": "https://poly.pizza/u/Quaternius",
+        "url": "https://static.poly.pizza/53a83125-e16a-4024-b8f6-1e72679c7ddf.glb",
+        "sha256Source": "2dc587f401a3a86e0e1ee0bb95b4a0293b620b445a26278fcf55b5b68b40b097"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px"
+      ]
+    },
+    "model/veg/shrub_03": {
+      "kind": "model",
+      "path": "/assets/models/veg_shrub_03.94276e46.glb",
+      "format": "glb",
+      "bytes": 1447428,
+      "role": "model",
+      "textures": [
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Shrub 03",
+        "pageUrl": "https://polyhaven.com/a/shrub_03",
+        "licence": "CC0-1.0",
+        "author": "Rico Cilliers",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_03/shrub_03_1k.gltf",
+        "sha256Source": "b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "tex/asphalt_pit_lane/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_pit_lane_arm.31afa31d.ktx2",
+      "format": "ktx2",
+      "bytes": 171122,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt Pit Lane",
+        "pageUrl": "https://polyhaven.com/a/asphalt_pit_lane",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_pit_lane/asphalt_pit_lane_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "3e4315b489f07ff88315017932bdf40d3b9670e3d04c07d4077aa86a16e98d37"
+      },
+      "modified": true
+    },
+    "tex/asphalt_pit_lane/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_pit_lane_diff.8883fa07.ktx2",
+      "format": "ktx2",
+      "bytes": 212798,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt Pit Lane",
+        "pageUrl": "https://polyhaven.com/a/asphalt_pit_lane",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_pit_lane/asphalt_pit_lane_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "8aad5097f6de913aebc33f2b9b9271834b55c6942359955722db3196a9ce9bca"
+      },
+      "modified": true
+    },
+    "tex/asphalt_pit_lane/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_pit_lane_nor_gl.450a9cd0.ktx2",
+      "format": "ktx2",
+      "bytes": 1199469,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt Pit Lane",
+        "pageUrl": "https://polyhaven.com/a/asphalt_pit_lane",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_pit_lane/asphalt_pit_lane_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "a215356a1180664fbbf94076f3720a4620a1121e137780ce98059621bf8b444e"
+      },
+      "modified": true
+    },
+    "tex/concrete046/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/concrete046_arm.e2c5c056.ktx2",
+      "format": "ktx2",
+      "bytes": 174948,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.4,
+      "packed": {
+        "ao": false,
+        "metal": false
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Concrete 046",
+        "pageUrl": "https://ambientcg.com/view?id=Concrete046",
+        "url": "https://ambientcg.com/get?file=Concrete046_1K-JPG.zip#Concrete046_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "72bf4321acbb39ddbc3b786f5996813b2a3cede12efefb47955e97ea9668985b"
+      },
+      "modified": true
+    },
+    "tex/concrete046/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/concrete046_diff.88951721.ktx2",
+      "format": "ktx2",
+      "bytes": 192765,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.4,
+      "source": {
+        "site": "ambientCG",
+        "name": "Concrete 046",
+        "pageUrl": "https://ambientcg.com/view?id=Concrete046",
+        "url": "https://ambientcg.com/get?file=Concrete046_1K-JPG.zip#Concrete046_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "72bf4321acbb39ddbc3b786f5996813b2a3cede12efefb47955e97ea9668985b"
+      },
+      "modified": true
+    },
+    "tex/concrete046/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/concrete046_nor_gl.02d2ab08.ktx2",
+      "format": "ktx2",
+      "bytes": 983415,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.4,
+      "source": {
+        "site": "ambientCG",
+        "name": "Concrete 046",
+        "pageUrl": "https://ambientcg.com/view?id=Concrete046",
+        "url": "https://ambientcg.com/get?file=Concrete046_1K-JPG.zip#Concrete046_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "72bf4321acbb39ddbc3b786f5996813b2a3cede12efefb47955e97ea9668985b"
+      },
+      "modified": true
+    },
+    "tex/corrugatedsteel003/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel003_arm.0afddef2.ktx2",
+      "format": "ktx2",
+      "bytes": 274389,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "packed": {
+        "ao": true,
+        "metal": true
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 003",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel003",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel003_1K-JPG.zip#CorrugatedSteel003_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1"
+      },
+      "modified": true
+    },
+    "tex/corrugatedsteel003/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel003_diff.64f5e26a.ktx2",
+      "format": "ktx2",
+      "bytes": 209401,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 003",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel003",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel003_1K-JPG.zip#CorrugatedSteel003_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1"
+      },
+      "modified": true
+    },
+    "tex/corrugatedsteel003/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel003_nor_gl.fbf13f0c.ktx2",
+      "format": "ktx2",
+      "bytes": 1194741,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 003",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel003",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel003_1K-JPG.zip#CorrugatedSteel003_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1"
+      },
+      "modified": true
+    },
+    "tex/facade001/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/facade001_arm.0f8a61c6.ktx2",
+      "format": "ktx2",
+      "bytes": 38854,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "packed": {
+        "ao": false,
+        "metal": true
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Facade 001",
+        "pageUrl": "https://ambientcg.com/view?id=Facade001",
+        "url": "https://ambientcg.com/get?file=Facade001_1K-JPG.zip#Facade001_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "e804ad49d692ca60b260394db2ec05d8a274ad319759f536a042471b58d38ea9"
+      },
+      "modified": true
+    },
+    "tex/facade001/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/facade001_diff.31f2de9d.ktx2",
+      "format": "ktx2",
+      "bytes": 107047,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "ambientCG",
+        "name": "Facade 001",
+        "pageUrl": "https://ambientcg.com/view?id=Facade001",
+        "url": "https://ambientcg.com/get?file=Facade001_1K-JPG.zip#Facade001_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "e804ad49d692ca60b260394db2ec05d8a274ad319759f536a042471b58d38ea9"
+      },
+      "modified": true
+    },
+    "tex/facade001/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/facade001_nor_gl.c39a367e.ktx2",
+      "format": "ktx2",
+      "bytes": 5770,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "source": {
+        "site": "ambientCG",
+        "name": "Facade 001",
+        "pageUrl": "https://ambientcg.com/view?id=Facade001",
+        "url": "https://ambientcg.com/get?file=Facade001_1K-JPG.zip#Facade001_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "e804ad49d692ca60b260394db2ec05d8a274ad319759f536a042471b58d38ea9"
+      },
+      "modified": true
+    },
+    "tex/fence003/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/fence003_diff.8862fcea.ktx2",
+      "format": "ktx2",
+      "bytes": 219085,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "ambientCG",
+        "name": "Fence 003",
+        "pageUrl": "https://ambientcg.com/view?id=Fence003",
+        "url": "https://ambientcg.com/get?file=Fence003_1K-JPG.zip#Fence003_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "235f74060d50f379ab0154d7130178fff65ceaf6a6f8e5615260d57ec0f3e1f2"
+      },
+      "modified": true
+    },
+    "tex/fence003/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/fence003_nor_gl.de3be711.ktx2",
+      "format": "ktx2",
+      "bytes": 451160,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "source": {
+        "site": "ambientCG",
+        "name": "Fence 003",
+        "pageUrl": "https://ambientcg.com/view?id=Fence003",
+        "url": "https://ambientcg.com/get?file=Fence003_1K-JPG.zip#Fence003_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "235f74060d50f379ab0154d7130178fff65ceaf6a6f8e5615260d57ec0f3e1f2"
+      },
+      "modified": true
+    },
+    "tex/fence003/opacity": {
+      "kind": "texture",
+      "path": "/assets/tex/fence003_opacity.8e643db4.ktx2",
+      "format": "ktx2",
+      "bytes": 94419,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "opacity",
+      "source": {
+        "site": "ambientCG",
+        "name": "Fence 003",
+        "pageUrl": "https://ambientcg.com/view?id=Fence003",
+        "url": "https://ambientcg.com/get?file=Fence003_1K-JPG.zip#Fence003_1K-JPG_Opacity.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "235f74060d50f379ab0154d7130178fff65ceaf6a6f8e5615260d57ec0f3e1f2"
+      },
+      "modified": true
+    },
+    "tex/grass_medium_01/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/grass_medium_01_diff.7497d728.ktx2",
+      "format": "ktx2",
+      "bytes": 250270,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "Poly Haven",
+        "name": "Grass Medium 01 (dry albedo + alpha)",
+        "pageUrl": "https://polyhaven.com/a/grass_medium_01",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_01/grass_medium_01_dry_diff_1k.png",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel, Rico Cilliers",
+        "sha256Source": "da85639d6eb8f029b50e7920aaf7e649940541bb24fe6ad239dbae7400af2eb2"
+      },
+      "modified": true
+    },
+    "tex/grass_medium_01/opacity": {
+      "kind": "texture",
+      "path": "/assets/tex/grass_medium_01_opacity.e063ddd9.ktx2",
+      "format": "ktx2",
+      "bytes": 130408,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "opacity",
+      "source": {
+        "site": "Poly Haven",
+        "name": "Grass Medium 01 (dry albedo + alpha)",
+        "pageUrl": "https://polyhaven.com/a/grass_medium_01",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_01/grass_medium_01_alpha_1k.png",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel, Rico Cilliers",
+        "sha256Source": "711a8e49af758d6a6ce1f610db858899a27be19da6d1866bd35c13bc7b8ffeff"
+      },
+      "modified": true
+    },
+    "tex/plaster_grey_04/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/plaster_grey_04_arm.febfb8bb.ktx2",
+      "format": "ktx2",
+      "bytes": 198732,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Plaster Grey 04",
+        "pageUrl": "https://polyhaven.com/a/plaster_grey_04",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plaster_grey_04/plaster_grey_04_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "9c4a6d0dc9d019ebc4c2cefea095ae413ebce078189bd641fab2bdac49bfc52c"
+      },
+      "modified": true
+    },
+    "tex/plaster_grey_04/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/plaster_grey_04_diff.9c5a8cfb.ktx2",
+      "format": "ktx2",
+      "bytes": 202889,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Plaster Grey 04",
+        "pageUrl": "https://polyhaven.com/a/plaster_grey_04",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plaster_grey_04/plaster_grey_04_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "e78df7d6e762fe767634278e14316564e0d4510031986239458994ec9fc5410d"
+      },
+      "modified": true
+    },
+    "tex/plaster_grey_04/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/plaster_grey_04_nor_gl.e33ec296.ktx2",
+      "format": "ktx2",
+      "bytes": 1254760,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Plaster Grey 04",
+        "pageUrl": "https://polyhaven.com/a/plaster_grey_04",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plaster_grey_04/plaster_grey_04_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "9d0eb5299f797c07eb841737eb7164755a2c8a2363540e175a76188a2aa5a2dc"
+      },
+      "modified": true
+    },
+    "tex/plastic013a/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/plastic013a_arm.7fbb02fc.ktx2",
+      "format": "ktx2",
+      "bytes": 143302,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "packed": {
+        "ao": false,
+        "metal": false
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Plastic 013 A",
+        "pageUrl": "https://ambientcg.com/view?id=Plastic013A",
+        "url": "https://ambientcg.com/get?file=Plastic013A_1K-JPG.zip#Plastic013A_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "2bf612fa6fe5556930196865beb55cefb833b83bd0bc3db1db7188074fb41260"
+      },
+      "modified": true
+    },
+    "tex/plastic013a/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/plastic013a_diff.0e07b84b.ktx2",
+      "format": "ktx2",
+      "bytes": 123183,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "ambientCG",
+        "name": "Plastic 013 A",
+        "pageUrl": "https://ambientcg.com/view?id=Plastic013A",
+        "url": "https://ambientcg.com/get?file=Plastic013A_1K-JPG.zip#Plastic013A_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "2bf612fa6fe5556930196865beb55cefb833b83bd0bc3db1db7188074fb41260"
+      },
+      "modified": true
+    },
+    "tex/plastic013a/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/plastic013a_nor_gl.27413c91.ktx2",
+      "format": "ktx2",
+      "bytes": 1053794,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "source": {
+        "site": "ambientCG",
+        "name": "Plastic 013 A",
+        "pageUrl": "https://ambientcg.com/view?id=Plastic013A",
+        "url": "https://ambientcg.com/get?file=Plastic013A_1K-JPG.zip#Plastic013A_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "2bf612fa6fe5556930196865beb55cefb833b83bd0bc3db1db7188074fb41260"
+      },
+      "modified": true
+    },
+    "tex/preconcrete_wall_001_long/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/preconcrete_wall_001_long_arm.2c8d5450.ktx2",
+      "format": "ktx2",
+      "bytes": 52061,
+      "width": 1024,
+      "height": 256,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 4,
+      "aspect": 3.0029,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Preconcrete Wall 001 Long",
+        "pageUrl": "https://polyhaven.com/a/preconcrete_wall_001_long",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/preconcrete_wall_001_long/preconcrete_wall_001_long_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva, Rico Cilliers",
+        "sha256Source": "3c514c4f7983ab81ba4f715863c8f95945ecbf60f3a982780897835302b744cb"
+      },
+      "modified": true
+    },
+    "tex/preconcrete_wall_001_long/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/preconcrete_wall_001_long_diff.f7e7aee3.ktx2",
+      "format": "ktx2",
+      "bytes": 63299,
+      "width": 1024,
+      "height": 256,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 4,
+      "aspect": 3.0029,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Preconcrete Wall 001 Long",
+        "pageUrl": "https://polyhaven.com/a/preconcrete_wall_001_long",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/preconcrete_wall_001_long/preconcrete_wall_001_long_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva, Rico Cilliers",
+        "sha256Source": "da12ad78e4de12c0b38ca5c9fe2783a6b49c4362310844ded51b1acd8821fbe0"
+      },
+      "modified": true
+    },
+    "tex/preconcrete_wall_001_long/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/preconcrete_wall_001_long_nor_gl.c1bcb219.ktx2",
+      "format": "ktx2",
+      "bytes": 283230,
+      "width": 1024,
+      "height": 256,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 4,
+      "aspect": 3.0029,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Preconcrete Wall 001 Long",
+        "pageUrl": "https://polyhaven.com/a/preconcrete_wall_001_long",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/preconcrete_wall_001_long/preconcrete_wall_001_long_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva, Rico Cilliers",
+        "sha256Source": "d6edfa39844a4ef480ae2bfcf1c3cce549d8ce6080edd58c4493845aca9ce92d"
+      },
+      "modified": true
+    },
+    "tex/white_plaster_02/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/white_plaster_02_arm.23fdc1d6.ktx2",
+      "format": "ktx2",
+      "bytes": 202499,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1,
+      "source": {
+        "site": "Poly Haven",
+        "name": "White Plaster 02",
+        "pageUrl": "https://polyhaven.com/a/white_plaster_02",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/white_plaster_02/white_plaster_02_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "2bb1115821715dfd8bbd1c5a294a5bb43b97d5c46b1aa8aa8f744bcaf5eeeb10"
+      },
+      "modified": true
+    },
+    "tex/white_plaster_02/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/white_plaster_02_diff.26ac7e5c.ktx2",
+      "format": "ktx2",
+      "bytes": 208553,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1,
+      "source": {
+        "site": "Poly Haven",
+        "name": "White Plaster 02",
+        "pageUrl": "https://polyhaven.com/a/white_plaster_02",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/white_plaster_02/white_plaster_02_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "a1ebbe091bd1ae93d2abd5de8d69f9003a8d0ee6532bcf9a87c2492c97051f23"
+      },
+      "modified": true
+    },
+    "tex/white_plaster_02/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/white_plaster_02_nor_gl.958a13d7.ktx2",
+      "format": "ktx2",
+      "bytes": 1181923,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1,
+      "source": {
+        "site": "Poly Haven",
+        "name": "White Plaster 02",
+        "pageUrl": "https://polyhaven.com/a/white_plaster_02",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/white_plaster_02/white_plaster_02_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "eb572ca3630d5bfde72e2601b1f02412da23ca005cd19384dced8690be4cb783"
+      },
+      "modified": true
+    },
+    "tex/withered_grass/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/withered_grass_arm.bf864581.ktx2",
+      "format": "ktx2",
+      "bytes": 885250,
+      "width": 2048,
+      "height": 2048,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Withered Grass",
+        "pageUrl": "https://polyhaven.com/a/withered_grass",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/withered_grass/withered_grass_arm_2k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Charlotte Baglioni",
+        "sha256Source": "0b4bfb6549a56c48f7239be7f520124b38e7842188b8d1d53b0a376686c40371"
+      },
+      "modified": true
+    },
+    "tex/withered_grass/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/withered_grass_diff.9512dbaf.ktx2",
+      "format": "ktx2",
+      "bytes": 880235,
+      "width": 2048,
+      "height": 2048,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Withered Grass",
+        "pageUrl": "https://polyhaven.com/a/withered_grass",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/withered_grass/withered_grass_diff_2k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Charlotte Baglioni",
+        "sha256Source": "0cf0fca68cbf4277199a2b9b7b3a8013357e4087247b1367f86d4a53b4fafa7e"
+      },
+      "modified": true
+    },
+    "tex/withered_grass/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/withered_grass_nor_gl.893bc0f1.ktx2",
+      "format": "ktx2",
+      "bytes": 5043724,
+      "width": 2048,
+      "height": 2048,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Withered Grass",
+        "pageUrl": "https://polyhaven.com/a/withered_grass",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/withered_grass/withered_grass_nor_gl_2k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Charlotte Baglioni",
+        "sha256Source": "5fd42baf06224086cb9afcb2f7a3b9f26feddd719bf1f9aed65ec49c586e7ff9"
+      },
+      "modified": true
+    }
+  }
+}

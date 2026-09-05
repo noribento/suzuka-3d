@@ -135,6 +135,8 @@ export interface HudEvent {
 
 export interface RaceStore {
   ready: boolean
+  /** 0..1 start-up progress behind the loading screen (asset downloads 0–0.7, scene build to 1); 0 = indeterminate */
+  loadProgress: number
   status: RaceStatus
   lights: number
   lap: number
@@ -192,6 +194,7 @@ export function initialBroadcastState(): BroadcastState {
 
 const store = reactive<RaceStore>({
   ready: false,
+  loadProgress: 0,
   status: 'loading',
   lights: 0,
   lap: 1,

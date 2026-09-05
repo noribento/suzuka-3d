@@ -152,6 +152,13 @@ export class Track {
   readonly center: THREE.Vector3
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number }
   readonly curve: THREE.CatmullRomCurve3
+  /**
+   * Metres of world space per metre of the local EN frame (`CENTERLINE_EN`, the jp-1962
+   * equirectangular projection): the GeoJSON loop is stretched about the origin so one lap is
+   * exactly the official length (≈1.00121). Anything digitised in EN metres (OSM footprints,
+   * DEM samples) must be multiplied by this before it is compared with track.px/pz.
+   */
+  readonly enScale: number
 
   private readonly cellSize = 40
   private readonly cells = new Map<number, number[]>()
@@ -164,6 +171,7 @@ export class Track {
     const rawCurve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5)
     rawCurve.arcLengthDivisions = 6000
     const scale = CIRCUIT.officialLength / rawCurve.getLength()
+    this.enScale = scale
     for (const p of pts) p.multiplyScalar(scale)
     const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5)
     curve.arcLengthDivisions = 6000
@@ -672,6 +680,16 @@ export class Track {
     const tz = this.tz[i]! * (1 - f) + this.tz[j]! * f
     const l = Math.hypot(tx, tz) || 1
     return { tx: tx / l, tz: tz / l }
+  }
+
+  /**
+   * Local EN metres → world position (y = 0). EN is the jp-1962 equirectangular frame the
+   * centreline is stored in: origin lat0 = 34.844581633720921, lon0 = 136.53282038953489,
+   * R = 6378137, x = (lon − lon0)·cos(lat0)·R, y = (lat − lat0)·R (radians). World is
+   * (e·enScale, 0, −n·enScale) because z points south.
+   */
+  enToWorld(e: number, n: number, out: THREE.Vector3): THREE.Vector3 {
+    return out.set(e * this.enScale, 0, -n * this.enScale)
   }
 }
 
