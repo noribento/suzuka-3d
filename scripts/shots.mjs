@@ -22,6 +22,12 @@ const url = flag('--url', 'http://localhost:3100')
 const tier = flag('--tier', '0')
 const out = flag('--out', '.perf/shots')
 const only = flag('--preset', null)?.split(',')
+// --custom "name:sCam,latCam,hCam:sLook,latLook,hLook[:fov]" (repeatable) adds ad-hoc viewpoints
+const customs = args.flatMap((a, i) => (a === '--custom' && args[i + 1] ? [args[i + 1]] : [])).map((spec) => {
+  const [name, cam, look, fov] = spec.split(':')
+  const nums = (t) => t.split(',').map(Number)
+  return [name, nums(cam), nums(look), fov ? Number(fov) : 45]
+})
 const width = Number(flag('--width', 1280))
 const height = Number(flag('--height', 720))
 
@@ -71,8 +77,7 @@ try {
   await page.mouse.click(width / 2, height / 2)
   await page.waitForTimeout(1500)
   await page.keyboard.press('Space')
-  for (const [name, cam, look, fov] of PRESETS) {
-    if (only && !only.includes(name)) continue
+  for (const [name, cam, look, fov] of [...PRESETS.filter(([n]) => !only || only.includes(n)), ...customs]) {
     await page.evaluate(([cam, look, fov]) => {
       const d = window.__suzuka
       const T = d.THREE
