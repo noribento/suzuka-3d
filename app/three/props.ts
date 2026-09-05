@@ -368,8 +368,9 @@ function polylineRibbon(pts: THREE.Vector3[], width: number, closed: boolean, yA
       uv[(i * 2 + j) * 2 + 1] = along / tileM
     }
     if (i < count - 1) {
+      // (left, right, forward-left) is counter-clockwise seen from above: the ribbon faces up
       const q = i * 2
-      idx.push(q, q + 2, q + 1, q + 1, q + 2, q + 3)
+      idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2)
     }
   }
   const g = new THREE.BufferGeometry()
