@@ -35,8 +35,18 @@ export interface Quality {
   cascades: number
   /** in the overview the shadow maps are re-rendered only every Nth frame */
   overviewShadowEveryNth: number
-  /** world-space penumbra radius of the cascades (metres, PCF only) */
-  penumbraM: number
+  /**
+   * World-space penumbra target per cascade (metres, PCF only; BasicShadowMap ignores it).
+   * The index clamps to the last entry.
+   *
+   * The sun subtends 0.533°, so a penumbra is 0.93 cm wide per metre of caster-to-receiver gap
+   * measured ALONG the light. A car floor 0.3 m over the tarmac is therefore a ~3 mm edge, not a
+   * soft one — which is why a single 12 cm value made every car look like it was hovering. With
+   * updateShadows bracketing the subject, cascades 0 and 1 both hold cars and want a car-scale
+   * value; only the background cascade wants a grandstand-scale one (and there the texel is far
+   * larger than any of these anyway, so the radius clamps to 1 regardless).
+   */
+  penumbraM: readonly number[]
   /** cascade range in follow modes (metres) */
   followMaxFar: number
   /** cars within this distance cast with their LOD-0 meshes (metres) */
@@ -51,7 +61,14 @@ export interface Quality {
   trees: number
   terrain: [number, number]
   textureScale: number
+  /** anisotropy budget for everything except the ground surfaces */
   anisotropy: number
+  /**
+   * anisotropy budget for the road / verge / gravel / kerb / terrain maps. The road's screen
+   * footprint is `distance / eye height` times longer than it is wide — 97:1 looking 100 m down
+   * the road from the 1.34 m T-cam — so these are the only textures a higher budget can help.
+   */
+  anisotropyGround: number
   fence: boolean
   clouds: boolean
   /** lens flare (horizontal streak + ghosts) drawn by the grade pass around a visible sun — needs `post`; the veil is always on there */
@@ -77,7 +94,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     shadowMapSize: 2048,
     cascades: 3,
     overviewShadowEveryNth: 2,
-    penumbraM: 0.12,
+    penumbraM: [0.012, 0.015, 0.30],
     followMaxFar: 900,
     casterGateLod0: 250,
     casterGateLod1: 400,
@@ -90,6 +107,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     terrain: [256, 192],
     textureScale: 1,
     anisotropy: 16,
+    anisotropyGround: 16,
     fence: true,
     clouds: true,
     flare: true,
@@ -112,7 +130,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     shadowMapSize: 1024,
     cascades: 2,
     overviewShadowEveryNth: 3,
-    penumbraM: 0.12,
+    penumbraM: [0.02, 0.30],
     followMaxFar: 700,
     casterGateLod0: 120,
     casterGateLod1: 0,
@@ -125,6 +143,9 @@ export const QUALITY: Record<QualityTier, Quality> = {
     terrain: [192, 144],
     textureScale: 0.5,
     anisotropy: 2,
+    // the software rasteriser loops per tap, but the road is a small fraction of its fill and it
+    // is the one surface that is starved: give the ground the taps and take them from everything else
+    anisotropyGround: 8,
     fence: false,
     clouds: false,
     flare: false,

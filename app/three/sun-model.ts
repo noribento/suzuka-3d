@@ -80,8 +80,17 @@ export const ELEVATION_LO = 0.02
 export const ELEVATION_HI = 0.08
 
 // --- post chain ---------------------------------------------------------------------------------
-/** ceiling of the sanitized scene copy that feeds bloom (linear) */
-export const HDR_MAX = 1024
+/**
+ * Ceiling of the sanitized scene copy that feeds bloom (linear).
+ *
+ * Nothing the model produces goes above the midday disc (SUN_DISC_RADIANCE 60 × the disc colour
+ * ≈ 57.8 luminance). Everything between that and here is a sub-pixel specular firefly off the
+ * clearcoat — `clearcoat 1, clearcoatRoughness 0.03` puts GGX D(0) ≈ 3.9e5, so peaks land in the
+ * 1e4 range — and bloom's widest mip (1/32 resolution) smears one such texel into a ~90×51 texel
+ * blob that crawls as the highlight moves sub-pixel. Clamping just above the disc keeps every
+ * intended source intact and kills the flicker. scripts/sun-model-check.mjs asserts the headroom.
+ */
+export const HDR_MAX = 128
 /** luminance a probe tap must exceed to count as the sun on the log-depth path: above every emitter, below the disc */
 export const SUN_PROBE_MIN = 30
 /** the depth probe looks ± this many degrees around the sun (5×5 taps) */

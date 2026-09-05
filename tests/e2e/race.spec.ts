@@ -112,13 +112,18 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(gaps).toHaveLength(21)
     for (const g of gaps) expect(g).toMatch(/^\+\d+\.\d$|^\+\d LAPS?$|^PIT$|^OUT$/)
     // the control bar is operator chrome: shown right after an input, hidden ~3 s later, back on a pointer move
+    // (the 3 s timer plus the leave transition has to land on a software rasteriser running 7-12 fps)
     await expect(page.locator('.controls')).toBeVisible()
-    await expect(page.locator('.controls')).toBeHidden({ timeout: 10_000 })
+    await expect(page.locator('.controls')).toBeHidden({ timeout: 25_000 })
     await page.mouse.move(640, 360)
     await page.mouse.move(660, 380)
     await expect(page.locator('.controls')).toBeVisible()
 
-    // a manual selection identifies the driver with the name strap
+    // A manual selection identifies the driver with the name strap. Pause around it: the tower is
+    // re-sorted continuously and startRace runs at 8×, so reading the row at position 2, clicking
+    // it, and reading the strap's own position chip would otherwise be three different moments of
+    // the race — one overtake in between and the strap legitimately shows a different position.
+    await page.keyboard.press(' ')
     const row2 = page.locator('.bc-tower .row', { has: page.locator('.num', { hasText: /^2$/ }) })
     const code2 = (await row2.locator('.code').textContent())?.trim()
     await row2.click()
@@ -126,6 +131,7 @@ test.describe('Suzuka 3D broadcast', () => {
     await expect(page.locator('.bc-name .pos')).toHaveText('2')
     const last = (await page.locator('.bc-name .last').textContent())?.trim() ?? ''
     expect(code2 && last.startsWith(code2.slice(0, 2))).toBeTruthy()
+    await page.keyboard.press(' ')
 
     // AUTO is the same package; the overview brings the classic HUD back
     await page.keyboard.press('6')

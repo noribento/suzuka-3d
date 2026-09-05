@@ -683,14 +683,19 @@ export function buildCarModel(driver: Driver, compound: Compound, animatedMid = 
   root.add(lod)
 
   const livery = liveryTexture(driver.team, driver.number)
-  // metallic-flake paint under a hard clearcoat: the flake normal only perturbs the coat
+  // metallic-flake paint under a hard clearcoat: the flake normal only perturbs the coat.
+  // No envMapIntensity here: these materials light from `scene.environment` with `material.envMap`
+  // null, and the renderer then OVERWRITES the uniform with scene.environmentIntensity
+  // (WebGLRenderer.js: `material.envMap === null && scene.environment !== null`) — WebGLMaterials
+  // only writes material.envMapIntensity `if (material.envMap)`. The scene-level dial is the only
+  // one that does anything; a per-material value would need the material to own an envMap.
   const flake = flakeNormalMap()
-  const gloss = { roughness: 0.32, metalness: 0.08, clearcoat: 0.9, clearcoatRoughness: 0.06, clearcoatNormalMap: flake, clearcoatNormalScale: new THREE.Vector2(0.08, 0.08), envMapIntensity: 0.7 }
+  const gloss = { roughness: 0.32, metalness: 0.08, clearcoat: 0.9, clearcoatRoughness: 0.06, clearcoatNormalMap: flake, clearcoatNormalScale: new THREE.Vector2(0.08, 0.08) }
   const bodyMat = new THREE.MeshPhysicalMaterial({ map: livery, ...gloss })
   const podMat = new THREE.MeshPhysicalMaterial({ map: podLiveryTexture(driver.team), ...gloss })
   const paintMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(team.body), ...gloss })
   const flapMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(team.accent), ...gloss })
-  const helmetMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(driver.helmet), roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08, envMapIntensity: 0.7 })
+  const helmetMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(driver.helmet), roughness: 0.3, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.08 })
   const secondCar = DRIVERS.find((d) => d.team === driver.team) !== driver
   const rearLightMat = new THREE.MeshStandardMaterial({ color: 0x5a0000, emissive: EMISSIVE.rainLight.color, emissiveIntensity: EMISSIVE.rainLight.on * emissiveScale(), roughness: 0.3 })
 

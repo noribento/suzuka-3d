@@ -44,11 +44,36 @@ const emitters = {
   rainLightFlashHi: em.luminance(E.rainLight.color, E.rainLight.flashHi),
 }
 const maxEmitter = Math.max(...Object.values(emitters))
+const minEmitter = Math.min(...Object.values(emitters))
 const discLow = sun.luminance709(...sun.discColour(0)) * sun.SUN_DISC_RADIANCE
 const discHigh = sun.luminance709(...sun.discColour(1)) * sun.SUN_DISC_RADIANCE
 ok(maxEmitter < sun.SUN_PROBE_MIN, `every emitter (max ${maxEmitter.toFixed(2)}) must stay below SUN_PROBE_MIN ${sun.SUN_PROBE_MIN}`)
 ok(sun.SUN_PROBE_MIN < discLow, `SUN_PROBE_MIN ${sun.SUN_PROBE_MIN} must stay below the sunset disc ${discLow.toFixed(2)}`)
 ok(em.BLOOM_THRESHOLD < maxEmitter, 'the brightest emitter still blooms')
+
+// --- bloom knee -------------------------------------------------------------------------------
+// The high pass ramps over [BLOOM_THRESHOLD, BLOOM_THRESHOLD + BLOOM_KNEE]. The knee must not be
+// so wide that an emitter documented as glowing ends up with a token halo: every one of them has
+// to clear at least half weight. (Full weight would need 7.0 and the start lamps sit at 6.34.)
+const bloomWeight = (L) => {
+  const t = Math.min(1, Math.max(0, (L - em.BLOOM_THRESHOLD) / em.BLOOM_KNEE))
+  return t * t * (3 - 2 * t)
+}
+ok(em.BLOOM_KNEE > 0, 'BLOOM_KNEE is a real ramp, not three\'s 0.01 step')
+ok(sun.SKY_MAX < em.BLOOM_THRESHOLD, 'the knee widens upward only: the sky still never blooms')
+for (const [k, v] of Object.entries(emitters)) {
+  ok(bloomWeight(v) >= 0.5, `emitter ${k} (luminance ${v.toFixed(2)}) must keep at least half its halo under the knee: weight ${bloomWeight(v).toFixed(3)}`)
+}
+ok(minEmitter > em.BLOOM_THRESHOLD, `the dimmest emitter (${minEmitter.toFixed(2)}) still clears the threshold`)
+
+// --- firefly clamp ----------------------------------------------------------------------------
+// HDR_MAX clamps the sanitized scene copy PER CHANNEL, so the bound to clear is the brightest
+// channel the model can write: the disc (added after the knee) on top of a kneed sky whose
+// luminance is capped at SKY_MAX, i.e. at most SKY_MAX / 0.0722 in a pure-blue channel.
+const discMaxChannel = sun.SUN_DISC_RADIANCE * Math.max(...sun.discColour(0), ...sun.discColour(1))
+const skyMaxChannel = sun.SKY_MAX / 0.0722
+ok(discMaxChannel + skyMaxChannel < sun.HDR_MAX, `the brightest channel the model writes (${(discMaxChannel + skyMaxChannel).toFixed(1)}) must survive the HDR_MAX ${sun.HDR_MAX} clamp`)
+ok(maxEmitter < sun.HDR_MAX, 'no emitter is clipped by the firefly clamp')
 
 // --- knee -------------------------------------------------------------------------------------
 for (const L of [0, 0.1, 0.5, 1, 1.25, sun.SKY_KNEE]) near(sun.kneeLuminance(L), L, 1e-12, `identity below the knee at ${L}`)
@@ -161,4 +186,5 @@ ok(sun.glslFloat(3) === '3.0' && sun.glslFloat(1.5) === '1.5' && sun.glslFloat(1
 
 console.log(`sun-model: ${checks} checks passed`)
 console.log(`  kneed sky ≤ ${sun.SKY_MAX} < bloom ${em.BLOOM_THRESHOLD} < emitters ≤ ${maxEmitter.toFixed(2)} < probe ${sun.SUN_PROBE_MIN} < disc ${discLow.toFixed(1)} (sunset) … ${discHigh.toFixed(1)} (midday)`)
-for (const [k, v] of Object.entries(emitters)) console.log(`  ${k.padEnd(18)} ${v.toFixed(2)}`)
+console.log(`  bloom ramps over ${em.BLOOM_THRESHOLD} … ${em.BLOOM_THRESHOLD + em.BLOOM_KNEE}, firefly clamp HDR_MAX ${sun.HDR_MAX} (model writes at most ${(discMaxChannel + skyMaxChannel).toFixed(1)} in a channel)`)
+for (const [k, v] of Object.entries(emitters)) console.log(`  ${k.padEnd(18)} ${v.toFixed(2)}  halo ${(bloomWeight(v) * 100).toFixed(0)}%`)

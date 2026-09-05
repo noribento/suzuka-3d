@@ -7,7 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import { CopyShader } from 'three/addons/shaders/CopyShader.js'
-import { BLOOM_THRESHOLD } from './emissive'
+import { BLOOM_KNEE, BLOOM_THRESHOLD } from './emissive'
 import {
   CUT_JUMP_M,
   FLARE_GAIN,
@@ -151,7 +151,10 @@ const GradeShader = {
       // colour grade (still linear, before tone mapping)
       c = pow(max(c * uSlope + uOffset, 0.0), vec3(uPower));
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      c = mix(vec3(l), c, uSaturation);
+      // clamped: a saturation above 1 drives a channel negative whenever c_min < (1 - 1/uSat)*l,
+      // which a saturated livery reaches. NeutralToneMapping then takes x = min(r,g,b) < 0, so its
+      // offset = x - 6.25x^2 goes negative and the color -= offset step BRIGHTENS the pixel.
+      c = max(mix(vec3(l), c, uSaturation), 0.0);
       c *= mix(vec3(1.0), vec3(1.05, 0.98, 0.90), (1.0 - uWarm) * smoothstep(0.5, 2.0, l));
       // what the lens adds with the sun in (or just outside) the picture: veil, streak, ghosts
       ${SUN_GLSL_FLARE}
@@ -527,6 +530,11 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   // The sky never reaches it: the Sky patch knees it to SKY_MAX 3.0 (sun-model.ts), so the
   // radius stays what the emitters were tuned for.
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.3, 0.45, BLOOM_THRESHOLD)
+  // The high pass gates on luminance instead of subtracting the threshold, and three's default
+  // smoothWidth of 0.01 makes that a step (see BLOOM_KNEE). It is a plain uniform set once at
+  // construction — render() only ever refreshes tDiffuse and luminosityThreshold — so this sticks.
+  // @types/three declares highPassUniforms as `object`; the runtime shape is a uniform map
+  ;(bloom.highPassUniforms as Record<string, THREE.IUniform>).smoothWidth!.value = BLOOM_KNEE
   composer.addPass(bloom)
   let dof: ShaderPass | null = null
   if (q.dof && depthTexture) {
@@ -579,10 +587,10 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   }
   const setFocus = (distance: number, fov: number) => {
     if (!dof) return
-    dof.enabled = mode === 'tv' && fov < 8
+    dof.enabled = mode === 'tv' && fov < 14
     if (!dof.enabled) return
     dof.uniforms.uFocus!.value = Math.max(1, distance)
-    // the 2° lens is the strongest; an 8° lens has no visible depth of field
+    // the 2° lens is the strongest; by 14° the circle of confusion is under a pixel anyway
     dof.uniforms.uStrength!.value = 18 * (8 / Math.max(fov, 2))
     const cam = camera as THREE.PerspectiveCamera
     dof.uniforms.cameraNear!.value = cam.near

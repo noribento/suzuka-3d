@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { APEX_SPEED_TARGETS, CIRCUIT, SAUSAGE_KERB_CORNERS } from '~/data/suzuka'
 import { forwardDelta, type Track } from '~/sim/track'
-import { ASPHALT_LINE_FRAC, asphaltMaps, boardTexture, concreteMaps, gravelMaps, grassMaps, kerbMaps, macroMap, type MaterialMaps } from './textures'
+import { ASPHALT_DETAIL_M, ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, asphaltDetailMaps, asphaltMaps, boardTexture, concreteMaps, gravelMaps, grassMaps, kerbMaps, macroMap, type MaterialMaps } from './textures'
 import { FLAT_STRIP, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
 import type { Terrain } from './environment'
 
@@ -153,6 +153,58 @@ export function addMacro(mat: THREE.MeshStandardMaterial, scale: THREE.Vector2, 
   mat.customProgramCacheKey = () => 'macro'
 }
 
+/**
+ * The asphalt surface: macro variation (as addMacro) plus the isotropic detail tile that carries
+ * the aggregate the base map no longer can (see asphaltDetailMaps).
+ *
+ * The detail layer is sampled in METRIC uv — `vMapUv` scaled by the road's real size over the
+ * detail tile's — so the grain keeps its physical size regardless of the base tile's anisotropic
+ * texel budget. Its albedo term has mean 1.0 and its normal mean flat, so both simply cease to
+ * exist under minification; there is deliberately no distance fade to maintain.
+ *
+ * This needs its OWN program cache key: addMacro hands out 'macro' to the road, the pit lane, the
+ * verge grass and the terrain, and a shared key would let the grass be handed the road's program.
+ */
+export function addRoadSurface(mat: THREE.MeshStandardMaterial, macroScale: THREE.Vector2, uWidthM = ASPHALT_WIDTH_M) {
+  const detail = asphaltDetailMaps()
+  const detailScale = new THREE.Vector2(uWidthM / ASPHALT_DETAIL_M, ASPHALT_TILE_M / ASPHALT_DETAIL_M)
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMacro = { value: macroMap() }
+    shader.uniforms.uMacroScale = { value: macroScale }
+    shader.uniforms.uDetail = { value: detail.map }
+    shader.uniforms.uDetailNormal = { value: detail.normalMap! }
+    shader.uniforms.uDetailScale = { value: detailScale }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uMacro;
+        uniform vec2 uMacroScale;
+        uniform sampler2D uDetail;
+        uniform sampler2D uDetailNormal;
+        uniform vec2 uDetailScale;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        float macro = texture2D(uMacro, vMapUv * uMacroScale).r * 1.25;
+        // mean-1.0 multiplier: its mips converge to 1.0, so the grain fades out on its own
+        diffuseColor.rgb *= macro * (texture2D(uDetail, vMapUv * uDetailScale).r * 2.0);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
+      // Perturb AFTER the chunk rather than inside it: onBeforeCompile sees `#include` directives
+      // (resolveIncludes runs later), and appending keeps this independent of the chunk's internals.
+      // `mapN` and `tbn` are both declared in main()'s scope by normal_fragment_begin /
+      // normal_fragment_maps, under exactly this define.
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        #ifdef USE_NORMALMAP_TANGENTSPACE
+          mapN.xy += texture2D(uDetailNormal, vMapUv * uDetailScale).xy * 2.0 - 1.0;
+          normal = normalize(tbn * mapN);
+        #endif`)
+    if (!shader.fragmentShader.includes('uDetailNormal, vMapUv')) {
+      // a three upgrade that renamed the chunk would silently drop the aggregate; the e2e suite
+      // fails on console.error, so this cannot ship unnoticed
+      console.error('normal_fragment_maps not found: the asphalt detail normal was not applied')
+    }
+  }
+  mat.customProgramCacheKey = () => 'macro|road'
+}
+
 function pbr(maps: MaterialMaps, extra: THREE.MeshStandardMaterialParameters = {}, normalScale = 1): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ map: maps.map, roughness: 1, metalness: 0, ...extra })
   if (maps.normalMap) {
@@ -187,9 +239,10 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   const groundGeos: THREE.BufferGeometry[] = []
 
   // --- asphalt (the cross-slope is applied inside track.pointAt) -----------------------
-  const asphaltMat = pbr(asphaltMaps(true), {}, 0.7)
+  // normalScale 1: the old 0.7 is folded into the generated normals (see asphaltMaps)
+  const asphaltMat = pbr(asphaltMaps(true), {}, 1)
   // one macro period across the road and every 300 m along it (the base tile is 20 m)
-  addMacro(asphaltMat, new THREE.Vector2(1, 20 / 300))
+  addRoadSurface(asphaltMat, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
   const surface = new THREE.Mesh(ribbonGeometry(track, 0, 0, hwAt, (s) => -hwAt(s), zero, zero, 2, 20), asphaltMat)
   surface.name = 'asphalt'
   surface.receiveShadow = true
@@ -359,8 +412,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     c.offset.set(ASPHALT_LINE_FRAC, 0)
     return c
   }
-  const pitMat = pbr({ map: inset(lined.map), normalMap: lined.normalMap && inset(lined.normalMap), roughnessMap: lined.roughnessMap && inset(lined.roughnessMap) }, {}, 0.7)
-  addMacro(pitMat, new THREE.Vector2(1, 20 / 300))
+  const pitMat = pbr({ map: inset(lined.map), normalMap: lined.normalMap && inset(lined.normalMap), roughnessMap: lined.roughnessMap && inset(lined.roughnessMap) }, {}, 1)
+  addRoadSurface(pitMat, new THREE.Vector2(1, ASPHALT_TILE_M / 300), pit.laneWidth)
   const pitLane = new THREE.Mesh(ribbonGeometry(track, pit.entryS, pit.exitS, (s) => pitLat(s) + halfLane, (s) => pitLat(s) - halfLane, () => 0.01, () => 0.01, 3, 20, pit.laneWidth / 13), pitMat)
   pitLane.name = 'pitLane'
   pitLane.receiveShadow = true

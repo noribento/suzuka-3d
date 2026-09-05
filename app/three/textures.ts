@@ -16,15 +16,43 @@ export interface MaterialMaps {
 }
 
 let maxAnisotropy = 8
-/** Called once by the scene after the renderer exists so textures get full anisotropic filtering. */
-export function setMaxAnisotropy(v: number) {
-  maxAnisotropy = Math.max(1, v)
+let groundAnisotropy = 8
+/**
+ * Called once by the scene after the renderer exists so textures get anisotropic filtering.
+ *
+ * Two budgets, because the ground is the only surface whose footprint is genuinely anisotropic:
+ * every camera here sits within a few metres of the road and looks along it, so the road's
+ * screen footprint is tens of times longer than it is wide, while a livery on a car body at
+ * normal incidence takes one tap no matter what the sampler is set to. On the high tier the two
+ * are the same (anisotropic filtering is free where the footprint is round). On a software
+ * rasteriser, which really does loop per tap, `ground` stays high and `base` drops.
+ */
+export function setMaxAnisotropy(base: number, ground = base) {
+  maxAnisotropy = Math.max(1, base)
+  groundAnisotropy = Math.max(1, ground)
+}
+
+/** Anisotropy budget for the road / verge / terrain surfaces; pass as `makeTexture`'s `aniso`. */
+export function groundAniso(): number {
+  return groundAnisotropy
 }
 
 let textureScale = 1
 /** Resolution multiplier of the large generated textures (1 on the high tier, 0.5 on low). Set before any texture is built. */
 export function setTextureScale(k: number) {
   textureScale = k
+}
+
+/**
+ * Tier-scaled dimensions for a generated texture, rounded to a power-of-two-friendly integer.
+ *
+ * Every caller must ALSO put `textureScale` in its cache key, or the low tier gets whatever the
+ * high tier built first. The scale is only safe on makers whose noise is addressed in normalised
+ * uv (`u = x / w`); anything indexing raw pixels has to scale those coordinates too — see
+ * gravelMaps, which scales its pebble radii and count with the resolution.
+ */
+function scaled(w: number, h: number): [number, number] {
+  return [Math.max(4, Math.round(w * textureScale)), Math.max(4, Math.round(h * textureScale))]
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -100,13 +128,18 @@ function clamp255(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : v | 0
 }
 
-function makeTexture(c: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: [number, number]; wrap?: THREE.Wrapping; nearest?: boolean } = {}): THREE.Texture {
+function makeTexture(c: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: [number, number]; wrap?: THREE.Wrapping; nearest?: boolean; aniso?: number } = {}): THREE.Texture {
   const tex = new THREE.CanvasTexture(c)
   const wrap = opts.wrap ?? THREE.RepeatWrapping
   tex.wrapS = wrap
   tex.wrapT = wrap
   if (opts.repeat) tex.repeat.set(opts.repeat[0], opts.repeat[1])
-  tex.anisotropy = maxAnisotropy
+  // `aniso` caps this texture below the tier budget. Only worth setting on the low tier, where a
+  // software rasteriser really does loop per tap: there the ground surfaces want every tap they
+  // can get and nothing else needs any. Do NOT vary it on the high tier — anisotropic filtering
+  // costs nothing on a footprint that is not anisotropic, and WebGLTextures' cache key includes
+  // `anisotropy`, so a per-texture value would split the shared pit-lane clones into two uploads.
+  tex.anisotropy = Math.max(1, Math.min(opts.aniso ?? maxAnisotropy, groundAnisotropy))
   tex.colorSpace = opts.srgb === false ? THREE.NoColorSpace : THREE.SRGBColorSpace
   if (opts.nearest) tex.magFilter = THREE.NearestFilter
   tex.needsUpdate = true
@@ -134,15 +167,22 @@ function paint(w: number, h: number, fn: (x: number, y: number, out: Float32Arra
   return c
 }
 
-/** Tangent-space normal map from a tileable height field (canvas rows top→bottom). */
-function normalMapFrom(height: Float32Array, w: number, h: number, strength: number): THREE.Texture {
+/**
+ * Tangent-space normal map from a tileable height field (canvas rows top→bottom).
+ *
+ * `sy` defaults to `sx`, which is right whenever the texels are square. Where they are not — a
+ * map that spends far more texels across a surface than along it — the central difference has to
+ * be divided by the metres each texel covers on that axis, or the same height field reads as a
+ * corrugation along the coarse axis. See asphaltMaps.
+ */
+function normalMapFrom(height: Float32Array, w: number, h: number, sx: number, sy = sx, aniso?: number): THREE.Texture {
   const c = paint(w, h, (x, y, out) => {
     const l = height[y * w + ((x - 1 + w) % w)]!
     const r = height[y * w + ((x + 1) % w)]!
     const u = height[((y - 1 + h) % h) * w + x]!
     const dn = height[((y + 1) % h) * w + x]!
-    const dx = (r - l) * strength
-    const dy = (dn - u) * strength
+    const dx = (r - l) * sx
+    const dy = (dn - u) * sy
     // canvas y runs opposite to uv v (the texture is flipped on upload) → +dy maps to +v
     const nx = -dx, ny = dy, nz = 1
     const inv = 1 / Math.hypot(nx, ny, nz)
@@ -150,17 +190,17 @@ function normalMapFrom(height: Float32Array, w: number, h: number, strength: num
     out[1] = (ny * inv * 0.5 + 0.5) * 255
     out[2] = (nz * inv * 0.5 + 0.5) * 255
   })
-  return makeTexture(c, { srgb: false })
+  return makeTexture(c, { srgb: false, aniso })
 }
 
-function grayMap(values: Float32Array, w: number, h: number): THREE.Texture {
+function grayMap(values: Float32Array, w: number, h: number, aniso?: number): THREE.Texture {
   const c = paint(w, h, (x, y, out) => {
     const v = values[y * w + x]! * 255
     out[0] = v
     out[1] = v
     out[2] = v
   })
-  return makeTexture(c, { srgb: false })
+  return makeTexture(c, { srgb: false, aniso })
 }
 
 const cache = new Map<string, unknown>()
@@ -221,36 +261,56 @@ function smooth(t: number): number {
 // ---------------------------------------------------------------------------------------------
 // track surfaces
 
+/** Reference road width the asphalt texture is authored for (the real road is 10.5–15 m). */
+export const ASPHALT_WIDTH_M = 13
+/** Arc length one v tile of the base asphalt covers. Must match ribbonGeometry's vScale. */
+export const ASPHALT_TILE_M = 20
+/** Side of the isotropic asphalt detail tile, in metres. */
+export const ASPHALT_DETAIL_M = 1.5
+
 /**
- * Asphalt. u spans the full track width (edge lines baked in), v tiles every 20 m.
- * 1024 × 2048 → ≈1.3 cm/texel across, 1 cm/texel along.
+ * Asphalt, base tile. u spans the full track width (edge lines baked in), v tiles every 20 m.
+ *
+ * 2048 × 512 → 6.35 mm/texel ACROSS, 3.9 cm/texel along. That asymmetry is the whole point.
+ * Every camera here sits within a few metres of the road and looks along it, so the road's
+ * screen footprint is always long in v and short in u: at 100 m from the 1.34 m onboard camera
+ * the ratio is ~97:1, and at the 2° tv lens 630 m down the back straight it is ~104:1. GL picks
+ * `N = min(ceil(ratio), MAX_ANISOTROPY)` taps and then drops to the mip whose minor axis the
+ * taps can cover, so with the hardware ceiling of 16 the old square-ish 1024 × 2048 layout was
+ * sampling ~2.6 mip levels coarser than the screen could show — about 6× too blurry ACROSS the
+ * track, which is the axis the eye actually reads. Spending the texels on u instead brings both
+ * of those shots to ~1.0× at the same anisotropy 16, for half the VRAM and half the paint time.
+ * (Reaching that by filtering alone would need anisotropy 64, which no hardware offers.)
+ *
+ * What lives here is only what is REGISTERED to the road: the painted edge lines, the broad
+ * tonal patches, the rubbered-in lanes and the marbles. Everything finer than the 7.8 cm
+ * along-track Nyquist would alias, so the ~5 mm aggregate moved to asphaltDetailMaps().
  */
 export function asphaltMaps(withLines = true): MaterialMaps {
-  return cached(`asphalt-${withLines}`, () => {
-    const w = 1024, h = 2048
+  return cached(`asphalt-${withLines}-${textureScale}`, () => {
+    const [w, h] = scaled(2048, 512)
     const n = new Noise2(7)
     const n2 = new Noise2(19)
     const height = new Float32Array(w * h)
     const rough = new Float32Array(w * h)
-    const lineW = withLines ? Math.round((0.15 / 13) * w) : 0 // 15 cm lines
+    const lineW = withLines ? Math.round((0.15 / ASPHALT_WIDTH_M) * w) : 0 // 15 cm lines
     const c = paint(w, h, (x, y, out) => {
       const u = x / w, v = y / h
-      // aggregate: fine, high-contrast grain + medium mottling + broad tonal patches
-      const grain = n.fbm(u * 256, v * 512, 256, 512, 3, 0.55) // ~5 mm aggregate
-      const mottle = n.fbm(u * 64, v * 128, 64, 128, 4, 0.5)
+      // Frequencies are capped so the finest octave stays above the 3.9 cm along-track texel:
+      // mottle 3 octaves from 32 → 15.6 cm, patch 3 from 16 → 1.25 m.
+      const mottle = n.fbm(u * 64, v * 32, 64, 32, 3, 0.5)
       const patch = n2.fbm(u * 8, v * 16, 8, 16, 3, 0.6)
-      const speck = n2.value(x * 0.9, y * 0.9, 1024, 2048)
-      let hgt = grain * 0.7 + mottle * 0.25 + patch * 0.05
+      let hgt = mottle * 0.75 + patch * 0.25
       // rubbered-in lanes: two darker bands where the cars run, with ragged edges
       const laneEdge = (n.fbm(u * 4, v * 32, 4, 32, 2) - 0.5) * 0.08
       const lane = Math.max(
         smooth(1 - Math.abs(u - 0.31 + laneEdge) / 0.16),
         smooth(1 - Math.abs(u - 0.69 - laneEdge) / 0.16),
       )
-      const rubber = lane * (0.55 + 0.45 * n2.fbm(u * 16, v * 64, 16, 64, 3))
-      // tyre marbles / pick-up towards the edges
-      const marbles = smooth((Math.abs(u - 0.5) - 0.38) / 0.1) * n2.fbm(u * 128, v * 256, 128, 256, 2) * 0.35
-      let base = 58 + (hgt - 0.5) * 80 + (speck - 0.5) * 40 + (patch - 0.5) * 20
+      const rubber = lane * (0.55 + 0.45 * n2.fbm(u * 16, v * 32, 16, 32, 3))
+      // tyre marbles / pick-up towards the edges (streaked along v, which is how they really lie)
+      const marbles = smooth((Math.abs(u - 0.5) - 0.38) / 0.1) * n2.fbm(u * 128, v * 64, 128, 64, 2) * 0.35
+      let base = 58 + (hgt - 0.5) * 80 + (patch - 0.5) * 20
       base -= rubber * 26
       base += marbles * 10
       let r = base + 5, g = base + 3, b = base - 1
@@ -261,7 +321,7 @@ export function asphaltMaps(withLines = true): MaterialMaps {
       let roughness = 0.9 - rubber * 0.22 + (hgt - 0.5) * 0.08
       if (lineW > 0 && (x < lineW || x >= w - lineW)) {
         // painted line with wear
-        const wear = n2.fbm(u * 256, v * 128, 256, 128, 3)
+        const wear = n2.fbm(u * 128, v * 32, 128, 32, 3)
         const k = smooth((wear - 0.28) / 0.25)
         r = lerp(r, 232, k)
         g = lerp(g, 232, k)
@@ -275,13 +335,67 @@ export function asphaltMaps(withLines = true): MaterialMaps {
       height[y * w + x] = hgt
       rough[y * w + x] = roughness
     })
-    const map = makeTexture(c, { wrap: THREE.RepeatWrapping })
+    const map = makeTexture(c, { wrap: THREE.RepeatWrapping, aniso: groundAniso() })
     map.wrapS = THREE.ClampToEdgeWrapping
-    const normalMap = normalMapFrom(height, w, h, 3.2)
+    // Per-axis strength: the texel is 6.35 mm × 39.1 mm, a 6:1 aspect, so one scalar would read
+    // as a corrugation across the road. Each central difference is divided by the metres its
+    // axis covers, and the material's old normalScale 0.7 is folded in here so the stored
+    // normals ARE the shading normals (which is what the Toksvig mip chain will need).
+    const K = 3.2 * (ASPHALT_WIDTH_M / 1024) * 0.7
+    const normalMap = normalMapFrom(height, w, h, K / (ASPHALT_WIDTH_M / w), K / (ASPHALT_TILE_M / h), groundAniso())
     normalMap.wrapS = THREE.ClampToEdgeWrapping
-    const roughnessMap = grayMap(rough, w, h)
+    const roughnessMap = grayMap(rough, w, h, groundAniso())
     roughnessMap.wrapS = THREE.ClampToEdgeWrapping
     return { map, normalMap, roughnessMap }
+  })
+}
+
+/**
+ * Asphalt, detail tile: the ~5 mm aggregate the base tile can no longer hold, on its own
+ * isotropic ASPHALT_DETAIL_M tile in metric uv.
+ *
+ * `map` is an albedo MULTIPLIER, not a colour: linear, mean exactly 0.5, read as `t * 2.0` so
+ * the mean is 1.0. That is what lets the layer switch itself off with distance for free — the
+ * mip chain converges to the mean, so a far-away road multiplies by 1.0 and the grain simply
+ * stops existing, with no distance uniform, no branch and no fade code. The normal map fades
+ * the same way, toward flat.
+ */
+export function asphaltDetailMaps(): MaterialMaps {
+  return cached(`asphalt-detail-${textureScale}`, () => {
+    const [w, h] = scaled(512, 512)
+    const n = new Noise2(71)
+    const n2 = new Noise2(97)
+    const height = new Float32Array(w * h)
+    const mult = new Float32Array(w * h)
+    let sum = 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const u = x / w, v = y / h
+        // 3 octaves from 64 → finest 256 periods over 1.5 m = 5.9 mm, right at the Nyquist of a
+        // 512 tile: the aggregate the base map used to carry, now resolution-matched to it
+        const grain = n.fbm(u * 64, v * 64, 64, 64, 3, 0.55)
+        const speck = n2.value(u * 208, v * 208, 208, 208)
+        const i = y * w + x
+        height[i] = grain
+        const m = 1 + (grain - 0.5) * 0.78 + (speck - 0.5) * 0.55
+        mult[i] = m
+        sum += m
+      }
+    }
+    // renormalise so the mean is exactly 1.0; otherwise the road changes albedo with distance
+    const norm = (w * h) / sum
+    const c = paint(w, h, (x, y, out) => {
+      const v = clamp255((mult[y * w + x]! * norm) * 0.5 * 255)
+      out[0] = v
+      out[1] = v
+      out[2] = v
+    })
+    const map = makeTexture(c, { srgb: false, aniso: groundAniso() })
+    // the grain used to live at ~11 mm/texel with an effective strength of 3.2 × 0.7; at
+    // ASPHALT_DETAIL_M / 512 = 2.9 mm/texel the same world slope needs proportionally more
+    const K = 3.2 * 0.7 * 0.7 * (0.0112 / (ASPHALT_DETAIL_M / w))
+    const normalMap = normalMapFrom(height, w, h, K, K, groundAniso())
+    return { map, normalMap }
   })
 }
 
@@ -290,8 +404,8 @@ export function asphaltMaps(withLines = true): MaterialMaps {
  * (track-mesh.ts addMacro, `stripes`) so the terrain and the run-off share one texture.
  */
 export function grassMaps(striped = false): MaterialMaps {
-  return cached(`grass-${striped}`, () => {
-    const w = 1024, h = 1024
+  return cached(`grass-${striped}-${textureScale}`, () => {
+    const [w, h] = scaled(1024, 1024)
     const n = new Noise2(3)
     const n2 = new Noise2(31)
     const height = new Float32Array(w * h)
@@ -323,27 +437,36 @@ export function grassMaps(striped = false): MaterialMaps {
       out[2] = b
       height[y * w + x] = hgt
     })
-    return { map: makeTexture(c), normalMap: normalMapFrom(height, w, h, 2.2) }
+    return { map: makeTexture(c, { aniso: groundAniso() }), normalMap: normalMapFrom(height, w, h, 2.2, 2.2, groundAniso()) }
   })
 }
 
-/** Gravel trap: individually shaded pebbles on a sand bed, tile ≈ 3 m. */
-/** Fraction of the asphalt texture's width taken by one painted edge line (asphaltMaps(true)). */
-export const ASPHALT_LINE_FRAC = Math.round((0.15 / 13) * 1024) / 1024
+/**
+ * Fraction of the asphalt texture's width taken by one painted edge line (asphaltMaps(true)),
+ * so the pit lane can inset its u range past them. Derived from the base tile's own width and
+ * the same 15 cm / ASPHALT_WIDTH_M the maker uses; the rounding lands on the same fraction at
+ * every tier scale (24/2048 = 12/1024 = 6/512), so one constant serves both tiers.
+ */
+export const ASPHALT_LINE_FRAC = Math.round((0.15 / ASPHALT_WIDTH_M) * 2048) / 2048
 
+/** Gravel trap: individually shaded pebbles on a sand bed, tile ≈ 3 m. */
 export function gravelMaps(): MaterialMaps {
-  return cached('gravel', () => {
-    const w = 1024, h = 1024
+  return cached(`gravel-${textureScale}`, () => {
+    const [w, h] = scaled(1024, 1024)
+    // The pebbles are splatted in PIXELS, so the tier scale has to go through them too: radii
+    // shrink with the resolution and the count with the area, otherwise a half-size tile would
+    // be the same trap rendered with twice-as-coarse gravel.
+    const k1 = w / 1024
     const rng = mulberry(11)
     const n = new Noise2(11)
     const height = new Float32Array(w * h)
     const tint = new Float32Array(w * h) // per-pixel pebble tint (0 = sand)
     const kind = new Uint8Array(w * h)
-    for (let i = 0; i < w * h; i++) height[i] = n.fbm((i % w) / 32, Math.floor(i / w) / 32, 32, 32, 3) * 0.25
-    const pebbles = 14000
+    for (let i = 0; i < w * h; i++) height[i] = n.fbm(((i % w) / w) * 32, (Math.floor(i / w) / h) * 32, 32, 32, 3) * 0.25
+    const pebbles = Math.round(14000 * k1 * k1)
     for (let k = 0; k < pebbles; k++) {
       const cx = rng() * w, cy = rng() * h
-      const rad = 2.5 + rng() * rng() * 9
+      const rad = (2.5 + rng() * rng() * 9) * k1
       const ax = 0.75 + rng() * 0.5
       const t = rng()
       const kd = rng() < 0.15 ? 2 : rng() < 0.4 ? 1 : 0
@@ -355,7 +478,10 @@ export function gravelMaps(): MaterialMaps {
           const px = ((Math.round(cx) + dx) % w + w) % w
           const py = ((Math.round(cy) + dy) % h + h) % h
           const i = py * w + px
-          const dome = Math.sqrt(1 - d * d) * rad * 0.12 + 0.3
+          // ÷ k1 keeps the peak height in the ORIGINAL units (rad already carries k1), so the
+          // shading below and the sand bed stay identical; the halved pixel width is then paid
+          // back by the × k1 on the normal strength, leaving the world-space normals unchanged.
+          const dome = (Math.sqrt(1 - d * d) * rad * 0.12) / k1 + 0.3
           if (dome > height[i]!) {
             height[i] = dome
             tint[i] = 0.3 + t * 0.7
@@ -368,7 +494,7 @@ export function gravelMaps(): MaterialMaps {
       const i = y * w + x
       const tn = tint[i]!
       const hg = height[i]!
-      const speck = (n.value(x * 1.3, y * 1.3, 1024, 1024) - 0.5) * 26
+      const speck = (n.value((x / w) * 1331.2, (y / h) * 1331.2, 1024, 1024) - 0.5) * 26
       let r: number, g: number, b: number
       if (tn === 0) {
         // sand bed
@@ -395,14 +521,14 @@ export function gravelMaps(): MaterialMaps {
       out[1] = g
       out[2] = b
     })
-    return { map: makeTexture(c), normalMap: normalMapFrom(height, w, h, 2.6) }
+    return { map: makeTexture(c, { aniso: groundAniso() }), normalMap: normalMapFrom(height, w, h, 2.6 * k1, 2.6 * k1, groundAniso()) }
   })
 }
 
 /** Kerb: one red + one white block per tile (2 m), worn paint, ribbed profile in the normal map. */
 export function kerbMaps(): MaterialMaps {
-  return cached('kerb', () => {
-    const w = 256, h = 1024
+  return cached(`kerb-${textureScale}`, () => {
+    const [w, h] = scaled(256, 1024)
     const n = new Noise2(5)
     const height = new Float32Array(w * h)
     const c = paint(w, h, (x, y, out) => {
@@ -425,14 +551,14 @@ export function kerbMaps(): MaterialMaps {
       out[2] = b * shade
       height[y * w + x] = rib * 0.7 + wear * 0.3 - scuff * 0.2
     })
-    return { map: makeTexture(c), normalMap: normalMapFrom(height, w, h, 1.6) }
+    return { map: makeTexture(c, { aniso: groundAniso() }), normalMap: normalMapFrom(height, w, h, 1.6, 1.6, groundAniso()) }
   })
 }
 
 /** Concrete (pit wall, bridge), tile 4 m. */
 export function concreteMaps(): MaterialMaps {
-  return cached('concrete', () => {
-    const w = 512, h = 512
+  return cached(`concrete-${textureScale}`, () => {
+    const [w, h] = scaled(512, 512)
     const n = new Noise2(23)
     const height = new Float32Array(w * h)
     const c = paint(w, h, (x, y, out) => {
@@ -445,7 +571,7 @@ export function concreteMaps(): MaterialMaps {
       out[2] = base - 6
       height[y * w + x] = f
     })
-    return { map: makeTexture(c), normalMap: normalMapFrom(height, w, h, 0.8) }
+    return { map: makeTexture(c, { aniso: groundAniso() }), normalMap: normalMapFrom(height, w, h, 0.8, 0.8, groundAniso()) }
   })
 }
 
@@ -485,8 +611,8 @@ export function carbonMaps(): MaterialMaps {
  * 0.4–0.6 tread, 0.6–0.8 shoulder, 0.8–1 outer sidewall. u runs around the tyre.
  */
 export function tyreMaps(compound: Compound, color: string): MaterialMaps {
-  return cached(`tyre-${compound}`, () => {
-    const w = 1024, h = 512
+  return cached(`tyre-${compound}-${textureScale}`, () => {
+    const [w, h] = scaled(1024, 512)
     const n = new Noise2(53)
     const [cr, cg, cb] = hexToRgb(color)
     const height = new Float32Array(w * h)

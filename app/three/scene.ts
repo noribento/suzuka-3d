@@ -5,6 +5,7 @@ import { disposeAll, setMaxAnisotropy, setTextureScale } from './textures'
 import { createPostChain, type PostChain, type SunFrame } from './post'
 import { buildSkyExtras } from './sky-extras'
 import { QUALITY, pickTier, probeCapabilities, type Capabilities, type Quality, type QualityTier } from './quality'
+import { followSplits, needsRefit, overviewMaxFar, overviewSplits, penumbraTarget, quantFov } from './shadow-fit'
 import {
   CUT_JUMP_M,
   SKY_FRAG_ANCHOR,
@@ -192,7 +193,8 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   renderer.shadowMap.type = caps.software ? THREE.BasicShadowMap : THREE.PCFShadowMap
   // draw-call statistics accumulate over the whole frame (post passes render several times)
   renderer.info.autoReset = false
-  setMaxAnisotropy(Math.min(renderer.capabilities.getMaxAnisotropy(), q.anisotropy))
+  const hwAniso = renderer.capabilities.getMaxAnisotropy()
+  setMaxAnisotropy(Math.min(hwAniso, q.anisotropy), Math.min(hwAniso, q.anisotropyGround))
   setTextureScale(q.textureScale)
 
   const scene = new THREE.Scene()
@@ -252,7 +254,13 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   envScene.add(dome)
   const buildEnvironment = () => {
     colourLightingDome(dome, sunDirection)
-    const target = pmrem.fromScene(envScene, 0.04)
+    // No pre-blur. sigma 0.04 rad is 2.29 deg, ~6.5 texels of the 256 cube, but the mip a
+    // `roughness 0.06` clearcoat samples is -2*log2(1.16*0.06) = 7.69 (between the 128 and 256 px
+    // faces): the blur was destroying detail four to six times finer than the mip it lands on, so
+    // every reflection below roughness ~0.25 read as a flat gradient. sigma only existed to hide
+    // the faceting of the vertex-coloured dome; a per-fragment source has none. Also drops the
+    // two _halfBlur passes.
+    const target = pmrem.fromScene(envScene, 0)
     envTarget?.dispose()
     envTarget = target
     scene.environment = target.texture
@@ -314,7 +322,12 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   let currentMode: ShadowMode | null = null
   let lastFocus = -1
   let lastAspect = 0
-  let lastFov = 0
+  let lastFitFov = 0
+  /** metre bounds of the cascade slice the subject was last fitted into (NaN = never fitted) */
+  let fitLo = NaN
+  let fitHi = NaN
+  /** the sun moved: the elevation-dependent penumbra has to be re-derived */
+  let refitPending = false
   // shadow-map update policy: every frame in follow modes (cars move), otherwise only when the
   // camera, the sun or the cascade fit changed — the overview at 1.5 km has nothing moving that casts
   let shadowDirty = true
@@ -324,38 +337,43 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
   const lastCamQuat = new THREE.Quaternion(NaN, NaN, NaN, NaN)
   const updateShadows = (mode: ShadowMode, focusDistance: number) => {
     const d = Math.max(5, focusDistance)
-    let maxFar: number
-    let s0: number, s1: number
-    if (mode === 'overview') {
-      maxFar = Math.min(12000, d + 1800)
-      s0 = Math.max(0.05, (d - 500) / maxFar)
-      s1 = Math.min(0.95, (d + 400) / maxFar)
-    } else {
-      // a shorter range buys cascade-0 texel density around the subject
-      maxFar = q.followMaxFar
-      s0 = Math.min(0.5, (d + 25) / maxFar)
-      s1 = Math.min(0.85, (d + 150) / maxFar)
-    }
+    // Where the subject sits in the split matters more than the shadow map's resolution: CSM
+    // sizes a cascade by its longest diagonal, which for a long lens is its depth. See ./shadow-fit.
+    const maxFar = mode === 'overview' ? overviewMaxFar(d) : q.followMaxFar
+    const split = mode === 'overview' ? overviewSplits(d, maxFar) : followSplits(d, maxFar, CASCADES)
+    let { s0, s1 } = split
     if (s1 <= s0 + 0.02) s1 = s0 + 0.02
-    const changed = mode !== currentMode || Math.abs(d - lastFocus) > d * 0.05 || camera.aspect !== lastAspect || camera.fov !== lastFov
+    const fitFov = quantFov(camera.fov)
+    // A bracketed subject must never leave its slice, so the threshold comes from the slice the
+    // cascades were actually fitted to; the wide splits keep the old proportional rule.
+    const focusMoved = split.bracketW > 0 ? needsRefit(d, fitLo, fitHi) : Math.abs(d - lastFocus) > d * 0.05
+    const changed = mode !== currentMode || focusMoved || camera.aspect !== lastAspect || fitFov !== lastFitFov || refitPending
     if (changed) {
       currentMode = mode
       lastFocus = d
       lastAspect = camera.aspect
-      lastFov = camera.fov
+      lastFitFov = fitFov
+      refitPending = false
+      fitLo = split.bracketW > 0 ? s0 * maxFar : NaN
+      fitHi = split.bracketW > 0 ? s1 * maxFar : NaN
       s0Cur = s0
       s1Cur = s1
       csm.maxFar = maxFar
+      // fit with the quantised lens, then put the live one back: _initCascades reads (and
+      // rebuilds) camera.projectionMatrix, and the frame still has to render at the real FOV
+      const liveFov = camera.fov
+      camera.fov = fitFov
       csm.updateFrustums()
-      // bias scales with the texel footprint of each cascade
-      for (const light of csm.lights) {
+      camera.fov = liveFov
+      camera.updateProjectionMatrix()
+      csm.lights.forEach((light, i) => {
         const cam = light.shadow.camera
         const texel = (cam.right - cam.left) / SHADOW_MAP
+        // bias scales with the texel footprint of each cascade
         light.shadow.normalBias = Math.max(0.03, texel * 1.5)
         light.shadow.bias = -0.00005 - texel * 0.00004
-        // world-space penumbra: the same ~12 cm softness in every cascade (PCF only; BasicShadowMap ignores it)
-        light.shadow.radius = THREE.MathUtils.clamp(q.penumbraM / texel, 1, 6)
-      }
+        light.shadow.radius = THREE.MathUtils.clamp(penumbraTarget(q.penumbraM, i, sunDirection.y) / texel, 1, 6)
+      })
     }
     csm.update()
     const camMoved = !camera.position.equals(lastCamPos) || !camera.quaternion.equals(lastCamQuat)
@@ -411,6 +429,9 @@ export function createScene(canvas: HTMLCanvasElement, camera: THREE.Perspective
     u.sunPosition!.value.copy(sunDirection)
     csm.lightDirection.copy(sunDirection).negate()
     sunMoved = true
+    // the penumbra scales with 1/sin(elevation): the cascades have to be re-derived, and only
+    // the `changed` branch does that (sunMoved alone just re-renders the maps)
+    refitPending = true
     scheduleEnvironment()
     // low sun: warmer, dimmer light, longer haze
     warm = warmthOf(sunDirection)

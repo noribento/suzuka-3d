@@ -27,6 +27,23 @@ export type EmissiveTier = 'high' | 'low'
 export const BLOOM_THRESHOLD = 4.5
 
 /**
+ * Width of the bloom high pass's smoothstep, in luminance.
+ *
+ * UnrealBloomPass's high pass GATES rather than subtracts —
+ * `mix(black, texel, smoothstep(threshold, threshold + smoothWidth, luminance))` — and three
+ * hard-codes `smoothWidth = 0.01`, which is a step function: a pixel at 4.51 contributes its
+ * whole value and one at 4.49 contributes nothing. Every emitter below sits in a narrow band
+ * just above the threshold, so a brake disc sweeping 400→1100 °C every braking zone popped its
+ * entire halo into existence in one frame, and half a spark shower bloomed while the other half
+ * did not. Widening the knee turns that into a ramp.
+ *
+ * Nothing below BLOOM_THRESHOLD blooms either way, so the `kneed sky ≤ SKY_MAX 3.0 < 4.5`
+ * half of the contract is untouched. What the knee does add is a floor on the emitters:
+ * scripts/sun-model-check.mjs asserts every intended emitter still clears half weight.
+ */
+export const BLOOM_KNEE = 2.5
+
+/**
  * The low tier renders without bloom, so its emissives are scaled down: NeutralToneMapping
  * would otherwise clip the cores to white with no halo to carry the colour.
  */
@@ -49,9 +66,9 @@ export const EMISSIVE = {
   /** the five start-light pairs on the gantry */
   startLamp: { color: 0xff3a20, on: 26, bodyOn: 0xff2020, bodyOff: 0x3a0000 },
   /** rear rain light: steady when running in the wet, flashing under ERS harvesting / in the pit lane */
-  rainLight: { color: 0xff2a1a, on: 8, flashHi: 22, flashLo: 0.3 },
+  rainLight: { color: 0xff2a1a, on: 8, flashHi: 30, flashLo: 0.3 },
   /** ceiling strips in the pit garages */
-  garageStrip: { color: 0xfff2dd, intensity: 6 },
+  garageStrip: { color: 0xfff2dd, intensity: 8 },
   /** titanium sparks off the plank: linear rgb per unit of "heat", heat drawn in [heatMin, heatMax] */
   spark: { rgb: [10, 3.8, 0.8] as const, heatMin: 0.75, heatMax: 1.4 },
   /**
