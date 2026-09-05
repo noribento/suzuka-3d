@@ -69,6 +69,11 @@ export const EMISSIVE = {
   rainLight: { color: 0xff2a1a, on: 8, flashHi: 30, flashLo: 0.3 },
   /** ceiling strips in the pit garages */
   garageStrip: { color: 0xfff2dd, intensity: 8 },
+  /**
+   * LED digital-flag panels at the marshal posts (EM Motorsport, 2018): green = track clear.
+   * Luminance ≈ 0.8 — a visible glow that stays well below the bloom threshold on purpose.
+   */
+  digitalFlag: { color: 0x27d17a, intensity: 1.6 },
   /** titanium sparks off the plank: linear rgb per unit of "heat", heat drawn in [heatMin, heatMax] */
   spark: { rgb: [10, 3.8, 0.8] as const, heatMin: 0.75, heatMax: 1.4 },
   /**
