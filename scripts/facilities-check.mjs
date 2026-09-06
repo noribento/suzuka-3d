@@ -295,6 +295,158 @@ if (fw && (Math.abs(fw.centroid[0] - spec.FERRIS_WHEEL.s) > 3 || Math.abs(fw.cen
 const lt = osm.OSM_LEADER_TOWER
 if (lt && (Math.abs(lt.centroid[0] - spec.LEADER_TOWER.s) > 2 || Math.abs(lt.centroid[1] - spec.LEADER_TOWER.lateral) > 1)) fail(`LEADER_TOWER vs OSM centroid ${lt.centroid}`)
 
+// ---------------------------------------------------------------- 7. barrier runs
+const bar = await import('../app/data/suzuka-barriers-spec.ts')
+const trackside = await import('../app/three/trackside.ts')
+const RUN_CLEAR = 0.4 // m beyond the half-width a barrier vertex must stay
+/** stretches of road other than the run's own that come within `r` of (x, z) */
+function otherRoad(x, z, sRange, ownY, r = 45) {
+  const own = (s) => {
+    const d = wrap(s - sRange[0])
+    return d <= arcLen(sRange[0], sRange[1]) + 60 || d >= L - 60
+  }
+  let hit = null
+  track.forEachSampleNear(x, z, r, (i, d2) => {
+    const s = i * track.ds
+    if (own(s)) return
+    // the crossover puts two roads on top of each other: 3 m of separation is not a crossing
+    if (Math.abs(track.py[i] - ownY) > 3) return
+    const lat = Math.abs((x - track.px[i]) * track.nx[i] + (z - track.pz[i]) * track.nz[i])
+    const clear = track.halfWidthAt(s) + 1.5
+    if (lat < clear && (!hit || d2 < hit.d2)) hit = { s, lat, d2 }
+  })
+  return hit
+}
+const seenRunIds = new Set()
+const runRows = []
+for (const run of bar.BARRIERS) {
+  if (seenRunIds.has(run.id)) fail(`BARRIERS: duplicate id "${run.id}"`)
+  seenRunIds.add(run.id)
+  const [s0, s1] = run.sRange
+  if (s0 < 0 || s0 >= L || s1 < 0 || s1 >= L || arcLen(s0, s1) <= 0 || arcLen(s0, s1) > L / 2) fail(`${run.id}: invalid sRange ${s0}→${s1}`)
+  for (const id of run.source.osm ?? []) if (!osm.osmFeature(id)) fail(`${run.id}: OSM way ${id} missing from OSM_FEATURES`)
+  const soft = !!run.unverified?.length
+  const r = trackside.resolveLine(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
+  if (r.samples.length < 2) {
+    fail(`${run.id}: resolved to ${r.samples.length} sample(s) — the source produced no line`)
+    continue
+  }
+  // coverage: the samples must span the run (no 30 m holes, ends within 25 m)
+  let prev = null
+  let maxGap = 0
+  let gapAt = 0
+  for (const [s, lat] of r.samples) {
+    // a long straight run needs no samples in between: only a gap the shape changes across is a hole
+    if (prev !== null && wrap(s - prev[0]) > maxGap && Math.abs(lat - prev[1]) > 3) {
+      maxGap = wrap(s - prev[0])
+      gapAt = prev[0]
+    }
+    prev = [s, lat]
+  }
+  const startGap = wrap(r.samples[0][0] - s0)
+  const endGap = wrap(s1 - r.samples[r.samples.length - 1][0])
+  // a hole matters only where an OSM way was supposed to supply the shape; hand samples are sparse by design
+  if (maxGap > 30) fail(`${run.id}: ${fmt(maxGap, 0)} m unsampled at s ${fmt(gapAt, 0)} where the line bends (the source does not cover it)`, soft)
+  if (startGap > 25 && startGap < L / 2) fail(`${run.id}: starts ${fmt(startGap, 0)} m after sRange[0]`, soft)
+  if (endGap > 25 && endGap < L / 2) fail(`${run.id}: ends ${fmt(endGap, 0)} m before sRange[1]`, soft)
+  // geometry checks along the resolved line
+  let minClear = Infinity, worstOther = null, standHit = null, maxStep = 0
+  const len = arcLen(s0, s1)
+  let prevLat = null
+  const v = new THREE.Vector3()
+  for (let d = 0; d <= len; d += 2) {
+    const s = wrap(s0 + d)
+    const lat = r.lat(s)
+    if (Math.sign(lat) !== run.side) fail(`${run.id}: lateral ${fmt(lat)} is on the wrong side at s ${fmt(s, 0)}`)
+    const clear = Math.abs(lat) - track.halfWidthAt(s)
+    if (clear < minClear) minClear = clear
+    if (prevLat !== null) maxStep = Math.max(maxStep, Math.abs(lat - prevLat))
+    prevLat = lat
+    track.pointAt(s, lat, v, 0)
+    const o = otherRoad(v.x, v.z, run.sRange, v.y)
+    if (o && (!worstOther || o.lat < worstOther.lat)) worstOther = { ...o, s }
+    for (const st of spec.STANDS) {
+      // Q2's (s, lateral) is nominal (its bars sit in the figure-8 fold and are placed from EN)
+      if (st.side !== run.side || !inArc(s, st.sRange) || st.unverified?.some((u) => /fold/.test(u))) continue
+      const front = Math.abs(at(st.lateralFront, s, st.sRange))
+      const back = Math.abs(at(st.lateralBack, s, st.sRange))
+      if (Math.abs(lat) > front + 0.5 && Math.abs(lat) < back + 1) standHit = { id: st.id, s, lat, front, back }
+    }
+  }
+  if (minClear < RUN_CLEAR) fail(`${run.id}: comes ${fmt(RUN_CLEAR - minClear)} m inside the road edge`)
+  if (worstOther) fail(`${run.id}: crosses another stretch of road at s ${fmt(worstOther.s, 0)} (that road's s ${fmt(worstOther.s2 ?? worstOther.s, 0)}, lateral ${fmt(worstOther.lat)})`)
+  if (standHit) fail(`${run.id}: runs inside stand ${standHit.id} at s ${fmt(standHit.s, 0)} (lateral ${fmt(standHit.lat)} vs front ${fmt(standHit.front)})`, soft)
+  if (maxStep > 6) fail(`${run.id}: ${fmt(maxStep)} m lateral step over 2 m of s (a right-angle jog)`, soft)
+  runRows.push({ id: run.id, kind: run.kind, side: run.side, s: `${s0}→${s1}`, samples: r.samples.length, clear: fmt(minClear), src: run.source.osm ? `osm ${run.source.osm.length}` : `hand ${run.source.samples.length}`, unv: run.unverified ? 'U' : '' })
+}
+// the lap must be walled on both sides except at the pit lane / bridge / open infield
+{
+  const covered = { 1: new Uint8Array(Math.ceil(L)), '-1': new Uint8Array(Math.ceil(L)) }
+  for (const run of bar.BARRIERS) {
+    const len = arcLen(run.sRange[0], run.sRange[1])
+    for (let d = 0; d <= len; d++) covered[run.side][Math.round(wrap(run.sRange[0] + d)) % Math.ceil(L)] = 1
+  }
+  for (const side of [1, -1]) {
+    const arr = covered[side]
+    const holes = []
+    let start = -1
+    for (let i = 0; i < arr.length; i++) {
+      if (!arr[i] && start < 0) start = i
+      if (arr[i] && start >= 0) {
+        if (i - start >= 40) holes.push([start, i])
+        start = -1
+      }
+    }
+    if (start >= 0 && arr.length - start >= 40) holes.push([start, arr.length])
+    for (const [a, b] of holes) console.log(`  note: no barrier on side ${side} for s ${a}–${b} (${b - a} m)`)
+  }
+}
+
+// ---------------------------------------------------------------- 8. kerbs / lines / lanes
+for (const k of bar.KERBS) {
+  const [s0, s1] = k.sRange
+  if (arcLen(s0, s1) <= 0 || arcLen(s0, s1) > 600) fail(`kerb "${k.name}": invalid sRange ${s0}→${s1}`)
+  if (k.kind !== 'green' && inArc(s0, [pit.entryS, pit.exitS]) && k.side === -1) fail(`kerb "${k.name}": on the right inside the pit lane span`, true)
+}
+for (let i = 0; i < bar.KERBS.length; i++) {
+  for (let j = i + 1; j < bar.KERBS.length; j++) {
+    const a = bar.KERBS[i], b = bar.KERBS[j]
+    if (a.side !== b.side || a.kind !== b.kind || !arcsOverlap(a.sRange, b.sRange)) continue
+    fail(`kerbs "${a.name}" and "${b.name}" overlap on the same side`, true)
+  }
+}
+for (const ln of bar.LINES) {
+  if (typeof ln.lateral === 'string') continue
+  const [s0, s1] = ln.sRange
+  if (ln.lateralTo === undefined && arcLen(s0, s1) <= 0) fail(`line "${ln.name}": invalid sRange`)
+  const len = arcLen(s0, s1)
+  for (let d = 0; d <= len; d += 5) {
+    const s = wrap(s0 + d)
+    const lat = at(ln.lateral, s, ln.sRange)
+    if (Math.abs(lat) > 40) fail(`line "${ln.name}": lateral ${fmt(lat)} at s ${fmt(s, 0)} is off the paved width`)
+  }
+}
+for (const lane of bar.OFFSET_LANES) {
+  const f = osm.osmFeature(lane.osmWay)
+  if (!f) {
+    fail(`lane "${lane.name}": OSM way ${lane.osmWay} missing`)
+    continue
+  }
+  const pts = trackside.osmPathSamples(track, lane.osmWay, lane.sRange).filter(([, l]) => !lane.latMax || Math.abs(l) <= lane.latMax)
+  if (pts.length < 3) fail(`lane "${lane.name}": ${pts.length} vertices mapped in its window`)
+  const far = Math.max(...pts.map(([, l]) => Math.abs(l)))
+  if (far < 8) fail(`lane "${lane.name}": never leaves the road (max |lateral| ${fmt(far)})`, true)
+}
+for (const m of bar.MARSHAL_POSTS) {
+  if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + 2) fail(`marshal post at s ${m.s}: lateral ${fmt(m.lateral)} is on the road`)
+}
+for (const b of bar.BASINS) if (!osm.osmFeature(b.osmWay)) fail(`basin "${b.name}": OSM way ${b.osmWay} missing`)
+
+console.log('\nbarrier runs')
+console.log('id                          kind        side s-range        samples src       clear')
+for (const r of runRows) console.log(`${r.id.padEnd(27)} ${r.kind.padEnd(11)} ${String(r.side).padStart(2)}   ${r.s.padEnd(13)} ${String(r.samples).padStart(7)} ${r.src.padEnd(9)} ${r.clear.padStart(6)} ${r.unv}`)
+console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES.length} line groups, ${bar.OFFSET_LANES.length} lanes, ${bar.MARSHAL_POSTS.length} marshal posts`)
+
 // ---------------------------------------------------------------- summary
 console.log('\nstand      side s-range        row-1 lateral  clear   depth  rows struct    osm')
 for (const r of rows) console.log(`${r.id.padEnd(10)} ${String(r.side).padStart(2)}   ${r.s.padEnd(13)} ${r.front.padEnd(14)} ${r.clear.padStart(6)} ${r.depth.padStart(7)}  ${String(r.rows).padStart(3)}  ${r.struct.padEnd(9)} ${r.osm}`)

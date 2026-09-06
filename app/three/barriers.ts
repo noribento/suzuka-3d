@@ -1,223 +1,166 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { CIRCUIT } from '~/data/suzuka'
-import { alongAt, STANDS } from '~/data/suzuka-facilities-spec'
-import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import { gravelRuns, ribbonGeometry, wallGeometry } from './track-mesh'
+import { BARRIERS, type BarrierKind, type BarrierRun } from '~/data/suzuka-barriers-spec'
+import { forwardDelta, type Track } from '~/sim/track'
+import { ribbonGeometry, wallGeometry } from './track-mesh'
 import type { Ground } from './ground'
-import { armcoMaps, chainLinkTexture, tecproTexture, tyreWallTexture } from './textures'
+import { armcoMaps, chainLinkTexture, concreteMaps, tyreWallTexture } from './textures'
 import type { Quality } from './quality'
 import { bucketedInstancedMeshes } from './instancing'
+import { resolveLineCached } from './trackside'
 
 type Fn = (s: number) => number
 
 const _p = new THREE.Vector3()
 const _q = new THREE.Quaternion()
 const _m = new THREE.Matrix4()
-const _one = new THREE.Vector3(1, 1, 1)
-
-interface Zone {
-  from: number
-  to: number
-  side: 1 | -1
-  /** fixed lateral position instead of the run-off distance (fence on top of the pit wall) */
-  lat?: Fn
-  /** height of the base the zone stands on, relative to the road plane (default: the ground) */
-  base?: Fn
-  /** top of the fence above its base (default 3.6 m) */
-  top?: number
-}
-
-function inZone(track: Track, s: number, z: Zone): boolean {
-  const len = forwardDelta(z.from, z.to, track.length)
-  return forwardDelta(z.from, s, track.length) <= len
-}
 
 /**
- * Barriers around the whole lap:
- *  - Armco guard rail at the edge of the run-off on both sides (with posts),
- *  - tyre walls (conveyor-belt covered) behind the gravel traps of the fast corners,
- *  - TecPro blocks at 130R and the chicane,
- *  - debris fencing in front of every grandstand and on top of the pit wall.
- * Everything stands on the ground surface (verge / embankment), not on the road plane.
- * The elevated bridge section already has its own rails and is skipped; the pit building
- * side of the main straight is closed by the pit wall instead of Armco.
+ * Dimensions of each barrier kind: `bottom`/`top` above the ground it stands on, the depth of the
+ * top cap, and how many metres of the texture one tile spans along the run.
+ */
+const KIND = {
+  armco: { bottom: 0.32, top: 0.78, cap: 0, tile: 4, posts: true },
+  guardrail: { bottom: 0.34, top: 0.8, cap: 0, tile: 4, posts: true },
+  concrete: { bottom: 0, top: 1.05, cap: 0.35, tile: 4, posts: false },
+  tyre: { bottom: 0, top: 1.95, cap: 0.7, tile: 0.66, posts: false },
+  fence: { bottom: 0, top: 0, cap: 0, tile: 4, posts: false },
+} as const satisfies Record<BarrierKind, { bottom: number; top: number; cap: number; tile: number; posts: boolean }>
+
+/**
+ * A barrier vertex takes the height of the ground beside ITS road. Where the crossover puts one
+ * road on the embankment of the other, `ground.yAt` returns that embankment and the wall would
+ * climb onto the deck above (the pre-2026-09 audit's "Degner wall on the 130R bridge"), so the
+ * rise over the road plane is capped.
+ */
+const MAX_RISE = 3
+
+/**
+ * Barriers around the whole lap, from the hand-authored table in `app/data/suzuka-barriers-spec.ts`
+ * (BARRIERS): concrete walls, tyre walls, Armco / white guard rails and the chain-link debris
+ * fences above them, each run resolved to a lateral offset along its OWN stretch of road from the
+ * OpenStreetMap ways it is mapped from (road-facing edge) and from the samples read off the aerial.
+ *
+ * Nothing here is derived from the run-off table any more: the old code placed the rail at the far
+ * edge of whatever gravel trap was nearby, which put it through the C, D, O and S grandstands, over
+ * the 130R bridge and onto the Dunlop road at the chicane. Geometry is merged per material, and the
+ * rail posts are instanced in 500 m buckets so a follow camera only draws the ones around it.
  */
 export function buildBarriers(track: Track, quality: Quality, ground: Ground): THREE.Group {
   const group = new THREE.Group()
   group.name = 'barriers'
   const L = track.length
-  const cross = track.crossing
-  const pit = CIRCUIT.pit
-  const hwAt: Fn = (s) => track.halfWidthAt(s)
-  const groundAt = (s: number, lat: number) => ground.yAt(s, lat)
 
-  // gravel traps come from the OSM-derived run-off table (RUNOFF_ZONES via track-mesh.ts
-  // gravelRuns): the barrier line moves out to the trap's far edge (capped so it stays on the
-  // draped verge) and a tyre wall stands behind it
-  const gravel: (Zone & { outer: number })[] = []
-  const tyreZones: Zone[] = []
-  for (const run of gravelRuns(track)) {
-    gravel.push({ from: run.from, to: run.to, side: run.side, outer: Math.min(40, Math.max(25, run.outer)) })
-    tyreZones.push({ from: run.from + 8, to: run.to - 8, side: run.side })
-  }
-  const tecpro: Zone[] = [
-    { from: cross.sOver + 100, to: 4900, side: -1 }, // 130R outside (after the crossover embankment)
-    { from: 5100, to: 5260, side: 1 }, // chicane
-    { from: 5190, to: 5300, side: -1 },
-  ]
-  const nearBridge = (s: number) => Math.abs(signedDelta(s, cross.sOver, L)) < 175
-  /** the pit lane runs along the right of the track here (entry road → exit road) */
-  const pitZone: Zone = { from: pit.entryS - 20, to: pit.exitS + 40, side: -1 }
-  /** pit wall + garages: no Armco on the right */
-  const wallZone: Zone = { from: pit.limitStartS - 40, to: pit.limitEndS, side: -1 }
-
-  /** distance of the barrier line from the road edge on `side` */
-  const dist = (s: number, side: 1 | -1): number => {
-    let d = 11
-    for (const z of gravel) if (z.side === side && inZone(track, s, z)) d = Math.max(d, z.outer)
-    // close to the road along the pit straight on the grandstand side; behind the pit lane on the other
-    if (side > 0 && (s > 5480 || s < 470)) d = 9
-    if (side < 0 && inZone(track, s, pitZone)) d = pit.laneWidth + 6
-    return d
-  }
-
-  // --- Armco (both sides, whole lap minus the bridge and the pit wall) --------------------
   const armco = armcoMaps()
-  const armcoMat = new THREE.MeshStandardMaterial({ map: armco.map, normalMap: armco.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.55, metalness: 0.7, side: THREE.DoubleSide })
-  const railGeos: THREE.BufferGeometry[] = []
-  const postGeo = new THREE.BoxGeometry(0.12, 0.85, 0.16)
+  const railMat = new THREE.MeshStandardMaterial({ map: armco.map, normalMap: armco.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.55, metalness: 0.7, side: THREE.DoubleSide })
+  const guardMat = new THREE.MeshStandardMaterial({ map: armco.map, normalMap: armco.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), color: 0xdfe2e4, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide })
+  const concreteTex = concreteMaps()
+  const concreteMat = new THREE.MeshStandardMaterial({ map: concreteTex.map, normalMap: concreteTex.normalMap, roughnessMap: concreteTex.roughnessMap, color: 0xd8d8d4, roughness: 0.95, side: THREE.DoubleSide })
+  const capMat = new THREE.MeshStandardMaterial({ map: concreteTex.map, color: 0xcfcfca, roughness: 0.95 })
+  const tyreMat = new THREE.MeshStandardMaterial({ map: tyreWallTexture(), roughness: 0.9, side: THREE.DoubleSide })
+  const tyreTopMat = new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.95 })
   const postMat = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.6, metalness: 0.7 })
+  const a2c = quality.msaa > 0
+  const fenceMat = new THREE.MeshStandardMaterial({ map: chainLinkTexture(), alphaTest: a2c ? 0.3 : 0.45, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 })
+
+  const geos: Record<string, THREE.BufferGeometry[]> = { rail: [], guard: [], concrete: [], cap: [], tyre: [], tyreTop: [], fence: [] }
   const postMatrices: THREE.Matrix4[] = []
   const postS: number[] = []
-  for (const side of [1, -1] as const) {
-    // split into runs that avoid the bridge (and the pit wall on the right)
-    const segments: [number, number][] = []
-    let start: number | null = null
-    for (let s = 0; s <= L; s += 4) {
-      const skip = nearBridge(s) || s >= L || (side < 0 && inZone(track, s, wallZone))
-      if (!skip && start === null) start = s
-      if (skip && start !== null) {
-        segments.push([start, s - 4])
-        start = null
+  const fencePostMatrices: THREE.Matrix4[] = []
+  const fencePostS: number[] = []
+
+  const addPost = (s: number, lat: number, y: number, height: number, scale: number, into: { m: THREE.Matrix4[]; s: number[] }) => {
+    const h = track.headingAt(s)
+    track.pointAt(s, lat, _p, y + height / 2)
+    _q.setFromRotationMatrix(_m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
+    into.m.push(new THREE.Matrix4().compose(_p, _q, new THREE.Vector3(scale, height, scale)))
+    into.s.push(track.wrap(s))
+  }
+
+  for (const run of BARRIERS) {
+    const k = KIND[run.kind]
+    const [s0, s1] = run.sRange
+    const len = forwardDelta(s0, s1, L)
+    if (len < 2) continue
+    const line = resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
+    const lat: Fn = (s) => line.lat(s)
+    /** ground under the run, never more than MAX_RISE above the road plane (see MAX_RISE) */
+    const base: Fn = (s) => Math.min(ground.yAt(s, lat(s)), MAX_RISE)
+    const bottom: Fn = (s) => base(s) + k.bottom
+    const top: Fn = (s) => base(s) + k.top
+    const back: Fn = (s) => lat(s) + run.side * (run.kind === 'tyre' ? 1.3 : 0.35)
+
+    if (run.kind !== 'fence') {
+      // the face towards the track, then a cap over the top for the solid kinds
+      const face = wallGeometry(track, s0, s1, lat, bottom, top, 2, k.tile, run.kind === 'tyre' ? 0.66 : undefined)
+      geos[run.kind === 'armco' ? 'rail' : run.kind === 'guardrail' ? 'guard' : run.kind === 'tyre' ? 'tyre' : 'concrete']!.push(face)
+      if (k.cap > 0) {
+        const inner = run.side > 0 ? back : lat
+        const outer = run.side > 0 ? lat : back
+        geos[run.kind === 'tyre' ? 'tyreTop' : 'cap']!.push(ribbonGeometry(track, s0, s1, inner, outer, top, top, 2, 2))
+        // the back face, so a wall seen from the paddock is not a one-sided sheet
+        geos[run.kind === 'tyre' ? 'tyre' : 'concrete']!.push(wallGeometry(track, s0, s1, back, bottom, top, 4, k.tile, run.kind === 'tyre' ? 0.66 : undefined))
       }
+      if (k.posts) for (let d = 0; d <= len; d += 4) addPost(s0 + d, lat(s0 + d), base(s0 + d) + 0.1, 0.85, 0.14, { m: postMatrices, s: postS })
     }
-    for (const [a, b] of segments) {
-      if (b - a < 8) continue
-      const lat: Fn = (s) => side * (hwAt(s) + dist(s, side))
-      railGeos.push(wallGeometry(track, a, b, lat, (s) => groundAt(s, lat(s)) + 0.32, (s) => groundAt(s, lat(s)) + 0.78, 4, 4))
-      for (let s = a; s <= b; s += 4) {
-        const h = track.headingAt(s)
-        track.pointAt(s, lat(s), _p, groundAt(s, lat(s)) + 0.42)
-        _q.setFromRotationMatrix(_m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
-        postMatrices.push(new THREE.Matrix4().compose(_p, _q, _one))
-        postS.push(s)
-      }
-    }
-  }
-  const rails = new THREE.Mesh(mergeGeometries(railGeos, false)!, armcoMat)
-  rails.name = 'armco'
-  rails.castShadow = true
-  group.add(rails)
-  // posts in 500 m runs so a follow camera only draws the ones around it
-  for (const inst of bucketedInstancedMeshes(postGeo, postMat, postMatrices, null, (i) => Math.floor(postS[i]! / 500), { name: 'armcoPosts' })) group.add(inst)
 
-  /** front face + top of a block wall standing on the ground between `lat` and `back` */
-  const blockWall = (z: Zone, lat: Fn, back: Fn, height: number, faceStep: number, faceV: number, faceGeos: THREE.BufferGeometry[], topGeos: THREE.BufferGeometry[]) => {
-    const base: Fn = (s) => groundAt(s, lat(s))
-    faceGeos.push(wallGeometry(track, z.from, z.to, lat, base, (s) => base(s) + height, faceStep, faceV))
-    const inner = z.side > 0 ? back : lat
-    const outer = z.side > 0 ? lat : back
-    topGeos.push(ribbonGeometry(track, z.from, z.to, inner, outer, (s) => base(s) + height, (s) => base(s) + height, 2, 2))
-  }
-
-  // --- tyre walls behind the gravel traps ------------------------------------------------------
-  const tyreTex = tyreWallTexture()
-  const tyreMat = new THREE.MeshStandardMaterial({ map: tyreTex, roughness: 0.9, side: THREE.DoubleSide })
-  const tyreTop = new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.95 })
-  const tyreGeos: THREE.BufferGeometry[] = []
-  const tyreTopGeos: THREE.BufferGeometry[] = []
-  for (const z of tyreZones) {
-    if (nearBridge(z.from) || nearBridge(z.to)) continue
-    const lat: Fn = (s) => z.side * (hwAt(s) + dist(s, z.side) - 0.4)
-    const back: Fn = (s) => z.side * (hwAt(s) + dist(s, z.side) + 0.9)
-    // front face (belt + tyres), 1.95 m = three tyres
-    blockWall(z, lat, back, 1.95, 2, 0.66, tyreGeos, tyreTopGeos)
-  }
-  if (tyreGeos.length) {
-    const tw = new THREE.Mesh(mergeGeometries(tyreGeos, false)!, tyreMat)
-    tw.castShadow = true
-    tw.name = 'tyreWalls'
-    group.add(tw, new THREE.Mesh(mergeGeometries(tyreTopGeos, false)!, tyreTop))
-  }
-
-  // --- TecPro ---------------------------------------------------------------------------------
-  const tecMat = new THREE.MeshStandardMaterial({ map: tecproTexture(), roughness: 0.7, side: THREE.DoubleSide })
-  const tecGeos: THREE.BufferGeometry[] = []
-  for (const z of tecpro) {
-    const lat: Fn = (s) => z.side * (hwAt(s) + dist(s, z.side) - 0.3)
-    const back: Fn = (s) => z.side * (hwAt(s) + dist(s, z.side) + 0.8)
-    blockWall(z, lat, back, 1.2, 2, 2, tecGeos, tecGeos)
-  }
-  const tec = new THREE.Mesh(mergeGeometries(tecGeos, false)!, tecMat)
-  tec.castShadow = true
-  group.add(tec)
-
-  // --- debris fencing in front of the spectator areas (skipped on the software tier) ---------
-  if (quality.fence) {
-    const a2c = quality.msaa > 0
-    const fenceMat = new THREE.MeshStandardMaterial({ map: chainLinkTexture(), alphaTest: a2c ? 0.3 : 0.45, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 })
-    const fenceGeos: THREE.BufferGeometry[] = []
-    const fencePostMatrices: THREE.Matrix4[] = []
-    const fencePostS: number[] = []
-    // one run at the foot of every stand, 3 m in front of its first row (never inside the barrier
-    // line); 'double' adds a second run on the barrier line, 'low-centre' lowers the middle third,
-    // 'none' (the roofed hospitality boxes) has no fence of its own. The Q2 bars sit in the
-    // figure-8 fold where (s, lateral) is unreliable: the chicane's TecPro run covers them. The
-    // chord-built stands (C, E-2) sit inside a bend where their (s, lateral) front folds, so
-    // their fence runs on the run-off edge instead.
-    const zones: Zone[] = []
-    for (const d of STANDS) {
-      if (d.fence === 'none' || d.id === 'Q2') continue
-      const front: Fn = (s) => d.side * (d.chord ? hwAt(s) + dist(s, d.side) + 0.35 : Math.max(Math.abs(alongAt(d.lateralFront, s, d.sRange)) - 3, hwAt(s) + dist(s, d.side) + 0.35))
-      const [from, to] = d.sRange
-      const len = forwardDelta(from, to, L)
-      if (d.fence === 'low-centre') {
-        zones.push({ from, to: from + len / 3, side: d.side, lat: front })
-        zones.push({ from: from + len / 3, to: from + (2 * len) / 3, side: d.side, lat: front, top: 2.4 })
-        zones.push({ from: from + (2 * len) / 3, to, side: d.side, lat: front })
-      } else {
-        zones.push({ from, to, side: d.side, lat: front })
-        if (d.fence === 'double') zones.push({ from, to, side: d.side })
-      }
-    }
-    // pit side of the main straight: on the verge along the entry road, on top of the pit wall, then along the exit road
-    zones.push({ from: pit.entryS, to: wallZone.from, side: -1 })
-    zones.push({ from: wallZone.from, to: wallZone.to, side: -1, lat: () => pit.wallOffset, base: () => 1.2 })
-    zones.push({ from: wallZone.to, to: 470, side: -1 })
-    for (const z of zones) {
-      const lat: Fn = z.lat ?? ((s) => z.side * (hwAt(s) + dist(s, z.side) + 0.35))
-      const base: Fn = z.base ?? ((s) => groundAt(s, lat(s)))
-      const top = z.top ?? 3.6
-      // 20 cm diamonds both ways: 14 tiles up the 2.8 m of mesh
-      fenceGeos.push(wallGeometry(track, z.from, z.to, lat, (s) => base(s) + 0.8, (s) => base(s) + top, 4, 0.2, 0.2))
-      const len = forwardDelta(z.from, z.to, L)
-      const postH = top - 0.3
+    // chain-link above the barrier (or standing on the ground for a bare fence run)
+    const fenceTop = run.kind === 'fence' ? 3.0 : run.fence ?? 0
+    if (fenceTop > 0 && quality.fence) {
+      const from: Fn = (s) => base(s) + (run.kind === 'fence' ? 0.8 : k.top)
+      const to: Fn = (s) => from(s) + fenceTop
+      // 20 cm diamonds both ways
+      geos.fence!.push(wallGeometry(track, s0, s1, lat, from, to, 4, 0.2, 0.2))
       for (let d = 0; d <= len; d += 4) {
-        const s = z.from + d
-        const h = track.headingAt(s)
-        track.pointAt(s, lat(s), _p, base(s) + 0.55 + postH / 2)
-        _q.setFromRotationMatrix(_m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
-        fencePostMatrices.push(new THREE.Matrix4().compose(_p, _q, new THREE.Vector3(0.8, postH, 0.8)))
-        fencePostS.push(track.wrap(s))
+        const s = s0 + d
+        addPost(s, lat(s), from(s) - 0.15, fenceTop + 0.15, 0.09, { m: fencePostMatrices, s: fencePostS })
       }
     }
-    const fence = new THREE.Mesh(mergeGeometries(fenceGeos, false)!, fenceMat)
-    fence.name = 'debrisFence'
-    group.add(fence)
-    const fencePostGeo = new THREE.BoxGeometry(0.1, 1, 0.1)
+  }
+
+  const add = (key: string, mat: THREE.Material, name: string, cast: boolean) => {
+    const list = geos[key]!
+    if (!list.length) return
+    const merged = mergeGeometries(list, false)
+    for (const g of list) g.dispose()
+    if (!merged) return
+    const mesh = new THREE.Mesh(merged, mat)
+    mesh.name = name
+    mesh.castShadow = cast
+    mesh.receiveShadow = true
+    group.add(mesh)
+  }
+  add('rail', railMat, 'armco', true)
+  add('guard', guardMat, 'guardrails', true)
+  add('concrete', concreteMat, 'barrierWalls', true)
+  add('cap', capMat, 'barrierWallTops', false)
+  add('tyre', tyreMat, 'tyreWalls', true)
+  add('tyreTop', tyreTopMat, 'tyreWallTops', false)
+  add('fence', fenceMat, 'debrisFence', false)
+
+  const postGeo = new THREE.BoxGeometry(1, 1, 1.15)
+  for (const inst of bucketedInstancedMeshes(postGeo, postMat, postMatrices, null, (i) => Math.floor(postS[i]! / 500), { name: 'railPosts' })) group.add(inst)
+  if (fencePostMatrices.length) {
+    const fencePostGeo = new THREE.BoxGeometry(1, 1, 1)
     for (const inst of bucketedInstancedMeshes(fencePostGeo, postMat, fencePostMatrices, null, (i) => Math.floor(fencePostS[i]! / 500), { name: 'fencePosts' })) group.add(inst)
   }
 
+  if (import.meta.dev) {
+    const runs = BARRIERS.length
+    console.info(`[barriers] ${runs} runs, ${postMatrices.length} rail posts, ${fencePostMatrices.length} fence posts`)
+  }
   return group
 }
+
+/** Lateral offset of the barrier line on `side` at s, or null where the lap has none there. */
+export function barrierLateralAt(track: Track, s: number, side: 1 | -1): number | null {
+  const L = track.length
+  for (const run of BARRIERS) {
+    if (run.side !== side) continue
+    if (forwardDelta(run.sRange[0], s, L) > forwardDelta(run.sRange[0], run.sRange[1], L)) continue
+    return resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6).lat(s)
+  }
+  return null
+}
+
+export type { BarrierRun }

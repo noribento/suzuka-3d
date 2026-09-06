@@ -527,6 +527,50 @@ export class Track {
     return { i: best, d2: bestD2 }
   }
 
+  /**
+   * Nearest point of the centreline to world (x, z), searching only the samples inside the forward
+   * s window [s0, s1] (widened by `pad` at both ends): the figure-8 fold and the crossover bring two
+   * stretches of road within a few metres of each other, so a trackside feature has to be mapped onto
+   * the road it belongs to, not the globally nearest one. Returns the lap position, the signed
+   * lateral offset (+left, the same convention as poseAt) and the distance.
+   */
+  nearestOnRange(x: number, z: number, s0: number, s1: number, pad = 60): { s: number; lateral: number; d: number } {
+    const L = this.length, n = this.n, ds = this.ds
+    const start = wrapS(s0 - pad, L)
+    const len = Math.min(L, forwardDelta(s0, s1, L) + 2 * pad)
+    let bi = -1, bd = Infinity
+    for (let d = 0; d <= len; d += ds) {
+      const i = Math.round(wrapS(start + d, L) / ds) % n
+      const dx = x - this.px[i]!, dz = z - this.pz[i]!
+      const q = dx * dx + dz * dz
+      if (q < bd) {
+        bd = q
+        bi = i
+      }
+    }
+    // refine on the two segments that touch the nearest sample
+    let best = { s: bi * ds, lateral: 0, d: Infinity }
+    for (const j of [(bi - 1 + n) % n, bi]) {
+      const k = (j + 1) % n
+      const ax = this.px[j]!, az = this.pz[j]!
+      let ux = this.px[k]! - ax, uz = this.pz[k]! - az
+      const ul = Math.hypot(ux, uz) || 1
+      ux /= ul
+      uz /= ul
+      const t = Math.max(0, Math.min(ul, (x - ax) * ux + (z - az) * uz))
+      const qx = ax + ux * t, qz = az + uz * t
+      const dist = Math.hypot(x - qx, z - qz)
+      if (dist < best.d) {
+        const f = t / ul
+        const lnx = this.nx[j]! * (1 - f) + this.nx[k]! * f
+        const lnz = this.nz[j]! * (1 - f) + this.nz[k]! * f
+        const nl = Math.hypot(lnx, lnz) || 1
+        best = { s: wrapS(j * ds + t, L), lateral: ((x - qx) * lnx + (z - qz) * lnz) / nl, d: dist }
+      }
+    }
+    return best
+  }
+
   private findCrossing(): Crossing {
     const n = this.n
     const hits: Crossing[] = []
