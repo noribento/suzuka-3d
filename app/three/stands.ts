@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { alongAt, COLOURS, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandTier } from '~/data/suzuka-facilities-spec'
-import { OSM_STANDS, type OsmFeature } from '~/data/suzuka-facilities'
+import { OSM_STANDS, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
+import { BASINS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext, Terrain } from './environment'
 import type { Ground } from './ground'
@@ -1565,7 +1566,20 @@ interface ChordZone {
   box: [number, number, number, number]
 }
 
-type ReliefZone = TrackZone | ChordZone
+/** A zone bounded by a world polygon (the retention basins): the ground inside is a sunken floor. */
+interface PolyZone {
+  kind: 'poly'
+  /** closed ring in world xz */
+  pts: [number, number][]
+  box: [number, number, number, number]
+  /** absolute heights: the shoreline and the floor */
+  shoreY: number
+  floorY: number
+  /** metres over which the bank falls from the shore to the floor */
+  bank: number
+}
+
+type ReliefZone = TrackZone | ChordZone | PolyZone
 
 function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile']): ChordZone {
   // the path's own bounding box, grown by the fades and the v band it claims
@@ -1711,6 +1725,25 @@ function reliefZones(track: Track): ReliefZone[] {
         return null
     }))
   }
+  // retention basins: a sunken floor with a bank, so the dry-basin meshes in pit-complex.ts have
+  // ground to sit in (a flat sheet at grade read as a lake — 2026-09 audit S01-04 / S02-05)
+  for (const b of BASINS) {
+    const f = osmFeature(b.osmWay)
+    if (!f || !f.closed || f.en.length < 3) continue
+    const pts: [number, number][] = f.en.map(([e, n]) => {
+      track.enToWorld(e, n, _p)
+      return [_p.x, _p.z]
+    })
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+    for (const [x, z] of pts) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x)
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z)
+    }
+    // the shoreline sits on the natural ground: take the road plane at the basin's own s
+    const shoreY = track.pointAt(f.centroid[0], 0, _p).y + 0.2
+    zones.push({ kind: 'poly', pts, box: [minX, maxX, minZ, maxZ], shoreY, floorY: shoreY - b.depth - 0.15, bank: 9 })
+  }
+
   // main grandstand: the level fill platform behind V1 (GP Square) is ≈ 7.3 m above the track
   // (no fade along s: the A1 temporary stand starts 5 m past its end at track level)
   zones.push(zone([5560, 70], [0, 0], (_s, a) => {
@@ -1763,6 +1796,29 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
   let out: Relief | null = null
   let outRank = 2, outD2 = Infinity
   for (const zone of zones) {
+    if (zone.kind === 'poly') {
+      const box = zone.box
+      if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue
+      const pts = zone.pts
+      let inside = false
+      let edge = Infinity
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const [xi, zi] = pts[i]!, [xj, zj] = pts[j]!
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside
+        const dx = xj - xi, dz = zj - zi
+        const t = Math.max(0, Math.min(1, ((x - xi) * dx + (z - zi) * dz) / (dx * dx + dz * dz || 1)))
+        edge = Math.min(edge, Math.hypot(x - (xi + dx * t), z - (zi + dz * t)))
+      }
+      if (!inside) continue
+      const k = Math.min(1, edge / zone.bank)
+      const h = zone.shoreY + (zone.floorY - zone.shoreY) * (k * k * (3 - 2 * k))
+      // 'cap' so the basin only ever lowers the ground, and rank 0 so it wins over a stand platform
+      if (out && outRank < 1) continue
+      out = [h, 1, 'cap']
+      outRank = 1
+      outD2 = edge * edge
+      continue
+    }
     if (zone.kind === 'chord') {
       const box = zone.box
       if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue

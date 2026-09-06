@@ -9,7 +9,7 @@ import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
 import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_RACEWAY, type OsmFeature } from '~/data/suzuka-facilities'
 import { BUILDINGS } from '~/data/suzuka-facilities-spec'
-import { OFFSET_LANES } from '~/data/suzuka-barriers-spec'
+import { MARSHAL_POSTS, OFFSET_LANES, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
 import { addRoadSurface } from './track-mesh'
 import { ASPHALT_TILE_M, asphaltMaps } from './textures'
 
@@ -90,17 +90,19 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
         postGeos.push(post)
       }
     })
-    // marshal posts every ~330 m, alternating sides, with a flag pole and a green flag, plus the
-    // EM Motorsport LED digital-flag panel (2018) on its own post a few metres before the hut
+    // marshal posts at the huts the aerial shows (MARSHAL_POSTS), each with a flag pole, a green
+    // flag and the EM Motorsport LED digital-flag panel (2018) a few metres before it. They used
+    // to be dropped every 330 m alternating sides, which stood them in gravel traps, inside the C
+    // terrace and on the racing line's verge (2026-09 audit).
     const flagPanels: THREE.Matrix4[] = []
     const hutMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7 })
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1f8a3f, roughness: 0.7 })
     const flagGeos: THREE.BufferGeometry[] = []
     const flagMat = new THREE.MeshStandardMaterial({ color: 0x1fa34a, roughness: 0.9, side: THREE.DoubleSide })
-    let marshal = 0
-    for (let s = 160; s < track.length - 100; s += 330) {
-      const side: 1 | -1 = marshal++ % 2 ? -1 : 1
-      const lat = side * (track.halfWidthAt(s) + 7.5)
+    for (const post of MARSHAL_POSTS) {
+      const s = post.s
+      const lat = post.lateral
+      const side: 1 | -1 = lat >= 0 ? 1 : -1
       boxes.place(s, lat, 2.4, 1.8, 1.3, hutMat, 0, false, false)
       boxes.place(s, lat, 2.4, 1.85, 0.25, stripeMat, 0.6, false, false)
       boxes.place(s, lat, 2.5, 1.9, 0.12, hutRoofMat, 1.3, false, false)
@@ -117,11 +119,13 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       m.setPosition(_p.x, _p.y + 3.2, _p.z)
       flag.applyMatrix4(m)
       flagGeos.push(flag)
+      // the panel faces the cars from a post between the hut and the road
       const panelS = s - 3.2
+      const panelLat = lat - side * 1.2
       const pm = new THREE.Matrix4()
-      orient(panelS, lat, 2.05, pm)
+      orient(panelS, panelLat, 2.05, pm)
       flagPanels.push(pm)
-      track.pointAt(panelS, lat, _p, ground.yAt(panelS, lat))
+      track.pointAt(panelS, panelLat, _p, ground.yAt(panelS, panelLat))
       const panelPost = new THREE.CylinderGeometry(0.04, 0.04, 1.75, 6)
       panelPost.translate(_p.x, _p.y + 0.875, _p.z)
       postGeos.push(panelPost)
@@ -196,8 +200,9 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
     const masts = new THREE.InstancedMesh(mastGeo, mastMat, TV_CAMERA_SPOTS.length)
     const cams = new THREE.InstancedMesh(camGeo, mastMat, TV_CAMERA_SPOTS.length)
     TV_CAMERA_SPOTS.forEach((s, i) => {
-      const side = cameraSide(track, s)
-      track.pointAt(s, side * (hw + 9), _p, ground.yAt(s, side * (hw + 9)))
+      // a few of the generated spots land in a gravel trap or a run-off; those carry an override
+      const lat = TV_MAST_OVERRIDES[s] ?? cameraSide(track, s) * (hw + 9)
+      track.pointAt(s, lat, _p, ground.yAt(s, lat))
       masts.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 3.5, _p.z))
       cams.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 8.3, _p.z))
     })

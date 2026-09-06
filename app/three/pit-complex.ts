@@ -2,9 +2,11 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { DRIVERS, TEAMS } from '~/data/drivers'
 import {
+  SEASON,
   BUILDINGS, COLOURS, GARAGE_ORDER, LEADER_TOWER, PIT_BUILDING, PIT_GARAGE_COUNT, PIT_GARAGE_PITCH, PIT_WALL, PRAT_PERCH, SCREENS, garageS,
 } from '~/data/suzuka-facilities-spec'
 import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_WATER, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
+import { BASINS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
 import { addMacro, profileRibbonGeometry, ribbonGeometry } from './track-mesh'
@@ -1256,23 +1258,71 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     boxes.instanced(1.8, 4.4, 1.45, cars, 0.45, true, 'parkedCars')
   }
 
-  // --- water: the T1 infield pond and the T1–T2 basin as flat planes at the low end of their shoreline --
+  // --- basins: dry earth in late March, water only where the season keeps it ---------------------
   {
+    // Both retention basins are dry mud in the 2026 race-weekend photos (the audit's S01-04 /
+    // S02-05): a blue sheet at grade read as a lake from every camera. They are drawn as a sunken
+    // floor with a rim instead, and BASINS.dry flips back to water for the October palette.
     const waterGeos: THREE.BufferGeometry[] = []
+    const dryGeos: THREE.BufferGeometry[] = []
+    const rimGeos: THREE.BufferGeometry[] = []
     for (const f of OSM_WATER) {
+      const def = BASINS.find((b) => b.osmWay === f.id)
+      const dry = (def?.dry ?? false) && SEASON === 'spring'
       const heights = f.en.map(([e, n]) => {
         track.enToWorld(e, n, _p)
         return ctx.terrain.heightAt(_p.x, _p.z)
       }).sort((a, b) => a - b)
-      // the analytic terrain has no basin: sit the sheet at the shoreline's lower third so it
-      // shows in the low part of the footprint and stays under the ground elsewhere
-      const level = heights[Math.floor(heights.length * 0.3)]! - 0.05
-      const geo = new THREE.ShapeGeometry(new THREE.Shape(f.en.map(([e, n]) => new THREE.Vector2(e, n))))
-      geo.applyMatrix4(enMatrix(track, level))
-      waterGeos.push(geo)
+      const shore = heights[Math.floor(heights.length * 0.3)]!
+      const shape = new THREE.Shape(f.en.map(([e, n]) => new THREE.Vector2(e, n)))
+      if (!dry) {
+        const geo = new THREE.ShapeGeometry(shape)
+        geo.applyMatrix4(enMatrix(track, shore - 0.05))
+        waterGeos.push(geo)
+        continue
+      }
+      // floor: the footprint shrunk towards its centroid, sunk by `depth`; rim: the ring between
+      // the shrunk floor and the shoreline, so the bank is a slope rather than a cliff
+      const depth = def?.depth ?? 2.5
+      let ce = 0, cn = 0
+      for (const [e, n] of f.en) {
+        ce += e / f.en.length
+        cn += n / f.en.length
+      }
+      const inset = f.en.map(([e, n]): [number, number] => [ce + (e - ce) * 0.82, cn + (cn === n ? 0 : (n - cn) * 0.82)])
+      const floor = new THREE.ShapeGeometry(new THREE.Shape(inset.map(([e, n]) => new THREE.Vector2(e, n))))
+      floor.applyMatrix4(enMatrix(track, shore - depth))
+      dryGeos.push(floor)
+      // bank: one quad per footprint edge, from the shoreline down to the sunk floor
+      const pos: number[] = []
+      const uv: number[] = []
+      for (let i = 0; i < f.en.length; i++) {
+        const j = (i + 1) % f.en.length
+        const a = f.en[i]!, b = f.en[j]!
+        const ai = inset[i]!, bi = inset[j]!
+        const P = (e: number, n: number, y: number) => {
+          track.enToWorld(e, n, _p)
+          pos.push(_p.x, y, _p.z)
+        }
+        P(a[0], a[1], shore)
+        P(ai[0], ai[1], shore - depth)
+        P(b[0], b[1], shore)
+        P(ai[0], ai[1], shore - depth)
+        P(bi[0], bi[1], shore - depth)
+        P(b[0], b[1], shore)
+        uv.push(0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0)
+      }
+      const bank = new THREE.BufferGeometry()
+      bank.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+      bank.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+      bank.computeVertexNormals()
+      rimGeos.push(bank)
     }
     const water = add(waterGeos, waterMat, 'water', false)
     if (water) water.castShadow = false
+    const dryMat = new THREE.MeshStandardMaterial({ color: 0x8a7d66, roughness: 0.95, side: THREE.DoubleSide })
+    add(dryGeos, dryMat, 'basinFloor', false)
+    add(rimGeos, dryMat, 'basinBank', false)
   }
 
   // --- merge the building shells --------------------------------------------------------------------

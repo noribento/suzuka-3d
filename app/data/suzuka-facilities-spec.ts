@@ -965,6 +965,8 @@ export const FERRIS_WHEEL = {
   height: 50.4,
   diameter: 48,
   gondolas: 36,
+  /** compass bearing of the wheel's plane (deg, 0 = north): NW–SE in the aerial, not track-aligned */
+  bearingDeg: 135,
   unverified: ['height / diameter (official brochure figures)'],
 }
 

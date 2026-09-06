@@ -23,8 +23,11 @@ export function buildFerrisWheel(ctx: EnvBuildContext): THREE.Group {
     track.enToWorld(FERRIS_WHEEL.en[0], FERRIS_WHEEL.en[1], _p)
     const groundY = terrain.meshHeightAt(_p.x, _p.z)
     ferrisWheel.position.set(_p.x, groundY, _p.z)
-    const h = track.headingAt(FERRIS_WHEEL.s)
-    _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz))
+    // the wheel's plane faces NW–SE in the aerial; aligning it with the track heading turned it
+    // ≈ 90° away from the real one (2026-09 audit)
+    const b = (FERRIS_WHEEL.bearingDeg * Math.PI) / 180
+    const along = new THREE.Vector3(Math.sin(b), 0, -Math.cos(b))
+    _m.makeBasis(new THREE.Vector3(-along.z, 0, along.x), new THREE.Vector3(0, 1, 0), along)
     ferrisWheel.quaternion.setFromRotationMatrix(_m)
     const R = FERRIS_WHEEL.diameter / 2
     const hub = FERRIS_WHEEL.height - R
