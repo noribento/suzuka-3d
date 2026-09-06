@@ -312,17 +312,20 @@ export function asphaltMaps(withLines = true): MaterialMaps {
       // aprons nobody drives on: no rubbered lanes, no marbles at the tile edges (they would
       // streak every 13 m), and a touch lighter — the weathered aprons read paler than the track
       // in the reference photos (spoon_2026, off_b2_main).
-      const rubber = withLines ? lane * (0.55 + 0.45 * n2.fbm(u * 16, v * 32, 16, 32, 3)) : 0
+      const rubber = withLines ? lane * (0.35 + 0.35 * n2.fbm(u * 16, v * 32, 16, 32, 3)) : 0
       // tyre marbles / pick-up towards the edges (streaked along v, which is how they really lie)
       const marbles = withLines ? smooth((Math.abs(u - 0.5) - 0.38) / 0.1) * n2.fbm(u * 128, v * 64, 128, 64, 2) * 0.35 : 0
-      let base = 58 + (hgt - 0.5) * 80 + (patch - 0.5) * 20 + (withLines ? 0 : 6)
-      base -= rubber * 26
-      base += marbles * 10
-      let r = base + 5, g = base + 3, b = base - 1
-      // slightly warm where the surface is old and worn, cooler on fresh patches
-      r += (patch - 0.5) * 8
-      g += (patch - 0.5) * 4
-      b += (0.5 - patch) * 4
+      // Measured on the reference photos (COLOURS.asphalt: lit #7984A1, mid #5D626C): Suzuka's
+      // asphalt is a fairly uniform blue-grey. The old 58 ± 40 ± 20 read as near-black with brown
+      // blotches at overview scale, which is what the 2026-09 audit reported on every section.
+      let base = 96 + (hgt - 0.5) * 26 + (patch - 0.5) * 10 + (withLines ? 0 : 8)
+      base -= rubber * 16
+      base += marbles * 8
+      let r = base - 3, g = base, b = base + 6
+      // a touch warmer where the surface is old and worn, cooler on fresh patches
+      r += (patch - 0.5) * 6
+      g += (patch - 0.5) * 3
+      b += (0.5 - patch) * 3
       let roughness = 0.9 - rubber * 0.22 + (hgt - 0.5) * 0.08
       if (lineW > 0 && (x < lineW || x >= w - lineW)) {
         // painted line with wear

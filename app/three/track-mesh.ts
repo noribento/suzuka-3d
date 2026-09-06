@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { APEX_SPEED_TARGETS, CIRCUIT, SAUSAGE_KERB_CORNERS } from '~/data/suzuka'
-import { garageS, PAINTED_APRONS, RUNOFF_ZONES, type Side } from '~/data/suzuka-facilities-spec'
+import { CIRCUIT } from '~/data/suzuka'
+import { PAINTED_APRONS, RUNOFF_ZONES, type Side } from '~/data/suzuka-facilities-spec'
+import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 import { APRON_TILE_M, APRON_UV, ASPHALT_DETAIL_M, ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, apronPaintTexture, asphaltDetailMaps, asphaltMaps, boardTexture, concreteMaps, gravelMaps, kerbMaps, macroMap, type MaterialMaps } from './textures'
 import { FLAT_STRIP, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
@@ -187,7 +188,8 @@ export function addRoadSurface(mat: THREE.MeshStandardMaterial, macroScale: THRE
         uniform sampler2D uDetailNormal;
         uniform vec2 uDetailScale;`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-        float macro = texture2D(uMacro, vMapUv * uMacroScale).r * 1.25;
+        // ±7 %: the old ±15 % read as blotches at overview scale (2026-09 audit)
+        float macro = 1.0 + (texture2D(uMacro, vMapUv * uMacroScale).r * 1.25 - 1.0) * 0.45;
         // mean-1.0 multiplier: its mips converge to 1.0, so the grain fades out on its own
         diffuseColor.rgb *= macro * (texture2D(uDetail, vMapUv * uDetailScale).r * 2.0);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
@@ -409,17 +411,7 @@ const RUNOFF_OFFSETS = [0, FLAT_STRIP, 3.5, 5.5, 8, 11, 14.5, 18.5, 23, 28, RUNO
 const GRASS_UV_M = 9
 /** Decals sit this far above the surface they are painted on (plus polygon offset). */
 const DECAL_LIFT = 0.006
-/**
- * Bright green painted strips just outside the kerb line where the photos show them (§2b:
- * off_b2_main — both sides of T1–T2; the pit exit; T18). Extents UNVERIFIED, read off the photos.
- */
-const GREEN_STRIPS: { from: number; to: number; side: Side }[] = [
-  { from: 440, to: 700, side: 1 },
-  { from: 470, to: 640, side: -1 },
-  { from: 190, to: 375, side: -1 },
-  { from: 5290, to: 5420, side: 1 },
-]
-const GREEN_STRIP_W = 1.2
+
 
 export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground): TrackMeshes {
   const group = new THREE.Group()
@@ -509,7 +501,10 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   group.add(runoffAsphaltL, runoffAsphaltR)
   groundGeos.push(runoffAsphaltL.geometry, runoffAsphaltR.geometry)
 
-  // --- kerbs per corner ---------------------------------------------------------------------
+  // --- kerbs and green strips from the KERBS table -------------------------------------------
+  // Not from track.corners any more: the corner finder splits the 200R into seven gentle bends and
+  // the Dunlop arc into four, and kerbed both sides of every one of them — 1.4 km of kerb the
+  // circuit does not have. KERBS lists the ones the aerial actually shows.
   const kerbMat = pbr(kerbMaps(), { roughness: 0.75 }, 0.9)
   const kerbGeos: THREE.BufferGeometry[] = []
   const kerbSpansBuilt: { from: number; to: number; side: Side; width: number }[] = []
@@ -518,23 +513,16 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   // no kerbs on the right where the pit lane joins and leaves the track
   const kerbSpans = (from: number, to: number, side: 1 | -1): [number, number][] =>
     side < 0 ? subtractInterval(from, to, pit.entryS - 4, pit.exitS + 4, L) : [[from, to]]
-  const addKerb = (a: number, b: number, side: Side, width: number) => {
-    kerbGeos.push(kerbProfile(track, a, b, side, width, hwAt))
-    kerbSpansBuilt.push({ from: a, to: b, side, width })
-  }
-  for (const c of track.corners) {
-    const from = c.from - 12
-    const to = c.to + 12
-    const inside = c.sign
-    const outside: 1 | -1 = inside > 0 ? -1 : 1
-    // inside kerb (1.3 m) and exit kerb (1.0 m) with a real cross-section: a ramp up from the
-    // asphalt, a crowned top and a drop into the grass behind
-    for (const [a, b] of kerbSpans(from, to, inside)) addKerb(a, b, inside, 1.3)
-    const exitFrom = c.apex - 5
-    for (const [a, b] of kerbSpans(exitFrom, to + 10, outside)) addKerb(a, b, outside, 1.0)
-    const tgt = APEX_SPEED_TARGETS.find((t) => Math.abs(forwardDeltaSigned(t.s, c.apex, L)) < 60)
-    if (tgt && SAUSAGE_KERB_CORNERS.includes(tgt.name)) {
-      for (let k = 0; k < 6; k++) sausageSpots.push({ s: c.apex + 12 + k * 1.7, side: outside })
+  for (const k of KERBS) {
+    if (k.kind === 'sausage') {
+      const len = forwardDelta(k.sRange[0], k.sRange[1], L)
+      for (let d = 0; d <= len; d += 1.7) sausageSpots.push({ s: k.sRange[0] + d, side: k.side })
+      continue
+    }
+    if (k.kind === 'green') continue // painted strips are decals, drawn with the aprons below
+    for (const [a2, b2] of kerbSpans(k.sRange[0], k.sRange[1], k.side)) {
+      kerbGeos.push(kerbProfile(track, a2, b2, k.side, k.width ?? 1.3, hwAt))
+      kerbSpansBuilt.push({ from: a2, to: b2, side: k.side, width: k.width ?? 1.3 })
     }
   }
   /** width of the kerb on `side` at s (0 where there is none) — the painted strips start behind it */
@@ -548,7 +536,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   kerbs.name = 'kerbs'
   kerbs.receiveShadow = true
   group.add(kerbs)
-  // sausage kerbs: yellow blocks behind the exit kerbs of the corners where they are used
+  // sausage kerbs: yellow blocks behind the exit kerb where the photos show them
   if (sausageSpots.length) {
     const sausageGeo = new RoundedBoxGeometry(0.4, 0.12, 1.3, 2, 0.05)
     const sausageMat = new THREE.MeshStandardMaterial({ color: 0xf2c400, roughness: 0.6 })
@@ -639,10 +627,11 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
       const uRange: readonly [number, number] = a.pattern === 'chevrons' ? uv : [(uv[0] + uv[1]) / 2, (uv[0] + uv[1]) / 2]
       decal(a.sRange[0], a.sRange[1], a.side, (s) => kerbOuterAt(s, a.side) + 0.05, width, uRange, 5)
     }
-    for (const g of GREEN_STRIPS) {
+    for (const g of KERBS) {
+      if (g.kind !== 'green') continue
       const mid = (APRON_UV.green[0] + APRON_UV.green[1]) / 2
       // behind the kerb where there is one, hard against the edge line otherwise
-      decal(g.from, g.to, g.side, (s) => (kerbOuterAt(s, g.side) > 0 ? kerbOuterAt(s, g.side) + 0.05 : 0.1), () => GREEN_STRIP_W, [mid, mid], 2)
+      decal(g.sRange[0], g.sRange[1], g.side, (s) => (kerbOuterAt(s, g.side) > 0 ? kerbOuterAt(s, g.side) + 0.05 : 0.1), () => g.width ?? 1.2, [mid, mid], 2)
     }
     const paint = new THREE.Mesh(mergeGeometries(paintGeos, false)!, paintMat)
     paint.name = 'paintedAprons'
@@ -733,22 +722,6 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   groundGeos.push(pitLane.geometry)
   // concrete apron between the pit lane and the garages
   concreteGeos.push(ribbonGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.laneOffset - halfLane + 0.2, () => pit.garageFront + 0.4, () => 0.01, () => 0.01, 4, 4))
-  // all painted white lines (pit limits, pit boxes, grid slots, start line) share one mesh
-  const whiteGeos: THREE.BufferGeometry[] = []
-  for (const s of [pit.limitStartS, pit.limitEndS]) {
-    whiteGeos.push(ribbonGeometry(track, s, s + 0.6, (ss) => pitLat(ss) + halfLane, (ss) => pitLat(ss) - halfLane, () => 0.03, () => 0.03, 1, 1))
-  }
-  // fast lane / working lane divider
-  whiteGeos.push(ribbonGeometry(track, pit.limitStartS, pit.limitEndS, () => pit.laneOffset + 1.1, () => pit.laneOffset + 0.9, () => 0.03, () => 0.03, 4, 1))
-  // pit boxes (white outlines) — one per team garage, in the working lane in front of the
-  // garages; garage 1 is at the T1 (pit-exit) end, 28.33 m pitch (garageS)
-  for (let t = 0; t < 11; t++) {
-    const s = garageS(t)
-    const lat = pit.laneOffset - 2.5
-    whiteGeos.push(ribbonGeometry(track, s - 3.5, s + 3.5, () => lat + 2.2, () => lat + 1.9, () => 0.03, () => 0.03, 1, 1))
-    whiteGeos.push(ribbonGeometry(track, s - 3.5, s + 3.5, () => lat - 1.9, () => lat - 2.2, () => 0.03, () => 0.03, 1, 1))
-    whiteGeos.push(ribbonGeometry(track, s - 3.5, s - 3.2, () => lat + 2.2, () => lat - 2.2, () => 0.03, () => 0.03, 1, 1))
-  }
   // pit wall between track and pit lane, with advertising boards facing the track
   const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide })
   const boardGeos: THREE.BufferGeometry[] = []
@@ -763,28 +736,13 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   concreteMesh.castShadow = true
   group.add(concreteMesh)
 
-  // --- grid slots + start line ----------------------------------------------------
-  // lit (not Basic) so the paint darkens under the gantry / pit-building shadow and at low sun
-  const gridMat = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.55, metalness: 0 })
-  for (let k = 0; k < 22; k++) {
-    const behind = 14 + 8 * k
-    const s = track.wrap(-behind)
-    const lat = k % 2 === 0 ? 2.6 : -2.6
-    whiteGeos.push(ribbonGeometry(track, s - 2.6, s + 2.6, () => lat + 1.6, () => lat + 1.35, () => 0.03, () => 0.03, 1, 1))
-    whiteGeos.push(ribbonGeometry(track, s - 2.6, s + 2.6, () => lat - 1.35, () => lat - 1.6, () => 0.03, () => 0.03, 1, 1))
-    whiteGeos.push(ribbonGeometry(track, s + 2.4, s + 2.6, () => lat + 1.6, () => lat - 1.6, () => 0.03, () => 0.03, 1, 1))
-  }
-  whiteGeos.push(ribbonGeometry(track, L - 0.5, 0.5, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1))
-  const whiteLines = new THREE.Mesh(mergeGeometries(whiteGeos, false)!, gridMat)
-  whiteLines.name = 'whiteLines'
-  whiteLines.receiveShadow = true
-  group.add(whiteLines)
+  // grid slots, the start line and every other painted marking are built by lines.ts
   // DRS detection / activation markings
-  const drsMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.55, metalness: 0 })
+  const gridMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.55, metalness: 0 })
   const drsLines = new THREE.Mesh(mergeGeometries([
     ribbonGeometry(track, CIRCUIT.drs.detection, CIRCUIT.drs.detection + 0.4, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1),
     ribbonGeometry(track, CIRCUIT.drs.start, CIRCUIT.drs.start + 0.4, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1),
-  ], false)!, drsMat)
+  ], false)!, gridMat)
   drsLines.name = 'drsLines'
   drsLines.receiveShadow = true
   group.add(drsLines)
@@ -876,9 +834,4 @@ function subtractInterval(from: number, to: number, cutFrom: number, cutTo: numb
   return out
 }
 
-function forwardDeltaSigned(s: number, ref: number, L: number): number {
-  let d = (s - ref) % L
-  if (d < 0) d += L
-  if (d > L / 2) d -= L
-  return d
-}
+

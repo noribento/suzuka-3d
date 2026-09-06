@@ -1042,9 +1042,10 @@ export const RUNOFF_ZONES: RunoffZone[] = [
 
 /** Painted run-off aprons on the inside of the slow corners (2026 photos; extents UNVERIFIED). */
 export const PAINTED_APRONS: { name: string; sRange: [number, number]; side: Side; width: number; colour: string; pattern: 'chevrons' | 'solid'; unverified: string[] }[] = [
-  { name: 'ヘアピン内側', sRange: [2661, 2728], side: -1, width: 8, colour: COLOURS.apronBlue.mid, pattern: 'chevrons', unverified: ['s extent', 'width', 'hex'] },
-  { name: 'シケイン内側 T16', sRange: [5148, 5175], side: 1, width: 6, colour: COLOURS.apronTurquoise.mid, pattern: 'solid', unverified: ['s extent', 'width', 'hex'] },
-  { name: 'シケイン内側 T17', sRange: [5200, 5234], side: -1, width: 6, colour: COLOURS.apronTurquoise.mid, pattern: 'solid', unverified: ['s extent', 'width', 'hex'] },
+  // Sides corrected by the 2026-09 aerial audit: both aprons are painted on the INSIDE of their
+  // corner (the app had the hairpin's on the outside and one patch outside each chicane element).
+  { name: 'ヘアピン内側', sRange: [2655, 2740], side: 1, width: 7, colour: COLOURS.apronBlue.mid, pattern: 'chevrons', unverified: ['width', 'hex'] },
+  { name: 'シケイン内側 T17', sRange: [5185, 5245], side: 1, width: 15, colour: COLOURS.apronTurquoise.mid, pattern: 'solid', unverified: ['hex'] },
 ]
 
 /** Debris-fence height in front of the stands: FIA-standard 3.5 m; Suzuka-specific heights UNVERIFIED. */

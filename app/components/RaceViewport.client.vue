@@ -15,6 +15,7 @@ import { buildTrackMeshes, type TrackMeshes } from '~/three/track-mesh'
 import { buildEnvironment, type Environment } from '~/three/environment'
 import { buildCarModel, CAR_DIMENSIONS, type CarModel } from '~/three/car-model'
 import { buildBarriers } from '~/three/barriers'
+import { buildLines, setLineViewportHeight } from '~/three/lines'
 import { ParticleSystem, SkidMarks } from '~/three/particles'
 import { RaceAudio, type CarAudioState } from '~/three/audio'
 import { CameraRig, type CameraTarget } from '~/three/cameras'
@@ -280,10 +281,14 @@ async function setup() {
   ctx.scene.add(trackMeshes.group)
   const barriers = buildBarriers(track, q, env.ground)
   ctx.scene.add(barriers)
+  const whiteLines = buildLines(track, env.ground)
+  setLineViewportHeight(ctx.renderer.getDrawingBufferSize(new THREE.Vector2()).y)
+  ctx.scene.add(whiteLines)
   // nothing in these trees moves except the Ferris wheel: compute their matrices once
   freezeStatic(env.group, env.ferrisWheel ? [env.ferrisWheel] : [])
   freezeStatic(trackMeshes.group)
   freezeStatic(barriers)
+  freezeStatic(whiteLines)
   // effects: sparks off the plank, tyre smoke, skid marks
   sparks = new ParticleSystem({ capacity: q.sparks, kind: 'spark', additive: true, gravity: 9.81, drag: 2.4 })
   smoke = new ParticleSystem({ capacity: q.smoke, kind: 'smoke', additive: false, gravity: -0.5, drag: 1.6 })
@@ -356,6 +361,8 @@ function onResize() {
   const px = h * ctx.renderer.getPixelRatio()
   sparks?.setViewport(px, w * ctx.renderer.getPixelRatio())
   smoke?.setViewport(px, w * ctx.renderer.getPixelRatio())
+  // the painted lines keep a minimum on-screen width, which depends on the render height
+  setLineViewportHeight(px)
   rig.camera.aspect = w / h
   rig.camera.updateProjectionMatrix()
 }

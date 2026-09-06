@@ -168,12 +168,18 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
     const rubberTex = brakingRubberTexture()
     // lit rubber so the streaks take the asphalt's shading (polygon offset keeps it off the road
     // surface on the reversed-Z path; three flips the offset sign there)
-    const rubberMat = new THREE.MeshStandardMaterial({ map: rubberTex, alphaMap: rubberTex, color: 0x101012, roughness: 0.85, metalness: 0, transparent: true, opacity: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+    // Kept light: at 0.7 opacity over the whole road width this painted the T1, hairpin and
+    // chicane braking zones black from above (2026-09 audit). The real rubber sits in the two
+    // driven lanes and only darkens the surface a little.
+    const rubberMat = new THREE.MeshStandardMaterial({ map: rubberTex, alphaMap: rubberTex, color: 0x2a2a2c, roughness: 0.85, metalness: 0, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
     const geos: THREE.BufferGeometry[] = []
     for (const z of OVERTAKE_ZONES) {
-      const from = z.s - 40
-      const to = z.s + 110
-      geos.push(ribbonGeometry(track, from, to, (s) => track.halfWidthAt(s) * 0.9, (s) => -track.halfWidthAt(s) * 0.9, () => 0.006, () => 0.006, 2, 10))
+      const from = z.s - 60
+      const to = z.s + 30
+      // the two lanes the cars brake in (the same u the asphalt tile rubbers in), not the full width
+      for (const c of [-0.38, 0.38]) {
+        geos.push(ribbonGeometry(track, from, to, (s) => track.halfWidthAt(s) * (c + 0.3), (s) => track.halfWidthAt(s) * (c - 0.3), () => 0.006, () => 0.006, 2, 10))
+      }
     }
     const rubber = new THREE.Mesh(mergeGeometries(geos, false)!, rubberMat)
     rubber.renderOrder = 1
