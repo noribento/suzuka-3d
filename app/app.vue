@@ -14,7 +14,7 @@ const { store, broadcast } = useRaceStore()
         <HudTrackMap />
         <HudBattle />
         <HudLowerThird />
-        <div class="hint">DRAG · ROTATE &nbsp;|&nbsp; WHEEL · ZOOM &nbsp;|&nbsp; CLICK CAR / ROW · SELECT &nbsp;|&nbsp; 1-6 CAMERAS &nbsp;|&nbsp; ↑↓ DRIVER &nbsp;|&nbsp; SPACE PAUSE &nbsp;|&nbsp; ESC OVERVIEW</div>
+        <div class="hint">DRAG · ROTATE &nbsp;|&nbsp; WHEEL · ZOOM &nbsp;|&nbsp; WASD · MOVE &nbsp;|&nbsp; CLICK CAR / ROW · SELECT &nbsp;|&nbsp; 1-6 CAMERAS &nbsp;|&nbsp; ↑↓ DRIVER &nbsp;|&nbsp; SPACE PAUSE &nbsp;|&nbsp; ESC OVERVIEW</div>
       </template>
       <!-- stays mounted: its clock watcher is what expires store.events while the classic banners are hidden -->
       <HudBanners v-show="!broadcast" />

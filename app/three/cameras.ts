@@ -37,7 +37,16 @@ interface TvCamera {
 const _v = new THREE.Vector3()
 const _look = new THREE.Vector3()
 const _dir = new THREE.Vector3()
+const _right = new THREE.Vector3()
 const _up = new THREE.Vector3(0, 1, 0)
+
+/**
+ * Overview WASD: ground speed as a fraction of the orbit distance per second (half a screen
+ * height per second at the 45° lens, the same scaling OrbitControls uses for a mouse pan), and
+ * how far past the circuit's bounding box the pivot may be flown (in track spans).
+ */
+const MOVE_RATE = 0.5
+const MOVE_MARGIN = 1.5
 
 /** Per-mode near plane (metres); far stays at 20 km (the sky and the cloud dome are inside). */
 const NEAR: Record<CameraMode, number> = { overview: 8, heli: 2, chase: 0.5, onboard: 0.2, tv: 0.5, director: 0.5 }
@@ -66,6 +75,9 @@ export class CameraRig {
   private time = 0
   private tvHold = 0
   tvCamName = ''
+  /** overview WASD input (x = right, y = forward, unit disc) and the smoothed ground velocity (m/s) */
+  private readonly moveIn = new THREE.Vector2()
+  private readonly moveVel = new THREE.Vector3()
 
   constructor(private track: Track, domElement: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.5, 20000)
@@ -98,13 +110,62 @@ export class CameraRig {
     this.camera.position.set(tx + dir.x * span * 0.55, 26 + span * 0.9, tz + dir.z * span * 0.55)
     this.controls.target.set(tx, 24, tz)
     this.camera.lookAt(this.controls.target)
+    this.moveVel.set(0, 0, 0)
     this.controls.update()
+  }
+
+  /**
+   * Overview keyboard move: `forward` / `right` in [-1, 1] relative to the view (W/S and D/A held).
+   * Ignored outside the overview camera; the input is held until the next call.
+   */
+  setMoveInput(forward: number, right: number) {
+    this.moveIn.set(THREE.MathUtils.clamp(right, -1, 1), THREE.MathUtils.clamp(forward, -1, 1))
+    // a diagonal is no faster than a straight
+    if (this.moveIn.lengthSq() > 1) this.moveIn.normalize()
+  }
+
+  /**
+   * Fly the overview camera and its orbit pivot together over the ground plane. The speed scales
+   * with the orbit distance so a zoomed-out view crosses the circuit in a couple of seconds while
+   * a close-up creeps; the velocity is smoothed so taps and releases do not jolt.
+   */
+  private moveOverview(dt: number) {
+    const cam = this.camera
+    const target = this.controls.target
+    if (this.moveIn.lengthSq() > 0) {
+      // screen-right is always horizontal (OrbitControls keeps the camera un-rolled); forward is
+      // its ground-plane perpendicular, so this works looking straight down as well as level
+      _right.set(1, 0, 0).applyQuaternion(cam.quaternion)
+      _right.y = 0
+      if (_right.lengthSq() < 1e-8) _right.set(1, 0, 0)
+      _right.normalize()
+      _dir.crossVectors(_up, _right)
+      const speed = Math.max(cam.position.distanceTo(target), this.controls.minDistance) * MOVE_RATE
+      _v.set(0, 0, 0).addScaledVector(_dir, this.moveIn.y * speed).addScaledVector(_right, this.moveIn.x * speed)
+    } else {
+      _v.set(0, 0, 0)
+    }
+    this.moveVel.lerp(_v, 1 - Math.exp(-dt * 12))
+    if (this.moveVel.lengthSq() < 1e-4) {
+      this.moveVel.set(0, 0, 0)
+      return
+    }
+    _v.copy(this.moveVel).multiplyScalar(dt)
+    // keep the pivot within reach of the circuit: clamp it and carry the camera by the same correction
+    const b = this.track.bounds
+    const margin = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * MOVE_MARGIN
+    const nx = THREE.MathUtils.clamp(target.x + _v.x, b.minX - margin, b.maxX + margin)
+    const nz = THREE.MathUtils.clamp(target.z + _v.z, b.minZ - margin, b.maxZ + margin)
+    _v.set(nx - target.x, 0, nz - target.z)
+    target.add(_v)
+    cam.position.add(_v)
   }
 
   setMode(mode: CameraMode) {
     if (mode === this.mode) return
     this.mode = mode
     this.justSwitched = true
+    this.moveVel.set(0, 0, 0)
     this.controls.enabled = mode === 'overview'
     if (mode === 'overview') this.resetOverview()
     if (mode === 'onboard') this.camera.fov = 75
@@ -121,6 +182,7 @@ export class CameraRig {
    */
   update(dt: number, target: CameraTarget | null, simScale = 1) {
     if (this.mode === 'overview' || !target) {
+      if (this.mode === 'overview') this.moveOverview(dt)
       this.controls.update()
       return
     }

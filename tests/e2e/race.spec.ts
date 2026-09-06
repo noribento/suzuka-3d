@@ -177,6 +177,95 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(issues.errors, issues.errors.join('\n')).toEqual([])
   })
 
+  test('WASD flies the overview camera over the ground plane', async ({ page }) => {
+    const issues = await openRace(page)
+    type V = { x: number; y: number; z: number }
+    type Dbg = { rig: { camera: { position: V }; controls: { target: V } }; ctx: { renderer: { info: { render: { frame: number } } } } }
+    const read = () =>
+      page.evaluate(() => {
+        const { rig, ctx } = (window as unknown as { __suzuka: Dbg }).__suzuka
+        const pick = (v: V) => ({ x: v.x, y: v.y, z: v.z })
+        return { cam: pick(rig.camera.position), target: pick(rig.controls.target), frame: ctx.renderer.info.render.frame }
+      })
+    const flat = (a: V, b: V) => ({ x: b.x - a.x, z: b.z - a.z })
+    const len = (d: { x: number; z: number }) => Math.hypot(d.x, d.z)
+    const dot = (a: { x: number; z: number }, b: { x: number; z: number }) => (a.x * b.x + a.z * b.z) / (len(a) * len(b))
+    // SwiftShader renders only a few frames a second and the key state is sampled once per frame,
+    // so every step below is counted in rendered frames rather than in wall-clock time
+    const waitFrames = async (n: number, from?: number) => {
+      const start = from ?? (await read()).frame
+      let cur = await read()
+      for (let i = 0; i < 200 && cur.frame < start + n; i++) {
+        await page.waitForTimeout(100)
+        cur = await read()
+      }
+      expect(cur.frame).toBeGreaterThanOrEqual(start + n)
+      return cur
+    }
+    const hold = async (key: string) => {
+      const from = (await read()).frame
+      await page.keyboard.down(key)
+      await waitFrames(6, from)
+      await page.keyboard.up(key)
+    }
+    /** The released velocity is smoothed out over a few frames: wait until two frames agree. */
+    const settle = async () => {
+      let prev = await read()
+      for (let i = 0; i < 100; i++) {
+        const cur = await waitFrames(2, prev.frame)
+        if (len(flat(prev.cam, cur.cam)) < 0.005) return cur
+        prev = cur
+      }
+      throw new Error('the overview camera did not come to rest')
+    }
+
+    const start = await read()
+    // W: forward = the ground-plane view direction (camera → pivot)
+    const view = flat(start.cam, start.target)
+    await hold('w')
+    const afterW = await settle()
+    const movedW = flat(start.cam, afterW.cam)
+    expect(len(movedW)).toBeGreaterThan(50)
+    expect(dot(movedW, view)).toBeGreaterThan(0.99)
+    // the pivot rides along and the camera stays at its height
+    const pivotW = flat(start.target, afterW.target)
+    expect(Math.abs(pivotW.x - movedW.x)).toBeLessThan(0.05)
+    expect(Math.abs(pivotW.z - movedW.z)).toBeLessThan(0.05)
+    expect(Math.abs(afterW.cam.y - start.cam.y)).toBeLessThan(0.01)
+    expect(Math.abs(afterW.target.y - start.target.y)).toBeLessThan(0.01)
+
+    // D: sideways, at right angles to the view, to screen-right
+    await hold('d')
+    const afterD = await settle()
+    const movedD = flat(afterW.cam, afterD.cam)
+    expect(len(movedD)).toBeGreaterThan(50)
+    expect(Math.abs(dot(movedD, view))).toBeLessThan(0.05)
+    // screen-right is the view direction turned clockwise seen from above: (x, z) → (-z, x)
+    expect(dot(movedD, { x: -view.z, z: view.x })).toBeGreaterThan(0.99)
+
+    // released keys: no drift
+    const still = await waitFrames(4, afterD.frame)
+    expect(len(flat(afterD.cam, still.cam))).toBeLessThan(0.02)
+
+    // a follow camera ignores the keys: the orbit pivot is left where the overview parked it
+    await page.keyboard.press('2')
+    await expect(page.getByRole('button', { name: 'HELI', exact: true })).toHaveClass(/on/)
+    await hold('w')
+    const heli = await read()
+    expect(len(flat(afterD.target, heli.target))).toBeLessThan(0.01)
+    expect(heli.target.y).toBeCloseTo(afterD.target.y, 3)
+
+    // back in the overview the framing is reset and the keys work again
+    await page.keyboard.press('1')
+    await expect(page.getByRole('button', { name: 'OVERVIEW', exact: true })).toHaveClass(/on/)
+    const reset = await read()
+    await hold('s')
+    const afterS = await settle()
+    expect(len(flat(reset.cam, afterS.cam))).toBeGreaterThan(50)
+    expect(dot(flat(reset.cam, afterS.cam), view)).toBeLessThan(-0.99)
+    expect(issues.errors, issues.errors.join('\n')).toEqual([])
+  })
+
   test('pause, driver tags and restart shortcuts work', async ({ page }) => {
     await openRace(page)
     await startRace(page)

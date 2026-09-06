@@ -987,9 +987,35 @@ function onPointerUp(e: PointerEvent) {
   }
 }
 
+/** WASD held-key state for the overview camera — physical key codes, so it is the same on any layout. */
+const MOVE_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD'])
+const moveKeys = new Set<string>()
+function pushMoveKeys() {
+  const forward = (moveKeys.has('KeyW') ? 1 : 0) - (moveKeys.has('KeyS') ? 1 : 0)
+  const right = (moveKeys.has('KeyD') ? 1 : 0) - (moveKeys.has('KeyA') ? 1 : 0)
+  rig?.setMoveInput(forward, right)
+}
+function onKeyUp(e: KeyboardEvent) {
+  if (moveKeys.delete(e.code)) pushMoveKeys()
+}
+/** Keys are released out of sight when the window loses focus or the tab is hidden. */
+function clearMoveKeys() {
+  if (moveKeys.size === 0) return
+  moveKeys.clear()
+  pushMoveKeys()
+}
+
 function onKey(e: KeyboardEvent) {
+  // auto-repeat of a held move key carries nothing new (and would rewrite the UI timer 30×/s)
+  if (e.repeat && MOVE_CODES.has(e.code)) return
   wake()
   if ((e.target as HTMLElement)?.tagName === 'INPUT') return
+  // browser shortcuts on these letters (Ctrl+W/S/A/D) stay with the browser
+  if (MOVE_CODES.has(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    moveKeys.add(e.code)
+    pushMoveKeys()
+    return
+  }
   switch (e.key) {
     case '1': setCamera('overview'); break
     case '2': setCamera('heli'); break
@@ -1117,6 +1143,7 @@ watch(() => store.restartToken, () => {
 let hidden = false
 function onVisibility() {
   if (document.hidden) {
+    clearMoveKeys()
     if (hidden) return
     hidden = true
     cancelAnimationFrame(raf)
@@ -1138,6 +1165,8 @@ function onVisibility() {
 
 onMounted(() => {
   window.addEventListener('keydown', onKey)
+  window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('blur', clearMoveKeys)
   window.addEventListener('pointerdown', onFirstGesture)
   window.addEventListener('keydown', onFirstGesture)
   window.addEventListener('pointermove', onPointerMove, { passive: true })
@@ -1159,6 +1188,8 @@ onBeforeUnmount(() => {
   canvas.value?.removeEventListener('webglcontextrestored', onContextRestored)
   document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('keyup', onKeyUp)
+  window.removeEventListener('blur', clearMoveKeys)
   window.removeEventListener('pointerdown', onFirstGesture)
   window.removeEventListener('keydown', onFirstGesture)
   window.removeEventListener('pointermove', onPointerMove)
