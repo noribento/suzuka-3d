@@ -428,7 +428,7 @@ export const STANDS: StandDef[] = [
     osmWays: [469395390],
     sRange: [1038, 1113],
     side: 1,
-    lateralFront: [[1038, 37], [1101, 40], [1103, 46.5], [1113, 47]],
+    lateralFront: [[1038, 36.8], [1068, 38.2], [1098, 39.7], [1113, 40.2]], // OSM cuts (scripts/audit/stand-edges.mjs)
     lateralBack: [[1038, 54.5], [1079, 56.5], [1081, 63], [1113, 62.5]],
     structure: 'terrace',
     tiers: [{ id: 'D-5', rows: 16, ...RC2009_BENCH }],
@@ -572,18 +572,21 @@ export const STANDS: StandDef[] = [
     id: 'H',
     name: 'H 110R',
     osmWays: [184004012],
-    sRange: [2500, 2617],
+    // the OSM polygon is the whole terrace (117 m long, up to 32 m deep); the seating is the deep
+    // part of it, set back behind wall 184004014 (−10.3..−13.5) with a walkway in front — the old
+    // front at −13 put row 1 on the wall itself (2026-09 audit 08-S1 / 09-09)
+    sRange: [2515, 2605],
     side: -1,
-    lateralFront: [[2500, -13], [2533, -13], [2573, -16.5], [2617, -18.5]],
-    lateralBack: [[2500, -14], [2521, -38], [2533, -46], [2605, -41], [2617, -33.5]],
+    lateralFront: [[2515, -20], [2545, -21], [2575, -22], [2605, -22]],
+    lateralBack: [[2515, -29.8], [2545, -45.5], [2575, -43.2], [2605, -41]],
     structure: 'scaffold',
     tiers: [{ id: 'H', rows: 12, ...SCAFFOLD_BENCH }],
     aisles: { pitch: 10, width: 1.0 },
     frontHeight: 2.0,
-    platform: 'Temporary stand on the outside of 110R directly behind wall 184004014 (−10.3..−13.5)',
+    platform: 'Temporary stand on the outside of 110R, behind wall 184004014 (−10.3..−13.5) and a walkway',
     permanent: false,
     fence: 'single',
-    unverified: ['identification (unnamed in OSM; H per the ticket map)', 'front clearance (OSM face 6.5 m from the track edge)', 'rows', 'height'],
+    unverified: ['identification (unnamed in OSM; H per the ticket map)', 'rows', 'height', 'seating block within the terrace footprint'],
   },
   // ---- hairpin / 200R (right side) ------------------------------------------------------
   {
