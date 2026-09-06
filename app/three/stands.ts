@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { alongAt, COLOURS, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandTier } from '~/data/suzuka-facilities-spec'
 import { OSM_STANDS, type OsmFeature } from '~/data/suzuka-facilities'
-import { forwardDelta, type Track } from '~/sim/track'
+import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext, Terrain } from './environment'
 import type { Ground } from './ground'
 import { bucketedInstancedMeshes } from './instancing'
@@ -320,43 +320,58 @@ function localFrame(terrain: Terrain, origin: THREE.Vector3, along: THREE.Vector
 }
 
 // ---------------------------------------------------------------------------------------------
-// chord frames (StandDef.chord): a stand built straight along its OSM front edge
+// path frames (StandDef.path): a stand built along the curve of its OSM front edge
 
 /**
- * The frame's u runs along the front chord, v points to the back (metres behind the chord), and
- * heights ride on the road: the reference height at u is the road's at the lap position mapped
- * linearly from the stand's sRange onto the chord. Derived from the track and the footprint
- * alone (no terrain), so the relief zones can use it while the terrain grid is being sampled.
+ * A stand whose rows follow its real front edge. `u` is arc length along that edge (in driving
+ * order), `v` the distance behind it along the local inward normal, and heights ride on the road.
+ *
+ * A terrace on the INSIDE of a bend cannot be swept in (s, lateral): C's Esses end faces T3 (R
+ * 44–68 m) and E-2 sits inside NIPPO (R 49–109 m), so rows beyond the bend's radius fold over
+ * themselves. The first fix was a straight chord, but the real terraces are gentle fans — E's
+ * front is an arc of R ≈ 100–320 m — and a straight slab crossed it, which is what left the E-1 /
+ * E-2 wedge the 2026-09 audit reported. Rows concentric with the front edge hold as long as the
+ * edge's radius stays well above the seating depth, which the audit measured for every path stand.
  */
-interface ChordSpec {
-  origin: THREE.Vector3
-  along: THREE.Vector3
-  back: THREE.Vector3
+interface PathSpec {
+  /** resampled front edge (world, y = 0) and its inward unit normals */
+  px: Float32Array
+  pz: Float32Array
+  nx: Float32Array
+  nz: Float32Array
+  /** arc length at each sample */
+  us: Float32Array
   len: number
-  /** OSM front / back edge as (u, v) polylines */
+  /** front / back offsets from the path as (u, v) polylines */
   frontV: [number, number][]
   backV: [number, number][]
   sOf: (u: number) => number
   uOf: (s: number) => number
   yRef: (u: number) => number
+  /** world → (u, v) on the path, with the nearest-segment distance */
+  project: (x: number, z: number) => { u: number; v: number; d: number }
+  at: (u: number, v: number, out: THREE.Vector3) => THREE.Vector3
+  quatAt: (u: number, out: THREE.Quaternion) => THREE.Quaternion
+  yaw: (u: number) => number
+  box: [number, number, number, number]
 }
 
-const _pc = new THREE.Vector3()
-const chordCache = new WeakMap<Track, Map<string, ChordSpec | null>>()
+const _pp = new THREE.Vector3()
+const pathCache = new WeakMap<Track, Map<string, PathSpec | null>>()
 
-function chordSpec(track: Track, def: StandDef): ChordSpec | null {
-  if (!def.chord) return null
-  let cache = chordCache.get(track)
-  if (!cache) chordCache.set(track, (cache = new Map()))
+function pathSpec(track: Track, def: StandDef): PathSpec | null {
+  if (!def.path) return null
+  let cache = pathCache.get(track)
+  if (!cache) pathCache.set(track, (cache = new Map()))
   const hit = cache.get(def.id)
   if (hit !== undefined) return hit
   const feat = OSM_STANDS.find((f) => f.id === def.osmWays[0])
-  const spec = feat ? buildChordSpec(track, def, feat) : null
+  const spec = feat ? buildPathSpec(track, def, feat) : null
   cache.set(def.id, spec)
   return spec
 }
 
-function buildChordSpec(track: Track, def: StandDef, feat: OsmFeature): ChordSpec {
+function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec {
   const pts = feat.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
   const n = pts.length
   const ring = (i0: number, i1: number) => {
@@ -368,73 +383,183 @@ function buildChordSpec(track: Track, def: StandDef, feat: OsmFeature): ChordSpe
     }
     return out
   }
-  const front = ring(def.chord!.front[0], def.chord!.front[1])
-  const a = front[0]!, b = front[front.length - 1]!
-  const dir = b.clone().sub(a).setY(0).normalize()
-  // back: perpendicular to the front chord, towards the footprint's centroid
+  const L = track.length
+  const [s0, s1] = def.sRange
+  const span = forwardDelta(s0, s1, L) || L
+  /** s of a world point on this stand's own stretch of road */
+  const sAtWorld = (p: THREE.Vector3) => track.nearestOnRange(p.x, p.z, s0, s1, 120).s
+  let front = ring(def.path!.front[0], def.path!.front[1])
+  // orient the chain with the lap: u must grow in driving order. Signed, not forward: a first
+  // vertex a few centimetres before sRange[0] wraps to nearly a full lap and reverses the path.
+  if (signedDelta(sAtWorld(front[0]!), sAtWorld(front[front.length - 1]!), L) < 0) front = front.reverse()
+  // resample the chain through a Catmull-Rom every 2 m
+  const raw = front
+  const sx: number[] = []
+  const sz: number[] = []
+  const cr = (a: number, b: number, c: number, d: number, t: number) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t)
+  for (let i = 0; i < raw.length - 1; i++) {
+    const p0 = raw[Math.max(0, i - 1)]!, p1 = raw[i]!, p2 = raw[i + 1]!, p3 = raw[Math.min(raw.length - 1, i + 2)]!
+    const segs = Math.max(1, Math.round(p1.distanceTo(p2) / 2))
+    for (let k = 0; k < segs; k++) {
+      const t = k / segs
+      sx.push(cr(p0.x, p1.x, p2.x, p3.x, t))
+      sz.push(cr(p0.z, p1.z, p2.z, p3.z, t))
+    }
+  }
+  sx.push(raw[raw.length - 1]!.x)
+  sz.push(raw[raw.length - 1]!.z)
+  const m = sx.length
+  const px = Float32Array.from(sx), pz = Float32Array.from(sz)
+  const us = new Float32Array(m)
+  for (let i = 1; i < m; i++) us[i] = us[i - 1]! + Math.hypot(px[i]! - px[i - 1]!, pz[i]! - pz[i - 1]!)
+  const len = us[m - 1]!
+  // inward normal: perpendicular to the tangent, pointing at the footprint's centroid
   const centroid = pts.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / n)
-  const back = new THREE.Vector3(dir.z, 0, -dir.x)
-  if (centroid.clone().sub(a).dot(back) < 0) back.negate()
-  // along = back × up: the handedness of the track frame's (tangent, left normal), so the sweeps'
-  // winding faces up with side = 1 and u runs with the lap
-  const along = back.clone().cross(Y_UP).normalize()
-  const origin = (along.dot(a) <= along.dot(b) ? a : b).clone().setY(0)
-  const len = Math.abs(along.dot(b) - along.dot(a))
-  const uv = (p: THREE.Vector3): [number, number] => [along.dot(p) - along.dot(origin), back.dot(p) - back.dot(origin)]
-  /** ring chain → polyline in u (clamped to the chord), one value per u: the outermost for the back, the foremost for the front */
+  const nx = new Float32Array(m), nz = new Float32Array(m)
+  for (let i = 0; i < m; i++) {
+    const a = Math.max(0, i - 1), b = Math.min(m - 1, i + 1)
+    const tx = px[b]! - px[a]!, tz = pz[b]! - pz[a]!
+    const inv = 1 / (Math.hypot(tx, tz) || 1)
+    nx[i] = -tz * inv
+    nz[i] = tx * inv
+  }
+  // One side of the path is the seating; decide it once from the footprint's centroid at the
+  // sample nearest to it, then keep every normal on that side. Deciding per sample flips the
+  // normal wherever a long, thin footprint puts its centroid across the local tangent, which
+  // folds the rows back over the track.
+  {
+    let best = 0, bd = Infinity
+    for (let i = 0; i < m; i++) {
+      const d = Math.hypot(centroid.x - px[i]!, centroid.z - pz[i]!)
+      if (d < bd) { bd = d; best = i }
+    }
+    const flip = (centroid.x - px[best]!) * nx[best]! + (centroid.z - pz[best]!) * nz[best]! < 0
+    if (flip) for (let i = 0; i < m; i++) { nx[i] = -nx[i]!; nz[i] = -nz[i]! }
+    for (let i = 1; i < m; i++) {
+      if (nx[i]! * nx[i - 1]! + nz[i]! * nz[i - 1]! < 0) { nx[i] = -nx[i]!; nz[i] = -nz[i]! }
+    }
+  }
+  const idxOf = (u: number) => {
+    const t = Math.min(len, Math.max(0, u))
+    let lo = 0, hi = m - 1
+    while (lo + 1 < hi) {
+      const mid = (lo + hi) >> 1
+      if (us[mid]! <= t) lo = mid
+      else hi = mid
+    }
+    return { i: lo, f: (t - us[lo]!) / Math.max(1e-6, us[lo + 1]! - us[lo]!) }
+  }
+  const at = (u: number, v: number, out: THREE.Vector3) => {
+    const { i, f } = idxOf(u)
+    const j = Math.min(m - 1, i + 1)
+    const x = px[i]! * (1 - f) + px[j]! * f
+    const z = pz[i]! * (1 - f) + pz[j]! * f
+    const ux = nx[i]! * (1 - f) + nx[j]! * f
+    const uz = nz[i]! * (1 - f) + nz[j]! * f
+    const inv = 1 / (Math.hypot(ux, uz) || 1)
+    return out.set(x + ux * inv * v, 0, z + uz * inv * v)
+  }
+  const project = (x: number, z: number) => {
+    let bu = 0, bv = 0, bd = Infinity
+    for (let i = 0; i < m - 1; i++) {
+      const ax = px[i]!, az = pz[i]!
+      const dx = px[i + 1]! - ax, dz = pz[i + 1]! - az
+      const l2 = dx * dx + dz * dz || 1
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2))
+      const qx = ax + dx * t, qz = az + dz * t
+      const d = Math.hypot(x - qx, z - qz)
+      if (d < bd) {
+        bd = d
+        bu = us[i]! + t * (us[i + 1]! - us[i]!)
+        const ux = nx[i]!, uz = nz[i]!
+        bv = (x - qx) * ux + (z - qz) * uz
+      }
+    }
+    return { u: bu, v: bv, d: bd }
+  }
+  /** chain → (u, v) polyline, one value per u: the outermost for the back, the nearest for the front */
   const polyline = (chain: THREE.Vector3[], pick: 'min' | 'max'): [number, number][] => {
     const out: [number, number][] = []
-    for (const [u, v] of chain.map(uv).sort((p, q) => p[0] - q[0])) {
-      const uc = Math.min(len, Math.max(0, u))
+    for (const p of chain.map((q) => project(q.x, q.z)).sort((a, b2) => a.u - b2.u)) {
       const last = out[out.length - 1]
-      if (last && uc - last[0] < 0.05) {
-        if (pick === 'max' ? v > last[1] : v < last[1]) last[1] = v
+      if (last && p.u - last[0] < 0.05) {
+        if (pick === 'max' ? p.v > last[1] : p.v < last[1]) last[1] = p.v
         continue
       }
-      out.push([uc, v])
+      out.push([p.u, p.v])
     }
     return out
   }
   const frontV = polyline(front, 'min')
-  const backV = polyline(ring(def.chord!.back[0], def.chord!.back[1]), 'max')
-  const L = track.length
-  const [s0, s1] = def.sRange
-  const span = forwardDelta(s0, s1, L) || L
-  const sOf = (u: number) => track.wrap(s0 + (span * Math.min(len, Math.max(0, u))) / len)
-  const uOf = (s: number) => Math.min(len, (forwardDelta(s0, s, L) / span) * len)
-  const yRef = (u: number) => track.pointAt(sOf(u), 0, _pc).y
-  return { origin, along, back, len, frontV, backV, sOf, uOf, yRef }
+  // the back chain includes the two end caps, whose vertices project in front of the path (v ≤ 0)
+  // or onto its ends; only what is genuinely behind the front edge bounds the seating
+  const backV = polyline(ring(def.path!.back[0], def.path!.back[1]), 'max').filter(([, v]) => v > 2)
+  // s along the lap at u, from the road nearest the path (not a linear map: the front edge and the
+  // road diverge through a bend)
+  const sSamples = new Float32Array(m)
+  for (let i = 0; i < m; i++) sSamples[i] = track.nearestOnRange(px[i]!, pz[i]!, s0, s1, 120).s
+  const sOf = (u: number) => {
+    const { i, f } = idxOf(u)
+    const j = Math.min(m - 1, i + 1)
+    const a = sSamples[i]!, b2 = sSamples[j]!
+    return track.wrap(a + signedDelta(a, b2, L) * f)
+  }
+  const uOf = (s: number) => {
+    let best = 0, bd = Infinity
+    for (let i = 0; i < m; i++) {
+      const d = Math.abs(signedDelta(sSamples[i]!, s, L))
+      if (d < bd) { bd = d; best = i }
+    }
+    return us[best]!
+  }
+  const yRef = (u: number) => track.pointAt(sOf(u), 0, _pp).y
+  const quatAt = (u: number, out: THREE.Quaternion) => {
+    const { i } = idxOf(u)
+    const j = Math.min(m - 1, i + 1)
+    const back = new THREE.Vector3(nx[i]!, 0, nz[i]!).normalize()
+    const along = new THREE.Vector3(px[j]! - px[i]!, 0, pz[j]! - pz[i]!).normalize()
+    if (along.lengthSq() < 0.5) along.set(-back.z, 0, back.x)
+    return out.setFromRotationMatrix(_m.makeBasis(back, Y_UP, along))
+  }
+  const yawAt = (u: number) => {
+    const { i } = idxOf(u)
+    return Math.atan2(-nx[i]!, -nz[i]!)
+  }
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+  for (const p of pts) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
+    minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z)
+  }
+  return { px, pz, nx, nz, us, len, frontV, backV, sOf, uOf, yRef, project, at, quatAt, yaw: yawAt, box: [minX, maxX, minZ, maxZ] }
 }
 
-function chordFrame(terrain: Terrain, spec: ChordSpec): Frame {
-  const quat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(spec.back, Y_UP, spec.along))
-  const yaw = Math.atan2(-spec.back.x, -spec.back.z)
+function pathFrame(terrain: Terrain, spec: PathSpec): Frame {
   return {
     u0: 0,
     len: spec.len,
     at: (u, v, y, out) => {
-      out.copy(spec.origin).addScaledVector(spec.along, u).addScaledVector(spec.back, v)
+      spec.at(u, v, out)
       out.y = spec.yRef(u) + y
       return out
     },
-    quat: (_u, out) => out.copy(quat),
+    quat: (u, out) => spec.quatAt(u, out),
     // the analytic surface: under the deck it is the relief (deck plane − 0.6), which is what
     // the skirts and end walls must reach below
     ground: (u, v) => {
-      _p2.copy(spec.origin).addScaledVector(spec.along, u).addScaledVector(spec.back, v)
+      spec.at(u, v, _p2)
       return terrain.heightAt(_p2.x, _p2.z) - spec.yRef(u)
     },
-    facingYaw: () => yaw,
+    facingYaw: (u) => spec.yaw(u),
     sAt: (u) => spec.sOf(u),
   }
 }
 
 /**
- * The stand's definition re-expressed in its chord frame: u for s, v for lateral (row-1 centre
+ * The stand's definition re-expressed in its path frame: u for s, v for lateral (row-1 centre
  * 0.5 tread + 0.3 behind the OSM face, structure back 0.3 inside the OSM back). Tier-level
  * lateral overrides are track figures and are dropped; the s-keyed heights are mapped through uOf.
  */
-function chordLocalDef(def: StandDef, spec: ChordSpec): StandDef {
+function pathLocalDef(def: StandDef, spec: PathSpec): StandDef {
   const t = def.tiers[0]!.tread
   const conv = (v: AlongTrack | undefined): AlongTrack | undefined =>
     typeof v === 'number' || v === undefined ? v : v.map(([s, h]) => [spec.uOf(s), h] as [number, number])
@@ -1368,9 +1493,9 @@ export function buildStands(ctx: EnvBuildContext): Stands {
       }
       continue
     }
-    const spec = chordSpec(track, def)
-    const frame = spec ? chordFrame(terrain, spec) : trackFrame(track, ground, def.sRange[0], def.sRange[1])
-    const b = newBuild(ctx, spec ? chordLocalDef(def, spec) : def, frame, mats)
+    const spec = pathSpec(track, def)
+    const frame = spec ? pathFrame(terrain, spec) : trackFrame(track, ground, def.sRange[0], def.sRange[1])
+    const b = newBuild(ctx, spec ? pathLocalDef(def, spec) : def, frame, mats)
     buildStand(b)
     const r = finishStand(b, lod, seatGeo, tubeGeo)
     for (const s of b.seats) seats.push(s)
@@ -1428,10 +1553,10 @@ interface TrackZone {
   box?: [number, number, number, number]
 }
 
-/** A zone measured in the (u, v) frame of a chord-built stand (StandDef.chord). */
+/** A zone measured in the (u, v) frame of a path-built stand (StandDef.path). */
 interface ChordZone {
   kind: 'chord'
-  chord: ChordSpec
+  chord: PathSpec
   /** the claim fades out over these metres before u = 0 and after u = len */
   fade: [number, number]
   /** v band the profile can claim */
@@ -1442,19 +1567,11 @@ interface ChordZone {
 
 type ReliefZone = TrackZone | ChordZone
 
-function chordZone(chord: ChordSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile']): ChordZone {
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
-  for (const u of [-fade[0], chord.len + fade[1]]) {
-    for (const v of vRange) {
-      const x = chord.origin.x + chord.along.x * u + chord.back.x * v
-      const z = chord.origin.z + chord.along.z * u + chord.back.z * v
-      if (x < minX) minX = x
-      if (x > maxX) maxX = x
-      if (z < minZ) minZ = z
-      if (z > maxZ) maxZ = z
-    }
-  }
-  return { kind: 'chord', chord, fade, vRange, profile, box: [minX, maxX, minZ, maxZ] }
+function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile']): ChordZone {
+  // the path's own bounding box, grown by the fades and the v band it claims
+  const pad = Math.max(fade[0], fade[1]) + Math.max(Math.abs(vRange[0]), Math.abs(vRange[1]))
+  const b = chord.box
+  return { kind: 'chord', chord, fade, vRange, profile, box: [b[0] - pad, b[1] + pad, b[2] - pad, b[3] + pad] }
 }
 
 /** how far to the left of the centreline a zone can reach (the widest fade: E, lb + 70) */
@@ -1478,7 +1595,7 @@ function reliefZones(track: Track): ReliefZone[] {
    */
   const zone = (core: [number, number], fade: [number, number], profile: TrackZone['profile']): TrackZone =>
     ({ kind: 'track', from: core[0] - fade[0], to: core[1] + fade[1], core, fade, profile })
-  /** row-1 centre, front edge, platform height and structure back / top of a chord stand at u */
+  /** row-1 centre, front edge, platform height and structure back / top of a path stand at u */
   const chordSection = (local: StandDef, u: number) => {
     const t = local.tiers[0]!.tread
     const lf = alongAt(local.lateralFront, u, local.sRange)
@@ -1487,9 +1604,9 @@ function reliefZones(track: Track): ReliefZone[] {
     return { front: lf - 0.5 * t, fh, lb: lf + depth, top: fh + rise }
   }
   const C = by('C')
-  const cSpec = C ? chordSpec(track, C) : null
+  const cSpec = C ? pathSpec(track, C) : null
   if (C && cSpec) {
-    const local = chordLocalDef(C, cSpec)
+    const local = pathLocalDef(C, cSpec)
     zones.push(chordZone(cSpec, [4, 40], [-30, 120], (u, v) => {
         const { front, fh, lb, top } = chordSection(local, u)
         // the 2009 service road at the toe, ≈ 1 m under row 1: the natural hill in front of the
@@ -1555,9 +1672,9 @@ function reliefZones(track: Track): ReliefZone[] {
   // plateau is cut as well: the procedural hills() behind E stand 2–3 m above it. The 6 m stair
   // gap between the blocks is bridged by the fades.
   const E2 = by('E2')
-  const e2Spec = E2 ? chordSpec(track, E2) : null
+  const e2Spec = E2 ? pathSpec(track, E2) : null
   if (E2 && e2Spec) {
-    const local = chordLocalDef(E2, e2Spec)
+    const local = pathLocalDef(E2, e2Spec)
     const tier = E2.tiers[0]!
     const rake = tier.riser / tier.tread
     zones.push(chordZone(e2Spec, [20, 6], [-60, 120], (u, v) => {
@@ -1575,24 +1692,22 @@ function reliefZones(track: Track): ReliefZone[] {
     }))
   }
   const E1 = by('E1')
-  if (E1) {
+  const e1Spec = E1 ? pathSpec(track, E1) : null
+  if (E1 && e1Spec) {
+    const local = pathLocalDef(E1, e1Spec)
     const tier = E1.tiers[0]!
-    const rows = tier.rows
     const rake = tier.riser / tier.tread
-    zones.push(zone(E1.sRange, [6, 30], (s, a) => {
-        const lf = alongAt(E1.lateralFront, s, E1.sRange) - 0.5
-        const fh = alongAt(E1.frontHeight, s, E1.sRange) - 0.6
-        const lb = lf + rows * tier.tread
-        const top = fh + rows * tier.riser
+    zones.push(chordZone(e1Spec, [6, 30], [-40, 120], (u, v) => {
+        const { front, fh, lb, top } = chordSection(local, u)
         const plateau = top + 1.0
-        const a0 = Math.max(14, lf - fh / rake)
-        if (a < a0) return null
-        if (a < lf) return under(ramp(a, a0, 0, lf, fh))
-        if (a < lb) return under(ramp(a, lf, fh, lb, top))
-        if (a < lb + 10) return under(top)
-        if (a < lb + 16) return cut(ramp(a, lb + 10, top, lb + 16, plateau))
-        if (a < lb + 40) return cut(plateau)
-        if (a < lb + 70) return [plateau, 1 - (a - lb - 40) / 30, true]
+        const a0 = front - fh / rake
+        if (v < a0) return null
+        if (v < front) return under(ramp(v, a0, 0, front, fh))
+        if (v < lb) return under(ramp(v, front, fh, lb, top))
+        if (v < lb + 10) return under(top)
+        if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
+        if (v < lb + 40) return cut(plateau)
+        if (v < lb + 70) return [plateau, 1 - (v - lb - 40) / 30, true]
         return null
     }))
   }
@@ -1652,18 +1767,19 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const box = zone.box
       if (x < box[0] || x > box[1] || z < box[2] || z > box[3]) continue
       const c = zone.chord
-      const dx = x - c.origin.x, dz = z - c.origin.z
-      const u = dx * c.along.x + dz * c.along.z
-      const v = dx * c.back.x + dz * c.back.z
+      const pr = c.project(x, z)
+      const u = pr.u, v = pr.v
       if (v < zone.vRange[0] || v > zone.vRange[1]) continue
       const uc = Math.min(c.len, Math.max(0, u))
-      const t = u < 0 ? -u / Math.max(1e-6, zone.fade[0]) : (u - c.len) / Math.max(1e-6, zone.fade[1])
+      // project() clamps to the path's ends, so the fade is measured from the projected point
+      const endGap = pr.u <= 0.01 ? Math.hypot(x - c.px[0]!, z - c.pz[0]!) - Math.abs(v) : pr.u >= c.len - 0.01 ? Math.hypot(x - c.px[c.px.length - 1]!, z - c.pz[c.pz.length - 1]!) - Math.abs(v) : 0
+      const t = endGap <= 0 ? 0 : endGap / Math.max(1e-6, pr.u <= 0.01 ? zone.fade[0] : zone.fade[1])
       if (t >= 1) continue
       const r = zone.profile(uc, v)
       if (!r) continue
       const w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
       const rank = r[3] ?? 1
-      const d2 = v * v + (u - uc) * (u - uc)
+      const d2 = v * v + endGap * endGap
       if (out && (rank > outRank || (rank === outRank && d2 >= outD2))) continue
       out = [c.yRef(uc) + r[0], w, r[2]]
       outRank = rank

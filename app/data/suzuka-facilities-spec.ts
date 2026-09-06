@@ -96,16 +96,16 @@ export interface StandDef {
   /** enclosed glazed building instead of open rows (VIP) */
   enclosure?: { floors: number[]; glass: string; framePitch: number; roofTop: number }
   /**
-   * Build the stand straight along its OSM front edge instead of sweeping it in track
-   * coordinates: vertex ranges [start, end] of the footprint ring (walking it forward) that form
-   * the front and the back edge. A stand on the inside of a bend whose rows lie beyond the
-   * bend's radius (C's Esses end against T3, E-2 inside NIPPO) folds over itself when swept in
-   * (s, lateral); the chord frame keeps the rows parallel to the real, straight front. Heights
-   * still ride on the road (the road height at the lap position mapped linearly from sRange
-   * onto the chord), and the s-keyed fields stay in track coordinates for the fences, the tree
-   * exclusion and the checks.
+   * Build the stand along the CURVE of its OSM front edge instead of sweeping it in track
+   * coordinates: vertex ranges [start, end] of the footprint ring (walked forward) that form the
+   * front and the back edge. A stand on the inside of a bend whose rows lie beyond the bend's
+   * radius (C's Esses end against T3, E inside NIPPO) folds over itself when swept in
+   * (s, lateral); the path frame lays the rows concentric with the real front edge instead, which
+   * is what the terraces are. Heights still ride on the road (the road nearest each point of the
+   * path), and the s-keyed fields stay in track coordinates for the fences, the tree exclusion
+   * and the checks.
    */
-  chord?: { front: [number, number]; back: [number, number] }
+  path?: { front: [number, number]; back: [number, number] }
   /** what is still an estimate — see the header */
   unverified?: string[]
   notes?: string
@@ -407,7 +407,7 @@ export const STANDS: StandDef[] = [
     // built straight along its OSM front (`chord`)
     lateralFront: [[628, 57.5], [653, 41], [669, 38.5], [805, 71.5], [837, 77], [869, 78], [889, 82], [917, 73], [941, 52], [953, 39], [958, 47.5]],
     lateralBack: [[628, 70.5], [643, 68.5], [651, 62], [667, 60.5], [739, 81], [791, 92.5], [841, 98.5], [867, 98.5], [891, 106], [917, 101], [941, 79], [951, 64], [958, 51.5]],
-    chord: { front: [0, 11], back: [12, 27] },
+    path: { front: [0, 11], back: [12, 27] },
     structure: 'terrace',
     tiers: [
       { id: 'C-lower', rows: 10, ...TERRACE_BENCH, colour: COLOURS.benchGreyC.mid, aisleAfter: 0.8 },
@@ -465,17 +465,18 @@ export const STANDS: StandDef[] = [
     id: 'E2',
     name: 'E-2 NIPPOコーナー（逆バンク側）',
     osmWays: [467982372],
-    sRange: [1414, 1562],
+    sRange: [1414, 1572],
     side: 1,
-    // E-1 / E-2 sit side by side ALONG the track on one hillside terrace (Car Watch 2010, seat_e.html):
-    // E-2 at the 逆バンク end where the hill is 12 m above the track, E-1 at the NIPPO end near
-    // track level. E-2 lies on the inside of the NIPPO bend (R 49–109 m) with its rows 40–75 m
-    // from the centreline — beyond the bend's radius, where an (s, lateral) sweep folds over
-    // itself — so it is built straight along its OSM front (`chord`); the (s, lateral) figures
-    // below serve the fences, the tree exclusion and the checks
-    lateralFront: [[1414, 62.5], [1515, 53.5], [1556, 40], [1562, 36]],
-    lateralBack: [[1414, 64], [1433, 80], [1515, 75.5], [1562, 60]],
-    chord: { front: [11, 15], back: [16, 21] },
+    // E-1 / E-2 sit side by side ALONG the track on one hillside terrace (Car Watch 2010,
+    // seat_e.html), separated by the stair at the ring's notch (vertex 9, s ≈ 1583): E-2 at the
+    // 逆バンク end where the hill is 12 m above the track, E-1 at the NIPPO end near track level.
+    // Both lie on the INSIDE of the NIPPO bend (R 49–109 m) with their rows 18–75 m from the
+    // centreline, so an (s, lateral) sweep folds; both are built along the curve of their own OSM
+    // front edge (`path`, front ring 15→10 and 8→1). The (s, lateral) figures below serve the
+    // fences, the tree exclusion and the checks.
+    lateralFront: [[1414, 62.5], [1515, 53.5], [1556, 40], [1572, 27]],
+    lateralBack: [[1414, 64], [1433, 80], [1515, 75.5], [1572, 62]],
+    path: { front: [10, 15], back: [16, 19] },
     structure: 'terrace',
     tiers: [{ id: 'E-2', rows: 22, ...RC2009_BENCH }], // 1.5× seat width in 2010
     aisles: { pitch: 14, width: 1.2 },
@@ -490,11 +491,13 @@ export const STANDS: StandDef[] = [
     id: 'E1',
     name: 'E-1 NIPPOコーナー',
     osmWays: [467982372],
-    sRange: [1568, 1668],
+    sRange: [1587, 1665],
     side: 1,
-    // OSM outline smoothed: the notches at s ≈ 1583–1589 are stairs, not seating
-    lateralFront: [[1568, 35], [1600, 24], [1633, 18], [1668, 19]],
-    lateralBack: [[1568, 55.5], [1600, 44.5], [1633, 38.5], [1668, 39.5]],
+    // same hillside terrace as E-2, past the stair notch; built along the curve of its own front
+    // edge (front ring 8→1, back 25→0)
+    lateralFront: [[1587, 29.5], [1602, 24.5], [1632, 18], [1665, 18]],
+    lateralBack: [[1587, 46], [1609, 42.7], [1637, 37], [1665, 36]],
+    path: { front: [1, 8], back: [25, 0] },
     structure: 'terrace',
     tiers: [{ id: 'E-1', rows: 20, ...RC2009_BENCH }],
     aisles: { pitch: 14, width: 1.2 },
