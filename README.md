@@ -45,7 +45,22 @@ node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 8
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
 node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順の整合性
 node scripts/shots.mjs --assets 1             # 固定視点のスクリーンショット（--preset / --custom / --tier）
+node scripts/audit/aerial.mjs                # 国土地理院シームレス空中写真 z18 を .cache/audit/ に取得してモザイク化
+node scripts/audit/overlay.mjs               # アプリが描く線（暖色）と OSM（寒色）を写真に重ね、17 区間に切り出す
+node scripts/audit/shoot.mjs                 # :3100 の現行シーンを区間ごとに真上・斜めから撮る
+node scripts/audit/osm-edge.mjs 400 960 1 469261663   # OSM way の track 側の縁を (s, lateral) で出す（バリア表の起草用）
 ```
+
+### 実写との突き合わせ
+
+`scripts/audit/` は「アプリが今どこに何を描いているか」を国土地理院の空中写真（z18、約 0.49 m/px）に
+重ねて区間ごとに見るためのものです。壁・縁石・白線・ランオフの位置はすべて
+`app/data/suzuka-barriers-spec.ts` の表と `RUNOFF_ZONES` にあり、コードは表だけを描くので、
+データを直したら `node scripts/audit/overlay.mjs` で写真と突き合わせ、`node scripts/facilities-check.mjs`
+（バリアが路面・他の道路・スタンドに入っていないか、出典が run を覆っているか）を通してから
+`node scripts/audit/shoot.mjs` でシーンを撮ります。タイル・モザイクは `.cache/audit/`（gitignore）に
+置き、リポジトリには入れません。撮影は 2017–2020 年なので、2024 年以降の変更（緑帯・塗装・仮設
+スタンド・乾いた調整池）はユーザーの実写（`misc/ref/user/`、gitignore）を正とします。
 
 ログインが必要な素材（Eclair の CC0 人物 GLB、Sketchfab の CC-BY 座席、KTX-Software の `ktx` CLI）は `misc/`
 （gitignore 済み）に置くと `import-misc.mjs` が拾います。`nuxt.config.ts` の `routeRules` は `/assets/**` に
@@ -67,7 +82,7 @@ pnpm sim -- --brakes --laps 3        # ブレーキディスク温度（コー�
 
 出力: 周長（5807 m）、各コーナーの頂点速度と実測目標（`APEX_SPEED_TARGETS`）との差、理想ラップ、
 ファステスト／レース時間、追い越し数（ゾーン別）、車体重なりサンプル（0 であること）、ピットロス、ピット周回の分布。
-目安: 理想ラップ 1:26 台（予選相当）、レース平均 1:33 台、ファステスト 1:31 前後、追い越し 20〜45 回、ピットロス 22 s。
+目安: 理想ラップ 1:26 台（予選相当）、レース平均 1:33 台、ファステスト 1:31 前後、追い越し 20〜45 回、ピットロス 26 s 前後（ピットレーンの分岐・合流を OSM の実線形に合わせた後の実測）。
 
 ## E2E tests (Playwright)
 
@@ -126,6 +141,7 @@ app/
     suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム（DEM5A）、レーシングラインのピン、コーナー速度目標、DRS、ピット
     suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ、ODbL、生成物）
     suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット（手書き）
+    suzuka-barriers-spec.ts    # 全周のバリア run・実在する縁石／緑帯・白線・二輪路・マーシャルポスト・調整池（手書き、OSM way id 参照）
     suzuka-power.ts            # 送電鉄塔・架線（OSM、生成物）
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対）
     credits.ts                 # アプリ内クレジット（生成物）
@@ -142,7 +158,10 @@ app/
     instancing.ts              # サーキット全域の InstancedMesh を地形チャンク／距離でバケット分割（フラスタムカリング）
     ground.ts                  # 路肩〜ランオフ〜地形の高さ関数（トラックサイドの全オブジェクトが参照）
     track-mesh.ts              # 路面（可変幅・カント）、断面つき縁石、ソーセージ縁石、グラベル、橋、ピットレーン、グリッド、シグナル
-    barriers.ts                # Armco と支柱、タイヤバリア、TecPro、デブリフェンス
+    barriers.ts                # 全周のバリア（実データ表 `BARRIERS` から: コンクリート壁・タイヤ壁・ガードレール・デブリフェンス）
+    trackside.ts               # OSM way／実測サンプル → 所属道路の lateral(s) 解決（図 8 の折り返し対策つき）
+    lines.ts                   # 白線レイヤー（全周のエッジライン、ピット各線、グリッド。画面上の最小幅を保つ頂点シェーダ）
+    lanes.ts                   # 二輪シケイン・スリップロード・西コースピットレーン（コースのフレームで組む舗装）
     environment.ts             # 地形（チャンク、施設のリリーフ）と各ビルダーの共有コンテキスト、観覧車
     stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場）、弦フレーム、地形リリーフ
     pit-complex.ts             # ピットビル（勾配追従スイープ、ガレージ、表彰台、ポッド、ビジョン）、リーダータワー、ピットウォール、パドック、水面
@@ -169,6 +188,7 @@ scripts/
   facilities-check.mjs         # スタンド／ピット定数／ガレージ順の整合性チェック
   assets/                      # fetch / import-misc / bake-crowd-atlas / sources（アセットパイプライン）
   facilities/                  # build-facilities（Overpass → TS）、build-power、dem-profile（DEM5A → 標高キーフレーム）
+  audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
 ```
 
 ## Rendering notes
@@ -196,6 +216,16 @@ scripts/
   そして散乱光全体を輝度 3.0 以下に抑える膝（bloom 閾値 4.5 の下なので空は決して bloom しません）。太陽が画角に入ると
   露出が 0.5〜1.1 EV 落ちて戻る（絞りは速く閉じ、ゆっくり開く）カメラの自動露出モデルが両ティアで動き、高品質ティアでは
   太陽が建物や樹林帯に隠れているかを 1×1 のプローブで測ってグレードパスのベイル・ストリーク・ゴースト（カメラ種別ごとの強さ）に反映します。
+- **コース周辺の線形物**（`app/data/suzuka-barriers-spec.ts`）：バリア（71 本の run）、縁石（実在する 28 本）、
+  緑帯、白線、二輪シケインなどの舗装、マーシャルポスト、調整池はすべて実データです。出典は OSM の way id
+  （`barrier=wall` / タイヤバリア / フェンス。閉じた面は track 側の縁だけを取る）と、空中写真から読んだ
+  (s, lateral) サンプル。各 run は所属する道路の s 範囲を持ち、頂点はその窓の中だけで最近傍を探すので
+  （`Track.nearestOnRange`）、図 8 の折り返しや立体交差で反対側の道路に飛びません。高さは所属道路の路面
+  +3 m で頭打ちにして、他の道路の盛土を登らないようにしています。
+- **白線** (`app/three/lines.ts`)：全周のエッジライン、ピット入口・出口の分離線と合流テーパー、ピットレーンの
+  各線、グリッドとスタートラインは 1 メッシュのジオメトリです。15 cm の線は遠景で 1 px を切るので、
+  頂点シェーダが視距離から m/px を求めて画面上の半幅が 0.6 px を下回る分だけ横に押し広げます
+  （近景では実寸のまま）。アスファルトのタイルには白線を焼き込みません。
 - **コース形状** (`app/data/suzuka.ts`, `app/sim/track.ts`)：周長は公式 5807 m に正規化。幅は 10.5〜15 m のキーフレーム、
   カントは T1〜T2 とヘアピンが国土地理院 DEM5A の横断勾配（約 4°）、他はコーナーごとの推定値（±3°）、
   標高は DEM5A から求めた 34 キーフレーム（`scripts/facilities/dem-profile.mjs`、T2 出口 6.8 m が最低、200R〜スプーンの台地 47 m が最高、高低差 40 m、
@@ -228,6 +258,9 @@ scripts/
 - MSAA の alpha-to-coverage で観客・金網・樹木の縁がにじまないこと、55 m 以内の 3D 観客と遠景インポスターの切替が目立たないこと
 - グランドスタンドのガラス帯とピットビル 2F ガラスの空の反射、白壁の法線マップ、V1/V2/Q2 の座席インスタンス、スタンド屋根の影
 - 60 fps を保てること（保てなければ描画解像度が自動で下がります。`?assets=0` で差分を切り分け）
+- 白線が近景で実寸（15 cm）、俯瞰・ヘリでも消えずに 1 px 強で残ること（`app/three/lines.ts` の最小幅シェーダ）
+- 乾いた調整池（T1 インフィールド・T1–T2）の法面と床が地形と馴染んでいること
+- ピットレーン舗装の明度が本線と揃っていること
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes
@@ -237,7 +270,7 @@ scripts/
 - 理想ラップは予選相当（約 1:26）。レースでは燃料重量（100 kg → 0、周回で減少）とエンジン／タイヤ管理モードの係数が掛かり、
   平均 1:33 台・ファステスト 1:31 前後になります。
 - 車間・追い越し（横方向レーンチェンジ）、車体の重なり解消（同一区画に 2 台は入れない）、1 ストップのピット戦略
-  （80 km/h 制限区間 425 m、ピットロス約 22 s、出口は T1〜T2 内側を通って T2 出口で合流）を実装しています。
+  （80 km/h 制限区間 425 m、ピットロス 26 s 前後、分岐 s 5290・合流 s 385 は OSM の Pit Lane way 実測）を実装しています。
 - ギアは 8 速（12,000 rpm リミッター、11,800 でシフトアップ、7,600 未満でシフトダウン、減速時はエンジンブレーキ側へ早めにシフトダウン）。
   1 速はローンチ専用で、最高速 332 km/h は 8 速 ≈ 11,900 rpm、ヘアピン（約 70 km/h）は 2 速 ≈ 8,200 rpm、130R は 8 速になります。
 - ギャップ／インターバルは 20 m ごとのチェックポイント通過時刻から算出しています。
