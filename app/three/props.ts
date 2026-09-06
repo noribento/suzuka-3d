@@ -9,6 +9,7 @@ import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
 import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_RACEWAY, type OsmFeature } from '~/data/suzuka-facilities'
 import { BUILDINGS } from '~/data/suzuka-facilities-spec'
+import { OFFSET_LANES } from '~/data/suzuka-barriers-spec'
 import { addRoadSurface } from './track-mesh'
 import { ASPHALT_TILE_M, asphaltMaps } from './textures'
 
@@ -412,11 +413,15 @@ function buildSecondaryPaving(ctx: EnvBuildContext) {
   }
   const geos: THREE.BufferGeometry[] = []
   let count = 0
+  // the ways that touch the lap (two-wheel chicanes, slip roads, the West Course pit lane) are
+  // built as offset lanes in the track frame by lanes.ts — a terrain ribbon along their raw
+  // polyline used to lie across the racing surface
+  const lanes = new Set(OFFSET_LANES.map((l) => l.osmWay))
   for (const f of OSM_RACEWAY) {
     // the lap's own ways sit on the centreline (dmin ≈ 0 and their s range covers them): skip
     // anything that hugs the road for its whole length; keep what leaves it
     if (f.lateral[1] - f.lateral[0] < 6 && f.dmin < 4) continue
-    if (f.tags.name === 'Pit Lane') continue
+    if (f.tags.name === 'Pit Lane' || lanes.has(f.id) || f.dmin < 8) continue
     const pts = f.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
     if (!pts.every((p) => inside(p.x, p.z))) continue
     const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => terrain.meshHeightAt(x, z), 0.06, ASPHALT_TILE_M)

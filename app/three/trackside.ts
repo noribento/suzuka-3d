@@ -9,6 +9,7 @@
  * within metres of each other, so every source vertex is mapped with `Track.nearestOnRange`,
  * restricted to the run's own s window, never with the globally nearest sample.
  */
+import * as THREE from 'three'
 import { OSM_FEATURES, type OsmFeature } from '~/data/suzuka-facilities'
 import type { Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
@@ -25,6 +26,7 @@ export interface ResolvedLine {
   lat: (s: number) => number
 }
 
+const _v = new THREE.Vector3()
 const byId = new Map<number, OsmFeature>(OSM_FEATURES.map((f) => [f.id, f]))
 
 export function osmWay(id: number): OsmFeature | undefined {
@@ -106,6 +108,72 @@ export function osmPathSamples(track: Track, id: number, sRange: [number, number
     if (m.d > reach) continue
     out.push([m.s, m.lateral])
   }
+  return out
+}
+
+/** A point of an offset lane: world position plus where it falls on the lap it belongs to. */
+export interface LanePoint {
+  x: number
+  z: number
+  /** lap position and signed offset of this point on the lane's own stretch of road */
+  s: number
+  lat: number
+  /** distance along the lane from its first point */
+  d: number
+}
+
+/**
+ * Centreline of an offset lane (a two-wheel chicane, a slip road, the West Course pit lane) in
+ * WORLD space, resampled every `step` metres.
+ *
+ * World space, not (s, lateral): the two-wheel chicanes loop far enough from the lap that their
+ * far side maps back onto a different part of it, and a lane swept in track coordinates tears into
+ * spikes there. Each resampled point still carries the (s, lateral) of the lap stretch it belongs
+ * to — restricted to the lane's own window — so the sweep can take its height from the road and
+ * dip under the racing surface where the two overlap.
+ */
+export function laneWorldPath(track: Track, def: { osmWay?: number; samples?: LatSample[]; sRange: [number, number]; latMax?: number }, step = 2): LanePoint[] {
+  const raw: { x: number; z: number }[] = []
+  if (def.samples?.length) {
+    for (const [s, lat] of def.samples) {
+      track.pointAt(s, lat, _v, 0)
+      raw.push({ x: _v.x, z: _v.z })
+    }
+  } else if (def.osmWay !== undefined) {
+    const f = byId.get(def.osmWay)
+    if (!f) return []
+    for (const [e, n] of f.en) {
+      const x = e * track.enScale, z = -n * track.enScale
+      const m = track.nearestOnRange(x, z, def.sRange[0], def.sRange[1], 60)
+      if (def.latMax && Math.abs(m.lateral) > def.latMax) continue
+      raw.push({ x, z })
+    }
+  }
+  if (raw.length < 2) return []
+  // Catmull-Rom through the vertices, resampled by arc length
+  const out: LanePoint[] = []
+  let d = 0
+  const push = (x: number, z: number) => {
+    const prev = out[out.length - 1]
+    if (prev) {
+      const step2 = Math.hypot(x - prev.x, z - prev.z)
+      if (step2 < 1e-4) return
+      d += step2
+    }
+    const m = track.nearestOnRange(x, z, def.sRange[0], def.sRange[1], 60)
+    out.push({ x, z, s: m.s, lat: m.lateral, d })
+  }
+  const cr = (a: number, b: number, c: number, e: number, t: number) =>
+    0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - e) * t * t + (-a + 3 * b - 3 * c + e) * t * t * t)
+  for (let i = 0; i < raw.length - 1; i++) {
+    const p0 = raw[Math.max(0, i - 1)]!, p1 = raw[i]!, p2 = raw[i + 1]!, p3 = raw[Math.min(raw.length - 1, i + 2)]!
+    const n = Math.max(1, Math.round(Math.hypot(p2.x - p1.x, p2.z - p1.z) / step))
+    for (let k = 0; k < n; k++) {
+      const t = k / n
+      push(cr(p0.x, p1.x, p2.x, p3.x, t), cr(p0.z, p1.z, p2.z, p3.z, t))
+    }
+  }
+  push(raw[raw.length - 1]!.x, raw[raw.length - 1]!.z)
   return out
 }
 

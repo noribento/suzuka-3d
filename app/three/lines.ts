@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CIRCUIT } from '~/data/suzuka'
-import { EDGE_LINE_GAPS, LINES, type LineDef } from '~/data/suzuka-barriers-spec'
+import { EDGE_LINE_GAPS, LINES, OFFSET_LANES, type LineDef } from '~/data/suzuka-barriers-spec'
 import { alongAt, garageS, type Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
+import { laneWorldPath, type LanePoint } from './trackside'
 import type { Ground } from './ground'
 import { FLAT_STRIP, STRIP_DROP } from './ground'
 
@@ -135,6 +136,17 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
     across(s - 3.35, lat + 2.2, lat - 2.2, 0.3)
   }
 
+  // --- edge lines of the two-wheel chicanes and the slip roads --------------------------------
+  for (const def of OFFSET_LANES) {
+    if (!def.lines) continue
+    const pts = laneWorldPath(track, def)
+    if (pts.length < 3) continue
+    for (const side of [1, -1] as const) {
+      const geo = laneStripe(track, pts, def.width / 2 - 0.1, side, 0.15, surfaceY)
+      if (geo) geos.push(geo)
+    }
+  }
+
   // --- grid slots and the start line ----------------------------------------------------------
   for (let k = 0; k < 22; k++) {
     const s = track.wrap(-(14 + 8 * k))
@@ -145,7 +157,9 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
   }
   stripe(L - 0.5, 0.5, () => 0, 2 * hwAt(0), 0.5)
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xf7f7f4, roughness: 0.55, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
+  // double-sided: the lane edge lines are swept along their own path, so one side of each pair
+  // winds the other way round
+  const mat = new THREE.MeshStandardMaterial({ color: 0xf7f7f4, roughness: 0.55, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
   addScreenWidth(mat)
   const merged = mergeGeometries(geos, false)!
   for (const g of geos) g.dispose()
@@ -155,6 +169,47 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
   mesh.renderOrder = 2
   mesh.frustumCulled = false
   return mesh
+}
+
+/**
+ * Edge line of an offset lane: a stripe `dist` metres to `side` of its sampled centreline. Skips
+ * the stretch where the lane is still on the racing surface (the split and merge mouths, where the
+ * lap's own edge line already has its gap).
+ */
+function laneStripe(track: Track, pts: LanePoint[], dist: number, side: 1 | -1, w: number, surfaceY: (s: number, lat: number) => number): THREE.BufferGeometry | null {
+  const keep = pts.filter((p) => Math.abs(p.lat) > track.halfWidthAt(p.s) + 1.5)
+  if (keep.length < 3) return null
+  const n = keep.length
+  const pos = new Float32Array(n * 6)
+  const across = new Float32Array(n * 4)
+  const half = new Float32Array(n * 2)
+  const uv = new Float32Array(n * 4)
+  const idx: number[] = []
+  for (let i = 0; i < n; i++) {
+    const p = keep[i]!
+    const prev = keep[Math.max(0, i - 1)]!, next = keep[Math.min(n - 1, i + 1)]!
+    const dx = next.x - prev.x, dz = next.z - prev.z
+    const inv = 1 / (Math.hypot(dx, dz) || 1)
+    // unit normal of the lane path, pointing to `side`
+    const nx = dz * inv * side, nz = -dx * inv * side
+    track.pointAt(p.s, p.lat, _a, 0)
+    const y = _a.y + surfaceY(p.s, p.lat) - LIFT + 0.016
+    const cx = p.x + nx * dist, cz = p.z + nz * dist
+    const k = i * 2
+    pos.set([cx + nx * w / 2, y, cz + nz * w / 2, cx - nx * w / 2, y, cz - nz * w / 2], k * 3)
+    across.set([nx, nz, nx, nz], k * 2)
+    half.set([w / 2, -w / 2], k)
+    uv.set([0, p.d, 1, p.d], k * 2)
+    if (i < n - 1) idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2)
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  g.setAttribute('aAcross', new THREE.BufferAttribute(across, 2))
+  g.setAttribute('aHalf', new THREE.BufferAttribute(half, 1))
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
 }
 
 /** Uniform shared by every widening material, updated once per frame from the renderer size. */

@@ -226,7 +226,10 @@ export const LINES: LineDef[] = [
 
 export interface OffsetLaneDef {
   name: string
-  osmWay: number
+  /** OSM way to take the shape from; `samples` overrides it where the way is incomplete */
+  osmWay?: number
+  /** hand-read centreline as [s, lateral] on the lap (used when the OSM way is partial) */
+  samples?: [number, number][]
   /** window on the lap the lane is measured against */
   sRange: [number, number]
   side: Side
@@ -240,7 +243,9 @@ export interface OffsetLaneDef {
 }
 
 export const OFFSET_LANES: OffsetLaneDef[] = [
-  { name: '200R 二輪シケイン', osmWay: 183309794, sRange: [2925, 3055], side: -1, width: 10, lines: true, kerbs: [{ from: 0.12, to: 0.3, side: 1 }, { from: 0.42, to: 0.6, side: -1 }, { from: 0.72, to: 0.9, side: 1 }] },
+  // the OSM way only maps the first spur (out to ≈ −25); the loop's centreline is read off the
+  // aerial (measured outer edge minus half the 10 m width)
+  { name: '200R 二輪シケイン', osmWay: 183309794, samples: P([[2931, -6], [2939, -22], [2952, -33], [2975, -45], [3003, -51], [3016, -46], [3024, -36], [3040, -21], [3050, -8]]), sRange: [2925, 3055], side: -1, width: 10, lines: true, kerbs: [{ from: 0.12, to: 0.3, side: 1 }, { from: 0.42, to: 0.6, side: -1 }, { from: 0.72, to: 0.9, side: 1 }] },
   { name: 'Astemo 二輪ダブルシケイン', osmWay: 183391653, sRange: [5145, 5265], side: 1, width: 8, lines: true },
   { name: '西コースピットレーン', osmWay: 411295350, sRange: [4150, 4375], side: -1, width: 8, lines: true },
   { name: '二輪ピット入口スリップ', osmWay: 411296898, sRange: [5125, 5215], side: -1, width: 6, latMax: 48, lines: true },

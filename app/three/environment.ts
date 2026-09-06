@@ -11,6 +11,7 @@ import type { AssetRegistry } from './assets'
 import { buildStands, facilityRelief, lateralBackMax } from './stands'
 import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
+import { buildLanes } from './lanes'
 import { buildFerrisWheel, buildTrees } from './vegetation'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
@@ -427,6 +428,8 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   for (const o of crowd.objects) group.add(o)
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)
+  // --- the two-wheel chicanes / slip roads, in the lap's own frame ---------------------------
+  group.add(buildLanes(track, ground))
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
   const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
   // every single-material box placed above, merged per material

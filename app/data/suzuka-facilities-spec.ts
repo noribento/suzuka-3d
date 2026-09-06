@@ -1005,39 +1005,54 @@ export interface RunoffZone {
 }
 
 export const RUNOFF_ZONES: RunoffZone[] = [
-  // the T1 gravel trap (sand 468750062) only starts at s 434; the braking zone before it is grass behind the wall
-  { name: 'T1 entry', sRange: [383, 434], left: { asphalt: [0, 5.5], grass: [5, 26.5], gravel: null }, right: { asphalt: [0, 5], grass: [5, 14.5], gravel: null }, source: 'osm' },
-  { name: 'T1', sRange: [434, 528], left: { asphalt: [0, 5.5], grass: [5, 26.5], gravel: [5.5, 30] }, right: { asphalt: [0, 5], grass: [5, 14.5], gravel: null }, source: 'osm' },
-  { name: 'T2', sRange: [558, 680], left: { asphalt: [0, 24], grass: [6, 9], gravel: [24, 38.5] }, right: { asphalt: [0, 33.5], grass: [5.5, 23.5], gravel: [33.5, 55] }, source: 'osm' },
-  { name: 'T2 exit → Esses', sRange: [680, 827], left: { asphalt: [0, 8], grass: [8, 48.5], gravel: [15.5, 26.5] }, right: { asphalt: [0, 3], grass: [3, 11.5], gravel: [23.5, 50.5] }, source: 'osm' },
-  { name: 'Esses T3–T5', sRange: [827, 1209], left: { asphalt: [0, 6], grass: [6, 39.5], gravel: [9.5, 19] }, right: { asphalt: [0, 4.5], grass: [4.5, 11.5], gravel: [10.5, 27] }, source: 'osm' },
-  // 逆バンク: the outside gravel starts only at s ≈ 1270 and widens toward the exit (D-1..4 sits right behind it)
-  { name: '逆バンク entry', sRange: [1247, 1285], left: { asphalt: [0, 4], grass: [4, 15.5], gravel: [6, 21] }, right: { asphalt: [0, 7], grass: [7, 30.5], gravel: [11, 28] }, source: 'osm' },
-  { name: '逆バンク apex', sRange: [1285, 1330], left: { asphalt: [0, 2.5], grass: null, gravel: [2.5, 25.5] }, right: { asphalt: [0, 8.5], grass: [8.5, 26.5], gravel: [12, 23] }, source: 'osm' },
-  { name: '逆バンク exit', sRange: [1330, 1406], left: { asphalt: [0, 5], grass: [36, 48.5], gravel: [5, 31] }, right: { asphalt: [0, 7], grass: [7, 23.5], gravel: null }, source: 'osm' },
-  { name: 'NIPPO T7', sRange: [1468, 1596], left: { asphalt: [0, 7.5], grass: [7.5, 20.5], gravel: null }, right: { asphalt: [0, 3], grass: [6, 38], gravel: [4.5, 15.5] }, source: 'osm' },
-  { name: 'NIPPO exit → Degner', sRange: [1596, 2054], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [5, 25.5], gravel: [12.5, 38] }, source: 'osm' },
-  { name: 'Degner 1', sRange: [2054, 2076], left: { asphalt: [0, 2.5], grass: [1.5, 2.5], gravel: [4.5, 9] }, right: { asphalt: [0, 7.5], grass: [7.5, 25], gravel: [27, 42.5] }, source: 'osm' },
-  { name: 'Degner 1 → 2', sRange: [2076, 2207], left: { asphalt: [0, 4], grass: [38, 53.5], gravel: [4, 37] }, right: { asphalt: [0, 6.5], grass: [6.5, 21.5], gravel: [23.5, 55] }, source: 'osm' },
-  { name: 'Degner 2', sRange: [2207, 2247], left: { asphalt: [0, 9], grass: [26.5, 37.5], gravel: [9, 26] }, right: { asphalt: [0, 5], grass: [5, 29], gravel: [29.5, 55] }, source: 'osm' },
-  { name: 'crossover (under)', sRange: [2247, 2290], left: { asphalt: [0, 9], grass: [22, 29], gravel: [7.5, 34] }, right: { asphalt: [0, 5], grass: [5, 16], gravel: [12.5, 57] }, source: 'osm' },
-  { name: 'crossover → 110R', sRange: [2290, 2492], left: { asphalt: [0, 6.5], grass: [0, 6.5], gravel: [6.5, 14.5] }, right: { asphalt: [0, 5], grass: [5, 16.5], gravel: null }, source: 'osm' },
-  // no OSM surface polygons from here to the Spoon exit — photo-derived, UNVERIFIED
-  { name: '110R', sRange: [2492, 2604], left: { asphalt: [0, 14], grass: [14, 24], gravel: [24, 40] }, right: { asphalt: [0, 10], grass: [10, 16], gravel: null }, source: 'photo', unverified: ['all bands (May-2021 gravel enlargement on the left)'] },
-  { name: '110R → hairpin', sRange: [2604, 2661], left: { asphalt: [0, 12], grass: [12, 30], gravel: null }, right: { asphalt: [0, 8], grass: [8, 16], gravel: null }, source: 'photo', unverified: ['all bands'] },
-  { name: 'hairpin', sRange: [2661, 2728], left: { asphalt: [0, 9], grass: [9, 16], gravel: null }, right: { asphalt: [0, 12], grass: [26, 40], gravel: [12, 26] }, source: 'photo', unverified: ['all bands'] },
-  { name: 'hairpin exit → 200R', sRange: [2728, 3064], left: { asphalt: [0, 6], grass: [6, 14], gravel: null }, right: { asphalt: [0, 10], grass: [16, 30], gravel: [10, 16] }, source: 'photo', unverified: ['all bands'] },
-  { name: '200R → Spoon', sRange: [3064, 3552], left: { asphalt: [0, 8], grass: [8, 40], gravel: null }, right: { asphalt: [0, 6], grass: [6, 16.5], gravel: null }, source: 'osm', unverified: ['left grass polygon only beyond 40 m'] },
-  { name: 'Spoon 1–2', sRange: [3552, 3825], left: { asphalt: [0, 22], grass: [40, 50], gravel: [22, 40] }, right: { asphalt: [0, 9], grass: [9, 20], gravel: null }, source: 'photo', unverified: ['all bands (outside fully asphalt since 2005, gravel restored at T14 later)'] },
-  { name: 'west straight', sRange: [3825, 4329], left: { asphalt: [0, 10.5], grass: [3.5, 6], gravel: null }, right: { asphalt: [0, 7], grass: [3.5, 10], gravel: null }, source: 'osm' },
-  { name: 'west straight (gravel)', sRange: [4329, 4521], left: { asphalt: [0, 10.5], grass: [3.5, 6], gravel: null }, right: { asphalt: [0, 4.5], grass: [3.5, 10], gravel: [4.5, 20.5] }, source: 'osm' },
-  { name: 'west straight end → bridge', sRange: [4521, 4713], left: { asphalt: [0, 4.5], grass: [4.5, 21], gravel: null }, right: { asphalt: [0, 8], grass: [0, 17], gravel: null }, source: 'osm' },
-  { name: '130R', sRange: [4713, 4935], left: { asphalt: [0, 7.5], grass: [7.5, 21], gravel: [12, 19.5] }, right: { asphalt: [0, 14.5], grass: [46.5, 55], gravel: [16, 55] }, source: 'osm' },
-  { name: '130R → chicane', sRange: [4935, 5148], left: { asphalt: [0, 9], grass: [9, 13.5], gravel: [9, 16] }, right: { asphalt: [0, 1.5], grass: [1.5, 42.5], gravel: [33, 55] }, source: 'osm' },
-  { name: 'chicane T16–T17', sRange: [5148, 5234], left: { asphalt: [0, 6], grass: [6, 46], gravel: null }, right: { asphalt: [0, 6], grass: [6, 47.5], gravel: [24.5, 55] }, source: 'osm' },
-  { name: 'T18 exit', sRange: [5262, 5408], left: { asphalt: [0, 7.5], grass: [7.5, 12.5], gravel: [11.5, 22] }, right: { asphalt: [0, 3.5], grass: [3.5, 41.5], gravel: [6.5, 25.5] }, source: 'osm' },
-  { name: 'main straight (final corner end)', sRange: [5408, 5500], left: { asphalt: [0, 8], grass: [8, 13.5], gravel: [11, 23] }, right: { asphalt: [0, 11.5], grass: [8.5, 24], gravel: null }, source: 'osm' },
-  { name: 'main straight', sRange: [5500, 383], left: { asphalt: [0, 8], grass: [8, 13.5], gravel: null }, right: { asphalt: [0, 11.5], grass: [8.5, 24], gravel: null }, source: 'osm' },
+  // Corrected against the 国土地理院 aerial by the 2026-09 audit: the T1–T2 outside is asphalt to
+  // the wall (not gravel), the inside of T1/T2 and the run to the Esses are grass, the Esses and
+  // Dunlop traps are separate beds rather than one continuous band, the Spoon bands were on the
+  // wrong side, and the lower road's run-off stops before the crossover instead of climbing it.
+  { name: 'main straight → T1', sRange: [383, 400], left: { asphalt: [0, 8], grass: [8, 18], gravel: null }, right: { asphalt: [0, 5], grass: [5, 14.5], gravel: null }, source: 'osm' },
+  { name: 'T1 entry', sRange: [400, 434], left: { asphalt: [0, 15], grass: [33, 40], gravel: [15, 33] }, right: { asphalt: [0, 5], grass: [5, 14.5], gravel: null }, source: 'osm' },
+  { name: 'T1', sRange: [434, 528], left: { asphalt: [0, 33], grass: [33, 40], gravel: null }, right: { asphalt: [0, 5], grass: [5, 14.5], gravel: null }, source: 'osm', unverified: ['the outside is asphalt right up to the wall (aerial); the OSM sand polygon here is the T1-entry bed only'] },
+  { name: 'T2', sRange: [558, 680], left: { asphalt: [0, 38], grass: [38, 46], gravel: null }, right: { asphalt: [0, 16], grass: [16, 23.5], gravel: null }, source: 'osm', unverified: ['no gravel on either side of T2 in the aerial'] },
+  { name: 'T2 exit → Esses', sRange: [680, 870], left: { asphalt: [0, 8], grass: [8, 30], gravel: null }, right: { asphalt: [0, 3], grass: [3, 20], gravel: null }, source: 'osm' },
+  { name: 'T3', sRange: [870, 1000], left: { asphalt: [0, 6], grass: [6, 20], gravel: null }, right: { asphalt: [0, 11], grass: [22, 30], gravel: [11, 22] }, source: 'osm' },
+  { name: 'T4–T5', sRange: [1000, 1209], left: { asphalt: [0, 10], grass: [24, 32], gravel: [10, 24] }, right: { asphalt: [0, 4.5], grass: [4.5, 11.5], gravel: null }, source: 'osm' },
+  // 逆バンク: the outside bed starts at the trap tip (s ≈ 1266) and ends at ≈ 1450
+  { name: '逆バンク entry', sRange: [1209, 1266], left: { asphalt: [0, 4], grass: [4, 18], gravel: null }, right: { asphalt: [0, 7], grass: [27, 32], gravel: [10.5, 27] }, source: 'osm' },
+  { name: '逆バンク apex', sRange: [1266, 1330], left: { asphalt: [0, 3], grass: [23, 30], gravel: [3, 23] }, right: { asphalt: [0, 8.5], grass: [27, 32], gravel: [11, 27] }, source: 'osm' },
+  { name: '逆バンク exit', sRange: [1330, 1406], left: { asphalt: [0, 5], grass: [30, 40], gravel: [5, 30] }, right: { asphalt: [0, 7], grass: [7, 23.5], gravel: null }, source: 'osm' },
+  { name: 'NIPPO T7', sRange: [1468, 1596], left: { asphalt: [0, 7.5], grass: [7.5, 20.5], gravel: null }, right: { asphalt: [0, 5], grass: [16, 30], gravel: [5, 16] }, source: 'osm' },
+  { name: 'NIPPO exit', sRange: [1596, 1660], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [5.5, 25], gravel: null }, source: 'osm' },
+  // three separate beds down the Dunlop stretch, with grass between them and the link-road wedge
+  { name: 'Dunlop entry trap', sRange: [1660, 1760], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [44, 50], gravel: [5.5, 44] }, source: 'osm' },
+  { name: 'Dunlop trap', sRange: [1760, 1880], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 9], grass: [33, 40], gravel: [9, 33] }, source: 'osm' },
+  { name: 'Dunlop exit trap', sRange: [1880, 1945], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 14], grass: [26, 34], gravel: [14, 26] }, source: 'osm' },
+  { name: 'Dunlop exit → Degner', sRange: [1945, 2054], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [5.5, 25.5], gravel: null }, source: 'osm' },
+  { name: 'Degner 1', sRange: [2054, 2076], left: { asphalt: [0, 4], grass: [9, 14], gravel: [4, 9] }, right: { asphalt: [0, 7.5], grass: [7.5, 25], gravel: null }, source: 'osm' },
+  // the inside of Degner 1–2 is grass to the wall: the old 25–40 m band was drawn across the
+  // wedge between the two roads and up the crossover embankment
+  { name: 'Degner 1 → 2', sRange: [2076, 2207], left: { asphalt: [0, 4], grass: [37, 48], gravel: [4, 37] }, right: { asphalt: [0, 6.5], grass: [6.5, 21.5], gravel: null }, source: 'osm' },
+  { name: 'Degner 2', sRange: [2207, 2247], left: { asphalt: [0, 9], grass: [26.5, 37.5], gravel: [9, 26] }, right: { asphalt: [0, 5], grass: [5, 20], gravel: null }, source: 'osm' },
+  { name: 'crossover (under)', sRange: [2247, 2290], left: { asphalt: [0, 9], grass: [22, 29], gravel: [7.5, 22] }, right: { asphalt: [0, 5], grass: [5, 16], gravel: null }, source: 'osm' },
+  { name: 'crossover → 110R', sRange: [2290, 2492], left: { asphalt: [0, 6.5], grass: [6.5, 14.5], gravel: null }, right: { asphalt: [0, 5], grass: [5, 16.5], gravel: null }, source: 'osm' },
+  { name: '110R', sRange: [2492, 2604], left: { asphalt: [0, 12], grass: [12, 24], gravel: null }, right: { asphalt: [0, 8], grass: [8, 16], gravel: null }, source: 'photo', unverified: ['all bands'] },
+  { name: '110R → hairpin', sRange: [2604, 2640], left: { asphalt: [0, 10], grass: [10, 24], gravel: null }, right: { asphalt: [0, 8], grass: [8, 16], gravel: null }, source: 'photo', unverified: ['all bands'] },
+  { name: 'hairpin', sRange: [2640, 2760], left: { asphalt: [0, 9], grass: [9, 16], gravel: null }, right: { asphalt: [0, 7], grass: [22, 30], gravel: [7, 22] }, source: 'photo', unverified: ['gravel between the road edge and wall 183999765'] },
+  { name: 'hairpin exit → 200R', sRange: [2760, 3064], left: { asphalt: [0, 6], grass: [6, 14], gravel: null }, right: { asphalt: [0, 6], grass: [6, 16], gravel: null }, source: 'photo', unverified: ['no gravel on the inside of the 200R (aerial)'] },
+  { name: '200R → Spoon', sRange: [3064, 3552], left: { asphalt: [0, 6], grass: [6, 40], gravel: null }, right: { asphalt: [0, 6], grass: [6, 16.5], gravel: null }, source: 'osm' },
+  // outside (right) = asphalt then a gravel band at its far edge; inside (left) = grass to the
+  // infield hard-standing. The two were the wrong way round.
+  { name: 'Spoon 1–2', sRange: [3552, 3830], left: { asphalt: [0, 5], grass: [5, 20], gravel: null }, right: { asphalt: [0, 22], grass: [35, 44], gravel: [22, 35] }, source: 'photo', unverified: ['band widths ±4 m (aerial)'] },
+  { name: 'west straight', sRange: [3830, 4329], left: { asphalt: [0, 7], grass: [7, 12], gravel: null }, right: { asphalt: [0, 7], grass: [7, 12], gravel: null }, source: 'osm' },
+  { name: 'west straight (gravel)', sRange: [4329, 4521], left: { asphalt: [0, 7], grass: [7, 12], gravel: null }, right: { asphalt: [0, 4], grass: [22, 28], gravel: [4, 22] }, source: 'osm' },
+  { name: 'west straight end → bridge', sRange: [4521, 4713], left: { asphalt: [0, 4.5], grass: [4.5, 12], gravel: null }, right: { asphalt: [0, 8], grass: [8, 17], gravel: null }, source: 'osm' },
+  { name: '130R', sRange: [4713, 4900], left: { asphalt: [0, 7.5], grass: [7.5, 21], gravel: null }, right: { asphalt: [0, 11], grass: [29, 36], gravel: [11, 29] }, source: 'osm' },
+  { name: '130R exit', sRange: [4900, 4990], left: { asphalt: [0, 9], grass: [9, 16], gravel: null }, right: { asphalt: [0, 10], grass: [20, 30], gravel: [10, 20] }, source: 'osm', unverified: ['the bed tapers out by s ≈ 4960'] },
+  { name: '130R → chicane', sRange: [4990, 5148], left: { asphalt: [0, 9], grass: [9, 15], gravel: null }, right: { asphalt: [0, 4], grass: [4, 26], gravel: null }, source: 'osm' },
+  { name: 'chicane T16–T17', sRange: [5148, 5190], left: { asphalt: [0, 6], grass: [6, 30], gravel: null }, right: { asphalt: [0, 6], grass: [6, 24], gravel: null }, source: 'osm' },
+  { name: 'chicane exit', sRange: [5190, 5270], left: { asphalt: [0, 6], grass: [6, 30], gravel: null }, right: { asphalt: [0, 9], grass: [24, 32], gravel: [9, 24] }, source: 'osm' },
+  { name: 'T18 exit', sRange: [5270, 5450], left: { asphalt: [0, 17], grass: [25, 32], gravel: [17, 25] }, right: { asphalt: [0, 24], grass: [24, 34], gravel: null }, source: 'osm', unverified: ['the inside is a paved apron out to ≈ 28 m for s 5250–5340'] },
+  { name: 'main straight (final corner end)', sRange: [5450, 5500], left: { asphalt: [0, 8], grass: [8, 13.5], gravel: null }, right: { asphalt: [0, 11.5], grass: [11.5, 24], gravel: null }, source: 'osm' },
+  { name: 'main straight', sRange: [5500, 383], left: { asphalt: [0, 8], grass: [8, 13.5], gravel: null }, right: { asphalt: [0, 11.5], grass: [11.5, 24], gravel: null }, source: 'osm' },
 ]
 
 /** Painted run-off aprons on the inside of the slow corners (2026 photos; extents UNVERIFIED). */

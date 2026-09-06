@@ -230,7 +230,7 @@ const RUNOFF_MAX_LAT = 55
 /** An asphalt band narrower than this beyond the road edge is registration noise, not a surface. */
 const ASPHALT_MIN_W = 0.5
 /** Gravel starts behind the kerb line (as it always did), never in the flat strip's first metre. */
-const GRAVEL_INNER = 1.4
+const GRAVEL_INNER = 1.0
 /** Zone boundaries are blended over this many metres so adjacent tables never step. */
 const BAND_SMOOTH_M = 16
 
