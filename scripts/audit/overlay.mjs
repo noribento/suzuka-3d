@@ -38,6 +38,7 @@ const suz = await import('../../app/data/suzuka.ts')
 const args = process.argv.slice(2)
 const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : d }
 const only = flag('--section', null)?.split(',') ?? null
+const PATCHES_ONLY = args.includes('--patches')
 const OLD = args.includes('--old')
 const CACHE = path.join(ROOT, '.cache/audit')
 const meta = JSON.parse(fs.readFileSync(path.join(CACHE, 'meta.json'), 'utf8'))
@@ -200,6 +201,19 @@ for (const sc of spec.SCREENS) {
 }
 const fw = px(spec.FERRIS_WHEEL.en[0] * meta.k, -spec.FERRIS_WHEEL.en[1] * meta.k)
 svg.push(`<circle cx="${f1(fw[0])}" cy="${f1(fw[1])}" r="${24 / meta.mPerPx}" fill="none" stroke="#ffe100" stroke-width="1.5"/>`)
+
+// SURFACE_PATCHES: the world-space paved / unpaved polygons (the chicane apron and its islands).
+// `--patches` drops every other layer, which is how the ring numbers are read against the aerial.
+if (PATCHES_ONLY) svg.length = 0
+const PATCH_FILL = { asphalt: '#8a8a8a', turf: '#36a848', gravel: '#c8a870', grass: '#b9a878' }
+for (const p of spec.SURFACE_PATCHES ?? []) {
+  const ring = trackside.patchOutline(track, p, 2)
+  if (ring.length < 3) { console.warn(`patch ${p.name}: outline did not resolve`); continue }
+  poly(ring.map((q) => px(q.x, q.z)), '#000000', 1.2, null, PATCH_FILL[p.kind] ?? '#ff00ff')
+  svg[svg.length - 1] = svg[svg.length - 1].replace('<polygon ', '<polygon fill-opacity="0.4" ')
+  const c = ring.reduce((a, q) => [a[0] + q.x / ring.length, a[1] + q.z / ring.length], [0, 0])
+  text(px(c[0], c[1]), p.name, '#ffffff', 11)
+}
 
 const svgDoc = `<svg xmlns="http://www.w3.org/2000/svg" width="${meta.W}" height="${meta.H}">${svg.join('\n')}</svg>`
 const overlaid = path.join(CACHE, OLD ? 'mosaic-overlay-old.png' : 'mosaic-overlay.png')

@@ -5,9 +5,10 @@ import { CIRCUIT } from '~/data/suzuka'
 import { PAINTED_APRONS, RUNOFF_ZONES, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
-import { APRON_TILE_M, APRON_UV, ASPHALT_DETAIL_M, ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, apronPaintTexture, asphaltDetailMaps, asphaltMaps, boardTexture, concreteMaps, gravelMaps, kerbMaps, macroMap, type MaterialMaps } from './textures'
+import { APRON_TILE_M, APRON_UV, ASPHALT_DETAIL_M, ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, apronPaintTexture, asphaltDetailMaps, asphaltMaps, boardTexture, concreteMaps, gravelMaps, kerbMaps, macroMap, turfMaps, type MaterialMaps } from './textures'
 import { FLAT_STRIP, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
 import { grassSurfaceMaterial, pbrFromAssets, repeatMetres, tileMetres } from './materials'
+import { buildSurfacePatches } from './surfaces'
 import type { Terrain } from './environment'
 
 type Fn = (s: number) => number
@@ -403,6 +404,8 @@ export interface TrackMeshes {
   group: THREE.Group
   surface: THREE.Mesh
   startLampMaterials: THREE.MeshStandardMaterial[]
+  /** metres the SURFACE_PATCHES layer raises the ground at (s, lateral) — lines.ts rides on it */
+  surfaceLiftAt: (s: number, lateral: number) => number
 }
 
 /** Cross-section sample offsets (m beyond the asphalt edge) of the draped run-off ribbons. */
@@ -427,12 +430,12 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   const groundGeos: THREE.BufferGeometry[] = []
   const layout = runoffLayout(track)
   /** outer edge of the asphalt run-off, never beyond the draped verge (the bridge deck narrows it) */
-  const aOut = (s: number, side: Side) => Math.min(layout.asphaltOuter(s, side), hwAt(s) + ground.runoffWidth(s))
+  const aOut = (s: number, side: Side) => Math.min(layout.asphaltOuter(s, side), hwAt(s) + ground.runoffWidth(s, side))
   /** gravel band on `side`, narrowed with the verge near the bridge */
   const gravelAt = (s: number, side: Side): [number, number] | null => {
     const g = layout.gravel(s, side)
     if (!g) return null
-    const outer = Math.min(g[1], hwAt(s) + (ground.runoffWidth(s) * RUNOFF_MAX_LAT) / RUNOFF_WIDTH)
+    const outer = Math.min(g[1], hwAt(s) + (ground.runoffWidth(s, side) * RUNOFF_MAX_LAT) / RUNOFF_WIDTH)
     return outer - g[0] > 0.3 ? [g[0], outer] : null
   }
   /** height of the ground surface at (s, lat) relative to the road plane: the asphalt run-off where there is one, the grass otherwise */
@@ -461,7 +464,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   // across, 120 m along); u is metres from the road edge so the tile stays registered to it.
   const grassMat = grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [RUNOFF_WIDTH, 120], 0.8)
   const runoffGeo = (side: Side) => {
-    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.max(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s)) / RUNOFF_WIDTH))
+    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.max(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH))
     const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => ground.yAt(s, lat(s))])
     const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - hwAt(s)) / GRASS_UV_M
     // edges must run right-to-left (increasing lateral)
@@ -484,7 +487,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   const runoffAsphaltMat = pbr(asphaltMaps(false), {}, 1)
   addRoadSurface(runoffAsphaltMat, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
   const runoffAsphaltGeo = (side: Side) => {
-    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.min(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s)) / RUNOFF_WIDTH))
+    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.min(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH))
     const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => surfaceY(s, lat(s), side)])
     const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - hwAt(s)) / ASPHALT_WIDTH_M
     if (side < 0) {
@@ -500,6 +503,23 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   runoffAsphaltR.name = 'runoffAsphaltR'
   group.add(runoffAsphaltL, runoffAsphaltR)
   groundGeos.push(runoffAsphaltL.geometry, runoffAsphaltR.geometry)
+
+  // --- SURFACE_PATCHES: paved / unpaved AREAS that a lateral band cannot describe ---------------
+  // Built here rather than in buildEnvironment so the polygons join `groundGeos` and the terrain
+  // is clamped under them (buildLanes is not, it only rides on ground.worldY).
+  const gravelMat = pbr(gravelMaps(), {}, 1.0)
+  const patchAsphaltMat = pbr(asphaltMaps(false), {}, 1)
+  // an apron has no "along", so the macro variation is isotropic instead of the road's (1, 20/300)
+  addRoadSurface(patchAsphaltMat, new THREE.Vector2(ASPHALT_WIDTH_M / 120, ASPHALT_TILE_M / 120))
+  const patches = buildSurfacePatches(track, ground, groundHeightAt, {
+    asphalt: patchAsphaltMat,
+    turf: pbr(turfMaps(), { roughness: 0.95 }, 0.9),
+    gravel: gravelMat,
+    // the terrain's own tile scale and macro period, so the islands phase-lock to it
+    grass: grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [250, 250], 0.8),
+  })
+  for (const m of patches.meshes) group.add(m)
+  groundGeos.push(...patches.geometries)
 
   // --- kerbs and green strips from the KERBS table -------------------------------------------
   // Not from track.corners any more: the corner finder splits the 200R into seven gentle bends and
@@ -560,7 +580,6 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   // section is sampled at fixed fractions of the local width, fine enough (≤ 4 m at the widest
   // trap) to follow the terrain out to 55 m. The trap sits 2 cm proud of the flat strip / the
   // asphalt band and 4 cm above the draped grass further out.
-  const gravelMat = pbr(gravelMaps(), {}, 1.0)
   const gravelGeos: THREE.BufferGeometry[] = []
   const GRAVEL_EDGES = 11
   for (const run of gravelRuns(track)) {
@@ -607,7 +626,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
         const f = k / (across - 1)
         lats.push((s) => side * (hwAt(s) + inner(s) + f * width(s)))
       }
-      const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => surfaceY(s, lat(s), side) + DECAL_LIFT])
+      // + the SURFACE_PATCHES layer, so a decal painted on a patch is not buried under it
+      const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => surfaceY(s, lat(s), side) + patches.liftAt(s, lat(s)) + DECAL_LIFT])
       const uAt = lats.map((_l, k) => uRange[0] + (k / (across - 1)) * (uRange[1] - uRange[0]))
       if (side < 0) {
         edges.reverse()
@@ -796,7 +816,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   }
   terrain.clampUnder(pts, RUNOFF_LIFT + 0.05)
 
-  return { group, surface, startLampMaterials }
+  return { group, surface, startLampMaterials, surfaceLiftAt: patches.liftAt }
 }
 
 /**

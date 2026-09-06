@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three'
 import { OSM_FEATURES, type OsmFeature } from '~/data/suzuka-facilities'
-import type { Side } from '~/data/suzuka-facilities-spec'
+import type { PatchNode, Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 
 /** [s, lateral] sample, s in driving order inside the owning window */
@@ -182,6 +182,60 @@ export interface LineSource {
   samples?: LatSample[]
   /** how far from the centreline OSM vertices are still considered part of this line (default 70 m) */
   reach?: number
+  /**
+   * How an OSM way becomes lateral(s). `'nearest'` (the default) maps every vertex with
+   * `nearestOnRange` — right for a wall that runs alongside its road. `'ray'` intersects the
+   * perpendicular at s with the way instead, which is the only thing that works where the road
+   * curves tighter than the wall is far: the chicane's Q2 bank wall is 60-78 m out on the inside
+   * of an R21 corner, and every one of its vertices maps to the two ends of the corner, so the
+   * nearest projection leaves an 87 m hole and draws a chord through the run-off.
+   */
+  project?: 'nearest' | 'ray'
+}
+
+/**
+ * lateral(s) by intersecting the perpendicular at s with the way, keeping the nearest hit beyond
+ * the road edge (the track-facing face of a ribbon polygon, the same intent as `osmEdgeSamples`'
+ * per-bin minimum).
+ */
+export function osmRaySamples(track: Track, ids: number[], sRange: [number, number], side: Side, opts: { reach?: number; step?: number } = {}): LatSample[] {
+  const reach = opts.reach ?? 70
+  const step = opts.step ?? 2
+  const L = track.length
+  const [s0, s1] = sRange
+  const len = forwardDelta(s0, s1, L) || L
+  const ways: { x: number; z: number }[][] = []
+  for (const id of ids) {
+    const f = byId.get(id)
+    if (!f) continue
+    const pts = f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
+    if (f.closed && pts.length > 2) pts.push(pts[0]!)
+    ways.push(pts)
+  }
+  const out: LatSample[] = []
+  const c = new THREE.Vector3(), o = new THREE.Vector3()
+  for (let d = 0; d <= len; d += step) {
+    const s = track.wrap(s0 + Math.min(d, len))
+    track.pointAt(s, 0, c, 0)
+    track.pointAt(s, side, o, 0)
+    const nx = o.x - c.x, nz = o.z - c.z
+    let best = Infinity
+    const min = track.halfWidthAt(s)
+    for (const w of ways) {
+      for (let i = 0; i < w.length - 1; i++) {
+        const a = w[i]!, b = w[i + 1]!
+        const ex = b.x - a.x, ez = b.z - a.z
+        const den = nx * -ez - nz * -ex
+        if (Math.abs(den) < 1e-9) continue
+        const rx = a.x - c.x, rz = a.z - c.z
+        const t = (rx * -ez - rz * -ex) / den
+        const u = (nx * rz - nz * rx) / den
+        if (u >= 0 && u <= 1 && t > min && t < reach && t < best) best = t
+      }
+    }
+    if (best < Infinity) out.push([s, side * best])
+  }
+  return out
 }
 
 /**
@@ -195,7 +249,7 @@ const resolveCache = new WeakMap<Track, Map<string, ResolvedLine>>()
 export function resolveLineCached(track: Track, source: LineSource, sRange: [number, number], side: Side, minGap = 0.6): ResolvedLine {
   let cache = resolveCache.get(track)
   if (!cache) resolveCache.set(track, (cache = new Map()))
-  const key = `${sRange[0]}|${sRange[1]}|${side}|${minGap}|${source.reach ?? ''}|${(source.osm ?? []).join(',')}|${source.samples?.length ?? 0}`
+  const key = `${sRange[0]}|${sRange[1]}|${side}|${minGap}|${source.reach ?? ''}|${source.project ?? ''}|${(source.osm ?? []).join(',')}|${source.samples?.length ?? 0}`
   let hit = cache.get(key)
   if (!hit) cache.set(key, (hit = resolveLine(track, source, sRange, side, minGap)))
   return hit
@@ -206,7 +260,9 @@ export function resolveLine(track: Track, source: LineSource, sRange: [number, n
   const [s0, s1] = sRange
   const len = forwardDelta(s0, s1, L) || L
   let samples: LatSample[] = []
-  if (source.osm?.length) samples = osmEdgeSamples(track, source.osm, sRange, side, { reach: source.reach })
+  if (source.osm?.length) samples = source.project === 'ray'
+    ? osmRaySamples(track, source.osm, sRange, side, { reach: source.reach })
+    : osmEdgeSamples(track, source.osm, sRange, side, { reach: source.reach })
   if (source.samples?.length) {
     const hand = source.samples.map((p): LatSample => [track.wrap(p[0]), p[1]])
     // hand samples override OSM ones within 4 m of s
@@ -239,4 +295,109 @@ export function resolveLine(track: Track, source: LineSource, sRange: [number, n
   })
   const lat = lateralFn(samples, s0, L)
   return { s0, s1, samples, lat }
+}
+
+/**
+ * World-space closed outline of a SURFACE_PATCHES polygon, resampled every `step` metres.
+ *
+ * World space, not (s, lateral) — for the same reason `laneWorldPath` is: through the chicane the
+ * swept frame folds past ~16 m on the inside (see ground.ts FOLD_SAFE), so a lateral read off a
+ * map does not land where it reads, and a polygon interpolated in track coordinates tears. Each
+ * node is turned into world points independently; only then is the ring resampled.
+ */
+export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: number; z: number }[] {
+  const raw: { x: number; z: number }[] = []
+  const push = (x: number, z: number) => {
+    const prev = raw[raw.length - 1]
+    if (!prev || Math.hypot(x - prev.x, z - prev.z) > 1e-3) raw.push({ x, z })
+  }
+  const [s0, s1] = p.sRange
+  const minGap = p.minGap ?? 0.8
+  const atLat = (s: number, lat: number) => {
+    const hw = track.halfWidthAt(s)
+    const l = Math.abs(lat) < hw + minGap ? Math.sign(lat || 1) * (hw + minGap) : lat
+    track.pointAt(s, l, _v, 0)
+    push(_v.x, _v.z)
+  }
+
+  if (p.ring?.length) {
+    for (const node of p.ring) {
+      if (Array.isArray(node)) {
+        atLat(node[0], node[1])
+      } else if ('edge' in node) {
+        // the boundary a patch shares with the racing surface: the frame is exact this close in
+        const len = forwardDelta(node.from, node.to, track.length)
+        const off = node.off ?? 0.2
+        for (let d = 0; d <= len; d++) atLat(track.wrap(node.from + d), node.edge * (track.halfWidthAt(track.wrap(node.from + d)) + off))
+      } else {
+        const f = byId.get(node.way)
+        if (!f) continue
+        const pts = f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
+        const off = node.offset ?? 0
+        const out: { x: number; z: number }[] = []
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[Math.max(0, i - 1)]!, b = pts[Math.min(pts.length - 1, i + 1)]!
+          const dx = b.x - a.x, dz = b.z - a.z
+          const inv = 1 / (Math.hypot(dx, dz) || 1)
+          // left of the way's direction, the same convention as the track's own left normal
+          out.push({ x: pts[i]!.x + dz * inv * off, z: pts[i]!.z - dx * inv * off })
+        }
+        if (node.reverse) out.reverse()
+        for (const q of out) push(q.x, q.z)
+      }
+    }
+  } else if (p.osm?.length) {
+    for (const id of p.osm) {
+      const f = byId.get(id)
+      if (!f) continue
+      for (const [e, n] of f.en) {
+        const x = e * track.enScale, z = -n * track.enScale
+        const m = track.nearestOnRange(x, z, s0, s1, 60)
+        if (p.latMax && Math.abs(m.lateral) > p.latMax) continue
+        if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + minGap) { atLat(m.s, m.lateral); continue }
+        push(x, z)
+      }
+    }
+  }
+  if (raw.length < 3) return []
+
+  // resample the closed ring: straight for dense OSM outlines, Catmull-Rom for hand rings
+  const out: { x: number; z: number }[] = []
+  const add = (x: number, z: number) => {
+    const prev = out[out.length - 1]
+    if (!prev || Math.hypot(x - prev.x, z - prev.z) > 1e-4) out.push({ x, z })
+  }
+  const at = (i: number) => raw[((i % raw.length) + raw.length) % raw.length]!
+  const cr = (a: number, b: number, c: number, e: number, t: number) =>
+    0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - e) * t * t + (-a + 3 * b - 3 * c + e) * t * t * t)
+  for (let i = 0; i < raw.length; i++) {
+    const p1 = at(i), p2 = at(i + 1)
+    const n = Math.max(1, Math.round(Math.hypot(p2.x - p1.x, p2.z - p1.z) / step))
+    for (let k = 0; k < n; k++) {
+      const t = k / n
+      if (p.straight) add(p1.x + (p2.x - p1.x) * t, p1.z + (p2.z - p1.z) * t)
+      else {
+        const p0 = at(i - 1), p3 = at(i + 2)
+        add(cr(p0.x, p1.x, p2.x, p3.x, t), cr(p0.z, p1.z, p2.z, p3.z, t))
+      }
+    }
+  }
+  // wind positive in (x, -z) so the triangulation orientation is deterministic
+  let area = 0
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i]!, b = out[(i + 1) % out.length]!
+    area += a.x * -b.z - b.x * -a.z
+  }
+  if (area < 0) out.reverse()
+  return out
+}
+
+/** the shape `patchOutline` needs — kept structural so scripts can pass a plain object */
+export interface SurfacePatchLike {
+  sRange: [number, number]
+  ring?: PatchNode[]
+  osm?: number[]
+  straight?: boolean
+  latMax?: number
+  minGap?: number
 }

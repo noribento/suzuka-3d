@@ -317,6 +317,43 @@ function otherRoad(x, z, sRange, ownY, r = 45) {
   })
   return hit
 }
+/**
+ * The OSM footprint of every grandstand, in world XZ. Used for the projection-free
+ * barrier-inside-a-stand test: a stand in the figure-8 fold (Q2) has no single lateral(s), so the
+ * (s, lateral) test below is blind exactly where it is needed most.
+ */
+const standFootprints = []
+for (const st of spec.STANDS) {
+  for (const id of st.osmWays ?? []) {
+    const f = osm.OSM_FEATURES.find((o) => o.id === id)
+    if (!f?.closed) continue
+    standFootprints.push({ id: st.id, ring: f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale })) })
+  }
+}
+/** the paved SURFACE_PATCHES aprons, so a barrier cannot be planted in the middle of one */
+const apronRings = spec.SURFACE_PATCHES.filter((p) => p.kind === 'asphalt').map((p) => ({ name: p.name, ring: trackside.patchOutline(track, p, 2) }))
+function pavedApronAt(x, z) {
+  for (const { name, ring } of apronRings) {
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i], b = ring[j]
+      if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+    }
+    if (inside) return name
+  }
+  return null
+}
+function standFootprintAt(x, z) {
+  for (const { id, ring } of standFootprints) {
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i], b = ring[j]
+      if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+    }
+    if (inside) return id
+  }
+  return null
+}
 const seenRunIds = new Set()
 const runRows = []
 for (const run of bar.BARRIERS) {
@@ -353,6 +390,8 @@ for (const run of bar.BARRIERS) {
   let minClear = Infinity, worstOther = null, standHit = null, maxStep = 0
   const len = arcLen(s0, s1)
   let prevLat = null
+  let standWorldHit = null
+  let apronHit = null
   const v = new THREE.Vector3()
   for (let d = 0; d <= len; d += 2) {
     const s = wrap(s0 + d)
@@ -365,6 +404,13 @@ for (const run of bar.BARRIERS) {
     track.pointAt(s, lat, v, 0)
     const o = otherRoad(v.x, v.z, run.sRange, v.y)
     if (o && (!worstOther || o.lat < worstOther.lat)) worstOther = { ...o, s }
+    // WORLD-space stand test: the (s, lateral) one below cannot see Q2, whose bars sit where the
+    // perpendicular sweeps back and forth, so its footprint has no single lateral(s). This one is
+    // projection-free — it just asks whether the barrier is standing inside a mapped grandstand.
+    const inside = standFootprintAt(v.x, v.z)
+    if (inside && !standWorldHit) standWorldHit = { id: inside, s, x: v.x, z: v.z }
+    const paved = pavedApronAt(v.x, v.z)
+    if (paved) apronHit = (apronHit ?? 0) + 2
     for (const st of spec.STANDS) {
       // Q2's (s, lateral) is nominal (its bars sit in the figure-8 fold and are placed from EN)
       if (st.side !== run.side || !inArc(s, st.sRange) || st.unverified?.some((u) => /fold/.test(u))) continue
@@ -376,6 +422,8 @@ for (const run of bar.BARRIERS) {
   if (minClear < RUN_CLEAR) fail(`${run.id}: comes ${fmt(RUN_CLEAR - minClear)} m inside the road edge`)
   if (worstOther) fail(`${run.id}: crosses another stretch of road at s ${fmt(worstOther.s, 0)} (that road's s ${fmt(worstOther.s2 ?? worstOther.s, 0)}, lateral ${fmt(worstOther.lat)})`)
   if (standHit) fail(`${run.id}: runs inside stand ${standHit.id} at s ${fmt(standHit.s, 0)} (lateral ${fmt(standHit.lat)} vs front ${fmt(standHit.front)})`, soft)
+  if (standWorldHit) fail(`${run.id}: stands inside the OSM footprint of ${standWorldHit.id} at s ${fmt(standWorldHit.s, 0)} (world ${fmt(standWorldHit.x, 0)},${fmt(standWorldHit.z, 0)})`)
+  if (apronHit > 8) fail(`${run.id}: ${apronHit} m of it stands on a paved SURFACE_PATCHES apron (a barrier belongs at the edge of the tarmac, not in it)`)
   if (maxStep > 6) fail(`${run.id}: ${fmt(maxStep)} m lateral step over 2 m of s (a right-angle jog)`, soft)
   runRows.push({ id: run.id, kind: run.kind, side: run.side, s: `${s0}→${s1}`, samples: r.samples.length, clear: fmt(minClear), src: run.source.osm ? `osm ${run.source.osm.length}` : `hand ${run.source.samples.length}`, unv: run.unverified ? 'U' : '' })
 }

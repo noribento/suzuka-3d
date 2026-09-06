@@ -36,7 +36,7 @@ export function buildLanes(track: Track, ground: Ground): THREE.Group {
   for (const def of OFFSET_LANES) {
     const pts = laneWorldPath(track, def)
     if (pts.length < 3) continue
-    road.push(sweepLane(track, ground, pts, def.width))
+    if (!def.paved) road.push(sweepLane(track, ground, pts, def.width))
     for (const k of def.kerbs ?? []) {
       const from = Math.floor(k.from * (pts.length - 1))
       const to = Math.ceil(k.to * (pts.length - 1))

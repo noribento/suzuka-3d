@@ -467,6 +467,39 @@ export function grassMaps(striped = false): MaterialMaps {
 }
 
 /**
+ * Artificial turf (人工芝) — the run-off surface on the inside of the chicane and the same
+ * product as the KERBS `kind: 'green'` strips, so it is built around STRIP_GREEN.
+ *
+ * Not grassMaps with a green palette: turf is a manufactured mat, so it has an even pile with a
+ * visible tufting grid and none of the clumping, dirt patches or green-up variation of a real
+ * sward. Tile 2 m.
+ */
+export function turfMaps(): MaterialMaps {
+  return cached(`turf-${textureScale}`, () => {
+    const [w, h] = scaled(512, 512)
+    const n = new Noise2(17)
+    const lit = hexToSrgb(COLOURS.turfGreen.lit), mid = hexToSrgb(COLOURS.turfGreen.mid), shade = hexToSrgb(COLOURS.turfGreen.shade)
+    const height = new Float32Array(w * h)
+    const c = paint(w, h, (x, y, out) => {
+      const u = x / w, v = y / h
+      // pile: fine anisotropic fibres, plus a slow broad wear pattern
+      const pile = n.fbm(u * 192, v * 192, 192, 192, 2, 0.5)
+      const broad = n.fbm(u * 5, v * 5, 5, 5, 3, 0.6)
+      // the tufting grid: a shallow seam every 1/8 tile (25 cm on a 2 m tile)
+      const seam = Math.min(Math.abs(((u * 8) % 1) - 0.5), Math.abs(((v * 8) % 1) - 0.5)) * 2
+      const seamK = 1 - smooth((0.18 - seam) / 0.18) * 0.35
+      const t = Math.min(1, 0.25 + pile * 0.85)
+      const k = (1 + (broad - 0.5) * 0.1) * seamK
+      out[0] = lerp(lerp(shade[0], mid[0], t), lit[0], t * t) * k
+      out[1] = lerp(lerp(shade[1], mid[1], t), lit[1], t * t) * k
+      out[2] = lerp(lerp(shade[2], mid[2], t), lit[2], t * t) * k
+      height[y * w + x] = pile * 0.75 + (1 - seamK) * 0.6
+    })
+    return { map: makeTexture(c, { aniso: groundAniso() }), normalMap: normalMapFrom(height, w, h, 1.4, 1.4, groundAniso()) }
+  })
+}
+
+/**
  * Fraction of the asphalt texture's width taken by one painted edge line (asphaltMaps(true)),
  * so the pit lane can inset its u range past them. Derived from the base tile's own width and
  * the same 15 cm / ASPHALT_WIDTH_M the maker uses; the rounding lands on the same fraction at
@@ -1127,16 +1160,20 @@ export function tyreWallTexture(): THREE.Texture {
       ctx.arc(cx, cy, 62, 0, Math.PI * 2)
       ctx.fill()
     }
-    // conveyor belt over the lower two rows
+    // Conveyor belting over the WHOLE face, which is how Suzuka wraps its stacks: in the 国土地理院
+    // aerial the tyre walls read at luminance 172-206, i.e. white, not black. It used to cover only
+    // the lower two rows, which left a black band along the top of every tyre barrier on the lap.
     ctx.fillStyle = '#e8e8e6'
-    ctx.fillRect(0, 128, w, 256)
+    ctx.fillRect(0, 8, w, h - 8)
     ctx.fillStyle = '#c8c8c4'
-    ctx.fillRect(0, 128, w, 6)
-    ctx.fillRect(0, 250, w, 5)
+    for (const y of [8, 128, 250, 330]) ctx.fillRect(0, y, w, 5)
+    // the tyre bulges still read through the belting
+    ctx.fillStyle = 'rgba(0,0,0,0.07)'
+    for (let row = 0; row < 3; row++) ctx.fillRect(0, h - row * 128 - 118, w, 34)
     ctx.fillStyle = '#c8102e'
     ctx.fillRect(0, 300, w, 40)
     ctx.fillStyle = 'rgba(0,0,0,0.12)'
-    ctx.fillRect(w - 3, 128, 3, 256)
+    ctx.fillRect(w - 3, 8, 3, h - 8)
     return makeTexture(c)
   })
 }

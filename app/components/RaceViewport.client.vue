@@ -281,7 +281,7 @@ async function setup() {
   ctx.scene.add(trackMeshes.group)
   const barriers = buildBarriers(track, q, env.ground)
   ctx.scene.add(barriers)
-  const whiteLines = buildLines(track, env.ground)
+  const whiteLines = buildLines(track, env.ground, trackMeshes.surfaceLiftAt)
   setLineViewportHeight(ctx.renderer.getDrawingBufferSize(new THREE.Vector2()).y)
   ctx.scene.add(whiteLines)
   // nothing in these trees moves except the Ferris wheel: compute their matrices once

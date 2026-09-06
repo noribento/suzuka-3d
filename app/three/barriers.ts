@@ -58,7 +58,10 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
   const concreteMat = new THREE.MeshStandardMaterial({ map: concreteTex.map, normalMap: concreteTex.normalMap, roughnessMap: concreteTex.roughnessMap, color: 0xd8d8d4, roughness: 0.95, side: THREE.DoubleSide })
   const capMat = new THREE.MeshStandardMaterial({ map: concreteTex.map, color: 0xcfcfca, roughness: 0.95 })
   const tyreMat = new THREE.MeshStandardMaterial({ map: tyreWallTexture(), roughness: 0.9, side: THREE.DoubleSide })
-  const tyreTopMat = new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.95 })
+  // Suzuka wraps its tyre stacks in white conveyor belting that folds over the top, so from above
+  // they read as WHITE lines (the 国土地理院 aerial samples them at luminance 172-206). The old
+  // near-black cap was 1.3 m wide, which is every black line in a top-down render of the chicane.
+  const tyreTopMat = new THREE.MeshStandardMaterial({ color: 0xd9d7cf, roughness: 0.9 })
   const postMat = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.6, metalness: 0.7 })
   const a2c = quality.msaa > 0
   const fenceMat = new THREE.MeshStandardMaterial({ map: chainLinkTexture(), alphaTest: a2c ? 0.3 : 0.45, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 })
@@ -92,14 +95,16 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
 
     if (run.kind !== 'fence') {
       // the face towards the track, then a cap over the top for the solid kinds
-      const face = wallGeometry(track, s0, s1, lat, bottom, top, 2, k.tile, run.kind === 'tyre' ? 0.66 : undefined)
+      // uScale scales V, and tyreWallTexture is one whole 1.95 m wall (three rows behind the belt),
+      // so it is the wall's height — 0.66 squashed it 3x and tiled it, giving 22 cm "tyres"
+      const face = wallGeometry(track, s0, s1, lat, bottom, top, 2, k.tile, run.kind === 'tyre' ? k.top - k.bottom : undefined)
       geos[run.kind === 'armco' ? 'rail' : run.kind === 'guardrail' ? 'guard' : run.kind === 'tyre' ? 'tyre' : 'concrete']!.push(face)
       if (k.cap > 0) {
         const inner = run.side > 0 ? back : lat
         const outer = run.side > 0 ? lat : back
         geos[run.kind === 'tyre' ? 'tyreTop' : 'cap']!.push(ribbonGeometry(track, s0, s1, inner, outer, top, top, 2, 2))
         // the back face, so a wall seen from the paddock is not a one-sided sheet
-        geos[run.kind === 'tyre' ? 'tyre' : 'concrete']!.push(wallGeometry(track, s0, s1, back, bottom, top, 4, k.tile, run.kind === 'tyre' ? 0.66 : undefined))
+        geos[run.kind === 'tyre' ? 'tyre' : 'concrete']!.push(wallGeometry(track, s0, s1, back, bottom, top, 4, k.tile, run.kind === 'tyre' ? k.top - k.bottom : undefined))
       }
       if (k.posts) for (let d = 0; d <= len; d += 4) addPost(s0 + d, lat(s0 + d), base(s0 + d) + 0.1, 0.85, 0.14, { m: postMatrices, s: postS })
     }

@@ -32,17 +32,21 @@ const MIN_HALF_PX = 0.6
  * and `aHalf` the signed half-width in metres, and the offset is applied in view depth, so the
  * paint keeps its real size in close-ups and stays visible from the air.
  */
-export function buildLines(track: Track, ground: Ground): THREE.Mesh {
+export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: number, lateral: number) => number = () => 0): THREE.Mesh {
   const L = track.length
   const pit = CIRCUIT.pit
   const hwAt: Fn = (s) => track.halfWidthAt(s)
   const geos: THREE.BufferGeometry[] = []
 
-  /** height of the surface the paint lies on: the flat strip under the kerbs, else the road plane */
+  /**
+   * Height of the surface the paint lies on: the flat strip under the kerbs, else the road plane.
+   * `surfaceLiftAt` adds the SURFACE_PATCHES layer (surfaces.ts) — the chicane apron sits 3 cm
+   * proud of the verge, and without this the two-wheel chicane's edge lines are buried under it.
+   */
   const surfaceY = (s: number, lat: number): number => {
     const off = Math.abs(lat) - hwAt(s)
     if (off <= 0) return LIFT
-    return (off <= FLAT_STRIP ? STRIP_DROP : ground.yAt(s, lat)) + LIFT
+    return (off <= FLAT_STRIP ? STRIP_DROP : ground.yAt(s, lat) + surfaceLiftAt(s, lat)) + LIFT
   }
 
   /**

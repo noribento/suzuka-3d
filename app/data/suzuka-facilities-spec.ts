@@ -185,7 +185,12 @@ export const COLOURS = {
   gravel: { lit: '#CFC29E', mid: '#BFB08C', shade: '#9E9070' },
   /** painted aprons: hairpin inside blue + white chevrons, chicane inside turquoise (2026 photos, hex UNVERIFIED) */
   apronBlue: { lit: '#2457a8', mid: '#1c4690', shade: '#143468' },
+  /** the app painted the chicane's inside turquoise from the 2017-20 aerial, which has a teal
+   *  cast (its asphalt samples #a5a099); the 2026 capture shows plain green turf. No row uses
+   *  apronTurquoise or APRON_UV.turquoise any more — see COLOURS.turfGreen. */
   apronTurquoise: { lit: '#3fb3b0', mid: '#2f9a98', shade: '#237574' },
+  /** artificial turf (人工芝): the chicane's inside run-off and the KERBS kind:'green' strips */
+  turfGreen: { lit: '#4CB85E', mid: '#36A848', shade: '#24713A' },
   chevronWhite: { lit: '#f6f6f2', mid: '#e9e9e4', shade: '#cfcfca' },
 } as const
 
@@ -1054,8 +1059,11 @@ export const RUNOFF_ZONES: RunoffZone[] = [
   { name: 'west straight (gravel)', sRange: [4329, 4521], left: { asphalt: [0, 7], grass: [7, 12], gravel: null }, right: { asphalt: [0, 4], grass: [22, 28], gravel: [4, 22] }, source: 'osm' },
   { name: 'west straight end → bridge', sRange: [4521, 4713], left: { asphalt: [0, 4.5], grass: [4.5, 12], gravel: null }, right: { asphalt: [0, 8], grass: [8, 17], gravel: null }, source: 'osm' },
   { name: '130R', sRange: [4713, 4900], left: { asphalt: [0, 7.5], grass: [7.5, 21], gravel: null }, right: { asphalt: [0, 11], grass: [29, 36], gravel: [11, 29] }, source: 'osm' },
-  { name: '130R exit', sRange: [4900, 4990], left: { asphalt: [0, 9], grass: [9, 16], gravel: null }, right: { asphalt: [0, 10], grass: [20, 30], gravel: [10, 20] }, source: 'osm', unverified: ['the bed tapers out by s ≈ 4960'] },
-  { name: '130R → chicane', sRange: [4990, 5148], left: { asphalt: [0, 9], grass: [9, 15], gravel: null }, right: { asphalt: [0, 4], grass: [4, 26], gravel: null }, source: 'osm' },
+  // the left bed is OSM natural=sand 471430731 (s 4902–5081, inner +8.4…+9.1, outer +16.3…+20.7),
+  // with tyre wall 467219902 standing on its outer edge — the app had it as grass
+  { name: '130R exit', sRange: [4900, 4990], left: { asphalt: [0, 8.5], grass: [16.5, 24], gravel: [8.5, 16.5] }, right: { asphalt: [0, 10], grass: [20, 30], gravel: [10, 20] }, source: 'osm', unverified: ['the bed tapers out by s ≈ 4960'] },
+  { name: '130R → chicane', sRange: [4990, 5081], left: { asphalt: [0, 8.5], grass: [16.5, 24], gravel: [8.5, 16.5] }, right: { asphalt: [0, 4], grass: [4, 26], gravel: null }, source: 'osm' },
+  { name: 'chicane approach', sRange: [5081, 5148], left: { asphalt: [0, 9], grass: [9, 15], gravel: null }, right: { asphalt: [0, 4], grass: [4, 26], gravel: null }, source: 'osm' },
   { name: 'chicane T16–T17', sRange: [5148, 5190], left: { asphalt: [0, 6], grass: [6, 30], gravel: null }, right: { asphalt: [0, 6], grass: [6, 24], gravel: null }, source: 'osm' },
   { name: 'chicane exit', sRange: [5190, 5270], left: { asphalt: [0, 6], grass: [6, 30], gravel: null }, right: { asphalt: [0, 9], grass: [24, 32], gravel: [9, 24] }, source: 'osm' },
   { name: 'T18 exit', sRange: [5270, 5450], left: { asphalt: [0, 17], grass: [25, 32], gravel: [17, 25] }, right: { asphalt: [0, 24], grass: [24, 34], gravel: null }, source: 'osm', unverified: ['the inside is a paved apron out to ≈ 28 m for s 5250–5340'] },
@@ -1068,7 +1076,91 @@ export const PAINTED_APRONS: { name: string; sRange: [number, number]; side: Sid
   // Sides corrected by the 2026-09 aerial audit: both aprons are painted on the INSIDE of their
   // corner (the app had the hairpin's on the outside and one patch outside each chicane element).
   { name: 'ヘアピン内側', sRange: [2655, 2740], side: 1, width: 7, colour: COLOURS.apronBlue.mid, pattern: 'chevrons', unverified: ['width', 'hex'] },
-  { name: 'シケイン内側 T17', sRange: [5185, 5245], side: 1, width: 15, colour: COLOURS.apronTurquoise.mid, pattern: 'solid', unverified: ['hex'] },
+  // The chicane's inside is NOT paint: it is artificial turf, and a 15 m lateral band there
+  // collapses to a cusp (the chicane's radius is 20-23 m). It is a SURFACE_PATCHES 'turf' patch.
+]
+
+export type SurfaceKind = 'asphalt' | 'turf' | 'gravel' | 'grass'
+
+/**
+ * One node of a patch outline: an explicit `[s, lateral]` vertex, or a stretch of the road edge
+ * on `side`, `off` metres beyond it — the boundary a patch shares with the racing surface, where
+ * the (s, lateral) frame is exact.
+ */
+export type PatchNode =
+  | [number, number]
+  | { edge: Side; from: number; to: number; off?: number }
+  /** an OSM way's world polyline, `offset` metres to the LEFT of its own direction of travel */
+  | { way: number; offset?: number; reverse?: boolean }
+
+export interface SurfacePatch {
+  name: string
+  kind: SurfaceKind
+  /** the stretch of road every node is measured against — never a global nearest (figure-8 fold) */
+  sRange: [number, number]
+  /** outline, closed implicitly; omit when `osm` supplies the ring */
+  ring?: PatchNode[]
+  /** closed OSM way(s) to take the ring from, else provenance for a hand-read `ring` */
+  osm?: number[]
+  /** paint order: higher draws later and sits higher (the islands paint back over the apron) */
+  layer: number
+  /** join the nodes with straight segments instead of a spline (dense OSM outlines) */
+  straight?: boolean
+  /** drop ring vertices further out than this */
+  latMax?: number
+  /** never closer to the centreline than the half-width + this */
+  minGap?: number
+  source: 'osm' | 'photo'
+  unverified?: string[]
+  note?: string
+}
+
+/**
+ * Paved / unpaved areas that are not lateral bands.
+ *
+ * A RUNOFF_ZONES band is a lateral(s) function, and at the chicane that cannot express the
+ * ground truth twice over: the Casio Triangle's apron reaches 45 m to the LEFT, while a ribbon
+ * swept past ~16 m to the inside of a 20-23 m corner turns inside out (ground.ts FOLD_SAFE).
+ * These are world-space polygons instead, triangulated in XZ and draped on the same surface the
+ * run-off ribbons use. They are painted in `layer` order — no holes, the islands simply paint
+ * back over the apron.
+ */
+export const SURFACE_PATCHES: SurfacePatch[] = [
+  // The GP road, the escape road, the two-wheel double chicane and the run-off between them are
+  // ONE continuous asphalt sheet in the 国土地理院 aerial (misc/audit/sections/16-chicane-q2-aerial.png)
+  // and in the user's 2026 Google capture. The app used to paint all of it dormant grass.
+  // The outer edge is taken from the two-wheel loop itself rather than hand-read [s, lateral]:
+  // the chicane's frame folds past ~16 m on the inside, so a lateral of +45 at s5205 does NOT
+  // land where it reads on a map (it is 10 m short of the loop). Beyond the loop's kerb the
+  // aerial is warm-toned dirt, so the loop's outer kerb IS the edge of the tarmac.
+  {
+    name: 'シケイン舗装エプロン', kind: 'asphalt', layer: 0, sRange: [5100, 5300], source: 'photo',
+    ring: [
+      { edge: 1, from: 5126, to: 5262, off: 0.2 },
+      { way: 183391653, offset: 5.0, reverse: true },
+    ],
+    unverified: ['the 5.0 m offset is half the loop width + its kerb, read off the aerial (±1.5 m)'],
+  },
+  // the right side is paved out to the inner edge of OSM grass 467219900 (−9.9…−14.2)
+  // The outer edge is the measured one: walking outward from the road edge in the aerial and
+  // taking the first 4 m that stop reading as pavement (the first 1-2 m are the kerb, which reads
+  // warm). From s5205 the `chicane T17 exit` run-off band already covers the width, so the patch
+  // stops there.
+  {
+    name: 'シケイン舗装エプロン（右）', kind: 'asphalt', layer: 0, sRange: [5120, 5230], source: 'photo',
+    ring: [
+      { edge: -1, from: 5128, to: 5205, off: 0.2 },
+      [5205, -12.5], [5195, -13.0], [5185, -14.0], [5175, -16.5], [5165, -16.5], [5155, -15.0],
+      [5148, -24.0], [5140, -25.0], [5133, -16.0], [5128, -9.0],
+    ],
+    unverified: ['aerial at 0.49 m/px, ±2 m'],
+  },
+  // 人工芝 on the inside of T17 — a real green surface, NOT the turquoise paint the app had.
+  // OSM maps it as landuse=grass, and sampling the aerial inside that ring is 99 % green, so the
+  // whole polygon is the turf: no separate dirt island is needed.
+  // (the dirt right of the road needs no patch either: the right apron ring stops at its inner
+  // edge, so the terrain grass shows through beyond it)
+  { name: 'シケイン内側 人工芝', kind: 'turf', layer: 1, sRange: [5150, 5270], source: 'osm', straight: true, osm: [467152470], unverified: ['hex'] },
 ]
 
 /** Debris-fence height in front of the stands: FIA-standard 3.5 m; Suzuka-specific heights UNVERIFIED. */

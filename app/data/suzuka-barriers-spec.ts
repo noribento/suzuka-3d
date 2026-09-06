@@ -32,7 +32,7 @@ export interface BarrierRun {
   /** the stretch of road the run belongs to, in driving order (end < start across the start line) */
   sRange: [number, number]
   /** OSM way ids (road-facing edge) and / or hand samples [s, lateral]; hand samples win within 4 m */
-  source: { osm?: number[]; samples?: [number, number][]; reach?: number }
+  source: { osm?: number[]; samples?: [number, number][]; reach?: number; project?: 'nearest' | 'ray' }
   /** never closer to the road than the half-width + this (m); OSM registration guard */
   minGap?: number
   /** debris fence above the top of the barrier (m); 0 / undefined = none */
@@ -75,7 +75,15 @@ export const BARRIERS: BarrierRun[] = [
   { id: '130r-inside-verge', kind: 'guardrail', side: 1, sRange: [4740, 4830], source: { osm: [471532691] } },
   { id: '130r-inside-wall', kind: 'concrete', side: 1, sRange: [4830, 4905], fence: 2.6, source: { osm: [468377693] } },
   { id: 'p-front-tyres', kind: 'tyre', side: 1, sRange: [4905, 5160], fence: 2.6, source: { osm: [467219902] } },
-  { id: 'chicane-left-wall', kind: 'concrete', side: 1, sRange: [5160, 5335], fence: 2.6, source: { osm: [470173101], reach: 110 }, note: 'round the escape road, the painted apron and the Q2 blocks', unverified: ['5174–5261 (the far side of the escape apron) is interpolated between the two OSM edges'] },
+  // OSM 470173101 is ONE 160 m wall along the foot of the Q2 / Q1 bank, world (183,-164) to
+  // (341,-184). The lap loops north between its ends, so no vertex of it has a nearest centreline
+  // point with s in (5178, 5261): the nearest projection left an 87 m straight chord standing in
+  // the run-off and crossing the two-wheel loop. `project: 'ray'` casts the perpendicular at each
+  // s instead. That parameterisation is not monotone — it walks the wall out to s5198, back to
+  // s5235 and out again — so the run is cut at the turn (outbound reaches along-way 3.15 at s5172,
+  // the return branch is at 3.11 at s5235) and the wall is swept exactly once, end to end.
+  { id: 'chicane-escape-wall', kind: 'concrete', side: 1, sRange: [5160, 5172], fence: 2.6, source: { osm: [470173101], project: 'ray', reach: 60 }, note: 'west leg of the Q2 bank wall, from the end of the P tyre wall to the mouth of the escape road; 12 m of s sweep 32 m of wall' },
+  { id: 'chicane-q2-front-wall', kind: 'concrete', side: 1, sRange: [5235, 5335], fence: 2.6, source: { osm: [470173101], project: 'ray', reach: 85 }, note: 'the rest of the same wall, round the back of the chicane triangle and in front of the Q2 bars and Q1; +62 m at the T17 apex, closing to +17 at the T18 entry' },
   { id: 't18-outside-tyres', kind: 'tyre', side: 1, sRange: [5335, 5452], fence: 2.6, source: { osm: [468778567] } },
   { id: 's-front', kind: 'tyre', side: 1, sRange: [5452, 5546], fence: 2.6, source: { osm: [471430726, 469931177] } },
 
@@ -114,7 +122,10 @@ export const BARRIERS: BarrierRun[] = [
   { id: '130r-exit-pocket-tyres', kind: 'tyre', side: -1, sRange: [4990, 5124], source: { osm: [467219910] }, note: 'the tyre wall behind the exit gravel pocket' },
   { id: '130r-exit-wall', kind: 'concrete', side: -1, sRange: [4997, 5085], source: { osm: [184102364] }, unverified: ['starts 10 m outside the end of the 130R tyre wall — check the joint on the overlay'] },
   { id: 'chicane-approach-right-a', kind: 'guardrail', side: -1, sRange: [5085, 5134], minGap: 2.0, source: { osm: [467219908] } },
-  { id: 'chicane-approach-right-b', kind: 'guardrail', side: -1, sRange: [5150, 5203], minGap: 2.0, source: { samples: P([[5150, -8.0], [5175, -8.5], [5203, -9.0]]) }, note: 'gap at 5134–5150 for the two-wheel pit-in slip road (OSM 467219908 stops at the slip)', unverified: ['aerial only'] },
+  // Moved out from the -8…-9 the 2026-09 audit guessed: walking outward from the road edge in the
+  // aerial, the run-off there is paved to 7–11 m past it (SURFACE_PATCHES 'シケイン舗装エプロン（右）'),
+  // so a rail at -9 stood in the middle of the tarmac. It now follows the outer edge of that apron.
+  { id: 'chicane-approach-right-b', kind: 'guardrail', side: -1, sRange: [5150, 5203], minGap: 2.0, source: { samples: P([[5150, -16.0], [5160, -17.5], [5175, -17.5], [5185, -15.0], [5195, -14.0], [5203, -13.5]]) }, note: 'gap at 5134–5150 for the two-wheel pit-in slip road (OSM 467219908 stops at the slip)', unverified: ['no OSM way and not resolvable at 0.49 m/px — read from the edge of the paved run-off, ±3 m'] },
   { id: 'chicane-exit-tyres', kind: 'tyre', side: -1, sRange: [5203, 5252], source: { osm: [467219893, 467219895, 467219896, 467219894] } },
   { id: 'pit-entry-outer-fence', kind: 'fence', side: -1, sRange: [5250, 5450], source: { samples: P([[5250, -21.0], [5300, -21.5], [5350, -21.6], [5400, -22.0], [5450, -24.0]]) }, note: 'car-park fence behind the pit-entry lane' },
   { id: 't18-pit-entry-separator', kind: 'concrete', side: -1, sRange: [5389, 5538], fence: 2.2, source: { osm: [471532694], samples: P([[5520, -10.5], [5538, -9.7]]) }, note: 'between the track and the pit-entry lane; the pit wall (pit-complex) continues from 5538' },
@@ -238,6 +249,8 @@ export interface OffsetLaneDef {
   latMax?: number
   /** kerbs on the lane, as fractions of its length [from, to] and the lane side (+1 = left of the lane's direction) */
   kerbs?: { from: number; to: number; side: Side }[]
+  /** the lane already runs on a SURFACE_PATCHES apron: draw its lines and kerbs, not a second ribbon */
+  paved?: boolean
   lines?: boolean
   unverified?: string[]
 }
@@ -246,7 +259,11 @@ export const OFFSET_LANES: OffsetLaneDef[] = [
   // the OSM way only maps the first spur (out to ≈ −25); the loop's centreline is read off the
   // aerial (measured outer edge minus half the 10 m width)
   { name: '200R 二輪シケイン', osmWay: 183309794, samples: P([[2931, -6], [2939, -22], [2952, -33], [2975, -45], [3003, -51], [3016, -46], [3024, -36], [3040, -21], [3050, -8]]), sRange: [2925, 3055], side: -1, width: 10, lines: true, kerbs: [{ from: 0.12, to: 0.3, side: 1 }, { from: 0.42, to: 0.6, side: -1 }, { from: 0.72, to: 0.9, side: 1 }] },
-  { name: 'Astemo 二輪ダブルシケイン', osmWay: 183391653, sRange: [5145, 5265], side: 1, width: 8, lines: true },
+  // `paved`: the Casio Triangle is one asphalt sheet (SURFACE_PATCHES 'シケイン舗装エプロン'), so a
+  // second 8 m ribbon of the same texture at a different lift would only add a seam. The row must
+  // stay in the table even so — props.ts builds its skip-set from OFFSET_LANES, and dropping it
+  // would resurrect the old terrain-draped ribbon across the racing surface.
+  { name: 'Astemo 二輪ダブルシケイン', osmWay: 183391653, sRange: [5145, 5265], side: 1, width: 8, paved: true, lines: true, kerbs: [{ from: 0.16, to: 0.40, side: 1 }, { from: 0.56, to: 0.84, side: -1 }], unverified: ['kerb extents read off the aerial'] },
   { name: '西コースピットレーン', osmWay: 411295350, sRange: [4150, 4375], side: -1, width: 8, lines: true },
   { name: '二輪ピット入口スリップ', osmWay: 411296898, sRange: [5125, 5215], side: -1, width: 6, latMax: 48, lines: true },
   { name: 'ピット入口への接続路', osmWay: 411291883, sRange: [5270, 5395], side: -1, width: 7, lines: false },
