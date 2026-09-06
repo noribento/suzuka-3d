@@ -876,7 +876,7 @@ export const PIT_GARAGE1_S = 5887.6
 /** 11 team garages + 1 empty bay under the podium (FIA / Pirelli). */
 export const PIT_GARAGE_COUNT = 12
 /** Planned CIRCUIT.pit values (phase 4 updates suzuka.ts; facilities-check compares them). */
-export const PIT_PLANNED = { garageFront: PIT_GARAGE_FRONT, boxSpacing: PIT_GARAGE_PITCH, laneOffset: -15.0, laneWidth: 10, wallOffset: -9.4 } as const
+export const PIT_PLANNED = { garageFront: PIT_GARAGE_FRONT, boxSpacing: PIT_GARAGE_PITCH, laneOffset: -14.6, laneWidth: 9, wallOffset: -9.4 } as const
 
 /** Centre s of the garage at `index` (0 = McLaren at the T1 end), wrapped to [0, L). */
 export function garageS(index: number): number {

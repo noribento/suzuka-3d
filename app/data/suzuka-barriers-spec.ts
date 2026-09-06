@@ -217,9 +217,9 @@ export const LINES: LineDef[] = [
   { name: 'pit exit lane outer edge', sRange: [100, 340], lateral: [[100, -19.0], [200, -19.0], [240, -15.0], [280, -11.0], [340, -7.6]] },
   { name: 'pit exit line', sRange: [128, 128.6], lateral: -9.6, lateralTo: -18.8, width: 0.4 },
   // pit lane: fast / working lane divider (dashed) and the lane edges
-  { name: 'pit lane divider', sRange: [5560, 180], lateral: -14.2, dash: [3, 3] },
-  { name: 'pit lane left edge', sRange: [5470, 125], lateral: -9.9 },
-  { name: 'pit lane right edge', sRange: [5470, 100], lateral: -19.3 },
+  { name: 'pit lane divider', sRange: [5560, 180], lateral: -15.0, dash: [3, 3] },
+  { name: 'pit lane left edge', sRange: [5470, 125], lateral: -10.1 },
+  { name: 'pit lane right edge', sRange: [5470, 100], lateral: -19.1 },
 ]
 
 // ---------------------------------------------------------------- two-wheel / slip lanes

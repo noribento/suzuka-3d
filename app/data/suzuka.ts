@@ -38,14 +38,14 @@ export const CIRCUIT = {
    * `boxStartS + i·boxSpacing` formula must not be used.
    */
   pit: {
-    entryS: 5340, // pit lane starts diverging here (after the chicane)
+    entryS: 5290, // pit lane starts diverging here (OSM Pit Lane way: the split is at s 5291)
     limitStartS: 5560, // speed limit line
     limitEndS: 180, // speed limit ends
-    exitS: 430, // rejoins the track at the entry of Turn 1
-    entryRamp: 90, // metres over which the lane peels away from the track
-    exitRamp: 180, // metres over which the exit road blends back
-    laneOffset: -15.0, // lane centreline, metres to the right of the track centreline (OSM fast lane −14.1 ± 0.4)
-    laneWidth: 10, // fast lane + working lane
+    exitS: 385, // rejoins the track before the Turn 1 braking zone (OSM: merged by s 384)
+    entryRamp: 140, // metres over which the lane peels away from the track (OSM: −5 @5343, −10.5 @5383, −14 @5429)
+    exitRamp: 265, // metres over which the exit road blends back (OSM: −10 @196, −5 @264, −1 @324)
+    laneOffset: -14.6, // lane centreline, metres right of the track centreline (OSM: −14.0 ± 0.4)
+    laneWidth: 9, // fast lane + working lane (OSM edges −10.1 / −19.1)
     wallOffset: -9.4, // pit wall (between track and pit lane)
     garageFront: -25.1, // pit-lane face of the pit building (OSM)
     boxStartS: 5887.6, // garage 1 centre at the T1 end = garageS(0); see the note above
