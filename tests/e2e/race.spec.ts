@@ -30,6 +30,40 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(issues.errors, issues.errors.join('\n')).toEqual([])
   })
 
+  test('the trackside data drives the barriers, the painted lines and the stands', async ({ page }) => {
+    const issues = await openRace(page)
+    await page.waitForFunction(() => !!(window as any).__suzuka, null, { timeout: 60_000 })
+    const built = await page.evaluate(() => {
+      const d = (window as any).__suzuka
+      const names: string[] = []
+      d.ctx.scene.traverse((o: any) => { if (o.name) names.push(o.name) })
+      const stands: string[] = []
+      d.env.group.traverse((o: any) => { if (typeof o.name === 'string' && o.name.startsWith('stand-')) stands.push(o.name) })
+      const lines = d.ctx.scene.getObjectByName('whiteLines')
+      return {
+        names,
+        stands,
+        lineTris: lines ? (lines.geometry.index ? lines.geometry.index.count / 3 : 0) : 0,
+        lineAttrs: lines ? Object.keys(lines.geometry.attributes) : [],
+      }
+    })
+    // barriers, the painted-line layer and the offset lanes are all built from the data tables
+    for (const name of ['barriers', 'whiteLines', 'lanes']) expect(built.names).toContain(name)
+    // the barrier runs produce every kind of trackside furniture
+    for (const name of ['barrierWalls', 'tyreWalls', 'guardrails', 'railPosts-0']) {
+      expect(built.names.some((n) => n.startsWith(name.split('-')[0]!))).toBe(true)
+    }
+    // the white lines carry the screen-width attributes and cover the whole lap
+    expect(built.lineAttrs).toContain('aAcross')
+    expect(built.lineAttrs).toContain('aHalf')
+    expect(built.lineTris).toBeGreaterThan(5000)
+    // E is two blocks on one hillside, C follows its front edge — neither is a chord slab any more
+    expect(built.stands).toContain('stand-E1')
+    expect(built.stands).toContain('stand-E2')
+    expect(built.stands).toContain('stand-C')
+    expect(issues.errors).toEqual([])
+  })
+
   test('runs the start sequence and the race gets under way', async ({ page }) => {
     const issues = await openRace(page)
     await startRace(page)
