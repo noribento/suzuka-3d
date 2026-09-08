@@ -43,7 +43,8 @@ node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアト�
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
 node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 80 MB）・VRAM 見積・KTX2 mip の検査
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
-node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順の整合性
+node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・SURFACE_PATCHES の整合性
+node scripts/audit/surface-check.mjs --strict # 面の被覆・地形の突き抜け・シートの密度・レイヤ段差（GPU も網も不要、約 10 秒）
 node scripts/shots.mjs --assets 1             # 固定視点のスクリーンショット（--preset / --custom / --tier）
 node scripts/audit/aerial.mjs                # 国土地理院シームレス空中写真 z18 を .cache/audit/ に取得してモザイク化
 node scripts/audit/overlay.mjs               # アプリが描く線（暖色）と OSM（寒色）を写真に重ね、17 区間に切り出す
@@ -56,9 +57,11 @@ node scripts/audit/osm-edge.mjs 400 960 1 469261663   # OSM way の track 側の
 `scripts/audit/` は「アプリが今どこに何を描いているか」を国土地理院の空中写真（z18、約 0.49 m/px）に
 重ねて区間ごとに見るためのものです。壁・縁石・白線・ランオフの位置はすべて
 `app/data/suzuka-barriers-spec.ts` の表と `RUNOFF_ZONES` にあり、コードは表だけを描くので、
-データを直したら `node scripts/audit/overlay.mjs` で写真と突き合わせ、`node scripts/facilities-check.mjs`
-（バリアが路面・他の道路・スタンドに入っていないか、出典が run を覆っているか）を通してから
-`node scripts/audit/shoot.mjs` でシーンを撮ります。タイル・モザイクは `.cache/audit/`（gitignore）に
+データを直したら `node scripts/audit/surface-check.mjs --strict` と
+`node scripts/facilities-check.mjs --strict`（バリアが路面・他の道路・スタンドに入っていないか、
+出典が run を覆っているか、パッチの輪郭が単純多角形か）を通し、`node scripts/audit/overlay.mjs` で
+写真と突き合わせてから `node scripts/audit/shoot.mjs` でシーンを撮ります。
+後ろへ行くほど高価で、後ろへ行くほど真実に近く、最初の 2 つは GPU もネットワークも要りません。タイル・モザイクは `.cache/audit/`（gitignore）に
 置き、リポジトリには入れません。撮影は 2017–2020 年なので、2024 年以降の変更（緑帯・塗装・仮設
 スタンド・乾いた調整池）はユーザーの実写（`misc/ref/user/`、gitignore）を正とします。
 
@@ -187,10 +190,11 @@ scripts/
   sun-model-check.mjs          # 太陽モデルの不変条件（空の膝 < bloom 閾値 < 発光体 < プローブ < ディスク、露出の有界性、Sky.js のアンカー文字列）を Node で検証
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
-  facilities-check.mjs         # スタンド／ピット定数／ガレージ順の整合性チェック
+  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／SURFACE_PATCHES の輪郭・layer 契約・RUNOFF_ZONES 衛生
   assets/                      # fetch / import-misc / bake-crowd-atlas / sources（アセットパイプライン）
   facilities/                  # build-facilities（Overpass → TS）、build-power、dem-profile（DEM5A → 標高キーフレーム）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
+                               #   surface-check（面のガード）、app-runtime（アプリのビルダーを Node で走らせる土台）、surface-baseline.json（面のベースライン）
 ```
 
 ## Rendering notes
@@ -237,6 +241,19 @@ scripts/
   そこで、この種の面はワールド空間のポリゴンとして持ちます。外周は「路肩に沿う辺」「OSM ウェイのオフセット」
   「手読みの (s, lateral)」を混在させて書け、三角形分割・細分・地形へのドレープはワールド XZ で行います
   （軌道座標では絶対に補間しません）。`layer` の順に塗り重ねるので穴は開けません。
+- **地面のレイヤ契約**（`LAYER` in `app/three/ground.ts` → `Terrain.addGroundSurface` / `settle`）：
+  地面は 1〜10 cm 差で重ねた**不透明シートの束**で、どれが見えるかはデプスバッファだけが決めます。
+  そこで (1) Y の順序は `LAYER` 表 1 か所に書き、重なり得るシート同士は最低 8 mm 離します
+  （低ティアと SwiftShader は `logarithmicDepthBuffer` で、これは `gl_FragDepth` を書くため
+  **`polygonOffset` が無効になります**。幾何オフセットだけで成立させる必要があります）。
+  (2) 地形メッシュは 13.3 m（低ティア 17.7 m）と粗いので、地面に描く面は必ず
+  `terrain.addGroundSurface(geo, …)` で登録し、`terrain.settle()` が各シート三角形の覆うグリッドセルを
+  クリップして**厳密に**その下へ沈めます（サンプル点ではなく交差多角形の頂点で最大違反量を取るので
+  取りこぼしがありません）。登録を忘れると dev のシーン走査が `console.error` を出し、e2e が落ちます。
+  (3) シート自身の三角形も地形グリッドの半分より細かく保ちます（`surface-check` の A1c）。
+  `settle()` は**高さグリッドを読み書きする最後の処理**でなければなりません——クランプは地形を下げるので、
+  クランプ前に組んだ面（レーン舗装）とクランプ後に組んだ面（レーンの縁線）は地面の位置について
+  食い違います。三相ビルド（sample → settle → place）にするのが本筋です。
 - **白線** (`app/three/lines.ts`)：全周のエッジライン、ピット入口・出口の分離線と合流テーパー、ピットレーンの
   各線、グリッドとスタートラインは 1 メッシュのジオメトリです。15 cm の線は遠景で 1 px を切るので、
   頂点シェーダが視距離から m/px を求めて画面上の半幅が 0.6 px を下回る分だけ横に押し広げます

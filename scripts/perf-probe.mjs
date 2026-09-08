@@ -89,6 +89,7 @@ try {
           mode: dbg.rig.mode,
           fps: dbg.store ? dbg.store.fps : undefined,
           setupMs: dbg.setupMs,
+          settleMs: dbg.settleMs,
           perf,
           perfMax,
         }
@@ -116,7 +117,7 @@ for (const r of results) {
   )
 }
 for (const r of results) if (r.errors.length) console.log(`errors (${r.tierParam}/${r.modeKey}):\n  ${r.errors.join('\n  ')}`)
-console.log(`load: ${results.map((r) => `${r.tierParam}=${r.loadMs} ms`).join(', ')}; setupMs: ${results.map((r) => fmt(r.setupMs)).join(', ')}`)
+console.log(`load: ${results.map((r) => `${r.tierParam}=${r.loadMs} ms`).join(', ')}; setupMs: ${results.map((r) => fmt(r.setupMs)).join(', ')}; settleMs (terrain clamp): ${results.map((r) => fmt(r.settleMs)).join(', ')}`)
 
 mkdirSync(outDir, { recursive: true })
 const file = join(outDir, `${label}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)

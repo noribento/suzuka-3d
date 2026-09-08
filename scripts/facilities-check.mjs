@@ -298,6 +298,7 @@ if (lt && (Math.abs(lt.centroid[0] - spec.LEADER_TOWER.s) > 2 || Math.abs(lt.cen
 // ---------------------------------------------------------------- 7. barrier runs
 const bar = await import('../app/data/suzuka-barriers-spec.ts')
 const trackside = await import('../app/three/trackside.ts')
+const surfaces = await import('../app/three/surfaces.ts')
 const RUN_CLEAR = 0.4 // m beyond the half-width a barrier vertex must stay
 /** stretches of road other than the run's own that come within `r` of (x, z) */
 function otherRoad(x, z, sRange, ownY, r = 45) {
@@ -494,6 +495,191 @@ console.log('\nbarrier runs')
 console.log('id                          kind        side s-range        samples src       clear')
 for (const r of runRows) console.log(`${r.id.padEnd(27)} ${r.kind.padEnd(11)} ${String(r.side).padStart(2)}   ${r.s.padEnd(13)} ${String(r.samples).padStart(7)} ${r.src.padEnd(9)} ${r.clear.padStart(6)} ${r.unv}`)
 console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES.length} line groups, ${bar.OFFSET_LANES.length} lanes, ${bar.MARSHAL_POSTS.length} marshal posts`)
+
+// ---------------------------------------------------------------- 9. surface patches
+/**
+ * A9. SURFACE_PATCHES ring validity.
+ *
+ * `trackside.patchOutline` can emit a ring that is not a simple polygon — the `minGap` clamp
+ * projects vertices onto `halfWidth + minGap`, the Catmull-Rom resample overshoots at a sharp
+ * corner, and the `osm` branch mixes clamped and unclamped points. `surfaces.ts` then hands the
+ * result to `THREE.ShapeUtils.triangulateShape` and never looks at what came back, so a
+ * self-intersecting outline turns into overlapping and inverted triangles instead of an error.
+ *
+ * All three patches pass today (205/205, 115/115, 70/70 faces, area ratio 1.0000), so this is a
+ * regression guard, not a bug hunt.
+ */
+{
+  const seg = (p1, q1, p2, q2) => {
+    const d = (q1.x - p1.x) * (q2.z - p2.z) - (q1.z - p1.z) * (q2.x - p2.x)
+    if (Math.abs(d) < 1e-12) return false
+    const t = ((p2.x - p1.x) * (q2.z - p2.z) - (p2.z - p1.z) * (q2.x - p2.x)) / d
+    const u = ((p2.x - p1.x) * (q1.z - p1.z) - (p2.z - p1.z) * (q1.x - p1.x)) / d
+    return t > 1e-9 && t < 1 - 1e-9 && u > 1e-9 && u < 1 - 1e-9
+  }
+  const patchRings = []
+  console.log('\nsurface patches')
+  console.log('name                       kind     layer  verts  faces  area m2   tri/ring')
+  // the ring as surfaces.ts triangulates it: the exactly-collinear filler the resampler adds is
+  // dropped there, and checking the raw outline would report a defect that never reaches a mesh
+  for (const patch of spec.SURFACE_PATCHES) {
+    const ring = surfaces.simplifyRing(trackside.patchOutline(track, patch, 2))
+    const n = ring.length
+    if (n < 3) {
+      fail(`patch "${patch.name}": outline resolved to ${n} vertices`)
+      continue
+    }
+    let crossings = 0
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue
+        if (seg(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) crossings++
+      }
+    }
+    // shoelace in (x, −z): patchOutline reverses to make this positive, so assert the postcondition
+    let area = 0
+    for (let i = 0; i < n; i++) {
+      const a = ring[i], b = ring[(i + 1) % n]
+      area += a.x * -b.z - b.x * -a.z
+    }
+    area /= 2
+    const contour = ring.map((q) => new THREE.Vector2(q.x, -q.z))
+    const faces = THREE.ShapeUtils.triangulateShape(contour, [])
+    let triArea = 0
+    let degenerate = 0
+    for (const f of faces) {
+      const a = contour[f[0]], b = contour[f[1]], c = contour[f[2]]
+      const s2 = ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2
+      triArea += Math.abs(s2)
+      // zero-area faces: duplicate or collinear ring vertices, which the minGap clamp produces
+      // when several nodes project onto the same halfWidth + minGap point
+      if (Math.abs(s2) < 0.01) degenerate++
+    }
+    console.log(`${patch.name.padEnd(26)} ${patch.kind.padEnd(8)} ${String(patch.layer).padStart(5)} ${String(n).padStart(6)} ${String(faces.length).padStart(6)} ${fmt(Math.abs(area)).padStart(8)}   ${(triArea / Math.abs(area)).toFixed(4)}  ${degenerate} degenerate`)
+    /**
+     * Known, bounded ring defects. `シケイン舗装エプロン` is built from a road-edge run PLUS the
+     * two-wheel loop offset outwards, and the loop dips back across that run at s ≈ 5161. Since
+     * the ring's inner boundary moved out to clear the flat strip (trackside.ts STRIP_CLEAR) the
+     * two cross there, costing 27 of 202 ears and 0.4 % of overlapping area. Fixing it properly
+     * needs the loop clipped against the road-edge boundary rather than trimmed point-wise.
+     * Recorded so a NEW crossing, or this one growing, still fails.
+     */
+    const KNOWN_RING = { 'シケイン舗装エプロン': { crossings: 1, faces: 175 } }
+    const known = KNOWN_RING[patch.name]
+    if (crossings > (known?.crossings ?? 0)) fail(`patch "${patch.name}": outline self-intersects at ${crossings} edge pair(s) — triangulateShape will produce overlapping faces`)
+    else if (crossings) fail(`patch "${patch.name}": ${crossings} known self-crossing(s), ${faces.length} of ${n - 2} ears — the loop node crosses the road-edge run at s≈5161`, true)
+    if (area <= 0) fail(`patch "${patch.name}": ring winds clockwise in (x, −z) — patchOutline should have reversed it`)
+    if (Math.abs(area) < 20) fail(`patch "${patch.name}": ${fmt(Math.abs(area))} m2 is too small to be a real surface`)
+    if (Math.abs(area) > 20000) fail(`patch "${patch.name}": ${fmt(Math.abs(area))} m2 — a runaway ring (check latMax / the OSM way)`)
+    if (faces.length !== n - 2 && faces.length < (known?.faces ?? Infinity)) fail(`patch "${patch.name}": triangulateShape returned ${faces.length} faces, a simple polygon must give exactly ${n - 2}`)
+    if (Math.abs(triArea - Math.abs(area)) > Math.abs(area) * (known ? 0.01 : 0.005)) fail(`patch "${patch.name}": triangles cover ${fmt(triArea)} m2 of a ${fmt(Math.abs(area))} m2 ring`)
+    if (degenerate > faces.length * 0.6) fail(`patch "${patch.name}": ${degenerate} of ${faces.length} triangles have no area — the outline has duplicate or collinear vertices`, true)
+
+    /**
+     * B3. Two properties of the ring that decided how the chicane looked.
+     *
+     * `straight` resampling splits a segment into EQUAL linear steps, so every interpolated point
+     * is exactly on the chord; ear clipping turns each into a zero-area triangle whose vertices end
+     * up with a (0,0,0) normal and shade black. `surfaces.ts` drops them before triangulating, so a
+     * ring arriving here with a long collinear run means that pass has stopped working.
+     *
+     * And a ring vertex must clear the KERB, not just the old flat 0.8 m: the turf island's whole
+     * road-side boundary used to sit at off 0.80 inside a 1.3 m kerb, which drew over it.
+     */
+    let collinear = 0
+    for (let i = 0; i < n; i++) {
+      const a = ring[(i - 1 + n) % n], b = ring[i], c = ring[(i + 1) % n]
+      if (Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)) <= 2e-4) collinear++
+    }
+    if (collinear > n * 0.25) fail(`patch "${patch.name}": ${collinear} of ${n} ring vertices are collinear with their neighbours — ear clipping will make them zero-area triangles`)
+    let minOff = Infinity, minKerb = 0, minS = 0
+    for (const q of ring) {
+      const m = track.nearestOnRange(q.x, q.z, patch.sRange[0], patch.sRange[1], 60)
+      const off = Math.abs(m.lateral) - track.halfWidthAt(m.s)
+      if (off < minOff) { minOff = off; minKerb = trackside.kerbWidthAt(track, m.s, m.lateral >= 0 ? 1 : -1); minS = m.s }
+    }
+    if (minOff < minKerb) fail(`patch "${patch.name}": its ring comes to ${fmt(minOff, 2)} m off the road edge at s ${fmt(minS, 0)}, inside the ${fmt(minKerb, 2)} m kerb there`)
+    patchRings.push({ patch, ring, area: Math.abs(area) })
+  }
+
+  /**
+   * A3. `SurfacePatch.layer` is documented as the paint order, but `surfaces.ts` groups by `kind`
+   * and lifts by `PATCH_LIFT[kind]`, so `layer` is not what decides the stack. Until it is
+   * (Phase 4), two overlapping patches must at least differ in BOTH — same `layer` means no
+   * defined winner, and same `kind` means an identical height and an exact z-fight.
+   */
+  const inRing = (x, z, r) => {
+    let inside = false
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const a = r[i], b = r[j]
+      if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+    }
+    return inside
+  }
+  for (let i = 0; i < patchRings.length; i++) {
+    for (let j = i + 1; j < patchRings.length; j++) {
+      const A = patchRings[i], B = patchRings[j]
+      const bb = (r) => r.reduce((o, p) => ({ x0: Math.min(o.x0, p.x), x1: Math.max(o.x1, p.x), z0: Math.min(o.z0, p.z), z1: Math.max(o.z1, p.z) }), { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity })
+      const a = bb(A.ring), b = bb(B.ring)
+      if (a.x1 < b.x0 || b.x1 < a.x0 || a.z1 < b.z0 || b.z1 < a.z0) continue
+      let overlap = 0
+      for (let x = Math.max(a.x0, b.x0); x <= Math.min(a.x1, b.x1); x += 1) {
+        for (let z = Math.max(a.z0, b.z0); z <= Math.min(a.z1, b.z1); z += 1) {
+          if (inRing(x, z, A.ring) && inRing(x, z, B.ring)) overlap++
+        }
+      }
+      if (overlap < 1) continue
+      const pair = `"${A.patch.name}" × "${B.patch.name}" (${overlap} m2)`
+      if (A.patch.layer === B.patch.layer) fail(`patches ${pair} overlap and share layer ${A.patch.layer} — no defined winner`)
+      if (A.patch.kind === B.patch.kind) fail(`patches ${pair} overlap and share kind "${A.patch.kind}" — identical PATCH_LIFT, so they z-fight exactly`)
+      const [under, over] = A.patch.layer < B.patch.layer ? [A, B] : [B, A]
+      console.log(`  overlap ${pair}: layer ${under.patch.layer} "${under.patch.kind}" under layer ${over.patch.layer} "${over.patch.kind}"`)
+      // only the LOWER patch can be buried — the higher one covering it is the whole point
+      if (overlap > under.area * 0.98) fail(`patch "${under.patch.name}" is completely covered by "${over.patch.name}" and draws nothing`, true)
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 10. run-off zone hygiene
+/**
+ * A5. RUNOFF_ZONES feeds `runoffLayout`, which takes the last writer when bands interleave and
+ * invents a band through `fillGaps` where no row covers the lap at all. Both are silent.
+ */
+{
+  const RUNOFF_MAX_LAT = 55
+  for (const z of spec.RUNOFF_ZONES) {
+    for (const [side, band] of [['left', z.left], ['right', z.right]]) {
+      for (const kind of ['asphalt', 'grass', 'gravel']) {
+        const b = band[kind]
+        if (!b) continue
+        if (b[0] >= b[1]) fail(`zone "${z.name}" ${side}.${kind}: [${b[0]}, ${b[1]}] is empty or inverted`)
+        if (b[1] > RUNOFF_MAX_LAT) fail(`zone "${z.name}" ${side}.${kind}: outer edge ${fmt(b[1])} exceeds RUNOFF_MAX_LAT ${RUNOFF_MAX_LAT}`, true)
+      }
+      if (band.asphalt && band.gravel && band.gravel[0] < band.asphalt[1] - 0.5) {
+        fail(`zone "${z.name}" ${side}: gravel starts at ${fmt(band.gravel[0])} inside asphalt ending at ${fmt(band.asphalt[1])} — buildLayout takes the last writer`, true)
+      }
+    }
+  }
+  // stretches of lap with no row at all: fillGaps invents a band there
+  const covered = new Uint8Array(Math.ceil(L))
+  for (const z of spec.RUNOFF_ZONES) {
+    const len = arcLen(z.sRange[0], z.sRange[1])
+    for (let d = 0; d <= len; d++) covered[Math.floor(wrap(z.sRange[0] + d)) % covered.length] = 1
+  }
+  const gaps = []
+  let from = null
+  for (let i = 0; i <= covered.length; i++) {
+    const c = i < covered.length && covered[i]
+    if (!c && from === null) from = i
+    if (c && from !== null) {
+      if (i - from > 2) gaps.push([from, i])
+      from = null
+    }
+  }
+  if (from !== null && covered.length - from > 2) gaps.push([from, covered.length])
+  const gapM = gaps.reduce((a, [x, y]) => a + (y - x), 0)
+  if (gapM) fail(`RUNOFF_ZONES leaves ${gapM} m of lap with no row (${gaps.map(([x, y]) => `${x}-${y}`).join(', ')}) — fillGaps invents a band there`, true)
+}
 
 // ---------------------------------------------------------------- summary
 console.log('\nstand      side s-range        row-1 lateral  clear   depth  rows struct    osm')

@@ -35,12 +35,54 @@ const ROAD_CUT = 0.12
 /** Slope (rise per metre) of the embankment between a road and lower ground beside it. */
 const FILL_SLOPE = 0.35
 
+/**
+ * A ground sheet registered with the terrain (`Terrain.addGroundSurface`).
+ *
+ * Every horizontal surface drawn over the terrain MUST be registered: the height grid is 13.3 m
+ * (17.7 m on the low tier) and the sheets sit 2-10 cm above it, so without the clamp the terrain
+ * rises straight through them. Measured before this existed: the paddock apron behind the pit
+ * building was pierced over 16.7 % of its area (worst 0.70 m), the secondary paving over 26.6 %
+ * (worst 2.75 m) and the offset lanes over 13.6 % (worst 0.24 m).
+ */
+export interface GroundReg {
+  /** declared clearance the terrain must keep below the sheet (m) */
+  margin?: number
+  /** cap on how far one grid node may be cut below its analytic height (m) */
+  maxDrop?: number
+  /** for the dev diagnostics and the offline audit */
+  name?: string
+  /** rides on another sheet: recorded for the audit, never clamps the terrain */
+  decal?: boolean
+  /**
+   * Deliberately planar (a poured concrete pad), so the max-edge rule does not apply: it cannot
+   * follow the ground and does not need to, because the apron it sits on is flat.
+   */
+  flat?: boolean
+}
+
+interface GroundSheet {
+  geo: THREE.BufferGeometry
+  margin: number
+  maxDrop: number
+  name: string
+  flat: boolean
+}
+
 /** Terrain that hugs the track elevation and rolls into wooded hills further out. */
 export class Terrain {
   /** Terrain chunks (a 4×4 grid so follow cameras can frustum-cull the far side). */
   readonly group: THREE.Group
   private coarse: { x: number; z: number; y: number }[] = []
-  private readonly flatZone = { from: 5540, to: 90, latMin: -100, latMax: 66 }
+  /**
+   * The flat paddock / grandstand apron along the main straight.
+   *
+   * It has to cover every surface that is drawn ON the road plane out there, or that surface
+   * stands on natural ground while its neighbours stand on the shelf. It used to stop at
+   * s 5540-90 and lateral -100, which left the outer 25 m of the paddock apron
+   * (`pit-complex.ts` drapes it to -125) and both ends of the pit concrete apron
+   * (`track-mesh.ts`, s 5520-180) off the shelf.
+   */
+  private readonly flatZone = { from: 5500, to: 200, latMin: -130, latMax: 66 }
   private readonly NX: number
   private readonly NZ: number
   private readonly CH = 4
@@ -111,8 +153,7 @@ export class Terrain {
     }
     // a flat skirt far beyond the height grid: the overview camera looks past the terrain
     // rectangle, and without ground there the Sky shader's below-horizon colours show through
-    let minH = Infinity
-    for (let i = 0; i < this.heights.length; i++) if (this.heights[i]! < minH) minH = this.heights[i]!
+    const minH = this.minHeight()
     const skirtSize = 40000
     const skirtGeo = new THREE.PlaneGeometry(skirtSize, skirtSize, 1, 1)
     const skirtUv = skirtGeo.attributes.uv as THREE.BufferAttribute
@@ -125,6 +166,72 @@ export class Terrain {
     skirt.updateMatrix()
     skirt.matrixAutoUpdate = false
     this.group.add(skirt)
+    this.skirt = skirt
+  }
+
+  private readonly skirt: THREE.Mesh
+  private minHeight(): number {
+    let minH = Infinity
+    for (let i = 0; i < this.heights.length; i++) if (this.heights[i]! < minH) minH = this.heights[i]!
+    return minH
+  }
+
+  // --- registered ground sheets ----------------------------------------------------------------
+  private readonly sheets: GroundSheet[] = []
+  private settled = false
+  /** geometry uuids the clamp has been applied to — what the audit and the e2e check */
+  readonly clamped = new Set<string>()
+  /** dev diagnostics: nodes whose drop was capped by `maxDrop` (a sign of a sheet cutting a canyon) */
+  readonly clampCapped: { name: string; x: number; z: number; needed: number }[] = []
+  /** how long settle() took, surfaced through window.__suzuka and scripts/perf-probe.mjs */
+  settleMs = 0
+
+  /**
+   * Declare that `geo` is a horizontal sheet drawn over the terrain. `settle()` then pushes every
+   * grid triangle it covers at least `margin` underneath it.
+   *
+   * Registering is the ONLY thing that protects a sheet; a builder that forgets is caught by the
+   * dev sweep in RaceViewport and by `scripts/audit/surface-check.mjs`.
+   */
+  addGroundSurface(geo: THREE.BufferGeometry, reg: GroundReg = {}) {
+    const name = reg.name ?? 'unnamed'
+    const margin = reg.margin ?? 0.1
+    const maxDrop = reg.maxDrop ?? 2
+    const flat = reg.flat ?? false
+    geo.userData.groundReg = { margin, maxDrop, name, flat, decal: reg.decal ?? false }
+    if (reg.decal) return
+    if (this.settled) {
+      console.error(`[terrain] addGroundSurface('${name}') called after settle() — the sheet is unprotected`)
+      return
+    }
+    this.sheets.push({ geo, margin, maxDrop, name, flat })
+  }
+
+  /** The registrations, for scripts/audit/surface-check.mjs (a sheet may be merged into a mesh). */
+  get groundSheets(): readonly { geo: THREE.BufferGeometry; margin: number; maxDrop: number; name: string; flat: boolean }[] {
+    return this.sheets
+  }
+
+  /**
+   * Apply every registration, put the skirt back under the (now lower) grid, and upload.
+   * Called once, from RaceViewport, after every ground builder has run.
+   */
+  settle() {
+    if (this.settled) return
+    const t0 = performance.now()
+    this.settled = true
+    this.clampUnderSheets()
+    for (const s of this.sheets) this.clamped.add(s.geo.uuid)
+    // the clamp only ever lowers, so the skirt's pre-clamp minimum can now be above the grid
+    this.skirt.position.y = this.minHeight() - 0.5
+    this.skirt.updateMatrix()
+    this.commit()
+    this.settleMs = performance.now() - t0
+    if (import.meta.dev) {
+      const capped = this.clampCapped.length
+      console.info(`[terrain] settle: ${this.sheets.length} ground sheets, ${this.settleMs.toFixed(1)} ms` + (capped ? `, ${capped} nodes hit maxDrop` : ''))
+      if (capped) for (const c of this.clampCapped.slice(0, 8)) console.warn(`[terrain] ${c.name}: node at (${c.x.toFixed(0)}, ${c.z.toFixed(0)}) needed ${c.needed.toFixed(2)} m of cut`)
+    }
   }
 
   private committed = false
@@ -191,12 +298,141 @@ export class Terrain {
   }
 
   /**
+   * Push the terrain below every registered ground sheet, exactly.
+   *
+   * The old point-sampled clamp (`clampUnder`) only lowered the ONE grid triangle that contained a
+   * sample vertex, so a grid node inside a large sheet but far from any sample stayed high, and a
+   * long thin sheet triangle could straddle a whole cell and violate in its interior. Here each
+   * SHEET TRIANGLE is rasterised over the grid cells it covers: the grid triangle is clipped
+   * against it in XZ (Sutherland-Hodgman, 3 half-planes) and the violation is evaluated at the
+   * vertices of the intersection. Both surfaces are planar over that intersection, so their
+   * difference is affine there and its maximum really is at a vertex — the result is exact, not a
+   * sample. Lowering all three nodes of a grid triangle translates its plane down by that amount
+   * everywhere, and lowering a shared node only lowers its other triangles further, so the pass is
+   * monotone and one sweep suffices.
+   *
+   * The clip matters: lowering every node of the bounding box instead would drag the terrain down
+   * by the sheet's extrapolated plane and cut a 13 m moat around every sheet edge. Clipped, the
+   * pull is proportional to the actual overlap and vanishes at the boundary.
+   */
+  private clampUnderSheets() {
+    const gx = this.NX + 1, gz = this.NZ + 1
+    const H = this.heights
+    const lower = new Float32Array(gx * gz)
+    // scratch for the clipper: a triangle clipped by a triangle is a convex polygon of ≤ 6 vertices
+    const inX = new Float64Array(8), inZ = new Float64Array(8)
+    const outX = new Float64Array(8), outZ = new Float64Array(8)
+    const ax = new Float64Array(3), az = new Float64Array(3)
+    for (const sheet of this.sheets) {
+      const pos = sheet.geo.attributes.position as THREE.BufferAttribute
+      const index = sheet.geo.getIndex()
+      const triCount = index ? Math.floor(index.count / 3) : Math.floor(pos.count / 3)
+      for (let t = 0; t < triCount; t++) {
+        const i0 = index ? index.getX(t * 3) : t * 3
+        const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1
+        const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2
+        const sax = pos.getX(i0), say = pos.getY(i0), saz = pos.getZ(i0)
+        const sbx = pos.getX(i1), sby = pos.getY(i1), sbz = pos.getZ(i1)
+        const scx = pos.getX(i2), scy = pos.getY(i2), scz = pos.getZ(i2)
+        // plane of the sheet triangle; a vertical one (|n.y| ≈ 0) is a wall, not a sheet
+        const ux = sbx - sax, uz = sbz - saz, uy = sby - say
+        const vx = scx - sax, vz = scz - saz, vy = scy - say
+        const nx = uy * vz - uz * vy
+        const ny = uz * vx - ux * vz
+        const nz = ux * vy - uy * vx
+        if (Math.abs(ny) < 1e-7) continue
+        const invNy = 1 / ny
+        // grid cells the triangle's XZ bbox touches
+        const minX = Math.min(sax, sbx, scx), maxX = Math.max(sax, sbx, scx)
+        const minZ = Math.min(saz, sbz, scz), maxZ = Math.max(saz, sbz, scz)
+        let ci0 = Math.floor((minX - this.x0) / this.dx), ci1 = Math.floor((maxX - this.x0) / this.dx)
+        let cj0 = Math.floor((minZ - this.z0) / this.dz), cj1 = Math.floor((maxZ - this.z0) / this.dz)
+        if (ci1 < 0 || cj1 < 0 || ci0 >= this.NX || cj0 >= this.NZ) continue
+        if (ci0 < 0) ci0 = 0
+        if (cj0 < 0) cj0 = 0
+        if (ci1 > this.NX - 1) ci1 = this.NX - 1
+        if (cj1 > this.NZ - 1) cj1 = this.NZ - 1
+        // clipper edges, wound so that "inside" is a consistent sign
+        const area2 = ux * vz - uz * vx
+        const flip = area2 < 0 ? -1 : 1
+        ax[0] = sax; az[0] = saz; ax[1] = sbx; az[1] = sbz; ax[2] = scx; az[2] = scz
+        for (let cj = cj0; cj <= cj1; cj++) {
+          for (let ci = ci0; ci <= ci1; ci++) {
+            const x0 = this.x0 + ci * this.dx, z0 = this.z0 + cj * this.dz
+            const a = cj * gx + ci, b = a + 1, c = a + gx, e = c + 1
+            // the same b–c diagonal the index buffer and meshHeightAt use
+            for (let half = 0; half < 2; half++) {
+              const k0 = half === 0 ? a : b, k1 = half === 0 ? b : c, k2 = half === 0 ? c : e
+              // grid triangle corners in world XZ
+              if (half === 0) {
+                inX[0] = x0; inZ[0] = z0
+                inX[1] = x0 + this.dx; inZ[1] = z0
+                inX[2] = x0; inZ[2] = z0 + this.dz
+              } else {
+                inX[0] = x0 + this.dx; inZ[0] = z0
+                inX[1] = x0; inZ[1] = z0 + this.dz
+                inX[2] = x0 + this.dx; inZ[2] = z0 + this.dz
+              }
+              let n = 3
+              for (let edge = 0; edge < 3 && n; edge++) {
+                const ex = ax[edge]!, ez = az[edge]!
+                const fx = ax[(edge + 1) % 3]!, fz = az[(edge + 1) % 3]!
+                const dx = (fx - ex) * flip, dz = (fz - ez) * flip
+                let m = 0
+                for (let p = 0; p < n; p++) {
+                  const px = inX[p]!, pz = inZ[p]!
+                  const qx = inX[(p + 1) % n]!, qz = inZ[(p + 1) % n]!
+                  // > 0 is inside for a counter-clockwise clipper in (x, z)
+                  const dp = dx * (pz - ez) - dz * (px - ex)
+                  const dq = dx * (qz - ez) - dz * (qx - ex)
+                  if (dp >= 0) { outX[m] = px; outZ[m] = pz; m++ }
+                  if ((dp > 0 && dq < 0) || (dp < 0 && dq > 0)) {
+                    const s = dp / (dp - dq)
+                    outX[m] = px + (qx - px) * s
+                    outZ[m] = pz + (qz - pz) * s
+                    m++
+                  }
+                  if (m >= 8) break
+                }
+                n = m
+                for (let p = 0; p < n; p++) { inX[p] = outX[p]!; inZ[p] = outZ[p]! }
+              }
+              if (n < 3) continue
+              // the difference of two planes is affine over the intersection: its max is at a vertex
+              let viol = 0
+              for (let p = 0; p < n; p++) {
+                const px = inX[p]!, pz = inZ[p]!
+                const u = (px - x0) / this.dx, v = (pz - z0) / this.dz
+                const yT = half === 0
+                  ? H[a]! + u * (H[b]! - H[a]!) + v * (H[c]! - H[a]!)
+                  : H[e]! + (1 - u) * (H[c]! - H[e]!) + (1 - v) * (H[b]! - H[e]!)
+                const yS = say - (nx * (px - sax) + nz * (pz - saz)) * invNy
+                const d = yT - (yS - sheet.margin)
+                if (d > viol) viol = d
+              }
+              if (viol <= 0) continue
+              if (viol > sheet.maxDrop) {
+                if (this.clampCapped.length < 200) this.clampCapped.push({ name: sheet.name, x: x0, z: z0, needed: viol })
+                viol = sheet.maxDrop
+              }
+              if (viol > lower[k0]!) lower[k0] = viol
+              if (viol > lower[k1]!) lower[k1] = viol
+              if (viol > lower[k2]!) lower[k2] = viol
+            }
+          }
+        }
+      }
+    }
+    this.applyLower(lower)
+  }
+
+  /**
    * Push the terrain mesh below a set of surface points (xyz triples, world space): every
    * grid triangle that would rise above one of the points is lowered so it stays `margin`
-   * underneath. The height grid is far coarser than the road ribbons, so without this the
-   * terrain shows through wherever the ground is not flat (embankments, banked corners).
+   * underneath. Only for surfaces that have no triangles to hand (the stand decks); everything
+   * that is a mesh registers with `addGroundSurface` and gets the exact triangle pass instead.
    */
-  clampUnder(points: ArrayLike<number>, margin = 0.1) {
+  clampUnder(points: ArrayLike<number>, margin = 0.1, maxDrop = Infinity) {
     const gx = this.NX + 1, gz = this.NZ + 1
     const H = this.heights
     const lower = new Float32Array(gx * gz)
@@ -216,13 +452,21 @@ export class Terrain {
         yT = H[e]! + (1 - u) * (H[c]! - H[e]!) + (1 - v) * (H[b]! - H[e]!)
         k0 = b; k1 = c; k2 = e
       }
-      const viol = yT - (points[p + 1]! - margin)
+      let viol = yT - (points[p + 1]! - margin)
       if (viol > 0) {
+        if (viol > maxDrop) viol = maxDrop
         if (viol > lower[k0]!) lower[k0] = viol
         if (viol > lower[k1]!) lower[k1] = viol
         if (viol > lower[k2]!) lower[k2] = viol
       }
     }
+    this.applyLower(lower)
+  }
+
+  /** Subtract an accumulated per-node drop from the height grid and refresh the chunks it touched. */
+  private applyLower(lower: Float32Array) {
+    const gx = this.NX + 1
+    const H = this.heights
     // a lowered grid vertex belongs to up to four chunks (shared edges): mark them all
     const dirty = new Set<number>()
     const cw = this.NX / this.CH, cd = this.NZ / this.CH
@@ -337,7 +581,7 @@ export class Terrain {
     // flat paddock / grandstand apron along the main straight
     const fz = this.flatZone
     const inZoneS = near.s >= fz.from || near.s <= fz.to
-    if (inZoneS && near.lateral > fz.latMin && near.lateral < fz.latMax && Math.abs(near.lateral) < 120) {
+    if (inZoneS && near.lateral > fz.latMin && near.lateral < fz.latMax && Math.abs(near.lateral) < 135) {
       const yFlat = t.py[near.i]! - ROAD_CUT
       const edge = smoothstep((near.lateral < 0 ? near.lateral - fz.latMin : fz.latMax - near.lateral) / 12)
       h = yFlat * edge + h * (1 - edge)
@@ -360,6 +604,30 @@ export class Terrain {
     }
     return h
   }
+}
+
+/**
+ * Names that mark a mesh as a ground sheet — a flat surface drawn over the terrain that the grid
+ * must be pushed under. `scripts/audit/surface-check.mjs` reads the same pattern out of the
+ * sources (guard A4a), so a new sheet cannot be added without the author declaring it.
+ *
+ * Decals (paint, rubber, white lines) ride on another sheet and are deliberately not here.
+ */
+export const GROUND_NAME_RE = /^(asphalt$|runoff|gravel$|surface-|pitLane$|lanePaving$|laneKerbs$|secondaryPaving$|paddockAsphalt$|helipad$)/
+
+/**
+ * Dev sweep: every ground sheet in the scene must have gone through `Terrain.addGroundSurface`.
+ * The e2e suite fails the run on a console error, so a builder that forgets cannot ship.
+ */
+export function assertGroundRegistered(root: THREE.Object3D, terrain: Terrain) {
+  const missing: string[] = []
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh || !m.name || !GROUND_NAME_RE.test(m.name)) return
+    if (m.geometry.userData.groundReg === undefined) missing.push(m.name)
+    else if (!terrain.clamped.has(m.geometry.uuid)) missing.push(`${m.name} (registered but not clamped)`)
+  })
+  if (missing.length) console.error(`[terrain] unregistered ground sheets: ${missing.join(', ')} — the terrain grid will come through them`)
 }
 
 /** A stand's footprint band in track coordinates, used to keep trees (and later props) off it. */
@@ -429,7 +697,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)
   // --- the two-wheel chicanes / slip roads, in the lap's own frame ---------------------------
-  group.add(buildLanes(track, ground))
+  group.add(buildLanes(track, ground, terrain))
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
   const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
   // every single-material box placed above, merged per material

@@ -1063,9 +1063,14 @@ export const RUNOFF_ZONES: RunoffZone[] = [
   // with tyre wall 467219902 standing on its outer edge — the app had it as grass
   { name: '130R exit', sRange: [4900, 4990], left: { asphalt: [0, 8.5], grass: [16.5, 24], gravel: [8.5, 16.5] }, right: { asphalt: [0, 10], grass: [20, 30], gravel: [10, 20] }, source: 'osm', unverified: ['the bed tapers out by s ≈ 4960'] },
   { name: '130R → chicane', sRange: [4990, 5081], left: { asphalt: [0, 8.5], grass: [16.5, 24], gravel: [8.5, 16.5] }, right: { asphalt: [0, 4], grass: [4, 26], gravel: null }, source: 'osm' },
-  { name: 'chicane approach', sRange: [5081, 5148], left: { asphalt: [0, 9], grass: [9, 15], gravel: null }, right: { asphalt: [0, 4], grass: [4, 26], gravel: null }, source: 'osm' },
-  { name: 'chicane T16–T17', sRange: [5148, 5190], left: { asphalt: [0, 6], grass: [6, 30], gravel: null }, right: { asphalt: [0, 6], grass: [6, 24], gravel: null }, source: 'osm' },
-  { name: 'chicane exit', sRange: [5190, 5270], left: { asphalt: [0, 6], grass: [6, 30], gravel: null }, right: { asphalt: [0, 9], grass: [24, 32], gravel: [9, 24] }, source: 'osm' },
+  // The three chicane rows' asphalt bands were 0.5-2.5 m past the road edge while the
+  // SURFACE_PATCHES aprons show the tarmac reaching 16-45 m. That did not matter while the aprons
+  // overlapped the flat strip; now that they keep clear of it (patchOutline's STRIP_CLEAR), the
+  // band has to carry the strip itself or a 0.7 m ribbon of dormant grass shows between the kerb
+  // and the apron. 8 m is hw + 2.5, i.e. the strip plus a margin — still far inside the apron.
+  { name: 'chicane approach', sRange: [5081, 5148], left: { asphalt: [0, 9], grass: [9, 15], gravel: null }, right: { asphalt: [0, 8], grass: [8, 26], gravel: null }, source: 'osm' },
+  { name: 'chicane T16–T17', sRange: [5148, 5190], left: { asphalt: [0, 8], grass: [8, 30], gravel: null }, right: { asphalt: [0, 8], grass: [8, 24], gravel: null }, source: 'osm' },
+  { name: 'chicane exit', sRange: [5190, 5270], left: { asphalt: [0, 8], grass: [8, 30], gravel: null }, right: { asphalt: [0, 9], grass: [24, 32], gravel: [9, 24] }, source: 'osm' },
   { name: 'T18 exit', sRange: [5270, 5450], left: { asphalt: [0, 17], grass: [25, 32], gravel: [17, 25] }, right: { asphalt: [0, 24], grass: [24, 34], gravel: null }, source: 'osm', unverified: ['the inside is a paved apron out to ≈ 28 m for s 5250–5340'] },
   { name: 'main straight (final corner end)', sRange: [5450, 5500], left: { asphalt: [0, 8], grass: [8, 13.5], gravel: null }, right: { asphalt: [0, 11.5], grass: [11.5, 24], gravel: null }, source: 'osm' },
   { name: 'main straight', sRange: [5500, 383], left: { asphalt: [0, 8], grass: [8, 13.5], gravel: null }, right: { asphalt: [0, 11.5], grass: [11.5, 24], gravel: null }, source: 'osm' },
@@ -1102,8 +1107,23 @@ export interface SurfacePatch {
   ring?: PatchNode[]
   /** closed OSM way(s) to take the ring from, else provenance for a hand-read `ring` */
   osm?: number[]
-  /** paint order: higher draws later and sits higher (the islands paint back over the apron) */
+  /** paint order: higher draws later and sits higher; a higher layer is CUT OUT of a lower one */
   layer: number
+  /**
+   * This patch IS the ground on `side` over [from, to]: the swept run-off ribbons — the grass, the
+   * asphalt band and the gravel — are cut back to its outer edge there instead of being drawn
+   * underneath it.
+   *
+   * Same idiom as `OffsetLaneDef.paved`: the surface already exists, do not draw a second one at a
+   * different lift. Two sheets that both approximate the analytic terrain on their own
+   * triangulations disagree by up to 63 mm over a 4 m span, so a 45 mm ladder cannot separate
+   * them — the grass verge was coming up through the chicane's turf island over 1,036 m².
+   *
+   * The numeric edge is MEASURED off the resolved ring (surfaces.ts `vergeCut`), never typed here,
+   * so it cannot drift from the polygon. A patch that declares this must have a RUNOFF_ZONES
+   * asphalt band reaching at least the flat strip, because the ribbons still own that.
+   */
+  replacesVerge?: { side: Side; from: number; to: number }[]
   /** join the nodes with straight segments instead of a spline (dense OSM outlines) */
   straight?: boolean
   /** drop ring vertices further out than this */
@@ -1135,6 +1155,7 @@ export const SURFACE_PATCHES: SurfacePatch[] = [
   // aerial is warm-toned dirt, so the loop's outer kerb IS the edge of the tarmac.
   {
     name: 'シケイン舗装エプロン', kind: 'asphalt', layer: 0, sRange: [5100, 5300], source: 'photo',
+    replacesVerge: [{ side: 1, from: 5126, to: 5262 }],
     ring: [
       { edge: 1, from: 5126, to: 5262, off: 0.2 },
       { way: 183391653, offset: 5.0, reverse: true },
@@ -1148,6 +1169,7 @@ export const SURFACE_PATCHES: SurfacePatch[] = [
   // stops there.
   {
     name: 'シケイン舗装エプロン（右）', kind: 'asphalt', layer: 0, sRange: [5120, 5230], source: 'photo',
+    replacesVerge: [{ side: -1, from: 5128, to: 5205 }],
     ring: [
       { edge: -1, from: 5128, to: 5205, off: 0.2 },
       [5205, -12.5], [5195, -13.0], [5185, -14.0], [5175, -16.5], [5165, -16.5], [5155, -15.0],

@@ -1508,7 +1508,7 @@ export function buildStands(ctx: EnvBuildContext): Stands {
   }
   // the 13 m terrain grid is far coarser than the decks: sink it wherever it would show through
   const deckArr = Float32Array.from(deckPts)
-  terrain.clampUnder(deckArr, 0.3)
+  terrain.clampUnder(deckArr, 0.3, 4)
   if (import.meta.dev) {
     ctx.group.userData.standStats = stats
     // the probe scripts check which deck vertices sink the terrain grid

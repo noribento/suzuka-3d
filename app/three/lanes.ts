@@ -2,14 +2,24 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
 import type { Track } from '~/sim/track'
-import type { Ground } from './ground'
+import { LAYER, type Ground } from './ground'
+import type { Terrain } from './environment'
 import { addRoadSurface } from './track-mesh'
 import { ASPHALT_TILE_M, asphaltMaps, kerbMaps } from './textures'
 import { laneWorldPath, type LanePoint } from './trackside'
 
 /** the lane dips below the road surface where it overlaps it, so the lap is always drawn on top */
-const UNDER = -0.06
-const ON_GROUND = 0.02
+const UNDER = LAYER.road.under
+const ON_GROUND = LAYER.verge.lane - LAYER.verge.grass
+/**
+ * Metres between the rails a lane ribbon is swept from.
+ *
+ * It used to be swept from its two edges only, and BOTH took the height of the centreline, so a
+ * 9 m ribbon was a flat chord across whatever the ground did underneath it. Measured on the built
+ * scene, the terrain came through the lanes over 13.6 % of their area (worst 0.24 m). The terrain
+ * grid is 13.3 m (17.7 m on the low tier), so rails every 3 m resolve it with room to spare.
+ */
+const RAIL_STEP = 3
 
 /**
  * The paved roads that are not the Grand Prix lap but touch it: the 200R and Astemo two-wheel
@@ -22,7 +32,7 @@ const ON_GROUND = 0.02
  * road — so it meets the lap at the right angle, sits at the right height, and can carry its own
  * edge lines (lines.ts) and kerbs.
  */
-export function buildLanes(track: Track, ground: Ground): THREE.Group {
+export function buildLanes(track: Track, ground: Ground, terrain: Terrain): THREE.Group {
   const group = new THREE.Group()
   group.name = 'lanes'
   const maps = asphaltMaps(false)
@@ -55,6 +65,9 @@ export function buildLanes(track: Track, ground: Ground): THREE.Group {
     mesh.receiveShadow = true
     mesh.renderOrder = 1
     group.add(mesh)
+    // the lanes run out on the verge, where the drawn terrain is a 13 m facet: without this the
+    // grid comes through them (measured: 13.6 % of their area, worst 0.24 m)
+    terrain.addGroundSurface(merged, { name, maxDrop: 1 })
   }
   add(road, mat, 'lanePaving')
   add(kerbs, kerbMat, 'laneKerbs')
@@ -68,8 +81,9 @@ export function buildLanes(track: Track, ground: Ground): THREE.Group {
  */
 function sweepLane(track: Track, ground: Ground, pts: LanePoint[], width: number, offset = 0, lift = ON_GROUND): THREE.BufferGeometry {
   const n = pts.length
-  const pos = new Float32Array(n * 6)
-  const uv = new Float32Array(n * 4)
+  const rails = Math.max(2, Math.round(width / RAIL_STEP) + 1)
+  const pos = new Float32Array(n * rails * 3)
+  const uv = new Float32Array(n * rails * 2)
   const idx: number[] = []
   for (let i = 0; i < n; i++) {
     const p = pts[i]!
@@ -81,12 +95,27 @@ function sweepLane(track: Track, ground: Ground, pts: LanePoint[], width: number
     const lx = dz * inv, lz = -dx * inv
     const cx = p.x + lx * offset, cz = p.z + lz * offset
     const onRoad = Math.abs(p.lat) < track.halfWidthAt(p.s) + 1.5
-    // the lap's surface wins where the two overlap; elsewhere the lane sits on the verge
-    const y = onRoad ? ground.worldY(p.s, p.lat) + UNDER : ground.worldY(p.s, p.lat + offset) + lift
-    const k = i * 2
-    pos.set([cx + lx * width / 2, y, cz + lz * width / 2, cx - lx * width / 2, y, cz - lz * width / 2], k * 3)
-    uv.set([0, p.d / ASPHALT_TILE_M, 1, p.d / ASPHALT_TILE_M], k * 2)
-    if (i < n - 1) idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2)
+    // the lap's own left normal at this station, to turn a world offset into a lateral
+    const ti = Math.round(track.wrap(p.s) / track.ds) % track.n
+    const tnx = track.nx[ti]!, tnz = track.nz[ti]!
+    for (let r = 0; r < rails; r++) {
+      const t = (0.5 - r / (rails - 1)) * width
+      const x = cx + lx * t, z = cz + lz * t
+      // this rail's own lateral, so every rail is draped on the ground under IT rather than on
+      // the ground under the centreline
+      const lat = p.lat + (x - p.x) * tnx + (z - p.z) * tnz
+      // the lap's surface wins where the two overlap; elsewhere the lane sits on the verge
+      const y = onRoad ? ground.worldY(p.s, p.lat) + UNDER : ground.worldY(p.s, lat) + lift
+      const k = i * rails + r
+      pos.set([x, y, z], k * 3)
+      uv.set([r / (rails - 1), p.d / ASPHALT_TILE_M], k * 2)
+    }
+    if (i < n - 1) {
+      for (let r = 0; r < rails - 1; r++) {
+        const a = i * rails + r
+        idx.push(a, a + 1, a + rails, a + 1, a + rails + 1, a + rails)
+      }
+    }
   }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3))

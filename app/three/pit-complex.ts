@@ -9,6 +9,7 @@ import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_WATER, osmFeature, type OsmFeature
 import { BASINS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
+import { LAYER } from './ground'
 import { addMacro, profileRibbonGeometry, ribbonGeometry } from './track-mesh'
 import { bucketedInstancedMeshes } from './instancing'
 import { cutoutParams, pbrFromAssets } from './materials'
@@ -1141,24 +1142,70 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     // The spec's HELIPAD record (s 200, lateral −48) is the 2009 dossier's guess; the GSI aerial
     // shows the H next to the rounded final-corner end, so it is placed there.
     const hs = 5566, hl = -78, r = 8
-    const pad = new THREE.Mesh(new THREE.CircleGeometry(r, 40), boardMat(helipadTexture(k)))
-    pad.geometry.rotateX(-Math.PI / 2)
-    pad.applyMatrix4(frameAt(track, hs, hl, ground.yAt(hs, hl) + 0.04, new THREE.Matrix4()))
+    // Built in the lap's own frame and draped, not as a flat CircleGeometry with an Object3D
+    // transform. Two reasons: the transform left the geometry at the origin, so the terrain clamp
+    // and the audit both read the wrong positions; and the ground under it falls 4.4 m across the
+    // disc, so a flat pad would have needed a 1.6 m bowl carved under it to stay visible.
+    const RINGS = 4, SEGS = 40
+    const padPos: number[] = []
+    const padUv: number[] = []
+    const padIdx: number[] = []
+    const padAt = (ds: number, dl: number) => {
+      const y = ground.yAt(track.wrap(hs + ds), hl + dl) + LAYER.mesh.helipad
+      track.pointAt(track.wrap(hs + ds), hl + dl, _p, y)
+      padPos.push(_p.x, _p.y, _p.z)
+      padUv.push(0.5 + ds / (2 * r), 0.5 + dl / (2 * r))
+    }
+    padAt(0, 0)
+    for (let ring = 1; ring <= RINGS; ring++) {
+      const rr = (r * ring) / RINGS
+      for (let a = 0; a < SEGS; a++) padAt(rr * Math.cos((a / SEGS) * Math.PI * 2), rr * Math.sin((a / SEGS) * Math.PI * 2))
+    }
+    for (let a = 0; a < SEGS; a++) padIdx.push(0, 1 + a, 1 + ((a + 1) % SEGS))
+    for (let ring = 1; ring < RINGS; ring++) {
+      const inner = 1 + (ring - 1) * SEGS, outer = inner + SEGS
+      for (let a = 0; a < SEGS; a++) {
+        const b = (a + 1) % SEGS
+        padIdx.push(inner + a, outer + a, inner + b, inner + b, outer + a, outer + b)
+      }
+    }
+    const padGeo = new THREE.BufferGeometry()
+    padGeo.setAttribute('position', new THREE.Float32BufferAttribute(padPos, 3))
+    padGeo.setAttribute('uv', new THREE.Float32BufferAttribute(padUv, 2))
+    padGeo.setIndex(padIdx)
+    padGeo.computeVertexNormals()
+    const pad = new THREE.Mesh(padGeo, boardMat(helipadTexture(k)))
     pad.name = 'helipad'
     pad.receiveShadow = true
     group.add(pad)
+    ctx.terrain.addGroundSurface(padGeo, { name: 'helipad', maxDrop: 1 })
   }
 
   // --- paddock: asphalt aprons, footprint buildings, prefabs, transporters, tents, flags, car park ------
   {
     const asphaltMat = new THREE.MeshStandardMaterial({ map: asphaltTexture(k), color: 0xb8b8b8, roughness: 0.95 })
     addMacro(asphaltMat, new THREE.Vector2(40 / 250, 40 / 250))
+    /**
+     * A draped apron across `lats`. Both the lateral list and the s step are refined to
+     * PADDOCK_STEP: the hand-written list has 6-12 m gaps and the terrain grid is 13.3 m
+     * (17.7 m on the low tier), so the apron used to be a chord over every rise between its
+     * samples — measured, the terrain came through it over 16.7 % of its area, worst 0.70 m.
+     */
+    const PADDOCK_STEP = 3
     const drape = (s0: number, s1: number, lats: number[], lift: number) => {
-      const edges: [Fn, Fn][] = lats.map((lat) => [K(lat), (s) => ground.yAt(s, lat) + lift])
-      return profileRibbonGeometry(track, s0, s1, edges, 6, 40, lats.map((lat) => lat / 40))
+      const dense: number[] = []
+      for (let i = 0; i < lats.length - 1; i++) {
+        const a = lats[i]!, b = lats[i + 1]!
+        const parts = Math.max(1, Math.ceil(Math.abs(b - a) / PADDOCK_STEP))
+        for (let q = 0; q < parts; q++) dense.push(a + ((b - a) * q) / parts)
+      }
+      dense.push(lats[lats.length - 1]!)
+      const edges: [Fn, Fn][] = dense.map((lat) => [K(lat), (s) => ground.yAt(s, lat) + lift])
+      return profileRibbonGeometry(track, s0, s1, edges, PADDOCK_STEP, 40, dense.map((lat) => lat / 40))
     }
     // behind the building (the flat zone of the terrain), and the pit-exit yard around the medical centre
-    add([drape(5536, 100, [-125, -118, -112, -106, -100, -88, -76, -66, -57.3], 0.03), drape(103, 205, [-52, -44, -36, -28, -24.9], 0.03)], asphaltMat, 'paddockAsphalt', false)
+    const paddock = add([drape(5536, 100, [-125, -118, -112, -106, -100, -88, -76, -66, -57.3], LAYER.mesh.paddock), drape(103, 205, [-52, -44, -36, -28, -24.9], LAYER.mesh.paddock)], asphaltMat, 'paddockAsphalt', false)
+    if (paddock) ctx.terrain.addGroundSurface(paddock.geometry, { name: 'paddockAsphalt', maxDrop: 1 })
 
     // real footprints: the spec'd buildings plus every other OSM building inside the paddock box
     const capGeos: THREE.BufferGeometry[] = []

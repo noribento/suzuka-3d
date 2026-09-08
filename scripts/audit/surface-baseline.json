@@ -1,0 +1,366 @@
+{
+  "coverage": {
+    "area": 4138,
+    "metres": 820,
+    "runs": 35,
+    "knownRuns": [
+      {
+        "zone": "T2",
+        "side": 1,
+        "m2": 611
+      },
+      {
+        "zone": "Dunlop entry trap",
+        "side": -1,
+        "m2": 550
+      },
+      {
+        "zone": "Degner 1 → 2",
+        "side": 1,
+        "m2": 1067
+      },
+      {
+        "zone": "Spoon 1–2",
+        "side": -1,
+        "m2": 973
+      }
+    ]
+  },
+  "sheets": [
+    {
+      "name": "runoffL",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 16.2
+    },
+    {
+      "name": "asphalt",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 15.1
+    },
+    {
+      "name": "runoffR",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 14.8
+    },
+    {
+      "name": "gravel",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 10.3
+    },
+    {
+      "name": "pitLane",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 9.6
+    },
+    {
+      "name": "runoffAsphaltL",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 9.4
+    },
+    {
+      "name": "lanePaving",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 8.4
+    },
+    {
+      "name": "runoffAsphaltR",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 6.6
+    },
+    {
+      "name": "pitApron",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 6.5
+    },
+    {
+      "name": "secondaryPaving",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 6.5
+    },
+    {
+      "name": "paddockAsphalt",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 4.3
+    },
+    {
+      "name": "surfacePatches",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 4
+    },
+    {
+      "name": "surfacePatches",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 4
+    },
+    {
+      "name": "laneKerbs",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 3.2
+    },
+    {
+      "name": "helipad",
+      "pct": 0,
+      "worst": 0,
+      "maxEdge": 2.3
+    }
+  ],
+  "maxEdgeAllow": {
+    "runoffL": 16.3,
+    "asphalt": 15.2,
+    "runoffR": 14.9,
+    "gravel": 10.3,
+    "pitLane": 9.7,
+    "runoffAsphaltL": 9.4,
+    "lanePaving": 8.4
+  },
+  "cappedSheets": [],
+  "pairs": [
+    {
+      "up": "laneKerbs",
+      "lo": "surface-turf",
+      "pct": 100,
+      "worst": 0.165
+    },
+    {
+      "up": "laneKerbs",
+      "lo": "surface-asphalt",
+      "pct": 87.88,
+      "worst": 0.064
+    },
+    {
+      "up": "laneKerbs",
+      "lo": "runoffL",
+      "pct": 60.94,
+      "worst": 0.116
+    },
+    {
+      "up": "laneKerbs",
+      "lo": "runoffR",
+      "pct": 37.96,
+      "worst": 0.037
+    },
+    {
+      "up": "lanePaving",
+      "lo": "runoffAsphaltR",
+      "pct": 34.06,
+      "worst": 0.073
+    },
+    {
+      "up": "helipad",
+      "lo": "paddockAsphalt",
+      "pct": 20.89,
+      "worst": 0.122
+    },
+    {
+      "up": "lanePaving",
+      "lo": "runoffR",
+      "pct": 17.7,
+      "worst": 0.122
+    },
+    {
+      "up": "runoffAsphaltL",
+      "lo": "runoffL",
+      "pct": 14.08,
+      "worst": 0.177
+    },
+    {
+      "up": "surface-turf",
+      "lo": "surface-asphalt",
+      "pct": 3.64,
+      "worst": 0.006
+    },
+    {
+      "up": "gravel",
+      "lo": "lanePaving",
+      "pct": 2.82,
+      "worst": 0.026
+    },
+    {
+      "up": "gravel",
+      "lo": "runoffR",
+      "pct": 2.59,
+      "worst": 0.474
+    },
+    {
+      "up": "gravel",
+      "lo": "runoffL",
+      "pct": 2.09,
+      "worst": 0.428
+    },
+    {
+      "up": "runoffAsphaltR",
+      "lo": "runoffR",
+      "pct": 1.85,
+      "worst": 0.015
+    },
+    {
+      "up": "runoffAsphaltL",
+      "lo": "runoffR",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "runoffAsphaltR",
+      "lo": "runoffL",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "surface-asphalt",
+      "lo": "runoffL",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "surface-asphalt",
+      "lo": "runoffR",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "surface-asphalt",
+      "lo": "runoffAsphaltL",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "surface-asphalt",
+      "lo": "runoffAsphaltR",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "surface-asphalt",
+      "lo": "lanePaving",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "gravel",
+      "lo": "runoffAsphaltL",
+      "pct": 0,
+      "worst": 0
+    },
+    {
+      "up": "surface-turf",
+      "lo": "runoffL",
+      "pct": 0,
+      "worst": 0
+    }
+  ],
+  "quality": [
+    {
+      "name": "helipad",
+      "deg": 0,
+      "zero": 0,
+      "steep": 127,
+      "worst": 18.8
+    },
+    {
+      "name": "paddockAsphalt",
+      "deg": 0,
+      "zero": 0,
+      "steep": 211,
+      "worst": 19.1
+    },
+    {
+      "name": "lanePaving",
+      "deg": 0,
+      "zero": 0,
+      "steep": 5,
+      "worst": 51.1
+    },
+    {
+      "name": "laneKerbs",
+      "deg": 0,
+      "zero": 0,
+      "steep": 1,
+      "worst": 64.1
+    },
+    {
+      "name": "secondaryPaving",
+      "deg": 0,
+      "zero": 0,
+      "steep": 70,
+      "worst": 17.1
+    },
+    {
+      "name": "asphalt",
+      "deg": 0,
+      "zero": 0,
+      "steep": 0,
+      "worst": 13.3
+    },
+    {
+      "name": "surface-asphalt",
+      "deg": 0,
+      "zero": 0,
+      "steep": 198,
+      "worst": 79
+    },
+    {
+      "name": "surface-turf",
+      "deg": 0,
+      "zero": 0,
+      "steep": 3,
+      "worst": 50.1
+    },
+    {
+      "name": "runoffL",
+      "deg": 2704,
+      "zero": 0,
+      "steep": 2813,
+      "worst": 81.7
+    },
+    {
+      "name": "runoffR",
+      "deg": 4154,
+      "zero": 0,
+      "steep": 261,
+      "worst": 71.9
+    },
+    {
+      "name": "runoffAsphaltL",
+      "deg": 24528,
+      "zero": 0,
+      "steep": 88,
+      "worst": 83.8
+    },
+    {
+      "name": "runoffAsphaltR",
+      "deg": 23120,
+      "zero": 0,
+      "steep": 82,
+      "worst": 68.6
+    },
+    {
+      "name": "gravel",
+      "deg": 320,
+      "zero": 0,
+      "steep": 70,
+      "worst": 51
+    },
+    {
+      "name": "pitLane",
+      "deg": 0,
+      "zero": 0,
+      "steep": 0,
+      "worst": 5
+    }
+  ],
+  "tightPairs": 6
+}

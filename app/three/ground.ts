@@ -29,6 +29,146 @@ export const FOLD_SAFE = 0.7
 export const RUNOFF_LIFT = 0.05
 export const STRIP_DROP = -0.03
 
+/**
+ * The smallest vertical gap two overlapping opaque ground sheets may be given.
+ *
+ * The low tier and every SwiftShader run use `logarithmicDepthBuffer` (scene.ts), which writes
+ * gl_FragDepth in the fragment shader — and a shader-written depth IGNORES the rasteriser's
+ * polygonOffset. So `polygonOffset` is a no-op on exactly the tier the audit shots are taken on,
+ * and the geometric separation has to stand on its own. 8 mm is the floor this project uses.
+ */
+export const LAYER_MIN_STEP = 0.008
+
+/**
+ * The ground layer ladder: the one place the vertical order of the overlapping ground sheets is
+ * written down, so `scripts/audit/surface-check.mjs` can check it (guard A6) instead of the order
+ * living implicitly in eight files.
+ *
+ * Sheets only compete where they can cover the same (x, z), so the ladder is split into stacks.
+ * `road`, `strip` and `pit` are metres from the local road plane; `verge` is metres above the
+ * ANALYTIC terrain height, and `mesh` metres above the DRAWN terrain mesh — those two are separate
+ * frames today and merging them is Phase 2 (see the plan: `Ground.yAt` switches source mid-verge).
+ *
+ * Each stack must be strictly ascending. Pairs closer than LAYER_MIN_STEP are listed in
+ * LAYER_KNOWN_TIGHT; that list may shrink but never grow.
+ */
+export const LAYER = {
+  /** on the racing surface, |lateral| ≤ half-width */
+  road: {
+    /** a patch or a lane ducking below the racing surface (surfaces.ts PATCH_UNDER, lanes.ts UNDER) */
+    under: -0.06,
+    asphalt: 0,
+    /** car-model.ts contact shadow — under the car floor (~30 mm), so it stays low */
+    contact: 0.008,
+    /** lines.ts LIFT */
+    line: 0.012,
+    /** particles.ts skid marks — above the paint, so a tyre mark darkens it */
+    skid: 0.016,
+    /** track-mesh.ts DRS detection / activation markings */
+    drs: 0.03,
+  },
+  /** the flat 2 m strip beside the asphalt, under and behind the kerbs */
+  strip: {
+    /** track-mesh.ts kerbProfile's trailing edge — below the grass so the two are not coplanar */
+    kerbOuter: -0.038,
+    /** STRIP_DROP: the grass run-off ribbon */
+    grass: -0.03,
+    /** the asphalt run-off band */
+    asphalt: -0.02,
+    /** a SURFACE_PATCHES sheet crossing the strip (surfaces.ts) */
+    patch: -0.012,
+    /** white lines and painted aprons (lines.ts, track-mesh.ts) */
+    line: -0.004,
+  },
+  /** the pit lane and the concrete apron behind it, on the extrapolated road plane */
+  pit: {
+    /** the garage apron; below the lane so their 0.2 m overlap has a defined winner */
+    concrete: 0.002,
+    lane: 0.01,
+    /** the limit lines, the lane edges and the 11 garage box outlines */
+    line: 0.022,
+  },
+  /** beyond the strip, above the ANALYTIC terrain height */
+  verge: {
+    /** RUNOFF_LIFT: the grass verge */
+    grass: 0.05,
+    /** the asphalt run-off band, 1 cm proud of the grass so its outer seam reads as a lip */
+    asphalt: 0.06,
+    /** white lines on the verge (lines.ts) */
+    line: 0.062,
+    /** offset-lane paving (lanes.ts ON_GROUND) */
+    lane: 0.07,
+    /** offset-lane edge lines — above the lane they mark (lanes.ts + 0.028) */
+    laneLine: 0.078,
+    patchAsphalt: 0.08,
+    patchGrass: 0.088,
+    gravel: 0.09,
+    patchGravel: 0.092,
+    patchTurf: 0.095,
+    /** offset-lane kerbs (lanes.ts) */
+    laneKerb: 0.1,
+  },
+  /** sheets still draped on the DRAWN terrain mesh (Phase 2 moves these into `verge`) */
+  mesh: {
+    /** paddock apron and the pit-exit yard (pit-complex.ts) */
+    paddock: 0.03,
+    /** secondary paving: service roads, kart tracks, the South Course (props.ts) */
+    paving: 0.06,
+    /** the helipad disc — flat over 16 m, so it needs room over the paddock it sits on */
+    helipad: 0.09,
+  },
+} as const
+
+/**
+ * Which rung of `LAYER` each ground MESH is drawn at.
+ *
+ * `LAYER` says how the rungs are ordered; this says which sheet sits on which — without it the
+ * audit can check the ladder but not the geometry, which is exactly the gap that let the chicane
+ * ship with the apron and the verge drawn through the turf island while the guard reported 0 %.
+ *
+ * A sheet that is absent here is exempt as an upper (the kerbs and the sausages belong on top of
+ * everything they touch). Cross-frame pairs are not comparable and the audit skips them.
+ */
+export const SHEET_LAYER: Record<string, [stack: keyof typeof LAYER, rung: string]> = {
+  asphalt: ['road', 'asphalt'],
+  runoffL: ['verge', 'grass'],
+  runoffR: ['verge', 'grass'],
+  runoffAsphaltL: ['verge', 'asphalt'],
+  runoffAsphaltR: ['verge', 'asphalt'],
+  lanePaving: ['verge', 'lane'],
+  'surface-asphalt': ['verge', 'patchAsphalt'],
+  'surface-grass': ['verge', 'patchGrass'],
+  gravel: ['verge', 'gravel'],
+  'surface-gravel': ['verge', 'patchGravel'],
+  'surface-turf': ['verge', 'patchTurf'],
+  laneKerbs: ['verge', 'laneKerb'],
+  pitLane: ['pit', 'lane'],
+  paddockAsphalt: ['mesh', 'paddock'],
+  secondaryPaving: ['mesh', 'paving'],
+  helipad: ['mesh', 'helipad'],
+}
+
+/**
+ * Entries drawn with `transparent: true, depthWrite: false`. They never write depth, so nothing
+ * can z-fight them — their height only decides whether they are drawn over the paint or under it,
+ * and LAYER_MIN_STEP does not apply to them.
+ */
+export const LAYER_SOFT = new Set(['road.contact', 'road.skid'])
+
+/**
+ * Pairs the ladder cannot yet separate by LAYER_MIN_STEP. Every one of them is a sheet whose base
+ * is re-derived in Phase 2 (`Ground.sheetY`) or whose lift becomes `layer`-derived in Phase 4;
+ * until then they are recorded so `surface-check` fails on a NEW one rather than on these.
+ */
+export const LAYER_KNOWN_TIGHT: [string, string][] = [
+  ['verge.asphalt', 'verge.line'],
+  ['verge.laneLine', 'verge.patchAsphalt'],
+  ['verge.patchGrass', 'verge.gravel'],
+  ['verge.gravel', 'verge.patchGravel'],
+  ['verge.patchGravel', 'verge.patchTurf'],
+  ['verge.patchTurf', 'verge.laneKerb'],
+]
+
 export interface Ground {
   /** Width of the run-off ribbon (m beyond the asphalt edge) at s on `side` (default left). */
   runoffWidth: (s: number, side?: Side) => number

@@ -12,6 +12,7 @@
 import * as THREE from 'three'
 import { OSM_FEATURES, type OsmFeature } from '~/data/suzuka-facilities'
 import type { PatchNode, Side } from '~/data/suzuka-facilities-spec'
+import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 
 /** [s, lateral] sample, s in driving order inside the owning window */
@@ -305,6 +306,37 @@ export function resolveLine(track: Track, source: LineSource, sRange: [number, n
  * map does not land where it reads, and a polygon interpolated in track coordinates tears. Each
  * node is turned into world points independently; only then is the ring resampled.
  */
+/** Margin a SURFACE_PATCHES ring keeps beyond the kerb it must not sit under (m). */
+const KERB_CLEAR = 0.15
+/**
+ * The flat 2 m strip beside the asphalt already has an owner — the run-off ribbons and the kerbs,
+ * all swept on track stations in the ROAD-PLANE frame. A patch arrives on arbitrary world-XZ
+ * triangles in the TERRAIN frame, so inside the strip the two frames fight over an 8-26 mm ladder
+ * with a 43 mm chord error. Keeping patches out of the strip removes the contest instead of
+ * tuning it (see FLAT_STRIP in ground.ts).
+ */
+const STRIP_CLEAR = 2
+/**
+ * Extra margin when a `way` node's outline is trimmed against the gap. Zero today: a margin makes
+ * the surviving points further apart, and the chords the resampler then draws between them cut
+ * across more, not less. Kept as a named knob because it is the obvious thing to reach for.
+ */
+const WAY_TRIM = 0
+
+/**
+ * Width of the widest flat kerb drawn at `s` on `side`, from the KERBS table (0 where there is
+ * none). Sausage rows carry no width and are separate objects, so they are skipped.
+ */
+export function kerbWidthAt(track: Track, s: number, side: Side): number {
+  const L = track.length
+  let w = 0
+  for (const k of KERBS) {
+    if (k.side !== side || k.kind === 'sausage') continue
+    if (forwardDelta(k.sRange[0], track.wrap(s), L) <= forwardDelta(k.sRange[0], k.sRange[1], L)) w = Math.max(w, k.width ?? 1.3)
+  }
+  return w
+}
+
 export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: number; z: number }[] {
   const raw: { x: number; z: number }[] = []
   const push = (x: number, z: number) => {
@@ -312,9 +344,18 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
     if (!prev || Math.hypot(x - prev.x, z - prev.z) > 1e-3) raw.push({ x, z })
   }
   const [s0, s1] = p.sRange
-  const minGap = p.minGap ?? 0.8
+  /**
+   * How close to the road edge a ring vertex may come.
+   *
+   * The old flat 0.8 m was NARROWER THAN THE KERB: at the chicane `Chicane apron side` is 1.3 m,
+   * so the turf island's whole road-side boundary was clamped to exactly off 0.80 — inside the
+   * kerb, which then drew over it, and inside the flat strip, where the patch was coplanar with
+   * the ribbons. Clear both.
+   */
+  const gapAt = (s: number, side: Side) => p.minGap ?? Math.max(STRIP_CLEAR, kerbWidthAt(track, s, side) + KERB_CLEAR)
   const atLat = (s: number, lat: number) => {
     const hw = track.halfWidthAt(s)
+    const minGap = gapAt(s, lat >= 0 ? 1 : -1)
     const l = Math.abs(lat) < hw + minGap ? Math.sign(lat || 1) * (hw + minGap) : lat
     track.pointAt(s, l, _v, 0)
     push(_v.x, _v.z)
@@ -343,7 +384,33 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
           out.push({ x: pts[i]!.x + dz * inv * off, z: pts[i]!.z - dx * inv * off })
         }
         if (node.reverse) out.reverse()
-        for (const q of out) push(q.x, q.z)
+        /*
+         * Keep only the LONGEST contiguous stretch that clears the gap.
+         *
+         * A way like the two-wheel loop is closed and touches the GP road more than once, so
+         * offsetting it leaves several arcs near the road that an `edge` node in the same ring
+         * already draws. Clamping them out lands them on top of that boundary and folds the
+         * outline; keeping them all makes the ring alternate between two arcs and cross itself.
+         * One arc is what a ring needs, and the longest is the one the patch is actually bounded
+         * by (measured on the chicane apron: 31 self-crossings and 30 lost triangles otherwise).
+         */
+        const runs: { x: number; z: number }[][] = []
+        let run: { x: number; z: number }[] | null = null
+        for (const q of out) {
+          const m = track.nearestOnRange(q.x, q.z, s0, s1, 60)
+          const clear = Math.abs(m.lateral) >= track.halfWidthAt(m.s) + gapAt(m.s, m.lateral >= 0 ? 1 : -1) + WAY_TRIM
+          if (!clear) { run = null; continue }
+          if (!run) { run = []; runs.push(run) }
+          run.push(q)
+        }
+        let best: { x: number; z: number }[] = []
+        let bestLen = 0
+        for (const r of runs) {
+          let len = 0
+          for (let i = 1; i < r.length; i++) len += Math.hypot(r[i]!.x - r[i - 1]!.x, r[i]!.z - r[i - 1]!.z)
+          if (len > bestLen) { bestLen = len; best = r }
+        }
+        for (const q of best) push(q.x, q.z)
       }
     }
   } else if (p.osm?.length) {
@@ -354,7 +421,7 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
         const x = e * track.enScale, z = -n * track.enScale
         const m = track.nearestOnRange(x, z, s0, s1, 60)
         if (p.latMax && Math.abs(m.lateral) > p.latMax) continue
-        if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + minGap) { atLat(m.s, m.lateral); continue }
+        if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + gapAt(m.s, m.lateral >= 0 ? 1 : -1)) { atLat(m.s, m.lateral); continue }
         push(x, z)
       }
     }
@@ -382,6 +449,12 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
       }
     }
   }
+  // NOTE: the clamp is deliberately NOT re-applied after resampling. It was, to stop `straight`
+  // chords cutting back inside the gap, and it folded the ring: pushing a node that belongs to one
+  // part of the outline onto the road edge lands it on top of another part, and the chicane apron
+  // came out with 31 self-crossings and 30 fewer triangles. With the gap at STRIP_CLEAR the chord
+  // sag is 0.22 m on the chicane's 20 m radius, so the ring still clears the 1.3 m kerb by 0.5 m.
+
   // wind positive in (x, -z) so the triangulation orientation is deterministic
   let area = 0
   for (let i = 0; i < out.length; i++) {

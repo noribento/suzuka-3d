@@ -4,6 +4,7 @@ import { COMPOUND_COLORS, DRIVERS, TEAMS, type Compound, type Driver } from '~/d
 import { brakeDiscMaps, carbonMaps, contactShadowTexture, flakeNormalMap, liveryTexture, numberTexture, podLiveryTexture, rimMaps, tyreMaps } from './textures'
 import { driverFigure } from './driver-figure'
 import { EMISSIVE, brakeDiscEmissive, emissiveScale } from './emissive'
+import { LAYER } from './ground'
 
 /**
  * 2026-regulation Formula 1 car.
@@ -495,7 +496,7 @@ function buildShared(): SharedGeometry {
   numberPlate.translate(0, 0.945, 0.05)
   const shadow = new THREE.PlaneGeometry(4.8, 2.1)
   shadow.rotateX(-Math.PI / 2)
-  shadow.translate(0, 0.012, -0.05)
+  shadow.translate(0, LAYER.road.contact, -0.05)
 
   const paintMerged = mergeGeometries(paint.map(strip), false)!
   const carbonMerged = mergeGeometries(carbon.map(strip), false)!

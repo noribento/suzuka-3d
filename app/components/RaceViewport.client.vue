@@ -12,7 +12,7 @@ import { loadAssets, type AssetRegistry } from '~/three/assets'
 import { freezeStatic } from '~/three/instancing'
 import { markAllDirty, textureBytes } from '~/three/textures'
 import { buildTrackMeshes, type TrackMeshes } from '~/three/track-mesh'
-import { buildEnvironment, type Environment } from '~/three/environment'
+import { assertGroundRegistered, buildEnvironment, type Environment } from '~/three/environment'
 import { buildCarModel, CAR_DIMENSIONS, type CarModel } from '~/three/car-model'
 import { buildBarriers } from '~/three/barriers'
 import { buildLines, setLineViewportHeight } from '~/three/lines'
@@ -276,12 +276,20 @@ async function setup() {
   env = buildEnvironment(track, q, 7, assets)
   ctx.scene.add(env.group)
   trackMeshes = buildTrackMeshes(track, env.terrain, env.ground)
-  // the track meshes pushed the terrain under the road: upload the grid once, now
-  env.terrain.commit()
-  ctx.scene.add(trackMeshes.group)
   const barriers = buildBarriers(track, q, env.ground)
-  ctx.scene.add(barriers)
   const whiteLines = buildLines(track, env.ground, trackMeshes.surfaceLiftAt)
+  // Every ground sheet has registered by now: push the coarse grid under all of them, put the
+  // skirt back below it and upload the grid once.
+  //
+  // This is the LAST thing that reads or writes the height grid. It has to be, because the clamp
+  // lowers it: anything that samples `ground.yAt` past the verge (the offset lanes, the paddock,
+  // the painted lane edge lines) would otherwise disagree about where the ground is depending on
+  // whether it was built before or after. The real fix is the three-phase build in Phase 4 —
+  // sample, settle, then place everything that stands on the ground — but until then every
+  // consumer must be on the same side of the clamp.
+  env.terrain.settle()
+  ctx.scene.add(trackMeshes.group)
+  ctx.scene.add(barriers)
   setLineViewportHeight(ctx.renderer.getDrawingBufferSize(new THREE.Vector2()).y)
   ctx.scene.add(whiteLines)
   // nothing in these trees moves except the Ferris wheel: compute their matrices once
@@ -312,6 +320,7 @@ async function setup() {
   store.ready = true
   store.loadProgress = 1
   setupMs = performance.now() - t0
+  if (import.meta.dev) assertGroundRegistered(ctx.scene, env.terrain)
   if (import.meta.dev) {
     // debug hook for the e2e suite and the probe scripts (getters keep restart / audio creation live)
     ;(window as unknown as { __suzuka: unknown }).__suzuka = {
@@ -320,6 +329,7 @@ async function setup() {
       get audio() { return audio },
       RaceAudio,
       get setupMs() { return setupMs },
+      get settleMs() { return env?.terrain.settleMs ?? 0 },
       steerTune: STEER,
       resCtl,
       textureBytes,

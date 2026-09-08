@@ -6,7 +6,7 @@ import { PAINTED_APRONS, RUNOFF_ZONES, type Side } from '~/data/suzuka-facilitie
 import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 import { APRON_TILE_M, APRON_UV, ASPHALT_DETAIL_M, ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, apronPaintTexture, asphaltDetailMaps, asphaltMaps, boardTexture, concreteMaps, gravelMaps, kerbMaps, macroMap, turfMaps, type MaterialMaps } from './textures'
-import { FLAT_STRIP, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
+import { FLAT_STRIP, LAYER, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
 import { grassSurfaceMaterial, pbrFromAssets, repeatMetres, tileMetres } from './materials'
 import { buildSurfacePatches } from './surfaces'
 import type { Terrain } from './environment'
@@ -227,7 +227,7 @@ function pbr(maps: MaterialMaps, extra: THREE.MeshStandardMaterialParameters = {
 // run-off layout from RUNOFF_ZONES
 
 /** Furthest the OSM bands reach from the centreline; the gravel geometry stops here. */
-const RUNOFF_MAX_LAT = 55
+export const RUNOFF_MAX_LAT = 55
 /** An asphalt band narrower than this beyond the road edge is registration noise, not a surface. */
 const ASPHALT_MIN_W = 0.5
 /** Gravel starts behind the kerb line (as it always did), never in the flat strip's first metre. */
@@ -427,7 +427,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   const cross = track.crossing
   const groundHeightAt = (x: number, z: number) => terrain.heightAt(x, z)
   /** surfaces the terrain mesh must stay underneath */
-  const groundGeos: THREE.BufferGeometry[] = []
+  /** every sheet drawn over the terrain, with the name it is registered under */
+  const groundGeos: [THREE.BufferGeometry, string][] = []
   const layout = runoffLayout(track)
   /** outer edge of the asphalt run-off, never beyond the draped verge (the bridge deck narrows it) */
   const aOut = (s: number, side: Side) => Math.min(layout.asphaltOuter(s, side), hwAt(s) + ground.runoffWidth(s, side))
@@ -436,7 +437,11 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     const g = layout.gravel(s, side)
     if (!g) return null
     const outer = Math.min(g[1], hwAt(s) + (ground.runoffWidth(s, side) * RUNOFF_MAX_LAT) / RUNOFF_WIDTH)
-    return outer - g[0] > 0.3 ? [g[0], outer] : null
+    // a bed cannot start inside a patch that owns the ground there. The gravel is laid ON the
+    // grass ribbon rather than owning the ground itself, so it can use the unlimited measurement:
+    // retracting it too far exposes grass, never terrain.
+    const inner = Math.max(g[0], hwAt(s) + patches.vergeCut(s, side, true))
+    return outer - inner > 0.3 ? [inner, outer] : null
   }
   /** height of the ground surface at (s, lat) relative to the road plane: the asphalt run-off where there is one, the grass otherwise */
   const surfaceY = (s: number, lat: number, side: Side): number => {
@@ -455,7 +460,36 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   surface.name = 'asphalt'
   surface.receiveShadow = true
   group.add(surface)
-  groundGeos.push(surface.geometry)
+  groundGeos.push([surface.geometry, 'asphalt'])
+
+  // --- SURFACE_PATCHES: paved / unpaved AREAS that a lateral band cannot describe ---------------
+  // Built here rather than in buildEnvironment so the polygons join `groundGeos` and the terrain
+  // is clamped under them (buildLanes is not, it only rides on ground.worldY).
+  //
+  // BEFORE the run-off ribbons, because a patch that declares `replacesVerge` owns the ground
+  // there and the ribbons have to be cut back to its edge (`vCut` below) rather than drawn
+  // underneath it — two sheets approximating the same terrain on different triangulations
+  // disagree by up to 63 mm over 4 m, which no ladder can separate.
+  const gravelMat = pbr(gravelMaps(), {}, 1.0)
+  const patchAsphaltMat = pbr(asphaltMaps(false), {}, 1)
+  // an apron has no "along", so the macro variation is isotropic instead of the road's (1, 20/300)
+  addRoadSurface(patchAsphaltMat, new THREE.Vector2(ASPHALT_WIDTH_M / 120, ASPHALT_TILE_M / 120))
+  const patches = buildSurfacePatches(track, ground, groundHeightAt, {
+    asphalt: patchAsphaltMat,
+    turf: pbr(turfMaps(), { roughness: 0.95 }, 0.9),
+    gravel: gravelMat,
+    // the terrain's own tile scale and macro period, so the islands phase-lock to it
+    grass: grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [250, 250], 0.8),
+  })
+  for (const m of patches.meshes) group.add(m)
+  for (const g of patches.geometries) groundGeos.push([g, 'surfacePatches'])
+
+  /**
+   * Inner edge every verge band is pushed out to: the dual of `aOut`. Zero where no patch
+   * declares `replacesVerge`, so everywhere else the ribbons are untouched.
+   */
+  const vCut = (s: number, side: Side) => patches.vergeCut(s, side)
+  const cutHere = (s: number, side: Side) => vCut(s, side) > FLAT_STRIP + 1e-3
 
   // --- run-off, per RUNOFF_ZONES: asphalt band → gravel → grass ("half and half") ------------
   // The grass ribbon covers the whole verge (a flat strip under the kerbs, then draped over the
@@ -464,7 +498,9 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   // across, 120 m along); u is metres from the road edge so the tile stays registered to it.
   const grassMat = grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [RUNOFF_WIDTH, 120], 0.8)
   const runoffGeo = (side: Side) => {
-    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.max(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH))
+    // ...and except where a `replacesVerge` patch owns the ground: the inner edges collapse onto
+    // the patch's outer edge exactly as they collapse onto the asphalt band's
+    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.max(aOut(s, side), hwAt(s) + vCut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH))
     const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => ground.yAt(s, lat(s))])
     const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - hwAt(s)) / GRASS_UV_M
     // edges must run right-to-left (increasing lateral)
@@ -480,14 +516,16 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   runoffL.name = 'runoffL'
   runoffR.name = 'runoffR'
   group.add(runoffL, runoffR)
-  groundGeos.push(runoffL.geometry, runoffR.geometry)
+  groundGeos.push([runoffL.geometry, 'runoffL'], [runoffR.geometry, 'runoffR'])
 
   // asphalt run-off: the unlined tile (repeating across), 1 cm proud of the grass plane so the
   // seam at its outer edge reads as a kerb-less lip; edges collapse onto the band's outer edge
   const runoffAsphaltMat = pbr(asphaltMaps(false), {}, 1)
   addRoadSurface(runoffAsphaltMat, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
   const runoffAsphaltGeo = (side: Side) => {
-    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.min(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH))
+    // where a patch owns the verge the band still carries the flat strip — the patch keeps clear
+    // of it (patchOutline's STRIP_CLEAR) — but stops there instead of running on underneath
+    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.min(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH, cutHere(s, side) ? hwAt(s) + FLAT_STRIP : Infinity))
     const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => surfaceY(s, lat(s), side)])
     const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - hwAt(s)) / ASPHALT_WIDTH_M
     if (side < 0) {
@@ -502,24 +540,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   runoffAsphaltL.name = 'runoffAsphaltL'
   runoffAsphaltR.name = 'runoffAsphaltR'
   group.add(runoffAsphaltL, runoffAsphaltR)
-  groundGeos.push(runoffAsphaltL.geometry, runoffAsphaltR.geometry)
+  groundGeos.push([runoffAsphaltL.geometry, 'runoffAsphaltL'], [runoffAsphaltR.geometry, 'runoffAsphaltR'])
 
-  // --- SURFACE_PATCHES: paved / unpaved AREAS that a lateral band cannot describe ---------------
-  // Built here rather than in buildEnvironment so the polygons join `groundGeos` and the terrain
-  // is clamped under them (buildLanes is not, it only rides on ground.worldY).
-  const gravelMat = pbr(gravelMaps(), {}, 1.0)
-  const patchAsphaltMat = pbr(asphaltMaps(false), {}, 1)
-  // an apron has no "along", so the macro variation is isotropic instead of the road's (1, 20/300)
-  addRoadSurface(patchAsphaltMat, new THREE.Vector2(ASPHALT_WIDTH_M / 120, ASPHALT_TILE_M / 120))
-  const patches = buildSurfacePatches(track, ground, groundHeightAt, {
-    asphalt: patchAsphaltMat,
-    turf: pbr(turfMaps(), { roughness: 0.95 }, 0.9),
-    gravel: gravelMat,
-    // the terrain's own tile scale and macro period, so the islands phase-lock to it
-    grass: grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [250, 250], 0.8),
-  })
-  for (const m of patches.meshes) group.add(m)
-  groundGeos.push(...patches.geometries)
 
   // --- kerbs and green strips from the KERBS table -------------------------------------------
   // Not from track.corners any more: the corner finder splits the 200R into seven gentle bends and
@@ -611,7 +633,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     gravel.name = 'gravel'
     gravel.receiveShadow = true
     group.add(gravel)
-    groundGeos.push(gravel.geometry)
+    groundGeos.push([gravel.geometry, 'gravel'])
   }
 
   // --- painted aprons and edge strips (PAINTED_APRONS + GREEN_STRIPS) --------------------------
@@ -735,13 +757,17 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     const rep = pitMat.map.repeat
     addMacro(pitMat, new THREE.Vector2(1 / rep.x, ASPHALT_TILE_M / 300 / rep.y))
   } else pitMat = proceduralPit()
-  const pitLane = new THREE.Mesh(ribbonGeometry(track, pit.entryS, pit.exitS, (s) => pitLat(s) + halfLane, (s) => pitLat(s) - halfLane, () => 0.01, () => 0.01, 3, ASPHALT_TILE_M, pit.laneWidth / ASPHALT_WIDTH_M), pitMat)
+  const pitLane = new THREE.Mesh(ribbonGeometry(track, pit.entryS, pit.exitS, (s) => pitLat(s) + halfLane, (s) => pitLat(s) - halfLane, () => LAYER.pit.lane, () => LAYER.pit.lane, 3, ASPHALT_TILE_M, pit.laneWidth / ASPHALT_WIDTH_M), pitMat)
   pitLane.name = 'pitLane'
   pitLane.receiveShadow = true
   group.add(pitLane)
-  groundGeos.push(pitLane.geometry)
-  // concrete apron between the pit lane and the garages
-  concreteGeos.push(ribbonGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.laneOffset - halfLane + 0.2, () => pit.garageFront + 0.4, () => 0.01, () => 0.01, 4, 4))
+  groundGeos.push([pitLane.geometry, 'pitLane'])
+  // Concrete apron between the pit lane and the garages. It overlaps the lane by 20 cm so no gap
+  // opens where `pitLat` ramps away, and sits LAYER.pit.concrete below it so that overlap has a
+  // defined winner — the two used to be at exactly the same height for ~600 m.
+  const apronGeo = ribbonGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.laneOffset - halfLane + 0.2, () => pit.garageFront + 0.4, () => LAYER.pit.concrete, () => LAYER.pit.concrete, 3, 4)
+  concreteGeos.push(apronGeo)
+  terrain.addGroundSurface(apronGeo, { name: 'pitApron', maxDrop: 1 })
   // pit wall between track and pit lane, with advertising boards facing the track
   const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide })
   const boardGeos: THREE.BufferGeometry[] = []
@@ -760,8 +786,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   // DRS detection / activation markings
   const gridMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.55, metalness: 0 })
   const drsLines = new THREE.Mesh(mergeGeometries([
-    ribbonGeometry(track, CIRCUIT.drs.detection, CIRCUIT.drs.detection + 0.4, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1),
-    ribbonGeometry(track, CIRCUIT.drs.start, CIRCUIT.drs.start + 0.4, hwAt, (s) => -hwAt(s), () => 0.03, () => 0.03, 1, 1),
+    ribbonGeometry(track, CIRCUIT.drs.detection, CIRCUIT.drs.detection + 0.4, hwAt, (s) => -hwAt(s), () => LAYER.road.drs, () => LAYER.road.drs, 1, 1),
+    ribbonGeometry(track, CIRCUIT.drs.start, CIRCUIT.drs.start + 0.4, hwAt, (s) => -hwAt(s), () => LAYER.road.drs, () => LAYER.road.drs, 1, 1),
   ], false)!, gridMat)
   drsLines.name = 'drsLines'
   drsLines.receiveShadow = true
@@ -804,17 +830,14 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   }
   group.add(gantry)
 
-  // the terrain grid is coarse: sink it wherever it would rise through any of the surfaces
-  let total = 0
-  for (const g of groundGeos) total += (g.attributes.position as THREE.BufferAttribute).count * 3
-  const pts = new Float32Array(total)
-  let at = 0
-  for (const g of groundGeos) {
-    const arr = (g.attributes.position as THREE.BufferAttribute).array as Float32Array
-    pts.set(arr, at)
-    at += arr.length
-  }
-  terrain.clampUnder(pts, RUNOFF_LIFT + 0.05)
+  // The terrain grid is coarse (13.3 m, 17.7 m on the low tier): register every sheet so
+  // terrain.settle() can push the grid underneath it. Registering is what protects a sheet — the
+  // dev sweep in RaceViewport and scripts/audit/surface-check.mjs both fail on an unregistered one.
+  // maxDrop 12: the deepest cut any of these needs is 9.41 m, where the 34 m verge runs into the
+  // relief platform E-1 stands on (six such spots, all at stand fronts, none at the crossover).
+  // The old point-sampled clamp cut them uncapped, so this keeps the terrain as it was while
+  // still bounding a runaway; surface-check reports anything the cap refuses.
+  for (const [geo, name] of groundGeos) terrain.addGroundSurface(geo, { margin: RUNOFF_LIFT + 0.05, name, maxDrop: 12 })
 
   return { group, surface, startLampMaterials, surfaceLiftAt: patches.liftAt }
 }
@@ -830,7 +853,9 @@ function kerbProfile(track: Track, s0: number, s1: number, side: 1 | -1, width: 
     [at(0.3), () => 0.05],
     [at(width * 0.55), () => 0.065],
     [at(width - 0.15), () => 0.05],
-    [at(width), () => STRIP_DROP],
+    // just below the grass strip rather than exactly on it: the grass ribbon covers the whole
+    // verge including the ground under the kerb, and the two used to be coplanar at this edge
+    [at(width), () => LAYER.strip.kerbOuter],
   ]
   // edges run right-to-left (increasing lateral): the right kerb is listed outside-in
   if (side < 0) edges.reverse()

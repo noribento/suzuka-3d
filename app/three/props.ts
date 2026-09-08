@@ -343,16 +343,43 @@ function buildOsmBuildings(ctx: EnvBuildContext) {
 
 // ---------------------------------------------------------------- secondary paving
 
+/** longest segment / rail spacing of a draped ribbon (m) — see densify() */
+const PAVING_STEP = 4
+
+/**
+ * Resample a world polyline so no segment is longer than PAVING_STEP.
+ *
+ * The OSM ways come with vertices tens of metres apart (the longest here is 97.7 m) while the
+ * terrain grid is 13.3 m, so a ribbon draped only at those vertices is a chord over every rise
+ * between them: measured on the built scene, the terrain came through the secondary paving over
+ * 26.6 % of its area, worst 2.75 m.
+ */
+function densify(pts: THREE.Vector3[], closed: boolean, step: number): THREE.Vector3[] {
+  const out: THREE.Vector3[] = []
+  const last = closed ? pts.length : pts.length - 1
+  for (let i = 0; i < last; i++) {
+    const a = pts[i]!, b = pts[(i + 1) % pts.length]!
+    const parts = Math.max(1, Math.ceil(a.distanceTo(b) / step))
+    for (let k = 0; k < parts; k++) out.push(a.clone().lerp(b, k / parts))
+  }
+  if (!closed) out.push(pts[pts.length - 1]!.clone())
+  return out
+}
+
 /**
  * Asphalt ribbon along a world polyline (open or closed), `width` metres wide, draped on the
- * terrain mesh with `lift`; mitred joints from the averaged segment normals.
+ * terrain mesh with `lift`; mitred joints from the averaged segment normals. Swept from
+ * `rails` rails so the drape follows the ground ACROSS the ribbon as well as along it.
  */
-function polylineRibbon(pts: THREE.Vector3[], width: number, closed: boolean, yAt: (x: number, z: number) => number, lift: number, tileM: number): THREE.BufferGeometry | null {
+function polylineRibbon(raw: THREE.Vector3[], width: number, closed: boolean, yAt: (x: number, z: number) => number, lift: number, tileM: number): THREE.BufferGeometry | null {
+  if (raw.length < 2) return null
+  const pts = densify(raw, closed, PAVING_STEP)
+  const rails = Math.max(2, Math.round(width / PAVING_STEP) + 1)
   const n = pts.length
   if (n < 2) return null
   const count = closed ? n + 1 : n
-  const pos = new Float32Array(count * 6)
-  const uv = new Float32Array(count * 4)
+  const pos = new Float32Array(count * rails * 3)
+  const uv = new Float32Array(count * rails * 2)
   const idx: number[] = []
   let along = 0
   const dir = new THREE.Vector3(), prev = new THREE.Vector3(), next = new THREE.Vector3(), side = new THREE.Vector3()
@@ -370,19 +397,22 @@ function polylineRibbon(pts: THREE.Vector3[], width: number, closed: boolean, yA
     dir.normalize()
     side.set(dir.z, 0, -dir.x).multiplyScalar(width / 2)
     if (i > 0) along += p.distanceTo(pts[(i - 1) % n]!)
-    for (const [j, sgn] of [[0, 1], [1, -1]] as const) {
+    for (let r = 0; r < rails; r++) {
+      const sgn = 1 - (2 * r) / (rails - 1)
       const x = p.x + side.x * sgn, z = p.z + side.z * sgn
-      const o = (i * 2 + j) * 3
-      pos[o] = x
-      pos[o + 1] = yAt(x, z) + lift
-      pos[o + 2] = z
-      uv[(i * 2 + j) * 2] = j
-      uv[(i * 2 + j) * 2 + 1] = along / tileM
+      const k = i * rails + r
+      pos[k * 3] = x
+      pos[k * 3 + 1] = yAt(x, z) + lift
+      pos[k * 3 + 2] = z
+      uv[k * 2] = r / (rails - 1)
+      uv[k * 2 + 1] = along / tileM
     }
     if (i < count - 1) {
       // (left, right, forward-left) is counter-clockwise seen from above: the ribbon faces up
-      const q = i * 2
-      idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2)
+      for (let r = 0; r < rails - 1; r++) {
+        const q = i * rails + r
+        idx.push(q, q + 1, q + rails, q + 1, q + rails + 1, q + rails)
+      }
     }
   }
   const g = new THREE.BufferGeometry()
@@ -455,6 +485,8 @@ function buildSecondaryPaving(ctx: EnvBuildContext) {
       mesh.receiveShadow = true
       mesh.renderOrder = 1
       group.add(mesh)
+      // these run right across the infield, where the drawn terrain is a 13 m facet
+      terrain.addGroundSurface(merged, { name: 'secondaryPaving', maxDrop: 1 })
     }
   }
   if (import.meta.dev) console.info(`[props] ${count} secondary paved ways`)

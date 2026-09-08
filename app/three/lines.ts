@@ -6,7 +6,7 @@ import { alongAt, garageS, type Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 import { laneWorldPath, type LanePoint } from './trackside'
 import type { Ground } from './ground'
-import { FLAT_STRIP, STRIP_DROP } from './ground'
+import { FLAT_STRIP, LAYER } from './ground'
 
 type Fn = (s: number) => number
 
@@ -38,15 +38,38 @@ export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: numb
   const hwAt: Fn = (s) => track.halfWidthAt(s)
   const geos: THREE.BufferGeometry[] = []
 
+  const pitLat = (s: number) => track.pitLateralAt(s) ?? pit.laneOffset
+  const halfLane = pit.laneWidth / 2
+  const inSpan = (from: number, to: number, s: number) => forwardDelta(from, s, L) <= forwardDelta(from, to, L)
   /**
-   * Height of the surface the paint lies on: the flat strip under the kerbs, else the road plane.
+   * True where the paint lies on the pit lane ribbon or on the garage apron behind it. Both are
+   * drawn on the extrapolated ROAD PLANE (track-mesh.ts), not on the terrain.
+   */
+  const onPitSurface = (s: number, lat: number): boolean => {
+    if (lat >= 0) return false
+    if (inSpan(pit.entryS, pit.exitS, s) && Math.abs(lat - pitLat(s)) <= halfLane + 0.6) return true
+    return inSpan(pit.limitStartS - 40, pit.limitEndS, s) && lat <= pit.laneOffset - halfLane && lat >= pit.garageFront
+  }
+
+  /**
+   * Height of the surface the paint lies on: the racing surface, the pit lane, the flat strip
+   * under the kerbs, or the verge.
+   *
+   * The pit branch is not optional. Out at |lateral| 10–25 the `off > FLAT_STRIP` branch resolves
+   * to `ground.yAt`, and the ground there is `ROAD_CUT` (12 cm) below the road plane while the pit
+   * lane ribbon is 1 cm above it — so every pit marking used to be drawn 68 mm UNDER the lane it
+   * belongs to and was invisible: both speed-limit lines, the lane edges, the fast/working divider
+   * and all 11 garage box outlines.
+   *
    * `surfaceLiftAt` adds the SURFACE_PATCHES layer (surfaces.ts) — the chicane apron sits 3 cm
    * proud of the verge, and without this the two-wheel chicane's edge lines are buried under it.
    */
   const surfaceY = (s: number, lat: number): number => {
     const off = Math.abs(lat) - hwAt(s)
-    if (off <= 0) return LIFT
-    return (off <= FLAT_STRIP ? STRIP_DROP : ground.yAt(s, lat) + surfaceLiftAt(s, lat)) + LIFT
+    if (off <= 0) return LAYER.road.line
+    if (onPitSurface(s, lat)) return LAYER.pit.line
+    if (off <= FLAT_STRIP) return LAYER.strip.line
+    return ground.yAt(s, lat) + surfaceLiftAt(s, lat) + LIFT
   }
 
   /**
@@ -129,8 +152,6 @@ export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: numb
   }
 
   // --- pit lane: the two speed-limit lines and the box outlines ------------------------------
-  const pitLat = (s: number) => track.pitLateralAt(s) ?? pit.laneOffset
-  const halfLane = pit.laneWidth / 2
   for (const s of [pit.limitStartS, pit.limitEndS]) across(s, pitLat(s) + halfLane, pitLat(s) - halfLane, 0.6)
   for (let t = 0; t < 11; t++) {
     const s = garageS(t)
@@ -197,7 +218,9 @@ function laneStripe(track: Track, pts: LanePoint[], dist: number, side: 1 | -1, 
     // unit normal of the lane path, pointing to `side`
     const nx = dz * inv * side, nz = -dx * inv * side
     track.pointAt(p.s, p.lat, _a, 0)
-    const y = _a.y + surfaceY(p.s, p.lat) - LIFT + 0.016
+    // above the lane paving it marks, not below it: lanes.ts drapes the paving at
+    // LAYER.verge.lane and this line used to sit 4 mm under it
+    const y = _a.y + surfaceY(p.s, p.lat) - LIFT + (LAYER.verge.laneLine - LAYER.verge.grass)
     const cx = p.x + nx * dist, cz = p.z + nz * dist
     const k = i * 2
     pos.set([cx + nx * w / 2, y, cz + nz * w / 2, cx - nx * w / 2, y, cz - nz * w / 2], k * 3)

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { skidTexture, spriteTexture } from './textures'
+import { LAYER } from './ground'
 
 /**
  * Pooled point-sprite particle system (sparks, tyre smoke, dust). Particles are integrated
@@ -365,7 +366,7 @@ export class SkidMarks {
       _wx.copy(p).addScaledVector(sideDir, sgn * hw)
       const j = i * 4 + k
       this.pos[j * 3] = _wx.x
-      this.pos[j * 3 + 1] = _wx.y + 0.012
+      this.pos[j * 3 + 1] = _wx.y + LAYER.road.skid
       this.pos[j * 3 + 2] = _wx.z
       this.alpha[j] = strength
       this.uv[j * 2] = sgn > 0 ? 0 : 1
