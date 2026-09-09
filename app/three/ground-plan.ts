@@ -140,8 +140,13 @@ const REACH_SLOPE = 1.0
 const BISECTOR_MIN_LAP = 40
 /** kerb ends ramp their width from 0 to full over this length */
 export const KERB_TAPER = 0.5
-/** fill columns (metres beyond the road edge): keep every raster cell under 4 m across */
-export const FILL_OFFS: readonly number[] = [2, 3.5, 5.5, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 116, 120, 124, 128]
+/**
+ * Fill columns (metres beyond the road edge): every raster cell stays under 4 m across in the
+ * verge and under 5 m beyond 12 m — on the outside of a bend a 2 m row is stretched to 3-4 m by
+ * the frame's Jacobian, and a 5 m × 4 m cell's diagonal (6.4 m) still fits the high tier's 6.8 m
+ * half-grid rule where 6 m did not; a quarter fewer field evaluations than 4 m everywhere.
+ */
+export const FILL_OFFS: readonly number[] = [2, 3.5, 5.5, 8, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 77, 82, 87, 92, 97, 102, 107, 112, 117, 122, 127]
 /** road fill columns across the racing surface, as fractions of the width */
 export const ROAD_FRACTIONS: readonly number[] = [0, 0.25, 0.5, 0.75, 1]
 /** the ring interval count a ring may have on one station ray (a loop crossed twice) */
@@ -1336,9 +1341,11 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     }
     lap('pass-detect')
     stats.passes.push(extra.length)
-    // a handful of leftover crossings are not worth a full re-evaluation: the snap below turns
-    // them into bow-ties shorter than MICRO_ROW
-    if (extra.length < 4) break
+    // leftover crossings are not worth a full re-evaluation (≈ 0.5 s each) once there are few or
+    // once a pass stops removing them (the same sub-5 cm crossings are found again and deduplicated
+    // away): the snap below turns them into zero-width cells
+    const prev = stats.passes[stats.passes.length - 2]
+    if (extra.length < 40 || (prev !== undefined && extra.length > prev * 0.7)) break
     stations = dedupStations([...stations, ...extra], L)
     sides = { 1: evalSide(1, stations), '-1': evalSide(-1, stations) }
     lap('pass-eval')

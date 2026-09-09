@@ -103,9 +103,11 @@ class Pool {
   private keys = new Map<string, number>()
   /** every vertex by its world XZ (1 mm): a world vertex landing on a station vertex reuses it */
   private xz = new Map<string, number>()
+  /** 5 mm: two columns within COLUMN_TIE of each other are one vertex, not a sliver cell */
   key(i: number, lateral: number): string {
-    return `${i}|${Math.round(lateral * 1e4)}`
+    return `${i}|${Math.round(lateral * 200)}`
   }
+  /** 1 mm: a refinement midpoint 4 mm from a 0.1 m contour vertex must NOT be folded onto it */
   private xzKey(x: number, z: number): string {
     return `${Math.round(x * 1e3)}|${Math.round(z * 1e3)}`
   }
@@ -248,6 +250,104 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     const p10 = vertexOf(cell, cell.j, lo1, colLo), p11 = vertexOf(cell, cell.j, hi1, colHi)
     tri(cell.owner.kind, p00, p10, p01)
     tri(cell.owner.kind, p01, p10, p11)
+  }
+
+  /**
+   * Refine a set of pool triangles in place: split every edge longer than `maxEdge` (never a
+   * `fixed` edge — one shared with a raster cell), then, while a triangle's centroid sits more
+   * than DEVIATION off the field (a basin bank, a platform ramp) or its owner is not the same at
+   * its three corners (a lane edge crossing a strip), split it again down to MIN_EDGE. Midpoints
+   * are pool vertices on the field, one per edge, so neighbours agree. Returns the triangles with
+   * their owner re-read at the centroid.
+   */
+  const DEVIATION = 0.04
+  const MIN_EDGE = 1
+  const refine = <T extends { p: number; q: number; r: number; kind: OwnerKind }>(tris: T[], maxEdge: number, fixed: Set<string>, yOf: (x: number, z: number) => number, ownerAt: ((x: number, z: number) => Owner) | null, make: (p: number, q: number, r: number, kind: OwnerKind) => T): T[] => {
+    const edgeKey = (u: number, v: number) => (u < v ? `${u},${v}` : `${v},${u}`)
+    const mid = new Map<string, number>()
+    const midpoint = (u: number, v: number): number => {
+      const key = edgeKey(u, v)
+      let k = mid.get(key)
+      if (k === undefined) {
+        const x = (pool.x[u]! + pool.x[v]!) / 2, z = (pool.z[u]! + pool.z[v]!) / 2
+        const pr = plan.project(x, z)
+        k = pool.addWorld(x, yOf(x, z), z, pr.s, pr.lateral)
+        mid.set(key, k)
+      }
+      return k
+    }
+    const len = (u: number, v: number) => Math.hypot(pool.x[u]! - pool.x[v]!, pool.z[u]! - pool.z[v]!)
+    const splitAll = (work: T[], want: (tr: T) => number): { out: T[]; split: boolean } => {
+      const out: T[] = []
+      let split = false
+      for (const z of work) {
+        const { p: a0, q: b0, r: c0, kind } = z
+        const limit = want(z)
+        const can = (u: number, v: number) => !fixed.has(edgeKey(u, v)) && len(u, v) > limit
+        const ab = can(a0, b0), bc = can(b0, c0), ca = can(c0, a0)
+        if (!ab && !bc && !ca) { out.push(z); continue }
+        split = true
+        const T = (p: number, q: number, r: number) => out.push(make(p, q, r, kind))
+        if (ab && bc && ca) { const p = midpoint(a0, b0), q = midpoint(b0, c0), r = midpoint(c0, a0); T(a0, p, r); T(p, b0, q); T(r, q, c0); T(p, q, r) }
+        else if (ab && bc) { const p = midpoint(a0, b0), q = midpoint(b0, c0); T(a0, p, q); T(p, b0, q); T(a0, q, c0) }
+        else if (bc && ca) { const q = midpoint(b0, c0), r = midpoint(c0, a0); T(b0, q, r); T(q, c0, r); T(a0, b0, r) }
+        else if (ca && ab) { const r = midpoint(c0, a0), p = midpoint(a0, b0); T(a0, p, r); T(p, b0, r); T(b0, c0, r) }
+        else if (ab) { const p = midpoint(a0, b0); T(a0, p, c0); T(p, b0, c0) }
+        else if (bc) { const q = midpoint(b0, c0); T(a0, b0, q); T(a0, q, c0) }
+        else { const r = midpoint(c0, a0); T(a0, b0, r); T(b0, c0, r) }
+      }
+      return { out, split }
+    }
+    let work = tris
+    for (let pass = 0; pass < 6; pass++) { const r = splitAll(work, () => maxEdge); work = r.out; if (!r.split) break }
+    // the centroid's deviation from the field, and the owners at the corners vs the centroid.
+    // Memoised per triangle: a triangle the last pass left alone keeps its verdict (the field
+    // read costs 35 µs, the owner read 10 µs, and a strip has 30k triangles). The owner test only
+    // runs for triangles a ring's box touches; beyond every ring the owner cannot change.
+    const verdict = new WeakMap<object, number>()
+    const nearRing = (x0: number, x1: number, z0: number, z1: number) => plan.rings.some((r) => { const b = r.ring.box; return !(x1 < b[0] || x0 > b[1] || z1 < b[2] || z0 > b[3]) })
+    const needs = (z: T): number => {
+      const have = verdict.get(z)
+      if (have !== undefined) return have
+      let v = Infinity
+      const cx = (pool.x[z.p]! + pool.x[z.q]! + pool.x[z.r]!) / 3, cz = (pool.z[z.p]! + pool.z[z.q]! + pool.z[z.r]!) / 3
+      const cy = (pool.y[z.p]! + pool.y[z.q]! + pool.y[z.r]!) / 3
+      if (Math.abs(cy - yOf(cx, cz)) > DEVIATION) v = MIN_EDGE
+      else if (ownerAt) {
+        const xs = [pool.x[z.p]!, pool.x[z.q]!, pool.x[z.r]!], zs = [pool.z[z.p]!, pool.z[z.q]!, pool.z[z.r]!]
+        if (nearRing(Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs))) {
+          const o = ownerAt(cx, cz).name
+          if (ownerAt(xs[0]!, zs[0]!).name !== o || ownerAt(xs[1]!, zs[1]!).name !== o || ownerAt(xs[2]!, zs[2]!).name !== o) v = MIN_EDGE
+        }
+      }
+      verdict.set(z, v)
+      return v
+    }
+    for (let pass = 0; pass < 3; pass++) { const r = splitAll(work, needs); work = r.out; if (!r.split) break }
+    /*
+     * CONFORM: the per-triangle passes split an edge on one side only, and a midpoint vertex
+     * hanging on a neighbour's unsplit edge is a T-junction — the vertex sits on the field, the
+     * neighbour's edge chords it, and the two differ by the very deviation the split was for
+     * (19-37 mm cracks on a basin bank). Every triangle with a midpoint on one of its edges is
+     * bisected at it, until no edge carries an unused midpoint. Fixed edges never have one.
+     */
+    for (let pass = 0; pass < 12; pass++) {
+      const out: T[] = []
+      let split = false
+      for (const z of work) {
+        const { p: a0, q: b0, r: c0, kind } = z
+        const mab = mid.get(edgeKey(a0, b0)), mbc = mid.get(edgeKey(b0, c0)), mca = mid.get(edgeKey(c0, a0))
+        if (mab === undefined && mbc === undefined && mca === undefined) { out.push(z); continue }
+        split = true
+        if (mab !== undefined) { out.push(make(a0, mab, c0, kind)); out.push(make(mab, b0, c0, kind)) }
+        else if (mbc !== undefined) { out.push(make(a0, b0, mbc, kind)); out.push(make(a0, mbc, c0, kind)) }
+        else { out.push(make(a0, b0, mca!, kind)); out.push(make(mca!, b0, c0, kind)) }
+      }
+      work = out
+      if (!split) break
+    }
+    if (ownerAt) for (const z of work) { const cx = (pool.x[z.p]! + pool.x[z.q]! + pool.x[z.r]!) / 3, cz = (pool.z[z.p]! + pool.z[z.q]! + pool.z[z.r]!) / 3; z.kind = ownerAt(cx, cz).kind }
+    return work
   }
 
   // --- stitch strips across the bisectors ----------------------------------------------------------
@@ -417,41 +517,29 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       }
       // refine: a zip triangle that fans across a pocket has cross edges tens of metres long and
       // chords the field; split those (never the rail edges, which the raster cells share) with
-      // midpoints on the field until none is longer than WORLD_STEP, per edge so neighbours agree
-      const mid = new Map<string, number>()
-      const midpoint = (u: number, v: number): number => {
-        const key = u < v ? `${u},${v}` : `${v},${u}`
-        let k = mid.get(key)
-        if (k === undefined) {
-          const x = (pool.x[u]! + pool.x[v]!) / 2, z = (pool.z[u]! + pool.z[v]!) / 2
-          const pr = plan.project(x, z)
-          k = pool.addWorld(x, field.y(x, z), z, pr.s, pr.lateral)
-          mid.set(key, k)
-          for (const set of endSets) if (set.has(u) && set.has(v)) set.add(k)
-        }
-        return k
+      // midpoints on the field, then again where the field or the owner demands it. The owner of
+      // a strip triangle beyond every ring is the higher of the two outer owners it joins.
+      const fallback = (x: number, z: number): Owner => {
+        const o = plan.ownerAt(x, z)
+        if (o.kind !== 'terrain') return o
+        let ka = 0, kb = 0, da = Infinity, db = Infinity
+        for (let k = 0; k < a.length; k++) { const dd = Math.hypot(pool.x[a[k]!]! - x, pool.z[a[k]!]! - z); if (dd < da) { da = dd; ka = k } }
+        for (let k = 0; k < b.length; k++) { const dd = Math.hypot(pool.x[b[k]!]! - x, pool.z[b[k]!]! - z); if (dd < db) { db = dd; kb = k } }
+        const oa = outerA(aSt[ka]!), ob = outerB(bSt[kb]!)
+        return ownerBeats(oa, ob) ? oa : ob
       }
-      const splittable = (u: number, v: number) => !railEdge.has(edgeKey(u, v)) && Math.hypot(pool.x[u]! - pool.x[v]!, pool.z[u]! - pool.z[v]!) > WORLD_STEP
-      let work = zipTris
-      for (let pass = 0; pass < 6; pass++) {
-        const next: typeof zipTris = []
-        let split = false
-        for (const z of work) {
-          const { p: a0, q: b0, r: c0, kind } = z
-          const ab = splittable(a0, b0), bc = splittable(b0, c0), ca = splittable(c0, a0)
-          if (!ab && !bc && !ca) { next.push(z); continue }
-          split = true
-          const T = (p: number, q: number, r: number) => next.push({ p, q, r, kind })
-          if (ab && bc && ca) { const p = midpoint(a0, b0), q = midpoint(b0, c0), r = midpoint(c0, a0); T(a0, p, r); T(p, b0, q); T(r, q, c0); T(p, q, r) }
-          else if (ab && bc) { const p = midpoint(a0, b0), q = midpoint(b0, c0); T(a0, p, q); T(p, b0, q); T(a0, q, c0) }
-          else if (bc && ca) { const q = midpoint(b0, c0), r = midpoint(c0, a0); T(b0, q, r); T(q, c0, r); T(a0, b0, r) }
-          else if (ca && ab) { const r = midpoint(c0, a0), p = midpoint(a0, b0); T(a0, p, r); T(p, b0, r); T(b0, c0, r) }
-          else if (ab) { const p = midpoint(a0, b0); T(a0, p, c0); T(p, b0, c0) }
-          else if (bc) { const q = midpoint(b0, c0); T(a0, b0, q); T(a0, q, c0) }
-          else { const r = midpoint(c0, a0); T(a0, b0, r); T(b0, c0, r) }
+      const work = refine(zipTris, WORLD_STEP, railEdge, (x, z) => field.y(x, z), fallback, (p, q, r, kind) => ({ p, q, r, kind }))
+      // the end chains: every vertex the refinement put on an end edge (collinear with its ends)
+      for (const z of work) for (const v of [z.p, z.q, z.r]) {
+        for (const set of endSets) {
+          if (set.has(v)) continue
+          const [e0, e1] = [...set].slice(0, 2) as [number, number]
+          const ex = pool.x[e1]! - pool.x[e0]!, ez = pool.z[e1]! - pool.z[e0]!
+          const l2 = ex * ex + ez * ez || 1
+          const tt = ((pool.x[v]! - pool.x[e0]!) * ex + (pool.z[v]! - pool.z[e0]!) * ez) / l2
+          if (tt <= 0 || tt >= 1) continue
+          if (Math.hypot(pool.x[v]! - pool.x[e0]! - ex * tt, pool.z[v]! - pool.z[e0]! - ez * tt) < 0.005) set.add(v)
         }
-        work = next
-        if (!split) break
       }
       for (const z of work) {
         tri(z.kind, z.p, z.q, z.r, 2)
@@ -612,6 +700,8 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   // --- world parts: what the rings cover beyond the covered ground ----------------------------------
   let worldTris = 0
   let droppedWorldArea = 0
+  /** world parts are tagged 16 + part index in the triangle source (diagnostics) */
+  let partId = 0
   const emitPolygon = (owner: Owner, contour: { x: number; z: number; v?: number }[], holes: Pt[][], window?: [number, number], verify?: (x: number, z: number) => boolean) => {
       const shape = contour.map((p) => new THREE.Vector2(p.x, -p.z))
       const holeShapes = holes.map((h) => h.map((p) => new THREE.Vector2(p.x, -p.z)).reverse())
@@ -657,15 +747,34 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
         if (!split) break
       }
       // pool vertices: contour points that already are pool vertices keep their index (an exact
-      // seam with the raster); everything else is a world vertex on the field
+      // seam with the raster); everything else is a world vertex on the field — the field at the
+      // point's own nearest road (one height per XZ, rule R3), never through the ring's s window:
+      // the paddock band is measured from the straight but its far edge lies on NIPPO's verge,
+      // and the window put those vertices on the straight's frame, 30 cm off the field there
       const idx = pts.map((p) => {
         if (p.v !== undefined) return p.v
         const pr = window ? track.nearestOnRange(p.x, p.z, window[0], window[1], 60) : plan.project(p.x, p.z)
-        return pool.addWorld(p.x, field.y(p.x, p.z, window), p.z, pr.s, pr.lateral)
+        return pool.addWorld(p.x, field.y(p.x, p.z), p.z, pr.s, pr.lateral)
       })
+      // the contour's own edges are shared with the raster (extent edges) or are the ring's outline:
+      // never split; the interior is refined further where the field demands it (a basin bank)
+      const fixedEdges = new Set<string>()
+      for (let i = 0; i < contour.length; i++) { const u = idx[i]!, v = idx[(i + 1) % contour.length]!; fixedEdges.add(u < v ? `${u},${v}` : `${v},${u}`) }
+      const before = tris.map(([a, b, c]) => ({ p: idx[a]!, q: idx[b]!, r: idx[c]!, kind: owner.kind }))
+      const poolTris = refine(before, Infinity, fixedEdges, (x, z) => field.y(x, z), null, (p, q, r, kind) => ({ p, q, r, kind }))
+      if ((globalThis as unknown as { GM_DEBUG?: string }).GM_DEBUG === owner.name) {
+        const ins = (T: { p: number; q: number; r: number }, x: number, z: number) => { const A = T.p, B = T.q, C = T.r; const d = (pool.z[B]! - pool.z[C]!) * (pool.x[A]! - pool.x[C]!) + (pool.x[C]! - pool.x[B]!) * (pool.z[A]! - pool.z[C]!); if (Math.abs(d) < 1e-12) return false; const u = ((pool.z[B]! - pool.z[C]!) * (x - pool.x[C]!) + (pool.x[C]! - pool.x[B]!) * (z - pool.z[C]!)) / d; const v = ((pool.z[C]! - pool.z[A]!) * (x - pool.x[C]!) + (pool.x[A]! - pool.x[C]!) * (z - pool.z[C]!)) / d; return u > 1e-6 && v > 1e-6 && 1 - u - v > 1e-6 }
+        const check = (list: { p: number; q: number; r: number }[], label: string) => {
+          let n = 0
+          for (let i = 0; i < list.length && n < 3; i++) { const T = list[i]!; const cx = (pool.x[T.p]! + pool.x[T.q]! + pool.x[T.r]!) / 3, cz = (pool.z[T.p]! + pool.z[T.q]! + pool.z[T.r]!) / 3; for (let j = 0; j < list.length; j++) { if (i === j) continue; if (ins(list[j]!, cx, cz)) { n++; const U = list[j]!; console.info(`[gm-debug] ${label}: tri ${i} (${[T.p, T.q, T.r].join(',')}) centroid inside tri ${j} (${[U.p, U.q, U.r].join(',')}); coords ${[T.p, T.q, T.r, U.p, U.q, U.r].map((v) => `${v}:(${pool.x[v]!.toFixed(2)},${pool.z[v]!.toFixed(2)})`).join(' ')}`); break } } }
+          console.info(`[gm-debug] ${label}: ${list.length} triangles, ${n ? 'FOLDS' : 'no folds'}`)
+        }
+        check(before, 'before refine')
+        check(poolTris, 'after refine')
+      }
       let emitted = 0, area = 0, rejected = 0, rejectedArea = 0
-      for (const [a, b, c] of tris) {
-        const ia = idx[a]!, ib = idx[b]!, ic = idx[c]!
+      const srcTag = 16 + (partId++ % 200)
+      for (const { p: ia, q: ib, r: ic } of poolTris) {
         // drop slivers: a hair-thin ear spans metres of terrain and takes a sideways normal
         const cross = (pool.x[ib]! - pool.x[ia]!) * (pool.z[ic]! - pool.z[ia]!) - (pool.z[ib]! - pool.z[ia]!) * (pool.x[ic]! - pool.x[ia]!)
         const longest = Math.max(Math.hypot(pool.x[ib]! - pool.x[ia]!, pool.z[ib]! - pool.z[ia]!), Math.hypot(pool.x[ic]! - pool.x[ib]!, pool.z[ic]! - pool.z[ib]!), Math.hypot(pool.x[ia]! - pool.x[ic]!, pool.z[ia]! - pool.z[ic]!))
@@ -683,7 +792,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
           }
           continue
         }
-        tri(owner.kind, ia, ib, ic, 1)
+        tri(owner.kind, ia, ib, ic, srcTag)
         worldTris++
         emitted++
         area += Math.abs(cross) / 2
