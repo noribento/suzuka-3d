@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
-import type { Track } from '~/sim/track'
+import { ROLL_CAP, type Track } from '~/sim/track'
 import { makeGround, type Ground } from './ground'
+import { makeField, type GroundField } from './ground-field'
 import { buildCrowd } from './crowd'
 import { grassSurfaceMaterial } from './materials'
 import { QUALITY, type Quality } from './quality'
@@ -34,6 +35,10 @@ function softRamp(x: number, k: number): number {
 const ROAD_CUT = 0.12
 /** Slope (rise per metre) of the embankment between a road and lower ground beside it. */
 const FILL_SLOPE = 0.35
+/** Radius of the road-plane blend, metres. */
+const ROAD_R = 140
+/** Decay of the cross-fade towards the nearest road, metres: e^-5 for a road 30 m further away. */
+const ROAD_FALLOFF = 6
 
 /**
  * A ground sheet registered with the terrain (`Terrain.addGroundSurface`).
@@ -92,6 +97,18 @@ export class Terrain {
   private readonly dz: number
   private readonly heights: Float32Array
   private readonly chunks: THREE.Mesh[] = []
+  /** tan(roll) and half-width + the embankment toe, per centreline sample (heightAt is hot) */
+  private readonly tanRoll: Float64Array
+  private readonly fillToe: Float64Array
+  /** scratch for one heightAt call: the samples inside ROAD_R, gathered once */
+  private readonly sDist = new Float64Array(4096)
+  private readonly sPlane = new Float64Array(4096)
+  private readonly sToe = new Float64Array(4096)
+  private sN = 0
+  private qx = 0
+  private qz = 0
+  private nearD2 = Infinity
+  private nearI = -1
 
   /** the asset pack (null / empty on the low tier); the track meshes read it from here */
   constructor(private track: Track, grid: [number, number] = [256, 192], readonly assets: AssetRegistry | null = null) {
@@ -111,6 +128,12 @@ export class Terrain {
     this.z0 = cz - d / 2
     this.dx = w / this.NX
     this.dz = d / this.NZ
+    this.tanRoll = new Float64Array(track.n)
+    this.fillToe = new Float64Array(track.n)
+    for (let i = 0; i < track.n; i++) {
+      this.tanRoll[i] = Math.tan(track.roll[i]!)
+      this.fillToe[i] = track.hw[i]! + 6
+    }
     for (let j = 0; j < gz; j++) for (let i = 0; i < gx; i++) this.heights[j * gx + i] = this.heightAt(this.x0 + i * this.dx, this.z0 + j * this.dz)
     // terrain uv = xz / 9; withered_grass at its 2 m tile on the high tier, the procedural SEASON
     // tile otherwise, one macro period every 250 m either way (materials.ts grassSurfaceMaterial)
@@ -516,79 +539,136 @@ export class Terrain {
     return { d: Math.sqrt(best), i: bi, lateral, s: bi * t.ds }
   }
 
+  /** Gather callback: the road plane of every sample within ROAD_R, and the nearest of them. */
+  private readonly gatherNear = (i: number, d2: number) => {
+    const t = this.track
+    const lat = (this.qx - t.px[i]!) * t.nx[i]! + (this.qz - t.pz[i]!) * t.nz[i]!
+    const a = lat > ROLL_CAP ? ROLL_CAP : lat < -ROLL_CAP ? -ROLL_CAP : lat
+    const k = this.sN
+    if (k < this.sDist.length) {
+      this.sDist[k] = Math.sqrt(d2)
+      this.sPlane[k] = t.py[i]! + this.tanRoll[i]! * (a + 0.2 * (lat - a))
+      this.sToe[k] = this.fillToe[i]!
+      this.sN = k + 1
+    }
+    if (d2 < this.nearD2) { this.nearD2 = d2; this.nearI = i }
+  }
+
+  /** Gather callback for the far field: the nearest sample only. */
+  private readonly gatherFar = (i: number, d2: number) => {
+    if (d2 < this.nearD2) { this.nearD2 = d2; this.nearI = i }
+  }
+
+  /** Continuous projection onto the two centreline segments that touch sample `i0`. */
+  private readonly proj = { s: 0, lat: 0, py: 0, roll: 0, hw: 0 }
+  private projectNear(i0: number, x: number, z: number) {
+    const t = this.track, n = t.n, p = this.proj
+    let best = Infinity
+    for (let q = 0; q < 2; q++) {
+      const j = (i0 - 1 + q + n) % n, k = (j + 1) % n
+      const ax = t.px[j]!, az = t.pz[j]!
+      let ux = t.px[k]! - ax, uz = t.pz[k]! - az
+      const ul = Math.sqrt(ux * ux + uz * uz) || 1
+      ux /= ul
+      uz /= ul
+      let u = (x - ax) * ux + (z - az) * uz
+      u = u < 0 ? 0 : u > ul ? ul : u
+      const dx = x - (ax + ux * u), dz = z - (az + uz * u)
+      const d2 = dx * dx + dz * dz
+      if (d2 < best) {
+        best = d2
+        const f = u / ul, g = 1 - f
+        const nx = t.nx[j]! * g + t.nx[k]! * f, nz = t.nz[j]! * g + t.nz[k]! * f
+        const nl = Math.sqrt(nx * nx + nz * nz) || 1
+        p.s = (j * t.ds + u) % t.length
+        p.lat = (dx * nx + dz * nz) / nl
+        p.py = t.py[j]! * g + t.py[k]! * f
+        p.roll = t.roll[j]! * g + t.roll[k]! * f
+        p.hw = t.hw[j]! * g + t.hw[k]! * f
+      }
+    }
+    return p
+  }
+
   /**
-   * Analytic terrain height. Near the track the ground is the road plane (camber included)
-   * cut ROAD_CUT below the asphalt, blending over ~8 m beyond the verge into a smoothed
-   * elevation of all road samples within 140 m; further out it rolls into the hills. Where a
-   * second, lower stretch of track is nearby (the crossover, 200R under the back straight)
-   * the ground is capped at that road's level plus a FILL_SLOPE embankment, so the lower road
-   * is never buried and the upper one stands on a bank instead of a floating shelf.
+   * Analytic terrain height — one continuous (C0) field.
+   *
+   * Near the track the ground is the road plane (camber included) cut ROAD_CUT below the asphalt,
+   * taken from a CONTINUOUS projection onto the centreline (it used to be the nearest discrete
+   * sample, a 2 m sawtooth of up to 157 mm along the lap and 800 mm at lateral 20). Beyond the
+   * verge it blends over ~8 m into an inverse-distance blend of every road sample within ROAD_R,
+   * weighted sharply towards the nearest road (ROAD_FALLOFF) so a higher road 30 m away does not
+   * lift the verge beside a lower one, and faded to zero at ROAD_R so a sample entering the radius
+   * contributes nothing (the old hard "stretch" membership made 0.3-0.5 m steps where a chain
+   * split). Every sample also caps the ground at its own road level plus a FILL_SLOPE embankment
+   * measured with the EUCLIDEAN distance — the old cap used a far stretch's lateral and cut
+   * 8-10 m cliffs at the hairpin exit — so a lower road (the crossover, 200R under the back
+   * straight) is never buried and the upper one stands on a bank. Further out it rolls into the
+   * hills. Measured on the built track: 5 cm steps over 30 mm along the verge went from 6,874 to
+   * 21, all but 6 of them facility relief edges (stands.ts), and the call costs 11 µs, not 27.
    */
   heightAt(x: number, z: number): number {
     const t = this.track
-    const n = t.n
-    const near = this.distanceToTrack(x, z, 360)
-    const base = this.base(x, z)
-    const hillW = smoothstep((near.d - 90) / 260)
-    const hills = this.hills(x, z) * hillW
-    if (near.i < 0) return base + hills
-    // smoothed road plane per separate stretch of track (stretches are > 300 m apart along
-    // the lap): inverse-distance blend of its samples within 140 m, plus its nearest sample
-    const stretches: { i: number; d2: number; lat: number; num: number; den: number }[] = []
-    t.forEachSampleNear(x, z, 140, (i, d2) => {
-      const lat = (x - t.px[i]!) * t.nx[i]! + (z - t.pz[i]!) * t.nz[i]!
-      const w = 1 / (d2 + 400)
-      const plane = (t.py[i]! + t.rollLift(t.roll[i]!, lat)) * w
-      let hit: (typeof stretches)[number] | null = null
-      for (const st of stretches) {
-        const gap = Math.abs(st.i - i)
-        if (gap < 150 || n - gap < 150) {
-          hit = st
-          break
-        }
-      }
-      if (!hit) stretches.push({ i, d2, lat, num: plane, den: w })
-      else {
-        hit.num += plane
-        hit.den += w
-        if (d2 < hit.d2) {
-          hit.i = i
-          hit.d2 = d2
-          hit.lat = lat
-        }
-      }
-    })
-    if (!stretches.length) return base + hills
-    let nearest = stretches[0]!
-    for (const st of stretches) if (st.d2 < nearest.d2) nearest = st
-    // cross-fade between the stretches' planes with distance, weighted sharply towards the
-    // nearest one so a higher road 30 m away does not lift the verge next to a lower one
-    const dMin = Math.sqrt(nearest.d2)
-    let num = 0, den = 0
-    for (const st of stretches) {
-      const w = Math.exp(-(Math.sqrt(st.d2) - dMin) / 6)
-      num += (st.num / st.den) * w
+    this.qx = x
+    this.qz = z
+    this.sN = 0
+    this.nearD2 = Infinity
+    this.nearI = -1
+    t.forEachSampleNear(x, z, ROAD_R, this.gatherNear)
+    if (this.nearI < 0) {
+      // out of road range: the smoothed coarse elevation rolling into the hills
+      this.nearD2 = Infinity
+      t.forEachSampleNear(x, z, 360, this.gatherFar)
+      const d = this.nearI < 0 ? 360 : Math.sqrt(this.nearD2)
+      return this.base(x, z) + smoothstep((d - 90) / 260) * this.hills(x, z)
+    }
+    const near = Math.sqrt(this.nearD2)
+    // one pass: the road-plane blend, plus a lower bound of the embankment cap
+    // (softRamp(v, 4) >= max(0, v)), which lets the cap itself be skipped most of the time
+    const cut = near + 12 * ROAD_FALLOFF // e^-12: beyond this a sample cannot move the blend
+    let num = 0, den = 0, capLow = Infinity
+    for (let k = 0; k < this.sN; k++) {
+      const d = this.sDist[k]!
+      const over = d - this.sToe[k]!
+      const low = this.sPlane[k]! - ROAD_CUT + (over > 0 ? FILL_SLOPE * over : 0)
+      if (low < capLow) capLow = low
+      if (d > cut) continue
+      const d2 = d * d
+      const fade = 1 - d2 / (ROAD_R * ROAD_R)
+      const w = ((fade * fade) / (d2 + 400)) * Math.exp((near - d) / ROAD_FALLOFF)
+      num += this.sPlane[k]! * w
       den += w
     }
-    const hLocal = num / den
-    const w2 = smoothstep((near.d - 140) / 220)
-    const far = hLocal * (1 - w2) + base * w2 + hills
+    const hillW = smoothstep((near - 90) / 260)
+    const w2 = smoothstep((near - ROAD_R) / 220)
+    const far = (num / den) * (1 - w2) + (w2 > 0 ? this.base(x, z) * w2 : 0) + (hillW > 0 ? this.hills(x, z) * hillW : 0)
     // flat cut under and beside the nearest road, blending into the smoothed plane
-    const dLat = Math.abs(nearest.lat)
-    const hNear = t.py[nearest.i]! + t.rollLift(t.roll[nearest.i]!, nearest.lat) - ROAD_CUT
-    const wN = smoothstep((dLat - t.hw[nearest.i]! - 2) / 8)
+    const p = this.projectNear(this.nearI, x, z)
+    const hNear = p.py + t.rollLift(p.roll, p.lat) - ROAD_CUT
+    const wN = smoothstep((Math.abs(p.lat) - p.hw - 2) / 8)
     let h = hNear * (1 - wN) + far * wN
-    // flat paddock / grandstand apron along the main straight
+    // flat paddock / grandstand apron along the main straight, its s ends faded over 25 m so
+    // they are a ramp and not a wall
     const fz = this.flatZone
-    const inZoneS = near.s >= fz.from || near.s <= fz.to
-    if (inZoneS && near.lateral > fz.latMin && near.lateral < fz.latMax && Math.abs(near.lateral) < 135) {
-      const yFlat = t.py[near.i]! - ROAD_CUT
-      const edge = smoothstep((near.lateral < 0 ? near.lateral - fz.latMin : fz.latMax - near.lateral) / 12)
-      h = yFlat * edge + h * (1 - edge)
+    if ((p.s >= fz.from || p.s <= fz.to) && p.lat > fz.latMin && p.lat < fz.latMax) {
+      const L = t.length
+      const into = Math.min(
+        p.s >= fz.from ? p.s - fz.from : p.s + (L - fz.from),
+        p.s <= fz.to ? fz.to - p.s : L - fz.from + fz.to,
+      )
+      const edge = smoothstep((p.lat < 0 ? p.lat - fz.latMin : fz.latMax - p.lat) / 12) * smoothstep(into / 25)
+      h = (p.py - ROAD_CUT) * edge + h * (1 - edge)
     }
-    // every stretch of track caps the ground at its own level plus an embankment slope
-    for (const st of stretches) {
-      const cap = t.py[st.i]! + t.rollLift(t.roll[st.i]!, st.lat) - ROAD_CUT + FILL_SLOPE * softRamp(Math.abs(st.lat) - t.hw[st.i]! - 6, 4)
+    // every sample caps the ground at its road level plus an embankment slope
+    if (capLow < h) {
+      let cap = Infinity
+      for (let k = 0; k < this.sN; k++) {
+        const plane = this.sPlane[k]! - ROAD_CUT
+        const over = this.sDist[k]! - this.sToe[k]!
+        if (plane + (over > 0 ? FILL_SLOPE * over : 0) >= cap) continue
+        const c = plane + FILL_SLOPE * softRamp(over, 4)
+        if (c < cap) cap = c
+      }
       if (cap < h) h = cap
     }
     // facility relief, after the caps so it wins: the hillside / embankment platforms the
@@ -676,7 +756,8 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   const group = new THREE.Group()
   const terrain = new Terrain(track, quality.terrain, assets)
   group.add(terrain.group)
-  const ground = makeGround(track, (x, z) => terrain.heightAt(x, z), (x, z) => terrain.meshHeightAt(x, z))
+  const field: GroundField = makeField(track, terrain)
+  const ground = makeGround(track, field)
   // only the trees draw from this generator (the crowd seeds its own)
   const rng = new Rng(seed)
 

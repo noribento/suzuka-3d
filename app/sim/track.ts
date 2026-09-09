@@ -60,7 +60,7 @@ export interface CornerRun {
 }
 
 /** Lateral extent (m) over which the full road camber applies — the road plus its kerbs. */
-const ROLL_CAP = 9.5
+export const ROLL_CAP = 9.5
 
 function wrapS(s: number, length: number): number {
   s %= length

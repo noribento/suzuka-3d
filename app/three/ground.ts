@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Side } from '~/data/suzuka-facilities-spec'
 import { signedDelta, type Track } from '~/sim/track'
+import type { GroundField } from './ground-field'
 
 /**
  * The ground beside the road, shared by the run-off ribbons, the trackside objects and the
@@ -176,6 +177,8 @@ export interface Ground {
   yAt: (s: number, lateral: number) => number
   /** World-space ground height at (s, lateral). */
   worldY: (s: number, lateral: number) => number
+  /** the one continuous ground field every field-frame face rides on (ground-field.ts) */
+  field: GroundField
 }
 
 const _p = new THREE.Vector3()
@@ -186,27 +189,13 @@ function smoothstep(t: number): number {
 }
 
 /**
- * @param terrainHeightAt analytic terrain height (the run-off ribbons drape over this)
- * @param meshHeightAt height of the rendered terrain mesh, used beyond the ribbons so that
- *   objects stand on the triangles that are actually drawn
+ * @param field the one continuous ground field (ground-field.ts). `yAt` / `worldY` are thin
+ *   views of it: the old 0.25 m memo (12-18 mm of noise on a 0.1 m/m slope) and the switch to the
+ *   DRAWN terrain mesh past the verge width (a 165 mm step across the chicane's turf) are gone.
  */
-export function makeGround(track: Track, terrainHeightAt: (x: number, z: number) => number, meshHeightAt: (x: number, z: number) => number = terrainHeightAt): Ground {
+export function makeGround(track: Track, field: GroundField): Ground {
   const L = track.length
   const sOver = track.crossing.sOver
-  // The analytic terrain height is the expensive part of every drape sample (a spatial hash
-  // plus dozens of noise evaluations) and the ribbons ask for it ~100k times at start-up.
-  // Memoise it on a 0.25 m grid — far below the 2–4 m ribbon step, so the surface is the
-  // same analytic one (the crossover tolerance above is untouched).
-  const memo = new Map<number, number>()
-  const heightMemo = (x: number, z: number): number => {
-    const key = ((Math.round(x * 4) & 0xffff) << 16) ^ (Math.round(z * 4) & 0xffff)
-    let h = memo.get(key)
-    if (h === undefined) {
-      h = terrainHeightAt(x, z)
-      memo.set(key, h)
-    }
-    return h
-  }
   // the bridge deck is hw + 1.2 wide; the verge is back to full width 110 m from the crossing
   const crossover = (s: number): number => {
     const d = Math.abs(signedDelta(sOver, s, L))
@@ -267,20 +256,9 @@ export function makeGround(track: Track, terrainHeightAt: (x: number, z: number)
   }
   const runoffWidth = (s: number, side: Side = 1): number => Math.min(crossover(s), foldSafe(s, side))
   const yAt = (s: number, lateral: number): number => {
-    const off = Math.abs(lateral) - track.halfWidthAt(s)
-    if (off <= 0) return 0
-    const w = runoffWidth(s, lateral >= 0 ? 1 : -1)
-    // the ribbon's outer edge is placed at exactly hw + w, and (hw + w) - hw lands a rounding
-    // error beyond w: without the tolerance that edge drops to the terrain, which hangs a
-    // curtain of grass from the crossover deck down to the road underneath
-    if (off <= Math.min(FLAT_STRIP, w) + 1e-3) return STRIP_DROP
     track.pointAt(s, lateral, _p)
-    return (off <= w ? heightMemo(_p.x, _p.z) + RUNOFF_LIFT : meshHeightAt(_p.x, _p.z)) - _p.y
+    return field.yAt(s, lateral) - _p.y
   }
-  const worldY = (s: number, lateral: number): number => {
-    const y = yAt(s, lateral)
-    track.pointAt(s, lateral, _p)
-    return _p.y + y
-  }
-  return { runoffWidth, yAt, worldY }
+  const worldY = (s: number, lateral: number): number => field.yAt(s, lateral)
+  return { runoffWidth, yAt, worldY, field }
 }

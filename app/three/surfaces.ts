@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { SURFACE_PATCHES, type Side, type SurfaceKind, type SurfacePatch } from '~/data/suzuka-facilities-spec'
 import type { Track } from '~/sim/track'
-import { FLAT_STRIP, LAYER, RUNOFF_LIFT, type Ground } from './ground'
+import { FLAT_STRIP, type Ground } from './ground'
 import { patchOutline } from './trackside'
 
 /**
@@ -395,17 +395,12 @@ function patchGeometry(
      * Deliberately NOT ground.yAt: it switches to the terrain MESH height past runoffWidth(s),
      * which would put a step across the middle of a patch at the fold-capped verge edge.
      */
+    // the one continuous field (ground-field.ts) carries the strip rule and the 2-8 m blend;
+    // a patch only ducks under the racing surface and adds its layer lift
     const underY = _p.y + PATCH_UNDER
-    const stripY = _p.y + LAYER.strip.patch
-    const vergeY = terrainHeightAt(x, z) + RUNOFF_LIFT + lift
     const wRoad = smoothstep((off + 0.2) / 0.7)
-    // Blended over 6 m, not 1.5. The ring's inner boundary is a straight run at a constant off
-    // (STRIP_CLEAR), so the triangles along it are long slivers; a steep blend turns each of them
-    // into a near-vertical facet that shades as a dark line. Six metres puts the whole transition
-    // below 5 mm per metre, and it reads as a gentler ramp off the strip rather than a lip.
-    const wVerge = smoothstep((off - BLEND_FROM) / (BLEND_TO - BLEND_FROM))
-    const nearY = underY + (stripY - underY) * wRoad
-    const y = nearY + (vergeY - nearY) * wVerge
+    const fieldY = ground.field.y(x, z, [s0, s1]) + lift
+    const y = underY + (fieldY - underY) * wRoad
     pos.set([x, y, z], i * 3)
     // metric, world-planar uv — (s, lateral) uv folds for exactly the same reason the geometry does
     uv.set([x / uvM[0]!, -z / uvM[1]!], i * 2)

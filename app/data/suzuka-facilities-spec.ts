@@ -1185,5 +1185,73 @@ export const SURFACE_PATCHES: SurfacePatch[] = [
   { name: 'シケイン内側 人工芝', kind: 'turf', layer: 1, sRange: [5150, 5270], source: 'osm', straight: true, osm: [467152470], unverified: ['hex'] },
 ]
 
+/**
+ * ---------------------------------------------------------------- the ground plan's area rows
+ *
+ * Every paved / unpaved AREA that is not a lateral band of RUNOFF_ZONES is one row here: the
+ * chicane aprons and turf island, the paddock aprons, the helipad, the secondary paving, and the
+ * gravel beds where the swept frame folds (OSM sand polygons). The ground beside the road is a
+ * PARTITION in XZ — one opaque owner per point, decided by `ground-plan.ts` from these footprints
+ * and the fixed `PRECEDENCE` list — so a row can only say WHAT is there and WHERE. It cannot say
+ * how high it is drawn, in which order, what mesh it becomes or whether it is registered: those
+ * words do not exist in this type on purpose (plan rule R14). Two area rows overlap only as a
+ * hole (nested) or by `layer` inside the swept verge; a partial overlap outside it is a build
+ * error, fixed by splitting the row.
+ */
+export type GroundAreaKind = 'asphaltArea' | 'turf' | 'gravelArea' | 'grassArea' | 'paddock' | 'helipad' | 'water'
+
+export type GroundFootprint =
+  /** a hand / edge / way-node ring (the SURFACE_PATCHES outline vocabulary), measured in the row's s window */
+  | { ring: PatchNode[]; sRange: [number, number]; straight?: boolean; minGap?: number }
+  /** closed OSM way(s) */
+  | { osm: number[]; sRange: [number, number]; straight?: boolean; latMax?: number; minGap?: number }
+  /** an OSM polyline swept `width` metres wide (the secondary paving) */
+  | { way: number; width: number; sRange?: [number, number] }
+  /** a lateral band on `side` from the centreline (the paddock aprons) */
+  | { band: Side; sRange: [number, number]; lat: [number, number] }
+  /** a disc in the lap frame (the helipad) */
+  | { disc: { s: number; lateral: number; r: number } }
+
+export interface GroundArea {
+  name: string
+  kind: GroundAreaKind
+  footprint: GroundFootprint
+  /** paint order among area rows: higher is cut out of lower; default 0 */
+  layer?: number
+  source: 'osm' | 'photo'
+  unverified?: string[]
+  note?: string
+}
+
+export const GROUND_AREAS: GroundArea[] = [
+  // --- the Casio Triangle (see the SURFACE_PATCHES provenance comments above) -------------------
+  {
+    name: 'シケイン舗装エプロン', kind: 'asphaltArea', layer: 0, source: 'photo',
+    footprint: { sRange: [5100, 5300], ring: [{ edge: 1, from: 5126, to: 5262, off: 0.2 }, { way: 183391653, offset: 5.0, reverse: true }] },
+    unverified: ['the 5.0 m offset is half the loop width + its kerb, read off the aerial (±1.5 m)'],
+  },
+  {
+    name: 'シケイン舗装エプロン（右）', kind: 'asphaltArea', layer: 0, source: 'photo',
+    footprint: {
+      sRange: [5120, 5230],
+      ring: [
+        { edge: -1, from: 5128, to: 5205, off: 0.2 },
+        [5205, -12.5], [5195, -13.0], [5185, -14.0], [5175, -16.5], [5165, -16.5], [5155, -15.0],
+        [5148, -24.0], [5140, -25.0], [5133, -16.0], [5128, -9.0],
+      ],
+    },
+    unverified: ['aerial at 0.49 m/px, ±2 m'],
+  },
+  { name: 'シケイン内側 人工芝', kind: 'turf', layer: 1, source: 'osm', footprint: { sRange: [5150, 5270], osm: [467152470], straight: true }, unverified: ['hex'] },
+  // --- the pit complex ground (pit-complex.ts used to hard-code these) ---------------------------
+  { name: 'パドック（ピットビル裏）', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [5536, 100], lat: [-125, -57.3] }, note: 'the flat zone behind the pit building; the garage apron in front of it is a road-frame owner' },
+  { name: 'ピット出口ヤード', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [103, 205], lat: [-52, -24.9] }, note: 'around the medical centre' },
+  { name: 'ヘリパッド', kind: 'helipad', layer: 1, source: 'osm', footprint: { disc: { s: HELIPAD.s, lateral: HELIPAD.lateral, r: HELIPAD.radius } }, note: 'GSI z18 aerial: the H sits beside the medical centre at the final-corner end' },
+  // --- secondary paving: OSM raceways that are not the lap (props.ts used to filter OSM_RACEWAY at runtime)
+  { name: '南コース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525062, width: 10 } },
+  { name: 'カートコース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525698, width: 7 } },
+  { name: 'OSM raceway 183393709（最終コーナー外側のループ）', kind: 'asphaltArea', source: 'osm', footprint: { way: 183393709, width: 9 }, unverified: ['width', 'purpose'] },
+]
+
 /** Debris-fence height in front of the stands: FIA-standard 3.5 m; Suzuka-specific heights UNVERIFIED. */
 export const DEBRIS_FENCE_HEIGHT = 3.5

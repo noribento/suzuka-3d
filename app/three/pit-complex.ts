@@ -1178,7 +1178,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     pad.name = 'helipad'
     pad.receiveShadow = true
     group.add(pad)
-    ctx.terrain.addGroundSurface(padGeo, { name: 'helipad', maxDrop: 1 })
+    ctx.terrain.addGroundSurface(padGeo, { name: 'helipad', maxDrop: 12 })
   }
 
   // --- paddock: asphalt aprons, footprint buildings, prefabs, transporters, tents, flags, car park ------
@@ -1205,7 +1205,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     }
     // behind the building (the flat zone of the terrain), and the pit-exit yard around the medical centre
     const paddock = add([drape(5536, 100, [-125, -118, -112, -106, -100, -88, -76, -66, -57.3], LAYER.mesh.paddock), drape(103, 205, [-52, -44, -36, -28, -24.9], LAYER.mesh.paddock)], asphaltMat, 'paddockAsphalt', false)
-    if (paddock) ctx.terrain.addGroundSurface(paddock.geometry, { name: 'paddockAsphalt', maxDrop: 1 })
+    if (paddock) ctx.terrain.addGroundSurface(paddock.geometry, { name: 'paddockAsphalt', maxDrop: 12 })
 
     // real footprints: the spec'd buildings plus every other OSM building inside the paddock box
     const capGeos: THREE.BufferGeometry[] = []

@@ -164,14 +164,25 @@ export function laneWorldPath(track: Track, def: { osmWay?: number; samples?: La
     const m = track.nearestOnRange(x, z, def.sRange[0], def.sRange[1], 60)
     out.push({ x, z, s: m.s, lat: m.lateral, d })
   }
-  const cr = (a: number, b: number, c: number, e: number, t: number) =>
-    0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - e) * t * t + (-a + 3 * b - 3 * c + e) * t * t * t)
+  /*
+   * CENTRIPETAL Catmull-Rom (Barry-Goldman), not the uniform one: OSM vertices are unevenly spaced
+   * (the West Course pit lane has a 4 m segment next to a 40 m one) and a uniform spline overshoots
+   * there into a loop — the lane's swept footprint crossed itself 12 times and its ribbon carried a
+   * bow-tie. The centripetal parametrisation cannot form loops or cusps.
+   */
   for (let i = 0; i < raw.length - 1; i++) {
     const p0 = raw[Math.max(0, i - 1)]!, p1 = raw[i]!, p2 = raw[i + 1]!, p3 = raw[Math.min(raw.length - 1, i + 2)]!
     const n = Math.max(1, Math.round(Math.hypot(p2.x - p1.x, p2.z - p1.z) / step))
+    const knot = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.max(1e-3, Math.sqrt(Math.hypot(b.x - a.x, b.z - a.z)))
+    const t0 = 0, t1 = t0 + knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3)
     for (let k = 0; k < n; k++) {
-      const t = k / n
-      push(cr(p0.x, p1.x, p2.x, p3.x, t), cr(p0.z, p1.z, p2.z, p3.z, t))
+      const t = t1 + ((t2 - t1) * k) / n
+      const a1x = ((t1 - t) / (t1 - t0)) * p0.x + ((t - t0) / (t1 - t0)) * p1.x, a1z = ((t1 - t) / (t1 - t0)) * p0.z + ((t - t0) / (t1 - t0)) * p1.z
+      const a2x = ((t2 - t) / (t2 - t1)) * p1.x + ((t - t1) / (t2 - t1)) * p2.x, a2z = ((t2 - t) / (t2 - t1)) * p1.z + ((t - t1) / (t2 - t1)) * p2.z
+      const a3x = ((t3 - t) / (t3 - t2)) * p2.x + ((t - t2) / (t3 - t2)) * p3.x, a3z = ((t3 - t) / (t3 - t2)) * p2.z + ((t - t2) / (t3 - t2)) * p3.z
+      const b1x = ((t2 - t) / (t2 - t0)) * a1x + ((t - t0) / (t2 - t0)) * a2x, b1z = ((t2 - t) / (t2 - t0)) * a1z + ((t - t0) / (t2 - t0)) * a2z
+      const b2x = ((t3 - t) / (t3 - t1)) * a2x + ((t - t1) / (t3 - t1)) * a3x, b2z = ((t3 - t) / (t3 - t1)) * a2z + ((t - t1) / (t3 - t1)) * a3z
+      push(((t2 - t) / (t2 - t1)) * b1x + ((t - t1) / (t2 - t1)) * b2x, ((t2 - t) / (t2 - t1)) * b1z + ((t - t1) / (t2 - t1)) * b2z)
     }
   }
   push(raw[raw.length - 1]!.x, raw[raw.length - 1]!.z)

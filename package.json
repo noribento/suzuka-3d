@@ -10,6 +10,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxi typecheck",
+    "check": "nuxi typecheck && node scripts/facilities-check.mjs --strict && node scripts/audit/surface-check.mjs --strict --tier high && node scripts/audit/surface-check.mjs --strict --tier low",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",

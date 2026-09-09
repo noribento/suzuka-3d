@@ -431,7 +431,7 @@ function polylineRibbon(raw: THREE.Vector3[], width: number, closed: boolean, yA
  * the grey ribbons the TV wide shots show across the infield.
  */
 function buildSecondaryPaving(ctx: EnvBuildContext) {
-  const { track, terrain, group, keepOut } = ctx
+  const { track, terrain, ground, group, keepOut } = ctx
   const maps = asphaltMaps(false)
   // the run-off asphalt's own surface treatment (macro variation + detail), so the strips match the road
   const mat = new THREE.MeshStandardMaterial({ map: maps.map, normalMap: maps.normalMap, roughnessMap: maps.roughnessMap, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
@@ -459,7 +459,8 @@ function buildSecondaryPaving(ctx: EnvBuildContext) {
     if (f.tags.name === 'Pit Lane' || lanes.has(f.id) || f.dmin < 8) continue
     const pts = f.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
     if (!pts.every((p) => inside(p.x, p.z))) continue
-    const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => terrain.meshHeightAt(x, z), 0.06, ASPHALT_TILE_M)
+    // on the field, not the drawn grid: the same continuous surface every other ground sheet rides
+    const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => ground.field.y(x, z), 0.06, ASPHALT_TILE_M)
     if (!g) continue
     geos.push(g)
     // the kart and South Course loops are tree-free inside as well as on the ribbon
@@ -486,7 +487,7 @@ function buildSecondaryPaving(ctx: EnvBuildContext) {
       mesh.renderOrder = 1
       group.add(mesh)
       // these run right across the infield, where the drawn terrain is a 13 m facet
-      terrain.addGroundSurface(merged, { name: 'secondaryPaving', maxDrop: 1 })
+      terrain.addGroundSurface(merged, { name: 'secondaryPaving', maxDrop: 12 })
     }
   }
   if (import.meta.dev) console.info(`[props] ${count} secondary paved ways`)
