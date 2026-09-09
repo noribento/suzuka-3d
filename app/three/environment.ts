@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { ROLL_CAP, type Track } from '~/sim/track'
-import { makeGround, type Ground } from './ground'
+import { makeGround, settleGround, type Ground } from './ground'
 import { makeField, type GroundField } from './ground-field'
 import { buildGroundPlan, type GroundPlan } from './ground-plan'
 import { buildGroundMeshes, isGroundFace, type BuiltGround, type GroundFace } from './ground-mesh'
@@ -44,40 +44,26 @@ const ROAD_R = 140
 const ROAD_FALLOFF = 6
 
 /**
- * A ground sheet registered with the terrain (`Terrain.addGroundSurface`).
+ * A registered ground face (`Terrain.addGroundFace`).
  *
- * Every horizontal surface drawn over the terrain MUST be registered: the height grid is 13.3 m
- * (17.7 m on the low tier) and the faces sit centimetres above it, so without the clamp the
- * terrain rises straight through them. Measured before this existed: the paddock apron behind the
- * pit building was pierced over 16.7 % of its area (worst 0.70 m), the secondary paving over
- * 26.6 % (worst 2.75 m) and the offset lanes over 13.6 % (worst 0.24 m).
+ * Every drawn ground face MUST be registered: the height grid is 13.3 m (17.7 m on the low tier)
+ * and the faces sit centimetres above it, so without the clamp the terrain rises straight through
+ * them. Measured before this existed: the paddock apron behind the pit building was pierced over
+ * 16.7 % of its area (worst 0.70 m), the secondary paving over 26.6 % (worst 2.75 m) and the
+ * offset lanes over 13.6 % (worst 0.24 m).
  *
- * The ground itself registers through `addGroundFace` (a branded GroundFace from ground-mesh.ts);
- * this raw form remains for the objects that still stand on the ground as swept ribbons (the
- * offset-lane kerbs, until they become placed objects).
+ * Only a GroundFace minted by ground-mesh.ts can register (plan rule R1): the partition is the one
+ * source of opaque ground. Objects standing on it (ground.ts GROUND_OBJECTS) and decals are never
+ * registered — they read the drawn faces through `Ground.standY` / `Ground.decalY`.
  */
-export interface GroundReg {
-  /** declared clearance the terrain must keep below the sheet (m) */
-  margin?: number
-  /** cap on how far one grid node may be cut below its analytic height (m) */
-  maxDrop?: number
-  /** for the dev diagnostics and the offline audit */
-  name?: string
-  /** rides on another sheet: recorded for the audit, never clamps the terrain */
-  decal?: boolean
-  /**
-   * Deliberately planar (a poured concrete pad), so the max-edge rule does not apply: it cannot
-   * follow the ground and does not need to, because the apron it sits on is flat.
-   */
-  flat?: boolean
-}
-
 interface GroundSheet {
   geo: THREE.BufferGeometry
+  /** declared clearance the terrain must keep below the face (m) */
   margin: number
+  /** cap on how far one grid node may be cut below its analytic height (m) */
   maxDrop: number
+  /** for the dev diagnostics and the offline audit */
   name: string
-  flat: boolean
 }
 
 /** Terrain that hugs the track elevation and rolls into wooded hills further out. */
@@ -217,48 +203,40 @@ export class Terrain {
   settleMs = 0
 
   /**
-   * Declare that `geo` is a horizontal sheet drawn over the terrain. `settle()` then pushes every
-   * grid triangle it covers at least `margin` underneath it.
+   * Register one drawn ground face (ground-mesh.ts): `settle()` then pushes every grid triangle
+   * it covers at least 0.1 m underneath it. Only a face minted by `buildGroundMeshes` is accepted:
+   * the partition is the one source of opaque ground, so nothing else can claim to be it.
    *
-   * Registering is the ONLY thing that protects a sheet; a builder that forgets is caught by the
-   * dev sweep in RaceViewport and by `scripts/audit/surface-check.mjs`.
-   */
-  addGroundSurface(geo: THREE.BufferGeometry, reg: GroundReg = {}) {
-    const name = reg.name ?? 'unnamed'
-    const margin = reg.margin ?? 0.1
-    const maxDrop = reg.maxDrop ?? 2
-    const flat = reg.flat ?? false
-    geo.userData.groundReg = { margin, maxDrop, name, flat, decal: reg.decal ?? false }
-    if (reg.decal) return
-    if (this.settled) {
-      console.error(`[terrain] addGroundSurface('${name}') called after settle() — the sheet is unprotected`)
-      return
-    }
-    this.sheets.push({ geo, margin, maxDrop, name, flat })
-  }
-
-  /**
-   * Register one drawn ground face (ground-mesh.ts). Only a face minted by `buildGroundMeshes` is
-   * accepted: the partition is the one source of opaque ground, so nothing else can claim to be it.
+   * Registering is the ONLY thing that protects a face; the dev sweep in RaceViewport and
+   * `scripts/audit/surface-check.mjs` (G6, G8) catch one that is not.
    */
   addGroundFace(face: GroundFace) {
     if (!isGroundFace(face)) {
       console.error('[terrain] addGroundFace: not a GroundFace minted by buildGroundMeshes — refused')
       return
     }
+    const name = face.mesh.name
+    if (this.settled) {
+      console.error(`[terrain] addGroundFace('${name}') called after settle() — the face is unprotected`)
+      return
+    }
     // maxDrop 12: the deepest cut the ground needs is ~9.4 m, where the verge meets the relief
     // platform E-1 stands on; the cap bounds a runaway and surface-check reports what it refuses
-    this.addGroundSurface(face.geo, { name: face.mesh.name, margin: 0.1, maxDrop: 12 })
+    const reg: Omit<GroundSheet, 'geo'> = { margin: 0.1, maxDrop: 12, name }
+    face.geo.userData.groundReg = reg
+    this.sheets.push({ geo: face.geo, ...reg })
   }
 
-  /** The registrations, for scripts/audit/surface-check.mjs (a sheet may be merged into a mesh). */
-  get groundSheets(): readonly { geo: THREE.BufferGeometry; margin: number; maxDrop: number; name: string; flat: boolean }[] {
+  /** The registrations, for scripts/audit/surface-check.mjs. */
+  get groundSheets(): readonly GroundSheet[] {
     return this.sheets
   }
 
   /**
-   * Apply every registration, put the skirt back under the (now lower) grid, and upload.
-   * Called once, from RaceViewport, after every ground builder has run.
+   * Push the grid under every registered face. Called by buildEnvironment as soon as the ground
+   * faces exist and BEFORE anything stands on the ground, so `Ground.standY` reads the settled
+   * mesh; the stands cut the grid further under their decks afterwards (`clampUnder`), and
+   * `commit()` uploads it once at the end.
    */
   settle() {
     if (this.settled) return
@@ -266,26 +244,26 @@ export class Terrain {
     this.settled = true
     this.clampUnderSheets()
     for (const s of this.sheets) this.clamped.add(s.geo.uuid)
-    // the clamp only ever lowers, so the skirt's pre-clamp minimum can now be above the grid
-    this.skirt.position.y = this.minHeight() - 0.5
-    this.skirt.updateMatrix()
-    this.commit()
     this.settleMs = performance.now() - t0
     if (import.meta.dev) {
       const capped = this.clampCapped.length
-      console.info(`[terrain] settle: ${this.sheets.length} ground sheets, ${this.settleMs.toFixed(1)} ms` + (capped ? `, ${capped} nodes hit maxDrop` : ''))
+      console.info(`[terrain] settle: ${this.sheets.length} ground faces, ${this.settleMs.toFixed(1)} ms` + (capped ? `, ${capped} nodes hit maxDrop` : ''))
       if (capped) for (const c of this.clampCapped.slice(0, 8)) console.warn(`[terrain] ${c.name}: node at (${c.x.toFixed(0)}, ${c.z.toFixed(0)}) needed ${c.needed.toFixed(2)} m of cut`)
     }
   }
 
   private committed = false
   /**
-   * First upload of the vertex data. Called once the track meshes have pushed the terrain
-   * under the road (clampUnder), so the grid is built and uploaded a single time.
+   * First upload of the vertex data, once every cut is in (the faces' settle, the decks'
+   * clampUnder); the skirt goes back under the (now lower) grid. A later clampUnder re-uploads
+   * only the chunks it touches.
    */
   commit() {
     if (this.committed) return
     this.committed = true
+    // the cuts only ever lower, so the skirt's pre-cut minimum can now be above the grid
+    this.skirt.position.y = this.minHeight() - 0.5
+    this.skirt.updateMatrix()
     this.refresh()
   }
 
@@ -473,8 +451,8 @@ export class Terrain {
   /**
    * Push the terrain mesh below a set of surface points (xyz triples, world space): every
    * grid triangle that would rise above one of the points is lowered so it stays `margin`
-   * underneath. Only for surfaces that have no triangles to hand (the stand decks); everything
-   * that is a mesh registers with `addGroundSurface` and gets the exact triangle pass instead.
+   * underneath. Only for surfaces that have no triangles to hand (the stand decks); the ground
+   * faces register with `addGroundFace` and get the exact triangle pass instead.
    */
   clampUnder(points: ArrayLike<number>, margin = 0.1, maxDrop = Infinity) {
     const gx = this.NX + 1, gz = this.NZ + 1
@@ -708,14 +686,13 @@ export class Terrain {
 }
 
 /**
- * Names that mark a mesh as ground — the `ground:<kind>` faces of ground-mesh.ts and the
- * offset-lane kerbs that still stand on it as a ribbon. Decals (paint, rubber, white lines) ride
- * on a face and are deliberately not here.
+ * Names that mark a mesh as ground — the `ground:<kind>` faces of ground-mesh.ts. Objects standing
+ * on the ground and decals are deliberately not here.
  */
-export const GROUND_NAME_RE = /^(ground:|laneKerbs$)/
+export const GROUND_NAME_RE = /^ground:/
 
 /**
- * Dev sweep: every ground sheet in the scene must have gone through `Terrain.addGroundSurface`.
+ * Dev sweep: every ground face in the scene must have gone through `Terrain.addGroundFace`.
  * The e2e suite fails the run on a console error, so a builder that forgets cannot ship.
  */
 export function assertGroundRegistered(root: THREE.Object3D, terrain: Terrain) {
@@ -726,7 +703,7 @@ export function assertGroundRegistered(root: THREE.Object3D, terrain: Terrain) {
     if (m.geometry.userData.groundReg === undefined) missing.push(m.name)
     else if (!terrain.clamped.has(m.geometry.uuid)) missing.push(`${m.name} (registered but not clamped)`)
   })
-  if (missing.length) console.error(`[terrain] unregistered ground sheets: ${missing.join(', ')} — the terrain grid will come through them`)
+  if (missing.length) console.error(`[terrain] unregistered ground faces: ${missing.join(', ')} — the terrain grid will come through them`)
 }
 
 /** A stand's footprint band in track coordinates, used to keep trees (and later props) off it. */
@@ -781,16 +758,18 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   group.add(terrain.group)
   const field: GroundField = makeField(track, terrain)
   // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,
-  // one height per vertex) → registered so settle() pushes the grid under them. Built before
-  // anything that stands on the ground, so the decals and objects can read the DRAWN faces.
+  // one height per vertex) → registered and the grid settled under them → wired into `ground`.
+  // All of it before anything stands on the ground, so every object and decal below reads the
+  // DRAWN faces over the SETTLED terrain (the three-phase build: draw, settle, place).
   const tPlan = performance.now()
   const plan = buildGroundPlan(track)
-  const ground = makeGround(track, field, plan)
+  const ground = makeGround(field, plan)
   const tMesh = performance.now()
   const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets))
   group.add(groundMeshes.group)
   for (const face of groundMeshes.faces) terrain.addGroundFace(face)
-  ground.builtY = groundMeshes.yAt
+  terrain.settle()
+  settleGround(ground, groundMeshes, (x, z) => terrain.meshHeightAt(x, z))
   if (import.meta.dev) console.info(`[ground] plan ${(tMesh - tPlan).toFixed(0)} ms (${plan.stations.length} stations), meshes ${groundMeshes.stats.buildMs.toFixed(0)} ms (${groundMeshes.stats.triangles} triangles, ${groundMeshes.faces.length} faces)`)
   // only the trees draw from this generator (the crowd seeds its own)
   const rng = new Rng(seed)
@@ -812,7 +791,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)
   // --- the two-wheel chicanes / slip roads, in the lap's own frame ---------------------------
-  group.add(buildLanes(track, ground, terrain))
+  group.add(buildLanes(track, ground))
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
   const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
   // every single-material box placed above, merged per material
@@ -823,6 +802,8 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
 
   // --- trees -------------------------------------------------------------------------------
   buildTrees(ctx, ferrisWheel)
+  // every cut is in (the faces' settle, the stand decks' clampUnder): upload the grid once
+  terrain.commit()
 
   const wheel = ferrisWheel.getObjectByName('wheel')
   const update = (dt: number, cameraPos?: THREE.Vector3) => {

@@ -4,12 +4,12 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { CIRCUIT } from '~/data/suzuka'
 import { PAINTED_APRONS, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS } from '~/data/suzuka-barriers-spec'
-import { forwardDelta, type Track } from '~/sim/track'
+import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import { APRON_TILE_M, APRON_UV, apronPaintTexture, boardTexture, concreteMaps } from './textures'
-import { LAYER, STRIP_DROP, type Ground } from './ground'
+import { GROUND_OBJECTS, LAYER, markDecal, markObject, STRIP_DROP, type Ground } from './ground'
+import type { DecalQuad } from './ground-mesh'
 import { kerbWidthTapered } from './ground-plan'
 import { pbr } from './materials'
-import type { Terrain } from './environment'
 
 type Fn = (s: number) => number
 
@@ -17,7 +17,8 @@ const _p = new THREE.Vector3()
 
 /**
  * Ribbon following the track between s0 and s1 (forward), with per-edge lateral
- * offsets and heights. UV: u across (0..1), v along (s / vScale).
+ * offsets and heights. UV: u across (0..1), v along (s / vScale). Not for paint on the ground —
+ * a decal is the drawn ground itself, lifted (ground.decal).
  */
 export function ribbonGeometry(
   track: Track,
@@ -139,20 +140,18 @@ export interface TrackMeshes {
   startLampMaterials: THREE.MeshStandardMaterial[]
 }
 
-/** Decals sit this far above the face they are painted on (plus polygon offset). */
-const DECAL_LIFT = 0.006
-
 /**
- * What stands on or beside the racing surface that is NOT ground: the sausage kerbs, the painted
- * aprons and green strips (decals on the drawn ground), the crossover bridge's slab, walls, rails
- * and piers, the pit wall with its boards, the DRS markings and the start gantry.
+ * What stands on or beside the racing surface that is NOT ground: the sausage kerbs (objects on
+ * the drawn kerb, GROUND_OBJECTS.sausage), the painted aprons and green strips (decals on the
+ * drawn ground), the crossover bridge's slab, walls, rails and piers, the pit wall with its
+ * boards, the DRS markings (decals) and the start gantry.
  *
  * The ground itself — the road, the kerbs, the run-off bands, the gravel, the pit lane and its
  * apron, the paved areas — is the partition of ground-plan.ts drawn by ground-mesh.ts. Nothing
  * here draws an opaque horizontal surface at ground level; the audit (surface-check G8) fails
- * on one that is not a registered ground face.
+ * on one that is not a registered ground face, a marked object or a marked decal.
  */
-export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground): TrackMeshes {
+export function buildTrackMeshes(track: Track, ground: Ground): TrackMeshes {
   const group = new THREE.Group()
   /** local half-width — the road narrows to ~10.5 m at the Degners and widens to 15 m on the pit straight */
   const hwAt: Fn = (s) => track.halfWidthAt(s)
@@ -160,10 +159,8 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   const L = track.length
   const cross = track.crossing
   const pit = CIRCUIT.pit
-  /** the ground beyond the road at world (x, z): the DRAWN face, or the field where none is drawn */
-  const groundAt = (x: number, z: number): number => ground.builtY(x, z)?.y ?? ground.field.y(x, z)
-
   // --- sausage kerbs from the KERBS table: yellow blocks behind the exit kerb ---------------------
+  // objects standing on the drawn kerb face: base `sink` into it, crown `crown` above (rule R8)
   const sausageSpots: { s: number; side: 1 | -1 }[] = []
   for (const k of KERBS) {
     if (k.kind !== 'sausage') continue
@@ -171,15 +168,19 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     for (let d = 0; d <= len; d += 1.7) sausageSpots.push({ s: k.sRange[0] + d, side: k.side })
   }
   if (sausageSpots.length) {
-    const sausageGeo = new RoundedBoxGeometry(0.4, 0.12, 1.3, 2, 0.05)
+    const rule = GROUND_OBJECTS.sausage
+    const sausageGeo = new RoundedBoxGeometry(rule.maxWidth, rule.crown + rule.sink, 1.3, 2, 0.05)
     const sausageMat = new THREE.MeshStandardMaterial({ color: 0xf2c400, roughness: 0.6 })
     const sausages = new THREE.InstancedMesh(sausageGeo, sausageMat, sausageSpots.length)
+    sausages.name = 'sausages'
     sausages.castShadow = true
+    markObject(sausages, 'sausage', sausageSpots.length * 1.3)
     const q = new THREE.Quaternion()
     const mat4 = new THREE.Matrix4()
     sausageSpots.forEach((sp, i) => {
       const h = track.headingAt(sp.s)
-      track.pointAt(sp.s, sp.side * (hwAt(sp.s) + 1.25), _p, 0.06)
+      track.pointAt(sp.s, sp.side * (hwAt(sp.s) + 1.25), _p, 0)
+      _p.y = ground.standY(_p.x, _p.z) + (rule.crown - rule.sink) / 2
       q.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz)))
       mat4.compose(_p, q, new THREE.Vector3(1, 1, 1))
       sausages.setMatrixAt(i, mat4)
@@ -189,41 +190,46 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   }
 
   // --- painted aprons and edge strips (PAINTED_APRONS + the 'green' KERBS rows) -----------------
-  // Thin decals a few mm above the DRAWN ground face they lie on (ground.builtY, so they are
-  // coplanar with what is rendered rather than with the field the faces approximate), with the
-  // brakingRubber polygon-offset technique (props.ts) against z-fighting; one atlas → one material.
+  // Decals on the DRAWN ground: the ground faces' own triangles under each band, clipped to it and
+  // lifted LAYER.verge.paint (ground.decal), so the paint is coplanar with whatever facets the
+  // ground has there — a ribbon of its own, however finely sampled, chorded under the folds
+  // (12 mm at the hairpin) and the strip's ramp (20 mm). The polygon offset is a bonus, not what
+  // keeps them visible. One atlas → one material.
   {
     const paintMat = new THREE.MeshStandardMaterial({ map: apronPaintTexture(), roughness: 0.65, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
-    const paintGeos: THREE.BufferGeometry[] = []
+    const quads: DecalQuad[] = []
     /** width of the flat kerb on `side` at s (0 where there is none) — the painted strips start behind it */
     const kerbOuterAt = (s: number, side: Side): number => kerbWidthTapered(ground.plan.kerbs, track, s, side)
     /**
-     * Height of the decal above the road plane at (s, lat): on the DRAWN face, DECAL_LIFT up.
-     * Not the strip rule: the first cell beside the asphalt shares its inner vertices with the
-     * road, so the drawn strip is a ramp from the road edge down to STRIP_DROP, and a decal put at
-     * STRIP_DROP + 6 mm was 20 mm under it.
+     * One painted band from `from` to `to` on `side`, `inner(s)` metres behind the road edge and
+     * `width(s)` wide, u across the band in `uRange`: one quad per row of the plan's lattice
+     * (≤ 1 m), so the band's outline follows the curve and each quad meets few facets.
      */
-    const decalY = (s: number, lat: number): number => {
-      track.pointAt(s, lat, _p, 0)
-      const off = Math.abs(lat) - hwAt(s)
-      const base = off <= 0 ? _p.y : groundAt(_p.x, _p.z)
-      return base - _p.y + DECAL_LIFT
-    }
-    const decal = (from: number, to: number, side: Side, inner: Fn, width: Fn, uRange: readonly [number, number], across: number) => {
-      const lats: Fn[] = []
-      for (let k = 0; k < across; k++) {
-        const f = k / (across - 1)
-        lats.push((s) => side * (hwAt(s) + inner(s) + f * width(s)))
+    const decal = (from: number, to: number, side: Side, inner: Fn, width: Fn, uRange: readonly [number, number]) => {
+      const rows = ground.plan.lattice(from, to, 1)
+      const latIn: Fn = (s) => side * (hwAt(s) + inner(s))
+      const latOut: Fn = (s) => side * (hwAt(s) + inner(s) + width(s))
+      for (let i = 0; i < rows.length - 1; i++) {
+        const sa = rows[i]!, sb = rows[i + 1]!
+        const xz: number[] = []
+        for (const [s, lat] of [[sa, latIn(sa)], [sa, latOut(sa)], [sb, latOut(sb)], [sb, latIn(sb)]] as const) {
+          track.pointAt(s, lat, _p, 0)
+          xz.push(_p.x, _p.z)
+        }
+        // the road plane: the face this band lies on is within DECAL_LAYER of it — beside the
+        // bridge approach the lower road's verge 6 m down is not, and the band stays undrawn there
+        track.pointAt((sa + sb) / 2, (latIn(sa) + latOut(sa)) / 2, _p, 0)
+        quads.push({
+          xz,
+          yHint: _p.y,
+          attrs: (x, z) => {
+            const p = track.nearestOnRange(x, z, sa, sb, 2)
+            const w = width(p.s)
+            const f = w > 1e-3 ? Math.min(1, Math.max(0, (Math.abs(p.lateral) - hwAt(p.s) - inner(p.s)) / w)) : 0
+            return [uRange[0] + f * (uRange[1] - uRange[0]), signedDelta(from, p.s, L) / APRON_TILE_M]
+          },
+        })
       }
-      const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => decalY(s, lat(s))])
-      const uAt = lats.map((_l, k) => uRange[0] + (k / (across - 1)) * (uRange[1] - uRange[0]))
-      if (side < 0) {
-        edges.reverse()
-        uAt.reverse()
-      }
-      // 1 m stations and the drawn-face height at every vertex: the decal follows the ground's
-      // own facets to within a few millimetres instead of chording across them
-      paintGeos.push(profileRibbonGeometry(track, from, to, edges, 1, APRON_TILE_M, uAt))
     }
     for (const a of PAINTED_APRONS) {
       const len = forwardDelta(a.sRange[0], a.sRange[1], L)
@@ -235,20 +241,23 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
       const uv = a.pattern === 'chevrons' ? APRON_UV.chevrons : APRON_UV.turquoise
       // solid paint: a constant u well inside its region (the taps never reach a neighbour)
       const uRange: readonly [number, number] = a.pattern === 'chevrons' ? uv : [(uv[0] + uv[1]) / 2, (uv[0] + uv[1]) / 2]
-      decal(a.sRange[0], a.sRange[1], a.side, (s) => kerbOuterAt(s, a.side) + 0.05, width, uRange, 8)
+      decal(a.sRange[0], a.sRange[1], a.side, (s) => kerbOuterAt(s, a.side) + 0.05, width, uRange)
     }
     for (const g of KERBS) {
       if (g.kind !== 'green') continue
       const mid = (APRON_UV.green[0] + APRON_UV.green[1]) / 2
       // behind the kerb where there is one, hard against the edge line otherwise
-      decal(g.sRange[0], g.sRange[1], g.side, (s) => (kerbOuterAt(s, g.side) > 0 ? kerbOuterAt(s, g.side) + 0.05 : 0.1), () => g.width ?? 1.2, [mid, mid], 3)
+      decal(g.sRange[0], g.sRange[1], g.side, (s) => (kerbOuterAt(s, g.side) > 0 ? kerbOuterAt(s, g.side) + 0.05 : 0.1), () => g.width ?? 1.2, [mid, mid])
     }
-    const paint = new THREE.Mesh(mergeGeometries(paintGeos, false)!, paintMat)
-    paint.name = 'paintedAprons'
-    paint.receiveShadow = true
-    paint.renderOrder = 1
-    paint.userData.decal = true
-    group.add(paint)
+    const built = ground.decal(quads, LAYER.verge.paint, [{ name: 'uv', size: 2 }])
+    if (built.geo) {
+      const paint = new THREE.Mesh(built.geo, paintMat)
+      paint.name = 'paintedAprons'
+      paint.receiveShadow = true
+      paint.renderOrder = 1
+      markDecal(paint, LAYER.verge.paint, built.stats)
+      group.add(paint)
+    }
   }
 
   // --- crossover bridge -------------------------------------------------------
@@ -267,10 +276,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   for (const [a, b] of [[cross.sOver - approach, cross.sOver - span], [cross.sOver + span, cross.sOver + approach]] as const) {
     for (const side of [1, -1] as const) {
       const lat: Fn = (s) => side * (hwAt(s) + 1.2)
-      const bottom: Fn = (s) => {
-        track.pointAt(s, lat(s), _p)
-        return Math.min(-0.05, groundAt(_p.x, _p.z) - _p.y - 0.4)
-      }
+      const bottom: Fn = (s) => Math.min(-0.05, ground.standAt(s, lat(s)) - 0.4)
       concreteGeos.push(wallGeometry(track, a, b, lat, bottom, () => 0, 4))
     }
   }
@@ -286,7 +292,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   for (const lat of [hwUnder + 5, -hwUnder - 5]) {
     track.pointAt(cross.sUnder, lat, _p)
     const top = cross.yOver - 1.3
-    const bottom = groundAt(_p.x, _p.z) - 1
+    const bottom = ground.standY(_p.x, _p.z) - 1
     const g = pierGeo.clone()
     g.scale(1, top - bottom, 1)
     g.translate(_p.x, (top + bottom) / 2, _p.z)
@@ -301,7 +307,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   concreteGeos.push(ribbonGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.wallOffset + 0.3, () => pit.wallOffset - 0.3, () => 1.2, () => 1.2, 4, 10))
   concreteGeos.push(wallGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.wallOffset - 0.3, () => STRIP_DROP, () => 1.2, 4, 4))
   // outside barrier along the main straight and into T1 (stands on the verge)
-  boardGeos.push(wallGeometry(track, 5480, 470, () => hw + 8, (s) => ground.yAt(s, hw + 8), (s) => ground.yAt(s, hw + 8) + 1.1, 4, 64))
+  boardGeos.push(wallGeometry(track, 5480, 470, () => hw + 8, (s) => ground.standAt(s, hw + 8), (s) => ground.standAt(s, hw + 8) + 1.1, 4, 64))
   group.add(new THREE.Mesh(mergeGeometries(boardGeos, false)!, boardMat))
   const concreteMesh = new THREE.Mesh(mergeGeometries(concreteGeos, false)!, concrete)
   concreteMesh.name = 'concrete'
@@ -309,16 +315,26 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   group.add(concreteMesh)
 
   // grid slots, the start line and every other painted marking are built by lines.ts
-  // DRS detection / activation markings
+  // DRS detection / activation markings: decals on the drawn road, LAYER.road.drs up
   const gridMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.55, metalness: 0 })
-  const drsLines = new THREE.Mesh(mergeGeometries([
-    ribbonGeometry(track, CIRCUIT.drs.detection, CIRCUIT.drs.detection + 0.4, hwAt, (s) => -hwAt(s), () => LAYER.road.drs, () => LAYER.road.drs, 1, 1),
-    ribbonGeometry(track, CIRCUIT.drs.start, CIRCUIT.drs.start + 0.4, hwAt, (s) => -hwAt(s), () => LAYER.road.drs, () => LAYER.road.drs, 1, 1),
-  ], false)!, gridMat)
-  drsLines.name = 'drsLines'
-  drsLines.receiveShadow = true
-  drsLines.userData.decal = true
-  group.add(drsLines)
+  const drsQuads: DecalQuad[] = []
+  for (const s of [CIRCUIT.drs.detection, CIRCUIT.drs.start]) {
+    const xz: number[] = []
+    for (const [ss, lat] of [[s, hwAt(s)], [s, -hwAt(s)], [s + 0.4, -hwAt(s + 0.4)], [s + 0.4, hwAt(s + 0.4)]] as const) {
+      track.pointAt(ss, lat, _p, 0)
+      xz.push(_p.x, _p.z)
+    }
+    track.pointAt(s + 0.2, 0, _p, 0)
+    drsQuads.push({ xz, yHint: _p.y, attrs: (x, z) => { const p = track.nearestOnRange(x, z, s, s + 0.4, 2); return [(hwAt(p.s) - p.lateral) / (2 * hwAt(p.s)), signedDelta(s, p.s, L)] } })
+  }
+  const drs = ground.decal(drsQuads, LAYER.road.drs, [{ name: 'uv', size: 2 }])
+  if (drs.geo) {
+    const drsLines = new THREE.Mesh(drs.geo, gridMat)
+    drsLines.name = 'drsLines'
+    drsLines.receiveShadow = true
+    markDecal(drsLines, LAYER.road.drs, drs.stats)
+    group.add(drsLines)
+  }
 
   // --- start gantry with the five light clusters ------------------------------------
   const steel = new THREE.MeshStandardMaterial({ color: 0x3c3f46, roughness: 0.45, metalness: 0.8 })
@@ -356,7 +372,6 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     }
   }
   group.add(gantry)
-  void terrain
 
   return { group, startLampMaterials }
 }

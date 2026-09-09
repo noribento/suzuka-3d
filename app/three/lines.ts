@@ -1,21 +1,20 @@
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CIRCUIT } from '~/data/suzuka'
 import { EDGE_LINE_GAPS, LINES, OFFSET_LANES, type LineDef } from '~/data/suzuka-barriers-spec'
 import { alongAt, garageS, type Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 import { laneWorldPath, type LanePoint } from './trackside'
-import type { Ground } from './ground'
-import { LAYER } from './ground'
+import { LAYER, markDecal, type Ground } from './ground'
+import type { DecalQuad } from './ground-mesh'
+import type { OwnerKind } from './ground-plan'
 
 type Fn = (s: number) => number
 
 const _a = new THREE.Vector3()
-const _b = new THREE.Vector3()
-const _c = new THREE.Vector3()
 
-/** Painted lines sit this far above the surface they are on (plus polygon offset). */
-const LIFT = 0.012
+/** per-vertex attributes of a line: the across vector and signed half-width the widening shader needs, then uv */
+const LINE_LAYOUT = [{ name: 'aAcross', size: 2 }, { name: 'aHalf', size: 1 }, { name: 'uv', size: 2 }] as const
+
 /** Half-width a line keeps on screen however far away it is (pixels at the render resolution). */
 const MIN_HALF_PX = 0.6
 
@@ -30,91 +29,59 @@ const MIN_HALF_PX = 0.6
  *
  * A 15 cm ribbon is also thinner than a pixel from those cameras, so the vertex shader widens each
  * line until its half-width covers MIN_HALF_PX pixels: `aAcross` is the unit vector across the line
- * and `aHalf` the signed half-width in metres, and the offset is applied in view depth, so the
- * paint keeps its real size in close-ups and stays visible from the air.
+ * and `aHalf` the signed offset from its centre in metres, and the offset is applied in view depth,
+ * so the paint keeps its real size in close-ups and stays visible from the air.
+ *
+ * Every line is a DECAL on the drawn ground (ground.decal): the ground faces' own triangles under
+ * the line's outline, clipped to it and lifted a rung of LAYER by the face's kind — so the paint
+ * is coplanar with the face whatever its facets. A ribbon of its own chorded under the road's
+ * folds (9 mm at the chicane, 21 mm across the pit lane) and the strip's ramp, and the old
+ * (s, lateral) arithmetic that decided "on the pit lane" put every pit marking 68 mm under it.
  */
 export function buildLines(track: Track, ground: Ground): THREE.Mesh {
   const L = track.length
   const pit = CIRCUIT.pit
   const hwAt: Fn = (s) => track.halfWidthAt(s)
-  const geos: THREE.BufferGeometry[] = []
+  const quads: DecalQuad[] = []
+  /** the rung over the face a line lies on: the racing surface, the pit lane and apron, or the verge */
+  const rungOf = (kind: OwnerKind): number => (kind === 'road' ? LAYER.road.line : kind === 'pitLane' || kind === 'pitApron' ? LAYER.pit.line : LAYER.verge.line)
 
   const pitLat = (s: number) => track.pitLateralAt(s) ?? pit.laneOffset
   const halfLane = pit.laneWidth / 2
-  const inSpan = (from: number, to: number, s: number) => forwardDelta(from, s, L) <= forwardDelta(from, to, L)
-  /**
-   * True where the paint lies on the pit lane ribbon or on the garage apron behind it. Both are
-   * drawn on the extrapolated ROAD PLANE (track-mesh.ts), not on the terrain.
-   */
-  const onPitSurface = (s: number, lat: number): boolean => {
-    if (lat >= 0) return false
-    if (inSpan(pit.entryS, pit.exitS, s) && Math.abs(lat - pitLat(s)) <= halfLane + 0.6) return true
-    return inSpan(pit.limitStartS - 40, pit.limitEndS, s) && lat <= pit.laneOffset - halfLane && lat >= pit.garageFront
-  }
 
   /**
-   * Height of the surface the paint lies on: the racing surface, the pit lane, the flat strip
-   * under the kerbs, or the verge.
-   *
-   * The pit branch is not optional. Out at |lateral| 10–25 the `off > FLAT_STRIP` branch resolves
-   * to `ground.yAt`, and the ground there is `ROAD_CUT` (12 cm) below the road plane while the pit
-   * lane ribbon is 1 cm above it — so every pit marking used to be drawn 68 mm UNDER the lane it
-   * belongs to and was invisible: both speed-limit lines, the lane edges, the fast/working divider
-   * and all 11 garage box outlines.
-   *
-   * Beyond the road edge the paint lies on the DRAWN ground face (ground.builtY): the faces are
-   * a triangulation of the field, and a line placed on the field itself would sit under a facet
-   * wherever the two differ, so the line reads the face it is painted on. The strip beside the
-   * asphalt is no exception: its first cell shares its inner vertices with the road and ramps
-   * down to STRIP_DROP, so a fixed strip rung buried the outer half of the edge line.
-   */
-  /** the drawn ground face at world (x, z), or the field where no face is drawn */
-  const faceY = (x: number, z: number): number => ground.builtY(x, z)?.y ?? ground.field.y(x, z)
-  const surfaceY = (s: number, lat: number): number => {
-    const off = Math.abs(lat) - hwAt(s)
-    if (off <= 0) return LAYER.road.line
-    if (onPitSurface(s, lat)) return LAYER.pit.line
-    track.pointAt(s, lat, _c, 0)
-    return faceY(_c.x, _c.z) - _c.y + LAYER.verge.line
-  }
-
-  /**
-   * One painted stripe of width `w` centred on `lat(s)` from s0 to s1, with the across-vector and
-   * half-width attributes the widening shader needs.
+   * One painted stripe of width `w` centred on `lat(s)` from s0 to s1: one quad per row of the
+   * plan's lattice (≤ `step` apart), so the outline follows the curve and each quad meets few
+   * facets. The attributes come from the vertex's own (s, lateral) on this stretch of road.
    */
   const stripe = (s0: number, s1: number, lat: Fn, w: number, step = 2) => {
     const len = forwardDelta(s0, s1, L) || L
-    const segs = Math.max(1, Math.ceil(len / step))
-    const pos = new Float32Array((segs + 1) * 6)
-    const across = new Float32Array((segs + 1) * 4)
-    const half = new Float32Array((segs + 1) * 2)
-    const uv = new Float32Array((segs + 1) * 4)
-    const idx: number[] = []
-    for (let i = 0; i <= segs; i++) {
-      const d = (i / segs) * len
-      const s = s0 + d
-      const c = lat(s)
-      const y = surfaceY(s, c)
-      track.pointAt(s, c + w / 2, _a, y)
-      track.pointAt(s, c - w / 2, _b, y)
-      const k = i * 2
-      pos.set([_a.x, _a.y, _a.z, _b.x, _b.y, _b.z], k * 3)
-      // unit vector from the right edge to the left edge, in world xz
-      const dx = _a.x - _b.x, dz = _a.z - _b.z
-      const inv = 1 / (Math.hypot(dx, dz) || 1)
-      across.set([dx * inv, dz * inv, dx * inv, dz * inv], k * 2)
-      half.set([w / 2, -w / 2], k)
-      uv.set([0, d, 1, d], k * 2)
-      if (i < segs) idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2)
+    const rows = ground.plan.lattice(s0, s1, step)
+    for (let i = 0; i < rows.length - 1; i++) {
+      const sa = rows[i]!, sb = rows[i + 1]!
+      const ca = lat(sa), cb = lat(sb)
+      const xz: number[] = []
+      for (const [s, l] of [[sa, ca - w / 2], [sa, ca + w / 2], [sb, cb + w / 2], [sb, cb - w / 2]] as const) {
+        track.pointAt(s, l, _a, 0)
+        xz.push(_a.x, _a.z)
+      }
+      // the road plane: the face this line lies on is within DECAL_LAYER of it (under the bridge
+      // the deck is not)
+      track.pointAt((sa + sb) / 2, (ca + cb) / 2, _a, 0)
+      quads.push({
+        xz,
+        yHint: _a.y,
+        attrs: (x, z) => {
+          const p = track.nearestOnRange(x, z, sa, sb, 2)
+          const h = track.headingAt(p.s)
+          const half = p.lateral - lat(p.s)
+          let d = forwardDelta(s0, p.s, L)
+          if (d > len + 10) d -= L
+          // across = the frame's left normal (from the right edge to the left edge); u 0 at the left edge
+          return [h.tz, -h.tx, half, 0.5 - half / w, d]
+        },
+      })
     }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    g.setAttribute('aAcross', new THREE.BufferAttribute(across, 2))
-    g.setAttribute('aHalf', new THREE.BufferAttribute(half, 1))
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-    g.setIndex(idx)
-    g.computeVertexNormals()
-    geos.push(g)
   }
   /** a stripe broken into `on`/`off` metre dashes */
   const dashed = (s0: number, s1: number, lat: Fn, w: number, on: number, off: number) => {
@@ -172,10 +139,7 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
     if (!def.lines) continue
     const pts = laneWorldPath(track, def)
     if (pts.length < 3) continue
-    for (const side of [1, -1] as const) {
-      const geo = laneStripe(track, pts, def.width / 2 - 0.1, side, 0.15, faceY)
-      if (geo) geos.push(geo)
-    }
+    for (const side of [1, -1] as const) laneStripe(track, ground, pts, def.width / 2 - 0.1, side, 0.15, quads)
   }
 
   // --- grid slots and the start line ----------------------------------------------------------
@@ -192,56 +156,55 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
   // winds the other way round
   const mat = new THREE.MeshStandardMaterial({ color: 0xf7f7f4, roughness: 0.55, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
   addScreenWidth(mat)
-  const merged = mergeGeometries(geos, false)!
-  for (const g of geos) g.dispose()
-  const mesh = new THREE.Mesh(merged, mat)
+  const built = ground.decal(quads, rungOf, LINE_LAYOUT)
+  const mesh = new THREE.Mesh(built.geo ?? new THREE.BufferGeometry(), mat)
   mesh.name = 'whiteLines'
   mesh.receiveShadow = true
   mesh.renderOrder = 2
   mesh.frustumCulled = false
+  markDecal(mesh, LAYER.road.line, built.stats)
   return mesh
 }
 
 /**
- * Edge line of an offset lane: a stripe `dist` metres to `side` of its sampled centreline. Skips
- * the stretch where the lane is still on the racing surface (the split and merge mouths, where the
- * lap's own edge line already has its gap).
+ * Edge line of an offset lane: a stripe `dist` metres to `side` of its sampled centreline, one
+ * quad per path segment. Skips the stretch where the lane is still on the racing surface (the
+ * split and merge mouths, where the lap's own edge line already has its gap).
  */
-function laneStripe(track: Track, pts: LanePoint[], dist: number, side: 1 | -1, w: number, faceY: (x: number, z: number) => number): THREE.BufferGeometry | null {
+function laneStripe(track: Track, ground: Ground, pts: LanePoint[], dist: number, side: 1 | -1, w: number, quads: DecalQuad[]): void {
   const keep = pts.filter((p) => Math.abs(p.lat) > track.halfWidthAt(p.s) + 1.5)
-  if (keep.length < 3) return null
+  if (keep.length < 3) return
   const n = keep.length
-  const pos = new Float32Array(n * 6)
-  const across = new Float32Array(n * 4)
-  const half = new Float32Array(n * 2)
-  const uv = new Float32Array(n * 4)
-  const idx: number[] = []
+  // the stripe's centre and the path normal (pointing to `side`) at every kept point
+  const cx = new Float64Array(n), cz = new Float64Array(n), nX = new Float64Array(n), nZ = new Float64Array(n)
   for (let i = 0; i < n; i++) {
     const p = keep[i]!
     const prev = keep[Math.max(0, i - 1)]!, next = keep[Math.min(n - 1, i + 1)]!
     const dx = next.x - prev.x, dz = next.z - prev.z
     const inv = 1 / (Math.hypot(dx, dz) || 1)
-    // unit normal of the lane path, pointing to `side`
-    const nx = dz * inv * side, nz = -dx * inv * side
-    const cx = p.x + nx * dist, cz = p.z + nz * dist
-    // above the drawn lane face at the stripe's OWN position (it runs `dist` beside the lane's
-    // centreline, and the face under the centreline is a different facet), at the lane-line rung
-    const y = faceY(cx, cz) + LAYER.verge.laneLine
-    const k = i * 2
-    pos.set([cx + nx * w / 2, y, cz + nz * w / 2, cx - nx * w / 2, y, cz - nz * w / 2], k * 3)
-    across.set([nx, nz, nx, nz], k * 2)
-    half.set([w / 2, -w / 2], k)
-    uv.set([0, p.d, 1, p.d], k * 2)
-    if (i < n - 1) idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2)
+    nX[i] = dz * inv * side
+    nZ[i] = -dx * inv * side
+    cx[i] = p.x + nX[i]! * dist
+    cz[i] = p.z + nZ[i]! * dist
   }
-  const g = new THREE.BufferGeometry()
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-  g.setAttribute('aAcross', new THREE.BufferAttribute(across, 2))
-  g.setAttribute('aHalf', new THREE.BufferAttribute(half, 1))
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-  g.setIndex(idx)
-  g.computeVertexNormals()
-  return g
+  for (let i = 0; i < n - 1; i++) {
+    const x0 = cx[i]!, z0 = cz[i]!, x1 = cx[i + 1]!, z1 = cz[i + 1]!
+    const xz = [x0 + nX[i]! * w / 2, z0 + nZ[i]! * w / 2, x0 - nX[i]! * w / 2, z0 - nZ[i]! * w / 2, x1 - nX[i + 1]! * w / 2, z1 - nZ[i + 1]! * w / 2, x1 + nX[i + 1]! * w / 2, z1 + nZ[i + 1]! * w / 2]
+    // the segment's own frame for the attributes: along (ux, uz), across = its normal to `side`
+    const ex = x1 - x0, ez = z1 - z0, el = Math.hypot(ex, ez) || 1
+    const ux = ex / el, uz = ez / el
+    const ax = uz * side, az = -ux * side
+    const d0 = keep[i]!.d, d1 = keep[i + 1]!.d
+    quads.push({
+      xz,
+      yHint: ground.standY(x0, z0),
+      attrs: (x, z) => {
+        const half = (x - x0) * ax + (z - z0) * az
+        const t = Math.min(1, Math.max(0, ((x - x0) * ux + (z - z0) * uz) / el))
+        return [ax, az, half, 0.5 - half / w, d0 + t * (d1 - d0)]
+      },
+    })
+  }
 }
 
 /** Uniform shared by every widening material, updated once per frame from the renderer size. */

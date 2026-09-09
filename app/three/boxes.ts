@@ -22,13 +22,13 @@ export class BoxPlacer {
 
   /**
    * Placement matrix (world) of a box standing on the ground at (s, lateral) — its base follows
-   * the verge / terrain there, not the road plane. `onPlane` keeps it on the road plane instead
-   * (pit apron, garages). Local frame: +X = left of the track, +Z = along the track.
+   * the DRAWN ground there (ground.standAt), not the road plane. `onPlane` keeps it on the road
+   * plane instead (pit apron, garages). Local frame: +X = left of the track, +Z = along the track.
    */
   matrix(s: number, lateral: number, height: number, yOffset: number, onPlane: boolean, out: THREE.Matrix4): THREE.Matrix4 {
     const h = this.track.headingAt(s)
     this.track.pointAt(s, lateral, _p)
-    const base = onPlane ? 0 : this.ground.yAt(s, lateral)
+    const base = onPlane ? 0 : this.ground.standAt(s, lateral)
     _p.y += base + height / 2 + yOffset
     _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz))
     _q.setFromRotationMatrix(_m)

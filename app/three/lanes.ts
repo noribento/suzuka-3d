@@ -2,13 +2,18 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
 import type { Track } from '~/sim/track'
-import { LAYER, type Ground } from './ground'
-import type { Terrain } from './environment'
+import { GROUND_OBJECTS, markObject, type Ground } from './ground'
 import { kerbMaps } from './textures'
 import { laneWorldPath, type LanePoint } from './trackside'
 
-/** metres between the rails a kerb ribbon is swept from */
-const RAIL_STEP = 3
+const RULE = GROUND_OBJECTS.laneKerb
+
+/**
+ * The kerb's cross-section: (fraction of the width across, height over the face it stands on).
+ * Both edges are sunk into the face and the crown is flat, so the kerb never has an edge lying ON
+ * the lane it marks (plan rule R8; surface-check G3-object measures every vertex).
+ */
+const PROFILE: readonly [number, number][] = [[0, -RULE.sink], [0.2, RULE.crown], [0.8, RULE.crown], [1, -RULE.sink]]
 
 /**
  * The kerbs of the paved roads that are not the Grand Prix lap but touch it: the 200R and Astemo
@@ -16,16 +21,17 @@ const RAIL_STEP = 3
  *
  * The lanes' PAVING is ground: each lane's swept footprint is a `lane` owner of the ground plan
  * (ground-plan.ts laneFootprint) and is drawn by ground-mesh.ts on the field, in one mesh with the
- * verge around it. What remains here are the kerbs along them — objects standing on the drawn
- * lane, LAYER.verge.laneKerb proud of it, with a bounded footprint (plan rule R8). The group keeps
- * its name for the e2e suite.
+ * verge around it. What remains here are the kerbs along them — OBJECTS standing on the drawn
+ * ground (`ground.standY`), with the footprint GROUND_OBJECTS.laneKerb bounds. They are not ground
+ * faces and are not registered with the terrain. The group keeps its name for the e2e suite.
  */
-export function buildLanes(track: Track, ground: Ground, terrain: Terrain): THREE.Group {
+export function buildLanes(track: Track, ground: Ground): THREE.Group {
   const group = new THREE.Group()
   group.name = 'lanes'
   const kerbTex = kerbMaps()
   const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTex.map, normalMap: kerbTex.normalMap, roughness: 0.75 })
   const kerbs: THREE.BufferGeometry[] = []
+  let length = 0
 
   for (const def of OFFSET_LANES) {
     const pts = laneWorldPath(track, def)
@@ -35,7 +41,9 @@ export function buildLanes(track: Track, ground: Ground, terrain: Terrain): THRE
       const to = Math.ceil(k.to * (pts.length - 1))
       const slice = pts.slice(from, to + 1)
       if (slice.length < 2) continue
-      kerbs.push(sweepKerb(ground, slice, 1.0, k.side * (def.width / 2 + 0.5), LAYER.verge.laneKerb))
+      // centred half a metre outside the lane edge: half on the lane, half on the verge beside it
+      kerbs.push(sweepKerb(ground, slice, RULE.maxWidth, k.side * (def.width / 2 + 0.5)))
+      length += slice[slice.length - 1]!.d - slice[0]!.d
     }
   }
   if (kerbs.length) {
@@ -46,22 +54,20 @@ export function buildLanes(track: Track, ground: Ground, terrain: Terrain): THRE
       mesh.name = 'laneKerbs'
       mesh.receiveShadow = true
       mesh.renderOrder = 1
+      markObject(mesh, 'laneKerb', length)
       group.add(mesh)
-      // an object on the ground, registered the raw way until it becomes a placed object (P4)
-      terrain.addGroundSurface(merged, { name: 'laneKerbs', maxDrop: 1 })
     }
   }
   return group
 }
 
 /**
- * Ribbon of `width` metres centred `offset` metres to the side of the sampled lane centreline,
- * `lift` above the DRAWN ground under each rail (ground.builtY), so it stands on the lane face
- * it marks rather than on the field the face approximates.
+ * Kerb of `width` metres centred `offset` metres to the side of the sampled lane centreline, with
+ * PROFILE across it, every rail standing on the DRAWN ground under its own position (ground.standY).
  */
-function sweepKerb(ground: Ground, pts: LanePoint[], width: number, offset: number, lift: number): THREE.BufferGeometry {
+function sweepKerb(ground: Ground, pts: LanePoint[], width: number, offset: number): THREE.BufferGeometry {
   const n = pts.length
-  const rails = Math.max(2, Math.round(width / RAIL_STEP) + 1)
+  const rails = PROFILE.length
   const pos = new Float32Array(n * rails * 3)
   const uv = new Float32Array(n * rails * 2)
   const idx: number[] = []
@@ -75,12 +81,13 @@ function sweepKerb(ground: Ground, pts: LanePoint[], width: number, offset: numb
     const lx = dz * inv, lz = -dx * inv
     const cx = p.x + lx * offset, cz = p.z + lz * offset
     for (let r = 0; r < rails; r++) {
-      const t = (0.5 - r / (rails - 1)) * width
+      const [f, dy] = PROFILE[r]!
+      const t = (0.5 - f) * width
       const x = cx + lx * t, z = cz + lz * t
-      const y = (ground.builtY(x, z)?.y ?? ground.field.y(x, z)) + lift
+      const y = ground.standY(x, z) + dy
       const k = i * rails + r
       pos.set([x, y, z], k * 3)
-      uv.set([r / (rails - 1), p.d / 2], k * 2)
+      uv.set([f, p.d / 2], k * 2)
     }
     if (i < n - 1) {
       for (let r = 0; r < rails - 1; r++) {

@@ -274,6 +274,12 @@ function tubeMatrix(a: THREE.Vector3, b: THREE.Vector3): THREE.Matrix4 {
   return new THREE.Matrix4().compose(_p, _q, new THREE.Vector3(1, len, 1))
 }
 
+/**
+ * A stand's `ground` is the analytic height field (ground.field), not the drawn faces: the
+ * stands define the relief the field carries, their skirts and end walls are sized to reach below
+ * it, and under a deck beyond the drawn extent the terrain mesh is not cut until every stand is
+ * built (clampUnder), so the drawn ground is not yet what it will be.
+ */
 function trackFrame(track: Track, ground: Ground, s0: number, s1: number): Frame {
   const len = forwardDelta(s0, s1, track.length) || track.length
   return {
@@ -285,7 +291,7 @@ function trackFrame(track: Track, ground: Ground, s0: number, s1: number): Frame
       _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), Y_UP, new THREE.Vector3(h.tx, 0, h.tz))
       return out.setFromRotationMatrix(_m)
     },
-    ground: (u, v) => ground.yAt(u, v),
+    ground: (u, v) => ground.field.yAt(u, v) - track.pointAt(u, v, _p2, 0).y,
     facingYaw: (u, side) => {
       const h = track.headingAt(u)
       return Math.atan2(-side * h.tz, side * h.tx)
@@ -299,7 +305,7 @@ function trackFrame(track: Track, ground: Ground, s0: number, s1: number): Frame
  * start of the front edge, `along` the unit direction of the front edge, `back` the unit
  * direction towards the rear. Used for the Q2 bars in the figure-8 fold.
  */
-function localFrame(terrain: Terrain, origin: THREE.Vector3, along: THREE.Vector3, back: THREE.Vector3, len: number, sApprox: number): Frame {
+function localFrame(ground: Ground, origin: THREE.Vector3, along: THREE.Vector3, back: THREE.Vector3, len: number, sApprox: number): Frame {
   const quat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(back, Y_UP, along))
   const yaw = Math.atan2(-back.x, -back.z)
   return {
@@ -313,7 +319,7 @@ function localFrame(terrain: Terrain, origin: THREE.Vector3, along: THREE.Vector
     quat: (_u, out) => out.copy(quat),
     ground: (u, v) => {
       _p2.copy(origin).addScaledVector(along, u).addScaledVector(back, v)
-      return terrain.meshHeightAt(_p2.x, _p2.z) - origin.y
+      return ground.field.y(_p2.x, _p2.z) - origin.y
     },
     facingYaw: () => yaw,
     sAt: (u) => sApprox + u - len / 2,
@@ -534,7 +540,7 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
   return { px, pz, nx, nz, us, len, frontV, backV, sOf, uOf, yRef, project, at, quatAt, yaw: yawAt, box: [minX, maxX, minZ, maxZ] }
 }
 
-function pathFrame(terrain: Terrain, spec: PathSpec): Frame {
+function pathFrame(ground: Ground, spec: PathSpec): Frame {
   return {
     u0: 0,
     len: spec.len,
@@ -544,11 +550,11 @@ function pathFrame(terrain: Terrain, spec: PathSpec): Frame {
       return out
     },
     quat: (u, out) => spec.quatAt(u, out),
-    // the analytic surface: under the deck it is the relief (deck plane − 0.6), which is what
+    // the analytic field: under the deck it is the relief (deck plane − 0.6), which is what
     // the skirts and end walls must reach below
     ground: (u, v) => {
       spec.at(u, v, _p2)
-      return terrain.heightAt(_p2.x, _p2.z) - spec.yRef(u)
+      return ground.field.y(_p2.x, _p2.z) - spec.yRef(u)
     },
     facingYaw: (u) => spec.yaw(u),
     sAt: (u) => spec.sOf(u),
@@ -1422,7 +1428,7 @@ function seatPrototype(): THREE.BufferGeometry {
  * is the long side nearest the track.
  */
 function q2Frames(ctx: EnvBuildContext, feats: OsmFeature[]): { frame: Frame; len: number; width: number }[] {
-  const { track, terrain } = ctx
+  const { track, terrain, ground } = ctx
   const out: { frame: Frame; len: number; width: number }[] = []
   for (const f of feats) {
     const pts = f.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
@@ -1455,8 +1461,8 @@ function q2Frames(ctx: EnvBuildContext, feats: OsmFeature[]): { frame: Frame; le
     // the frame's along-direction keeps (along × up) pointing to the back so the deck faces up
     const dir = back.clone().cross(Y_UP).normalize()
     const origin = new THREE.Vector3().addScaledVector(along, dir.dot(along) > 0 ? minA : maxA).addScaledVector(across, frontIsA ? minB : maxB)
-    origin.y = near.i >= 0 ? track.py[near.i]! : terrain.meshHeightAt(origin.x, origin.z)
-    out.push({ frame: localFrame(terrain, origin, dir, back, len, near.s), len, width })
+    origin.y = near.i >= 0 ? track.py[near.i]! : ground.field.y(origin.x, origin.z)
+    out.push({ frame: localFrame(ground, origin, dir, back, len, near.s), len, width })
   }
   return out
 }
@@ -1495,7 +1501,7 @@ export function buildStands(ctx: EnvBuildContext): Stands {
       continue
     }
     const spec = pathSpec(track, def)
-    const frame = spec ? pathFrame(terrain, spec) : trackFrame(track, ground, def.sRange[0], def.sRange[1])
+    const frame = spec ? pathFrame(ground, spec) : trackFrame(track, ground, def.sRange[0], def.sRange[1])
     const b = newBuild(ctx, spec ? pathLocalDef(def, spec) : def, frame, mats)
     buildStand(b)
     const r = finishStand(b, lod, seatGeo, tubeGeo)

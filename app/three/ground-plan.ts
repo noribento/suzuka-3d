@@ -706,6 +706,13 @@ export interface GroundPlan {
   residue: ResidueEntry[]
   /** station index of the first station at or after s */
   stationIndexAt: (s: number) => number
+  /**
+   * The plan's stations from s0 forward to s1 with both ends, as unwrapped s values
+   * (s0 ≤ … ≤ s0 + length; s0 === s1 is the whole lap); a gap longer than `maxStep` is subdivided
+   * evenly. A decal ribbon built on these rows shares the drawn faces' rows, so it lies on the face
+   * at every row and only the fold inside one cell remains between them.
+   */
+  lattice: (s0: number, s1: number, maxStep: number) => number[]
   /** how many stations were inserted for each reason (diagnostics) */
   stats: { base: number; endpoints: number; kinks: number; tips: number; crossings: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[] }
 }
@@ -1460,12 +1467,34 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
 
   const hw = new Float64Array(stations.length)
   for (let i = 0; i < stations.length; i++) hw[i] = hwOf(stations[i]!)
+  const lattice = (s0: number, s1: number, maxStep: number): number[] => {
+    const len = forwardDelta(s0, s1, L) || L
+    const a = track.wrap(s0)
+    const rows: number[] = [s0]
+    // the stations strictly inside (s0, s0 + len), walking forward and wrapping past L
+    const i0 = indexAtOrAfter(stations, a)
+    for (let n = 0; n < stations.length; n++) {
+      let v = stations[(i0 + n) % stations.length]! - a
+      if (v < 0) v += L
+      if (v >= len - 1e-6) break
+      if (v > 1e-6) rows.push(s0 + v)
+    }
+    rows.push(s0 + len)
+    const out: number[] = [rows[0]!]
+    for (let k = 1; k < rows.length; k++) {
+      const p = out[out.length - 1]!, q = rows[k]!
+      const parts = Math.max(1, Math.ceil((q - p) / maxStep - 1e-9))
+      for (let j = 1; j <= parts; j++) out.push(p + ((q - p) * j) / parts)
+    }
+    return out
+  }
   lap('residue')
   stats.buildMs = performance.now() - t0
   return {
     track, stations, hw, sides, layout, gravelRuns: runs, kerbs, rings, foldSafe, extent, extentDrawn, extentCap, bisectorPartner,
     ownerAtSL, ownerAt, project, residue,
     stationIndexAt: (s: number) => indexAtOrAfter(stations, track.wrap(s)),
+    lattice,
     stats,
   }
 }

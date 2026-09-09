@@ -275,19 +275,12 @@ async function setup() {
 
   env = buildEnvironment(track, q, 7, assets)
   ctx.scene.add(env.group)
-  trackMeshes = buildTrackMeshes(track, env.terrain, env.ground)
+  trackMeshes = buildTrackMeshes(track, env.ground)
   const barriers = buildBarriers(track, q, env.ground)
   const whiteLines = buildLines(track, env.ground)
-  // Every ground sheet has registered by now: push the coarse grid under all of them, put the
-  // skirt back below it and upload the grid once.
-  //
-  // This is the LAST thing that reads or writes the height grid. It has to be, because the clamp
-  // lowers it: anything that samples `ground.yAt` past the verge (the offset lanes, the paddock,
-  // the painted lane edge lines) would otherwise disagree about where the ground is depending on
-  // whether it was built before or after. The real fix is the three-phase build in Phase 4 —
-  // sample, settle, then place everything that stands on the ground — but until then every
-  // consumer must be on the same side of the clamp.
-  env.terrain.settle()
+  // The ground was drawn, the terrain settled under it and the grid uploaded inside
+  // buildEnvironment, before anything stood on it; the track meshes, barriers and lines above
+  // read the same drawn faces (ground.standY / decalY) as the environment's own builders.
   ctx.scene.add(trackMeshes.group)
   ctx.scene.add(barriers)
   setLineViewportHeight(ctx.renderer.getDrawingBufferSize(new THREE.Vector2()).y)

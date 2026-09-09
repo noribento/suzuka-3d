@@ -43,7 +43,8 @@ test.describe('Suzuka 3D broadcast', () => {
       return {
         names,
         stands,
-        lineTris: lines ? (lines.geometry.index ? lines.geometry.index.count / 3 : 0) : 0,
+        // the lines are a decal clipped from the ground faces: non-indexed triangles
+        lineTris: lines ? (lines.geometry.index ? lines.geometry.index.count : lines.geometry.attributes.position.count) / 3 : 0,
         lineAttrs: lines ? Object.keys(lines.geometry.attributes) : [],
       }
     })

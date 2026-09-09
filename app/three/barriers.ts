@@ -29,7 +29,7 @@ const KIND = {
 
 /**
  * A barrier vertex takes the height of the ground beside ITS road. Where the crossover puts one
- * road on the embankment of the other, `ground.yAt` returns that embankment and the wall would
+ * road on the embankment of the other, `ground.standAt` returns that embankment and the wall would
  * climb onto the deck above (the pre-2026-09 audit's "Degner wall on the 130R bridge"), so the
  * rise over the road plane is capped.
  */
@@ -88,7 +88,7 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground): T
     const line = resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
     const lat: Fn = (s) => line.lat(s)
     /** ground under the run, never more than MAX_RISE above the road plane (see MAX_RISE) */
-    const base: Fn = (s) => Math.min(ground.yAt(s, lat(s)), MAX_RISE)
+    const base: Fn = (s) => Math.min(ground.standAt(s, lat(s)), MAX_RISE)
     const bottom: Fn = (s) => base(s) + k.bottom
     const top: Fn = (s) => base(s) + k.top
     const back: Fn = (s) => lat(s) + run.side * (run.kind === 'tyre' ? 1.3 : 0.35)

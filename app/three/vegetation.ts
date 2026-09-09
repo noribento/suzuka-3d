@@ -15,13 +15,13 @@ const _s = new THREE.Vector3()
  * `freezeStatic`.
  */
 export function buildFerrisWheel(ctx: EnvBuildContext): THREE.Group {
-  const { track, terrain, group } = ctx
+  const { track, ground, group } = ctx
   const ferrisWheel = new THREE.Group()
   {
     // the real サーキットホイール: OSM footprint centroid behind the final-corner stands, 50.4 m
     // high, 48 m across, 36 gondolas (see FERRIS_WHEEL); it stands on ground ~7.6 m above the track
     track.enToWorld(FERRIS_WHEEL.en[0], FERRIS_WHEEL.en[1], _p)
-    const groundY = terrain.meshHeightAt(_p.x, _p.z)
+    const groundY = ground.standY(_p.x, _p.z)
     ferrisWheel.position.set(_p.x, groundY, _p.z)
     // the wheel's plane faces NW–SE in the aerial; aligning it with the track heading turned it
     // ≈ 90° away from the real one (2026-09 audit)
@@ -144,7 +144,7 @@ function treePrototype(kind: 'evergreen' | 'deciduous'): THREE.BufferGeometry {
  * the woods; run this after the Ferris wheel is placed.
  */
 export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
-  const { track, terrain, quality, rng, group, standZones, keepOut } = ctx
+  const { track, terrain, ground, quality, rng, group, standZones, keepOut } = ctx
   const season = SEASONS[SEASON]
   const evergreenGeo = treePrototype('evergreen')
   const deciduousGeo = treePrototype('deciduous')
@@ -208,7 +208,7 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
       const stray = season.trees.blossom * 0.3
       kind = r < stray ? 'blossom' : r < stray + season.trees.bare ? 'bare' : 'evergreen'
     }
-    const y = terrain.meshHeightAt(x, z)
+    const y = ground.standY(x, z)
     _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.next() * Math.PI * 2)
     if (kind === 'evergreen') {
       const sc = rng.range(0.7, 1.45)

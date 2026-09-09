@@ -60,11 +60,44 @@ export function isGroundFace(o: unknown): o is GroundFace {
   return typeof o === 'object' && o !== null && minted.has(o)
 }
 
+/**
+ * One cell of a decal's outline: a convex quad in XZ. The decal is the drawn ground's own triangles
+ * under it, clipped to it and lifted (`BuiltGround.decal`), so it is coplanar with whatever facets
+ * the ground has there and can never chord under them (plan rule R9).
+ */
+export interface DecalQuad {
+  /** the four corners (x0, z0, …, x3, z3), either winding, convex */
+  xz: number[]
+  /** the height the decal expects here: the face within DECAL_LAYER of it is the one it lies on (the crossover stacks two roads) */
+  yHint: number
+  /** the caller's per-vertex attributes at world (x, z), laid out as the `layout` given to `decal` */
+  attrs: (x: number, z: number) => number[]
+}
+export interface DecalStats {
+  quads: number
+  triangles: number
+  /** m² of the outline */
+  area: number
+  /** m² of the outline with no drawn face under it — a decal on bare terrain has nothing to lie on */
+  uncovered: number
+  /** where the bare outline is: the centres (x, z) and m² of the worst quads (up to 60) */
+  bareAt: [number, number, number][]
+}
+/** metres a face may be from a quad's yHint and still be the one the decal lies on (the deck is 6 m over the lower road) */
+export const DECAL_LAYER = 2.5
+
 export interface BuiltGround {
   group: THREE.Group
   faces: GroundFace[]
   /** the top drawn face at world (x, z), its kind and its source (0 raster, 1 world part, 2 stitch); null where no face is drawn */
   yAt: (x: number, z: number) => { y: number; kind: OwnerKind; src: number } | null
+  /**
+   * A decal on the drawn ground: the faces' triangles under each quad, clipped to it and lifted
+   * `rung` (a number, or by the face's kind), with the faces' own normals, as one non-indexed
+   * geometry carrying `position`, `normal` and the caller's `layout` attributes; null when no
+   * face lies under any quad.
+   */
+  decal: (quads: readonly DecalQuad[], rung: number | ((kind: OwnerKind) => number), layout: readonly { name: string; size: number }[]) => { geo: THREE.BufferGeometry | null; stats: DecalStats }
   stats: {
     vertices: number; triangles: number; cells: number; dropped: number; byKind: Record<string, number>; worldTris: number; stitchTris: number; buildMs: number
     /** build-time failures (an untriangulable world part): each is also a console.error */
@@ -1130,21 +1163,27 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
   if (droppedWorldArea > 0) console.info(`[ground-mesh] ${droppedWorldArea.toFixed(0)} m² of world-part triangles dropped as covered ground or nested rings`)
   const stripStats = strips.map((st) => ({ sideA: st.sideA, aFrom: plan.stations[st.aSt[0]!]!, aTo: plan.stations[st.aSt[st.aSt.length - 1]!]!, sideB: st.sideB, bFrom: plan.stations[Math.min(st.bSt[0]!, st.bSt[st.bSt.length - 1]!)]!, bTo: plan.stations[Math.max(st.bSt[0]!, st.bSt[st.bSt.length - 1]!)]! }))
-  return { group, faces, yAt: makeBuiltY(faces), stats: { vertices: N, triangles, cells: cells.length, dropped, byKind, worldTris, stitchTris, buildMs: performance.now() - t0, errors, uncoveredArcs, strips: stripStats, boundary: { loops: uLoops.map((l) => l.length), skipped: uBad } } }
+  const index = new FaceIndex(faces)
+  return { group, faces, yAt: (x, z) => index.yAt(x, z), decal: (quads, rung, layout) => index.decal(quads, rung, layout), stats: { vertices: N, triangles, cells: cells.length, dropped, byKind, worldTris, stitchTris, buildMs: performance.now() - t0, errors, uncoveredArcs, strips: stripStats, boundary: { loops: uLoops.map((l) => l.length), skipped: uBad } } }
 }
 
 /**
- * The drawn ground at (x, z): every face's triangles in an 8 m XZ hash, built on first use (the
- * decals and the objects standing on the ground ask; a scene that never asks pays nothing).
- * Returns the TOPMOST face containing the point — after the plan, no two faces should, but the
- * lookup does not assume it.
+ * The drawn ground by XZ: every face's triangles in an 8 m hash, built on first use (the decals
+ * and the objects standing on the ground ask; a scene that never asks pays nothing).
  */
-function makeBuiltY(faces: GroundFace[]): BuiltGround['yAt'] {
-  const CELL = 8
-  let cells: Map<number, number[]> | null = null
-  const key = (ix: number, iz: number) => (ix + 32768) * 65536 + (iz + 32768)
-  const build = () => {
-    cells = new Map()
+class FaceIndex {
+  private static readonly CELL = 8
+  private cells: Map<number, number[]> | null = null
+  constructor(private readonly faces: GroundFace[]) {}
+
+  private key(ix: number, iz: number): number {
+    return (ix + 32768) * 65536 + (iz + 32768)
+  }
+
+  private build(): Map<number, number[]> {
+    const CELL = FaceIndex.CELL
+    const cells = new Map<number, number[]>()
+    const faces = this.faces
     for (let f = 0; f < faces.length; f++) {
       const geo = faces[f]!.geo
       const pos = geo.attributes.position!
@@ -1157,22 +1196,30 @@ function makeBuiltY(faces: GroundFace[]): BuiltGround['yAt'] {
         const j0 = Math.floor(Math.min(az, bz, cz) / CELL), j1 = Math.floor(Math.max(az, bz, cz) / CELL)
         const id = f * 4194304 + t
         for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-          const k = key(i, j)
+          const k = this.key(i, j)
           let arr = cells.get(k)
           if (!arr) { arr = []; cells.set(k, arr) }
           arr.push(id)
         }
       }
     }
+    this.cells = cells
+    return cells
   }
-  return (x, z) => {
-    if (!cells) build()
-    const arr = cells!.get(key(Math.floor(x / CELL), Math.floor(z / CELL)))
+
+  /**
+   * The TOPMOST face containing (x, z) — after the plan, no two faces should, but the lookup does
+   * not assume it.
+   */
+  yAt(x: number, z: number): { y: number; kind: OwnerKind; src: number } | null {
+    const CELL = FaceIndex.CELL
+    const cells = this.cells ?? this.build()
+    const arr = cells.get(this.key(Math.floor(x / CELL), Math.floor(z / CELL)))
     if (!arr) return null
     let best: { y: number; kind: OwnerKind; src: number } | null = null
     for (const id of arr) {
       const f = Math.floor(id / 4194304), t = id - f * 4194304
-      const face = faces[f]!
+      const face = this.faces[f]!
       const pos = face.geo.attributes.position!, idx = face.geo.getIndex()!
       const a = idx.getX(t * 3), b = idx.getX(t * 3 + 1), c = idx.getX(t * 3 + 2)
       const ax = pos.getX(a), az = pos.getZ(a), bx = pos.getX(b), bz = pos.getZ(b), cx = pos.getX(c), cz = pos.getZ(c)
@@ -1186,5 +1233,122 @@ function makeBuiltY(faces: GroundFace[]): BuiltGround['yAt'] {
       if (!best || y > best.y) best = { y, kind: face.kind, src: (face.mesh.userData.triSource as Uint8Array | undefined)?.[t] ?? 0 }
     }
     return best
+  }
+
+  /** every triangle whose hash cells meet the box, once each */
+  private each(x0: number, z0: number, x1: number, z1: number, fn: (face: GroundFace, t: number) => void): void {
+    const CELL = FaceIndex.CELL
+    const cells = this.cells ?? this.build()
+    const i0 = Math.floor(x0 / CELL), i1 = Math.floor(x1 / CELL), j0 = Math.floor(z0 / CELL), j1 = Math.floor(z1 / CELL)
+    const seen = i1 > i0 || j1 > j0 ? new Set<number>() : null
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const arr = cells.get(this.key(i, j))
+      if (!arr) continue
+      for (const id of arr) {
+        if (seen) { if (seen.has(id)) continue; seen.add(id) }
+        const f = Math.floor(id / 4194304)
+        fn(this.faces[f]!, id - f * 4194304)
+      }
+    }
+  }
+
+  /** see BuiltGround.decal */
+  decal(quads: readonly DecalQuad[], rung: number | ((kind: OwnerKind) => number), layout: readonly { name: string; size: number }[]): { geo: THREE.BufferGeometry | null; stats: DecalStats } {
+    const stats: DecalStats = { quads: quads.length, triangles: 0, area: 0, uncovered: 0, bareAt: [] }
+    const pos: number[] = [], nrm: number[] = []
+    const extra: number[][] = layout.map(() => [])
+    const rungOf = typeof rung === 'number' ? () => rung : rung
+    // Sutherland–Hodgman scratch: a triangle clipped by four half-planes has at most 7 vertices
+    const inX = new Float64Array(8), inZ = new Float64Array(8), outX = new Float64Array(8), outZ = new Float64Array(8)
+    const qx = new Float64Array(4), qz = new Float64Array(4)
+    for (const q of quads) {
+      // wind the quad so that "inside" is cross(edge, corner − edge start) ≥ 0
+      let a2 = 0
+      for (let k = 0; k < 4; k++) {
+        const m = (k + 1) % 4
+        a2 += q.xz[2 * k]! * q.xz[2 * m + 1]! - q.xz[2 * m]! * q.xz[2 * k + 1]!
+      }
+      if (Math.abs(a2) < 1e-9) continue
+      for (let k = 0; k < 4; k++) {
+        const src = a2 < 0 ? 3 - k : k
+        qx[k] = q.xz[2 * src]!
+        qz[k] = q.xz[2 * src + 1]!
+      }
+      const qArea = Math.abs(a2) / 2
+      stats.area += qArea
+      const bx0 = Math.min(qx[0]!, qx[1]!, qx[2]!, qx[3]!), bx1 = Math.max(qx[0]!, qx[1]!, qx[2]!, qx[3]!)
+      const bz0 = Math.min(qz[0]!, qz[1]!, qz[2]!, qz[3]!), bz1 = Math.max(qz[0]!, qz[1]!, qz[2]!, qz[3]!)
+      let covered = 0
+      this.each(bx0, bz0, bx1, bz1, (face, t) => {
+        const P = face.geo.attributes.position!, N = face.geo.attributes.normal!, idx = face.geo.getIndex()!
+        const a = idx.getX(t * 3), b = idx.getX(t * 3 + 1), c = idx.getX(t * 3 + 2)
+        const ax = P.getX(a), ay = P.getY(a), az = P.getZ(a)
+        const bx = P.getX(b), by = P.getY(b), bz = P.getZ(b)
+        const cx = P.getX(c), cy = P.getY(c), cz = P.getZ(c)
+        if (Math.abs((ay + by + cy) / 3 - q.yHint) > DECAL_LAYER) return
+        if (Math.max(ax, bx, cx) < bx0 || Math.min(ax, bx, cx) > bx1 || Math.max(az, bz, cz) < bz0 || Math.min(az, bz, cz) > bz1) return
+        const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+        if (Math.abs(d) < 1e-12) return
+        // clip the triangle against the quad's four edges
+        let n = 3
+        inX[0] = ax; inZ[0] = az; inX[1] = bx; inZ[1] = bz; inX[2] = cx; inZ[2] = cz
+        for (let e = 0; e < 4 && n >= 3; e++) {
+          const px = qx[e]!, pz = qz[e]!, ex = qx[(e + 1) % 4]! - px, ez = qz[(e + 1) % 4]! - pz
+          let m = 0
+          for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n
+            const si = ex * (inZ[i]! - pz) - ez * (inX[i]! - px)
+            const sj = ex * (inZ[j]! - pz) - ez * (inX[j]! - px)
+            if (si >= 0) { outX[m] = inX[i]!; outZ[m] = inZ[i]!; m++ }
+            if ((si >= 0) !== (sj >= 0)) {
+              const f = si / (si - sj)
+              outX[m] = inX[i]! + (inX[j]! - inX[i]!) * f
+              outZ[m] = inZ[i]! + (inZ[j]! - inZ[i]!) * f
+              m++
+            }
+          }
+          n = m
+          for (let i = 0; i < n; i++) { inX[i] = outX[i]!; inZ[i] = outZ[i]! }
+        }
+        if (n < 3) return
+        const lift = rungOf(face.kind)
+        // the polygon keeps the triangle's winding (faces up); fan it and place every vertex on the
+        // triangle's own plane with its interpolated normal
+        const vert = (x: number, z: number) => {
+          let u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d
+          let v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d
+          u = Math.min(1, Math.max(0, u)); v = Math.min(1 - u, Math.max(0, v))
+          const w = 1 - u - v
+          pos.push(x, ay * u + by * v + cy * w + lift, z)
+          const nx = N.getX(a) * u + N.getX(b) * v + N.getX(c) * w
+          const ny = N.getY(a) * u + N.getY(b) * v + N.getY(c) * w
+          const nz = N.getZ(a) * u + N.getZ(b) * v + N.getZ(c) * w
+          const nl = Math.hypot(nx, ny, nz) || 1
+          nrm.push(nx / nl, ny / nl, nz / nl)
+          const at = q.attrs(x, z)
+          let o = 0
+          for (let k = 0; k < layout.length; k++) { for (let s = 0; s < layout[k]!.size; s++) extra[k]!.push(at[o++]!) }
+        }
+        for (let k = 1; k < n - 1; k++) {
+          const area2 = Math.abs((inX[k]! - inX[0]!) * (inZ[k + 1]! - inZ[0]!) - (inZ[k]! - inZ[0]!) * (inX[k + 1]! - inX[0]!))
+          if (area2 < 2e-7) continue
+          vert(inX[0]!, inZ[0]!); vert(inX[k]!, inZ[k]!); vert(inX[k + 1]!, inZ[k + 1]!)
+          covered += area2 / 2
+          stats.triangles++
+        }
+      })
+      const bare = Math.max(0, qArea - covered)
+      stats.uncovered += bare
+      if (bare > 0.01) {
+        stats.bareAt.push([(qx[0]! + qx[1]! + qx[2]! + qx[3]!) / 4, (qz[0]! + qz[1]! + qz[2]! + qz[3]!) / 4, bare])
+        if (stats.bareAt.length > 60) { stats.bareAt.sort((p, r) => r[2] - p[2]); stats.bareAt.length = 40 }
+      }
+    }
+    if (!stats.triangles) return { geo: null, stats }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
+    for (let k = 0; k < layout.length; k++) geo.setAttribute(layout[k]!.name, new THREE.Float32BufferAttribute(extra[k]!, layout[k]!.size))
+    return { geo, stats }
   }
 }

@@ -7,6 +7,7 @@ import {
 import { OSM_BUILDINGS, OSM_PIT_BUILDING, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
+import { LAYER, markDecal } from './ground'
 import { profileRibbonGeometry, ribbonGeometry } from './track-mesh'
 import { bucketedInstancedMeshes } from './instancing'
 import { cutoutParams, pbrFromAssets } from './materials'
@@ -1039,7 +1040,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
   {
     const t = LEADER_TOWER
     const [along, across] = t.footprint
-    const gy = ground.yAt(t.s, t.lateral)
+    const gy = ground.standAt(t.s, t.lateral)
     const boardBottom = t.height - t.boardHeight
     // open steel column: four corner posts and rungs every 1.5 m, then the board box on top
     for (const ds of [-along / 2 + 0.15, along / 2 - 0.15]) for (const dl of [-across / 2 + 0.15, across / 2 - 0.15]) boxes.place(t.s + ds, t.lateral + dl, 0.3, 0.3, boardBottom - gy, darkMat, gy, true)
@@ -1116,6 +1117,11 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
       for (const g of geo.groups) (g.materialIndex === 0 ? capGeos : wallGeos).push(slice(geo, g.start, g.count))
       geo.dispose()
     }
+    /** the drawn ground (world height) under track (s, lateral) */
+    const standWorld = (s: number, lat: number): number => {
+      track.pointAt(s, lat, _p, 0)
+      return ground.standY(_p.x, _p.z)
+    }
     const done = new Set<number>()
     for (const b of BUILDINGS) {
       if (b.osmWay === null) continue
@@ -1126,8 +1132,8 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
       if (b.anchor === 'terrain') {
         const [ce, cn] = f.en.reduce(([ae, an], [e, n]) => [ae + e / f.en.length, an + n / f.en.length], [0, 0])
         track.enToWorld(ce, cn, _p)
-        base = ctx.terrain.heightAt(_p.x, _p.z) - 0.5
-      } else base = ground.worldY(b.anchor.s, b.anchor.lateral) - 0.5
+        base = ground.standY(_p.x, _p.z) - 0.5
+      } else base = standWorld(b.anchor.s, b.anchor.lateral) - 0.5
       extrude(f, b.height + 0.5, base)
     }
     const inPaddock = (f: OsmFeature) => {
@@ -1137,7 +1143,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     for (const f of OSM_BUILDINGS) {
       if (done.has(f.id) || !inPaddock(f)) continue
       done.add(f.id)
-      extrude(f, 4.5, ground.worldY(f.centroid[0], f.centroid[1]) - 0.4)
+      extrude(f, 4.5, standWorld(f.centroid[0], f.centroid[1]) - 0.4)
     }
     add(wallGeos, whiteMat, 'paddockBuildings', true)
     add(capGeos, buildingRoofMat, 'paddockRoofs', true)
@@ -1165,7 +1171,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
       const lat = -70
       const cone = new THREE.ConeGeometry(4.6, 2.2, 4, 1, true)
       cone.rotateY(Math.PI / 4)
-      cone.applyMatrix4(frameAt(track, s, lat, ground.yAt(s, lat) + 2.7 + 1.1, new THREE.Matrix4()))
+      cone.applyMatrix4(frameAt(track, s, lat, ground.standAt(s, lat) + 2.7 + 1.1, new THREE.Matrix4()))
       ;(i % 3 === 1 ? tentRedGeos : tentGeos).push(cone)
       for (const [ds, dl] of [[-3, -3], [3, -3], [-3, 3], [3, 3]] as const) boxes.place(s + ds, lat + dl, 0.1, 0.1, 2.7, railMat, 0, false, false)
     }
@@ -1186,7 +1192,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
       flagsByMat[i % flagColours.length]!.push(f)
     }
     for (let i = 0; i < 5; i++) pole(track.wrap(S1 + 1 + i * 1.5), -36 - i * 4, ROOF + 0.3, i)
-    for (let i = 0; i < 6; i++) pole(5548, -62 - i * 5, ground.yAt(5548, -62 - i * 5), i)
+    for (let i = 0; i < 6; i++) pole(5548, -62 - i * 5, ground.standAt(5548, -62 - i * 5), i)
     add(flagGeos, railMat, 'flagPoles', false)
     flagsByMat.forEach((geos, i) => add(geos, flagMats[i]!, `flags${i}`, false))
     // car park west of the team offices: bay lines and a few parked cars
@@ -1196,11 +1202,16 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     let ci = 0
     for (const lat0 of [-104, -116]) {
       for (let s = 5600; s <= 5735; s += 2.6) {
-        lines.push({ m: boxes.matrix(s, lat0 - 2.5, 0.01, 0.02, false, new THREE.Matrix4()), color: new THREE.Color(0xf4f4f0) })
+        // only where the paddock is level under the whole 5 m bay: the car park steps down a bank
+        // at its west end, and a slab (or a car) across the bank would hang in the air
+        const level = [lat0 - 5, lat0 - 2.5, lat0].map((l) => { track.pointAt(s, l, _p, 0); return ground.standY(_p.x, _p.z) })
+        if (Math.max(...level) - Math.min(...level) > 0.02) { ci++; continue }
+        // bay lines: 1 cm slabs whose underside is LAYER.pit.line over the drawn paddock (a decal)
+        lines.push({ m: boxes.matrix(s, lat0 - 2.5, 0.01, LAYER.pit.line, false, new THREE.Matrix4()), color: new THREE.Color(0xf4f4f0) })
         if (ci++ % 3 !== 1) cars.push({ m: boxes.matrix(s + 1.3, lat0 - 2.5, 1.45, 0, false, new THREE.Matrix4()), color: new THREE.Color(carColours[ci % carColours.length]!) })
       }
     }
-    boxes.instanced(0.12, 5, 0.01, lines, 0.8, false, 'parkingLines')
+    markDecal(boxes.instanced(0.12, 5, 0.01, lines, 0.8, false, 'parkingLines'), LAYER.pit.line)
     boxes.instanced(1.8, 4.4, 1.45, cars, 0.45, true, 'parkedCars')
   }
 

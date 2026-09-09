@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline guard set for the ground (v3 — the plan's §4, phase P3a: the ground is a partition).
+ * Offline guard set for the ground (v3 — the plan's §4; from P4 the objects and decals on the ground are judged too).
  *
  * The scene is built in plain Node (`app-runtime.mjs`) and MEASURED: which face is visible from
  * above against the owner the plan declares, where two faces cover the same ground, how far every
@@ -12,13 +12,15 @@
  *
  *   G0  ladder        LAYER stacks (decals / objects) ascending, ≥ LAYER_MIN_STEP apart
  *   G1  census        visible face kind from above vs plan.ownerAt
- *   G2  overlap       any two faces — the same one included — covering one XZ point
- *   G3  deviation     face centroid vs its declared frame (road plane / height field)
+ *   G2  overlap       any two faces — the same one included — covering one XZ point; an object's footprint width vs its rule
+ *   G3  deviation     face centroid vs its declared frame (road plane / height field); an object's edges sunk and crown
+ *                     proud of the face it stands on; a decal never under the face it lies on
  *   G4  quality       zero-area triangles, zero normals on drawn vertices, off-field tilt
  *   G5  continuity    Terrain.heightAt jumps along s and across the verge
  *   G6  terrain       the drawn grid coming up through a registered face (per tier)
  *   G7  max edge      a face too coarse to resolve the grid it is draped on (per tier)
- *   G8  registration  horizontal geometry at ground level that is not a registered face; R13 imports
+ *   G8  registration  horizontal geometry at ground level that is not a registered face, a marked object or a marked
+ *                     decal; R13 imports; R3 — nothing outside the ground modules samples the terrain
  *   G9  seams         a vertex shared by two faces is bit-identical in both (position and normal)
  *   G10 residue       declared RUNOFF_ZONES band the fold cap removes and no ring fills (m²)
  *   G11 drops         a face edge dropping > 0.5 m where the field does not
@@ -32,13 +34,13 @@
  *
  * Imports (R13 — checked by G8 against this list; nothing else under app/ may be imported):
  *   app/data/suzuka.ts, app/data/suzuka-facilities-spec.ts, app/data/suzuka-barriers-spec.ts
- *   app/three/ground.ts            LAYER, LAYER_MIN_STEP, LAYER_SOFT
+ *   app/three/ground.ts            LAYER, LAYER_MIN_STEP, LAYER_SOFT, GROUND_OBJECTS
  *   app/three/ground-plan.ts       RULE_OF, PRECEDENCE, kerbAt, kerbProfileHeight, FLAT_STRIP, STRIP_DROP
  *   app/three/trackside.ts         (nothing today; kept for ring diagnostics)
  *   app/sim/track.ts               forwardDelta, signedDelta
  *   scripts/audit/app-runtime.mjs  buildScene, ROOT, THREE — the built scene: ground.plan, ground.field, groundMeshes
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildScene, ROOT, THREE } from './app-runtime.mjs'
@@ -56,7 +58,7 @@ const ALLOWED_IMPORTS = [
 ]
 
 // ================================================================ phases and allowances
-const PHASE = 'P3b'
+const PHASE = 'P4'
 const PHASES = ['P0', 'P1', 'P2', 'P3a', 'P3b', 'P4', 'P5', 'P6']
 const phaseIdx = (p) => PHASES.indexOf(p)
 
@@ -66,15 +68,15 @@ const phaseIdx = (p) => PHASES.indexOf(p)
  * tiers (they build on different terrain grids).
  */
 const WHY = {
-  objects: 'the offset-lane kerbs still stand on the ground as swept ribbons over the lane face (a bounded footprint); they become placed objects with the G3-object rule in P4',
   reliefEdge: 'facilityRelief (stands.ts) has hard edges — the chord-zone vRange cut, the GP Square platform ramp (7 m over 8 m, C0 kinks), the basin polygon edge, its own 2 m sample sawtooth — and a triangle straddling a kink deviates however small it is; ramps that are smooth are stands.ts work outside the ground modules (plan §6.6)',
   residue: 'declared band cut by the swept frame (FOLD) that no ring fills; OSM_SAND rows fill it in P6',
-  unregistered: 'horizontal geometry at ground level outside the face registry (the pit interior floor); typed as furniture in P4',
   untraced: 'a few samples where the plan gives an owner that no face draws or a strip triangle decides for a ring edge: the pit-in slip lane straddling three rasters (one arc still untraced), the paddock beside NIPPO, the T1 pond corner; the tracing is finished in P5 with the allowances',
   overlapSeam: 'double cover of a few m² at the seams of the strips and the world parts: a lane crossing an apron, the helipad in the paddock, strip triangles over a raster corner, kerb-taper slivers; P5',
   roadTwist: 'a road-frame cell 2-4 m wide and up to 2 m long chords the cambered road plane where the roll changes (24 mm at T1) and the kerb taper (36 mm at the chicane); P5 adds lateral interpolation points',
   fieldChord: 'a raster cell on the outside of a bend is stretched to 3-4 m rows by the frame\'s Jacobian, and its diagonal with a 5 m fill exceeds half the high tier\'s grid; P5 spaces the far fills by the local Jacobian',
   residual: 'ring tracks whose interval splits between two stations (the chicane apron\'s self-crossing loop, a lane mouth) leave a column inversion in a sub-metre row; snapped to a zero-width cell, counted here; P5',
+  decalBare: 'a painted band declared over ground no face draws: the hairpin\'s inside apron beyond the fold-capped raster (residue hairpin|L, the P6 rows) and the 130R outside green strip (KERBS) from s 4705, beside the bridge approach where the road is on its embankment — the strip is not drawn there; P6 checks the row against the aerial',
+  laneEdge: 'the outer centimetres of an offset lane\'s edge line find no face: the lane ring is simplified at 2 m (resolveFootprint) so its drawn edge sits a few cm inside the declared width, and one lane mouth is an untraced arc; P5',
 }
 const ALLOWANCES = [
   { guard: 'G1', key: "grass>asphaltBand", bound: 2, why: WHY.untraced, until: 'P5' },
@@ -99,11 +101,6 @@ const ALLOWANCES = [
   { guard: 'G2', key: "ground:pitLane|ground:asphaltBand", bound: 4, why: WHY.overlapSeam, until: 'P5' },
   { guard: 'G2', key: "ground:pitLane|ground:pitLane", bound: 6, why: WHY.overlapSeam, until: 'P5' },
   { guard: 'G2', key: "ground:water|ground:water", bound: 3, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "laneKerbs|ground:asphaltArea", bound: 327, why: WHY.objects, until: 'P4' },
-  { guard: 'G2', key: "laneKerbs|ground:grass", bound: 870, why: WHY.objects, until: 'P4' },
-  { guard: 'G2', key: "laneKerbs|ground:lane", bound: 49, why: WHY.objects, until: 'P4' },
-  { guard: 'G2', key: "laneKerbs|ground:turf", bound: 385, why: WHY.objects, until: 'P4' },
-  { guard: 'G2', key: "laneKerbs|laneKerbs", bound: 41, why: WHY.objects, until: 'P4' },
   { guard: 'G3', key: "ground:asphaltArea", bound: 1.1, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "ground:asphaltBand", bound: 0.62, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "ground:grass", bound: 5.85, why: WHY.reliefEdge, until: 'P6' },
@@ -132,7 +129,6 @@ const ALLOWANCES = [
   { guard: 'G7', key: "ground:paddock", bound: 15, why: WHY.fieldChord, until: 'P5' },
   { guard: 'G7', key: "ground:turf", bound: 4, why: WHY.fieldChord, until: 'P5' },
   { guard: 'G7', key: "ground:water", bound: 3, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G8', key: "pitInterior", bound: 5664, why: WHY.unregistered, until: 'P4' },
   { guard: 'G10', key: "chicane approach|R", bound: 3, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "chicane T16–T17|R", bound: 208, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "Degner 1 → 2|R", bound: 13, why: WHY.residue, until: 'P6' },
@@ -144,6 +140,9 @@ const ALLOWANCES = [
   { guard: 'G11', key: "ground:water", bound: 74, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G12', key: "residual", bound: 15, why: WHY.residual, until: 'P5' },
   { guard: 'G12', key: "untracedArcs", bound: 2, why: WHY.untraced, until: 'P5' },
+  { guard: 'G3', key: "decal.paintedAprons.bare", bound: 99, why: WHY.decalBare, until: 'P6' },
+  { guard: 'G3', key: "decal.whiteLines.bare", bound: 0.5, why: WHY.laneEdge, until: 'P5' },
+  { guard: 'G3', key: "decal.whiteLines.noFace", bound: 4, why: WHY.laneEdge, until: 'P5' },
 ]
 
 // ================================================================ CLI
@@ -168,7 +167,7 @@ const planMod = await import(path.join(ROOT, 'app/three/ground-plan.ts'))
 const trackside = await import(path.join(ROOT, 'app/three/trackside.ts'))
 const { forwardDelta, signedDelta } = await import(path.join(ROOT, 'app/sim/track.ts'))
 const sections = JSON.parse(readFileSync(path.join(ROOT, 'scripts/audit/sections.json'), 'utf8'))
-const { LAYER, LAYER_MIN_STEP, LAYER_SOFT } = groundMod
+const { LAYER, LAYER_MIN_STEP, LAYER_SOFT, GROUND_OBJECTS } = groundMod
 const { RULE_OF, PRECEDENCE, kerbAt, kerbProfileHeight, FLAT_STRIP, STRIP_DROP } = planMod
 void spec; void barriersSpec; void trackside; void CIRCUIT
 
@@ -216,28 +215,35 @@ const guardEnd = (g) => { out.ms[g] = Date.now() - timers[g]; console.log(`    [
 
 // ================================================================ shared geometry: faces + XZ index
 /**
- * A FACE is a registered ground surface: the `ground:<kind>` meshes of ground-mesh.ts (the
- * partition) and, until P4, the offset-lane kerbs (an OBJECT standing on the lane face). Decals
- * are never faces.
+ * A FACE is a registered ground face: the `ground:<kind>` meshes of ground-mesh.ts (the
+ * partition) and nothing else. OBJECTS (ground.ts GROUND_OBJECTS, tagged by markObject) stand on
+ * the faces within a typed width; DECALS (tagged by markDecal) lie on them. Neither is a face;
+ * G2 measures an object's width, G3 an object's sink and crown and a decal's clearance.
  */
-const DECAL_NAMES = new Set(['paintedAprons', 'whiteLines', 'drsLines', 'brakingRubber', 'parkingLines'])
 const meshByGeo = new Map()
 root.traverse((o) => { if (o.isMesh && o.geometry) meshByGeo.set(o.geometry.uuid, o) })
 const faces = []
 {
   const seen = new Set()
   for (const reg of terrain.groundSheets) {
-    if (reg.geo.userData.groundReg?.decal) continue
     const mesh = meshByGeo.get(reg.geo.uuid)
     const name = mesh?.name || reg.name
     if (seen.has(name)) { fail(`faces: two registered geometries resolve to the name "${name}"`); continue }
     seen.add(name)
     const kind = name.startsWith('ground:') ? name.slice(7) : null
-    const frame = kind ? (RULE_OF[kind]?.frame ?? null) : 'object'
-    if (kind && !frame) fail(`faces: "${name}" is not a kind of the plan`)
+    const frame = kind ? (RULE_OF[kind]?.frame ?? null) : null
+    if (!frame) { fail(`faces: "${name}" is registered but is not a ground:<kind> face of the plan`); continue }
     faces.push({ name, kind, frame, geo: reg.geo, reg, mesh, registered: true })
   }
 }
+const objects = []
+const decals = []
+root.updateMatrixWorld(true)
+root.traverse((o) => {
+  if (!o.isMesh) return
+  if (o.userData.groundObject) objects.push(o)
+  if (o.userData.decal) decals.push(o)
+})
 const faceIdx = Object.fromEntries(faces.map((f, i) => [f.name, i]))
 const groundFaceSet = new Set(faces.map((f, i) => (f.kind ? i : -1)).filter((i) => i >= 0))
 
@@ -321,6 +327,53 @@ function topAt(x, z, set = null, tol = -1e-6) {
   return best
 }
 
+/** a decal's bare quads grouped by 20 m of s: "m² s-range·section lat" strings, largest first */
+function bareClusters(bareAt) {
+  const bins = new Map()
+  for (const [x, z, m2] of bareAt) {
+    const d = sOf(x, z)
+    const b = d ? Math.floor(d.s / 20) : -1
+    const c = bins.get(b) ?? { s0: Infinity, s1: -Infinity, lat: 0, m2: 0, n: 0 }
+    if (d) { c.s0 = Math.min(c.s0, d.s); c.s1 = Math.max(c.s1, d.s); c.lat += d.lateral }
+    c.m2 += m2; c.n++
+    bins.set(b, c)
+  }
+  return [...bins.values()].sort((a, b) => b.m2 - a.m2).map((c) => (c.n && c.s0 < Infinity ? `${fmt(c.m2, 1)}m² s${Math.round(c.s0)}-${Math.round(c.s1)}·${secShort(c.s0)} lat${Math.round(c.lat / c.n)}` : `${fmt(c.m2, 1)}m² far`))
+}
+/** what an object stands on at (x, z): the top drawn face, or the settled terrain mesh where none is drawn */
+const standBase = (x, z) => { const top = topAt(x, z, groundFaceSet); return top ? top.y : terrain.meshHeightAt(x, z) }
+const _m4 = new THREE.Matrix4()
+const _v3 = new THREE.Vector3()
+/** the eight corners of a geometry's bounding box (local) */
+function bboxCorners(geo) {
+  if (!geo.boundingBox) geo.computeBoundingBox()
+  const { min, max } = geo.boundingBox
+  const out = []
+  for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) out.push(new THREE.Vector3(x, y, z))
+  return out
+}
+/** top-view (XZ) area of a mesh's upward-facing triangles, world space; an instanced mesh counts every instance */
+function topViewArea(o) {
+  const pos = o.geometry.attributes.position
+  const n = triCountOf(o.geometry)
+  const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+  const one = (m) => {
+    let area = 0
+    for (let t = 0; t < n; t++) {
+      for (let k = 0; k < 3; k++) P[k].fromBufferAttribute(pos, vertexOf(o.geometry, t, k)).applyMatrix4(m)
+      const [a, b, c] = P
+      // twice the signed XZ area, = −n.y of the triangle: negative when it faces up
+      const s2 = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)
+      if (s2 < 0) area += -s2 / 2
+    }
+    return area
+  }
+  if (!o.isInstancedMesh) return one(o.matrixWorld)
+  let area = 0
+  for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, _m4); area += one(_m4.premultiply(o.matrixWorld)) }
+  return area
+}
+
 // ---- lap coordinates -------------------------------------------------------------------------
 /** nearest centreline sample (discrete s); null far from every stretch of road */
 const sOf = (x, z) => {
@@ -377,6 +430,21 @@ if (runs('G0')) {
   console.log(`    ${tight} pair(s) under ${LAYER_MIN_STEP * 1000} mm, ${unordered} out of order`)
   check('G0', 'unordered', unordered)
   check('G0', 'tightPairs', tight)
+  // the objects' rules: an edge that sinks and a crown that stands clear of a face are what keep
+  // an object from z-fighting the face (rule R8); the tags on the scene must carry the same rule
+  let badRules = 0, badTags = 0
+  for (const [kind, r] of Object.entries(GROUND_OBJECTS)) {
+    console.log(`    object ${kind}: width ≤ ${r.maxWidth} m, edges ${(r.sink * 1000).toFixed(0)} mm under, crown ${(r.crown * 1000).toFixed(0)} mm over`)
+    if (!(r.sink >= 0.01 && r.crown >= 0.02 && r.maxWidth > 0)) { badRules++; notes.push(`G0: GROUND_OBJECTS.${kind} needs sink ≥ 10 mm, crown ≥ 20 mm, a width`) }
+  }
+  for (const o of objects) {
+    const tag = o.userData.groundObject
+    const r = GROUND_OBJECTS[tag.kind]
+    if (!r || r.sink !== tag.sink || r.crown !== tag.crown || r.maxWidth !== tag.maxWidth || !(tag.length > 0)) { badTags++; notes.push(`G0: object '${o.name}' carries a tag that is not GROUND_OBJECTS.${tag.kind}`) }
+  }
+  console.log(`    ${objects.length} object mesh(es) [${objects.map((o) => o.name).join(', ')}], ${decals.length} decal mesh(es) [${decals.map((o) => o.name).join(', ')}]`)
+  check('G0', 'objectRules', badRules)
+  check('G0', 'objectTags', badTags)
   guardEnd('G0')
 }
 
@@ -526,6 +594,18 @@ if (runs('G2')) {
   console.log(`    ${rows.length} ordered pairs`)
   out.guards.G2 = rows.map((p) => ({ pair: `${p.top}|${p.bottom}`, samples: p.n, m2: Math.round(p.area / 2), gapMm: Math.round(p.gap * 1000) }))
   for (const p of rows) check('G2', `${p.top}|${p.bottom}`, p.n, 0, `(${Math.round(p.area / 2)} m², gap ${Math.round(p.gap * 1000)} mm)`)
+  // objects: the footprint an object covers is bounded by its rule's width — measured as the
+  // top-view area of its upward triangles over the length of its run (rule R8)
+  const widths = []
+  for (const o of objects) {
+    const tag = o.userData.groundObject
+    const area = topViewArea(o)
+    const width = area / Math.max(1e-6, tag.length)
+    widths.push({ name: o.name, kind: tag.kind, area, length: tag.length, width, maxWidth: tag.maxWidth })
+    console.log(`    object ${padE(o.name, 16)} ${tag.kind}: ${fmt(area, 1)} m² over ${fmt(tag.length, 0)} m = ${fmt(width, 2)} m wide (rule ${tag.maxWidth} m)`)
+  }
+  out.guards.G2objects = widths
+  for (const w of widths) check('G2', `object.${w.name}.width`, Number(fmt(Math.max(0, w.width - w.maxWidth), 2)), 0, `(${fmt(w.width, 2)} m mean over ${Math.round(w.length)} m, rule ${w.maxWidth} m)`, 'm')
   guardEnd('G2')
 }
 
@@ -536,7 +616,6 @@ if (runs('G3')) {
   console.log('    face                   frame   n        p50 mm  p99 mm   max mm   beyond    skipped  worst (one per 20 m)')
   for (const face of faces) {
     const T = face.T
-    if (face.frame === 'object') { console.log(`    ${padE(face.name, 22)} object (judged by the object rule from P4 — skipped)`); continue }
     const frame = face.frame
     const limit = frame === 'road' ? 0.002 : 0.04
     const rule = RULE_OF[face.kind]
@@ -579,6 +658,114 @@ if (runs('G3')) {
   }
   out.guards.G3 = rows.map((r) => ({ ...r, p50: Math.round(r.p50 * 1000), p99: Math.round(r.p99 * 1000), max: Math.round(r.max * 1000) }))
   for (const r of rows) check('G3', r.name, Number(fmt(r.pct, 2)), 0, `(${r.frame} frame, p99 ${fmt(r.p99 * 1000, 0)} mm, max ${fmt(r.max * 1000, 0)} mm)`, 'pct')
+
+  // --- objects (R8): every vertex is either SUNK (≤ face − 10 mm) or PROUD (≥ face + 20 mm);
+  // a vertex on the face z-fights it. For an instanced object each instance's lowest corner must
+  // be sunk and its highest proud.
+  console.log('    object                 kind      vertices   sunk     proud    on-face   min mm  max mm')
+  const objRows = []
+  for (const o of objects) {
+    const tag = o.userData.groundObject
+    const st = { name: o.name, kind: tag.kind, n: 0, sunk: 0, proud: 0, onFace: 0, min: Infinity, max: -Infinity, worst: [] }
+    const judge = (x, z, y, what) => {
+      const d = sOf(x, z)
+      if (d && inCross(d.s)) return
+      const dy = y - standBase(x, z)
+      st.n++
+      if (dy < st.min) st.min = dy
+      if (dy > st.max) st.max = dy
+      if (dy <= -0.01) st.sunk++
+      else if (dy >= 0.02) st.proud++
+      else { st.onFace++; if (st.worst.length < 3) st.worst.push(`${what} ${(dy * 1000).toFixed(0)}mm s${d ? Math.round(d.s) : '?'}·${d ? secShort(d.s) : ''}`) }
+    }
+    if (o.isInstancedMesh) {
+      const corners = bboxCorners(o.geometry)
+      for (let i = 0; i < o.count; i++) {
+        o.getMatrixAt(i, _m4)
+        _m4.premultiply(o.matrixWorld)
+        let lo = Infinity, hi = -Infinity, cx = 0, cz = 0
+        for (const c of corners) { _v3.copy(c).applyMatrix4(_m4); lo = Math.min(lo, _v3.y); hi = Math.max(hi, _v3.y); cx += _v3.x / 8; cz += _v3.z / 8 }
+        judge(cx, cz, lo, 'base')
+        judge(cx, cz, hi, 'crown')
+      }
+    } else {
+      const pos = o.geometry.attributes.position
+      for (let v = 0; v < pos.count; v++) {
+        _v3.fromBufferAttribute(pos, v).applyMatrix4(o.matrixWorld)
+        judge(_v3.x, _v3.z, _v3.y, `v${v}`)
+      }
+    }
+    objRows.push(st)
+    console.log(`    ${padE(st.name, 22)} ${padE(st.kind, 9)} ${pad(st.n, 8)} ${pad(st.sunk, 7)} ${pad(st.proud, 8)} ${pad(st.onFace, 8)}  ${pad(st.n ? fmt(st.min * 1000, 0) : '-', 6)} ${pad(st.n ? fmt(st.max * 1000, 0) : '-', 7)}  ${st.worst.join(' ')}`)
+  }
+  out.guards.G3objects = objRows.map((r) => ({ name: r.name, n: r.n, sunk: r.sunk, proud: r.proud, onFace: r.onFace, minMm: Math.round(r.min * 1000), maxMm: Math.round(r.max * 1000) }))
+  for (const r of objRows) check('G3', `object.${r.name}.onFace`, r.onFace, 0, `(min ${fmt(r.min * 1000, 0)} mm, max ${fmt(r.max * 1000, 0)} mm)`)
+
+  // --- decals (R9): every sample (vertices, edge midpoints, centroid of every live triangle) lies
+  // ≥ 6 mm over the drawn face under it — a soft decal (no depth write) merely over it — and
+  // there IS a face under it (a decal on bare terrain has nothing to lie on)
+  console.log('    decal                  rung   soft  samples   no-face  buried   min mm   p50 mm   bare m²  worst (one per 20 m)')
+  const decRows = []
+  for (const dm of decals) {
+    const tag = dm.userData.decal
+    const limit = tag.soft ? 0 : 0.006
+    const st = { name: dm.name, rung: tag.rung, soft: tag.soft, n: 0, noFace: 0, buried: 0, min: Infinity, dys: [], worst: [], uncovered: tag.uncovered ?? 0, area: tag.area ?? 0, bareAt: bareClusters(tag.bareAt ?? []) }
+    const sample = (x, z, y) => {
+      const d = sOf(x, z)
+      if (!d || inCross(d.s)) return
+      // a decal vertex lies ON a face edge (it was clipped from the face), so the boundary test
+      // tolerates float32 (1e-4 barycentric ≈ 0.4 mm on a 4 m triangle)
+      const top = topAt(x, z, groundFaceSet) ?? topAt(x, z, groundFaceSet, -1e-4)
+      st.n++
+      if (!top) { st.noFace++; return }
+      const dy = y - top.y
+      st.dys.push(dy)
+      if (dy < st.min) st.min = dy
+      if (dy < limit) {
+        st.buried++
+        const bin = Math.floor(d.s / 20)
+        const same = st.worst.find((w) => w.bin === bin)
+        if (same) { if (dy < same.dy) Object.assign(same, { dy, s: d.s, lat: d.lateral }) }
+        else { st.worst.push({ bin, dy, s: d.s, lat: d.lateral }); st.worst.sort((a, b) => a.dy - b.dy); if (st.worst.length > 4) st.worst.pop() }
+      }
+    }
+    if (dm.isInstancedMesh) {
+      const corners = bboxCorners(dm.geometry)
+      for (let i = 0; i < dm.count; i++) {
+        dm.getMatrixAt(i, _m4)
+        _m4.premultiply(dm.matrixWorld)
+        // the four lowest corners: the underside of the slab
+        const ws = corners.map((c) => _v3.copy(c).applyMatrix4(_m4).clone()).sort((a, b) => a.y - b.y).slice(0, 4)
+        for (const w of ws) sample(w.x, w.z, w.y)
+      }
+    } else {
+      const pos = dm.geometry.attributes.position
+      const n = triCountOf(dm.geometry)
+      const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+      for (let tI = 0; tI < n; tI++) {
+        for (let k = 0; k < 3; k++) P[k].fromBufferAttribute(pos, vertexOf(dm.geometry, tI, k)).applyMatrix4(dm.matrixWorld)
+        const [a, b, c] = P
+        const area2 = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x))
+        if (area2 < 2 * LIVE_AREA) continue
+        sample(a.x, a.z, a.y); sample(b.x, b.z, b.y); sample(c.x, c.z, c.y)
+        sample((a.x + b.x) / 2, (a.z + b.z) / 2, (a.y + b.y) / 2)
+        sample((b.x + c.x) / 2, (b.z + c.z) / 2, (b.y + c.y) / 2)
+        sample((c.x + a.x) / 2, (c.z + a.z) / 2, (c.y + a.y) / 2)
+        sample((a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3, (a.y + b.y + c.y) / 3)
+      }
+    }
+    st.dys.sort((a, b) => a - b)
+    st.p50 = st.dys.length ? st.dys[Math.floor(st.dys.length / 2)] : 0
+    decRows.push(st)
+    console.log(`    ${padE(st.name, 22)} ${pad(fmt(st.rung * 1000, 0), 4)}   ${st.soft ? 'yes ' : 'no  '} ${pad(st.n, 8)} ${pad(st.noFace, 8)} ${pad(st.buried, 7)}  ${pad(st.dys.length ? fmt(st.min * 1000, 1) : '-', 7)}  ${pad(fmt(st.p50 * 1000, 1), 7)}  ${pad(fmt(st.uncovered, 1), 7)}  ${st.worst.map((w) => `${(w.dy * 1000).toFixed(0)}mm s${Math.round(w.s)} lat${Math.round(w.lat)}·${secShort(w.s)}`).join(' ')}`)
+  }
+  out.guards.G3decals = decRows.map((r) => ({ name: r.name, rungMm: Math.round(r.rung * 1000), soft: r.soft, n: r.n, noFace: r.noFace, buried: r.buried, minMm: Number(fmt(r.min * 1000, 1)), p50Mm: Number(fmt(r.p50 * 1000, 1)), bareM2: Number(fmt(r.uncovered, 1)) }))
+  for (const r of decRows) {
+    check('G3', `decal.${r.name}.noFace`, r.noFace)
+    check('G3', `decal.${r.name}.buried`, r.buried, 0, `(min ${fmt(r.min * 1000, 1)} mm over the face, rung ${fmt(r.rung * 1000, 0)} mm)`)
+    // the outline the builder declared but could not draw: no face under it (bare terrain)
+    check('G3', `decal.${r.name}.bare`, Number(fmt(r.uncovered, 1)), 0, `(of ${fmt(r.area, 0)} m² declared; ${r.bareAt.join(' ')})`, 'm2')
+  }
   guardEnd('G3')
 }
 
@@ -735,11 +922,11 @@ if (runs('G6') || runs('G7')) {
       }
     }
     longEdges.sort((a, b) => b.n - a.n)
-    rows.push({ name: face.name, tris: face.tris, pct: samples ? (100 * under) / samples : 0, worst, maxEdge, over, flat: face.reg.flat, longEdges: longEdges.slice(0, 4) })
+    rows.push({ name: face.name, tris: face.tris, pct: samples ? (100 * under) / samples : 0, worst, maxEdge, over, longEdges: longEdges.slice(0, 4) })
   }
   rows.sort((a, b) => b.pct - a.pct || b.maxEdge - a.maxEdge)
   console.log('    face                    tris   terrain above   worst      longest XZ edge   edges over   where (n, longest, s/lat, source 0 raster 1 world 2 stitch)')
-  for (const r of rows) console.log(`    ${padE(r.name, 22)} ${pad(r.tris, 7)}   ${pad(fmt(r.pct, 2), 8)} %   ${pad(fmt(r.worst, 3), 6)} m   ${pad(fmt(r.maxEdge, 1), 6)} m${r.maxEdge > maxEdgeLimit && !r.flat ? ' <<' : '   '}   ${pad(r.over, 8)}   ${r.longEdges.map((e) => `${e.n}×${e.len.toFixed(1)}m s${Math.round(e.s)}/${Math.round(e.lat)}·${secShort(e.s)}·src${e.src} [${e.ends}]`).join('  ')}`)
+  for (const r of rows) console.log(`    ${padE(r.name, 22)} ${pad(r.tris, 7)}   ${pad(fmt(r.pct, 2), 8)} %   ${pad(fmt(r.worst, 3), 6)} m   ${pad(fmt(r.maxEdge, 1), 6)} m${r.maxEdge > maxEdgeLimit ? ' <<' : '   '}   ${pad(r.over, 8)}   ${r.longEdges.map((e) => `${e.n}×${e.len.toFixed(1)}m s${Math.round(e.s)}/${Math.round(e.lat)}·${secShort(e.s)}·src${e.src} [${e.ends}]`).join('  ')}`)
   console.log(`    ${terrain.groundSheets.length} faces registered, ${terrain.clamped.size} clamped; settle() took ${fmt(terrain.settleMs)} ms; edge limit ${fmt(maxEdgeLimit, 2)} m`)
   const capped = {}
   for (const c of terrain.clampCapped) {
@@ -754,22 +941,23 @@ if (runs('G6') || runs('G7')) {
     for (const r of rows) check('G6', r.name, Number(fmt(r.pct, 2)), 0, `(worst ${fmt(r.worst, 3)} m)`, 'pct')
     check('G6', 'unclamped', terrain.groundSheets.length - terrain.clamped.size)
   }
-  if (runs('G7')) for (const r of rows) if (!r.flat) check('G7', r.name, r.over, 0, `(longest ${fmt(r.maxEdge, 1)} m, half the ${fmt(maxEdgeLimit * 2, 1)} m grid)`)
+  if (runs('G7')) for (const r of rows) check('G7', r.name, r.over, 0, `(longest ${fmt(r.maxEdge, 1)} m, half the ${fmt(maxEdgeLimit * 2, 1)} m grid)`)
   guardEnd('G6')
   if (runs('G7')) out.ms.G7 = 0 // shares G6's pass; recorded so its allowances are audited as "ran"
 }
 
 // ================================================================ G8 — registration, from the geometry; R13 imports
 if (runs('G8')) {
-  guardStart('G8', 'registration — horizontal geometry at ground level that is not a registered face')
-  const FURNITURE = ['stand', 'terrace', 'furniture', 'props', 'concrete', 'pitRails', 'terrain']
+  guardStart('G8', 'registration — horizontal geometry at ground level that is not a registered face, a marked object or a marked decal')
+  // furniture by name prefix: structures whose floors are at ground level by design (the stands'
+  // terraces, the garage floors inside the pit building, the props' plinths, the concrete slabs)
+  const FURNITURE = ['stand', 'terrace', 'furniture', 'props', 'concrete', 'pitRails', 'pitInterior', 'terrain']
   const allowListed = (o) => { for (let p = o; p; p = p.parent) if (p.name && FURNITURE.some((pre) => p.name.startsWith(pre))) return true; return false }
-  root.updateMatrixWorld(true)
   const rows = []
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
   root.traverse((o) => {
     if (!o.isMesh || o.isInstancedMesh || !o.geometry?.attributes?.position) return
-    if (o.geometry.userData.groundReg || o.userData.decal || DECAL_NAMES.has(o.name)) return
+    if (o.geometry.userData.groundReg || o.userData.decal || o.userData.groundObject) return
     if (o.material?.transparent && o.material?.depthWrite === false) return
     if (allowListed(o)) return
     const pos = o.geometry.attributes.position
@@ -812,6 +1000,22 @@ if (runs('G8')) {
   const foreign = [...imported].filter((i) => !ALLOWED_IMPORTS.includes(i))
   console.log(`    R13 imports: ${imported.size} modules, foreign [${foreign.join(', ')}]`)
   check('G8', 'imports.foreign', foreign.length, 0, `[${foreign.join(', ')}] — R13: the guard reads data, ground.ts, ground-plan.ts, trackside.ts and the built scene only`)
+  // R3: outside the ground modules nothing samples the terrain (analytic or mesh) or the old
+  // (s, lateral) ground views — everything stands on Ground.standY / lies on Ground.decalY
+  const GROUND_MODULES = new Set(['ground.ts', 'ground-plan.ts', 'ground-field.ts', 'ground-mesh.ts', 'environment.ts'])
+  const sources = [
+    ...readdirSync(path.join(ROOT, 'app/three')).filter((n) => n.endsWith('.ts') && !GROUND_MODULES.has(n)).map((n) => `app/three/${n}`),
+    ...readdirSync(path.join(ROOT, 'app/components')).filter((n) => n.endsWith('.vue')).map((n) => `app/components/${n}`),
+  ]
+  const offenders = []
+  let distanceCalls = 0
+  for (const rel of sources) {
+    const src = readFileSync(path.join(ROOT, rel), 'utf8')
+    for (const m of src.matchAll(/\b(?:terrain|\.terrain)\.(?:meshHeightAt|heightAt)\(|ground\.(?:yAt|worldY)\(/g)) offenders.push(`${rel}:${src.slice(0, m.index).split('\n').length} ${m[0]}`)
+    distanceCalls += (src.match(/distanceToTrack\(/g) ?? []).length
+  }
+  console.log(`    R3 sources: ${sources.length} files outside the ground modules, ${offenders.length} terrain sample(s) [${offenders.join(', ')}], ${distanceCalls} distanceToTrack call(s) (P5)`)
+  check('G8', 'source.terrainSamples', offenders.length, 0, `[${offenders.join(', ')}] — R3: place on ground.standY / standAt, lie on ground.decalY`)
   guardEnd('G8')
 }
 

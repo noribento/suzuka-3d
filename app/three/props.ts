@@ -2,8 +2,9 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { APEX_SPEED_TARGETS, CIRCUIT, OVERTAKE_ZONES, TV_CAMERA_SPOTS } from '~/data/suzuka'
 import { signedDelta, type Track } from '~/sim/track'
-import { ribbonGeometry } from './track-mesh'
 import type { EnvBuildContext } from './environment'
+import { LAYER, markDecal } from './ground'
+import type { DecalQuad } from './ground-mesh'
 import { brakingRubberTexture, labelTexture } from './textures'
 import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
@@ -11,6 +12,8 @@ import { OSM_BUILDINGS, OSM_PIT_BUILDING, type OsmFeature } from '~/data/suzuka-
 import { BUILDINGS, GROUND_AREAS } from '~/data/suzuka-facilities-spec'
 import { MARSHAL_POSTS, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
 import { osmWay } from './trackside'
+
+type Fn = (s: number) => number
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
@@ -36,7 +39,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
     const postGeos: THREE.BufferGeometry[] = []
     const orient = (s: number, lateral: number, y: number, out: THREE.Matrix4) => {
       const h = track.headingAt(s)
-      track.pointAt(s, lateral, _p, y + ground.yAt(s, lateral))
+      track.pointAt(s, lateral, _p, y + ground.standAt(s, lateral))
       _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz))
       _q.setFromRotationMatrix(_m)
       out.compose(_p, _q, new THREE.Vector3(1, 1, 1))
@@ -52,7 +55,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
         const m = new THREE.Matrix4()
         orient(s, lat, 1.55, m)
         boardGeos[label]!.push(m)
-        track.pointAt(s, lat, _p, ground.yAt(s, lat))
+        track.pointAt(s, lat, _p, ground.standAt(s, lat))
         const post = new THREE.CylinderGeometry(0.04, 0.04, 1.1, 6)
         post.translate(_p.x, _p.y + 0.55, _p.z)
         postGeos.push(post)
@@ -81,7 +84,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       orient(s, lat, 2.4, m)
       mesh.applyMatrix4(m)
       group.add(mesh)
-      track.pointAt(s, lat, _p, ground.yAt(s, lat))
+      track.pointAt(s, lat, _p, ground.standAt(s, lat))
       for (const dx of [-1, 1]) {
         const post = new THREE.CylinderGeometry(0.05, 0.05, 2.0, 6)
         const hh = track.headingAt(s)
@@ -106,7 +109,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       boxes.place(s, lat, 2.4, 1.85, 0.25, stripeMat, 0.6, false, false)
       boxes.place(s, lat, 2.5, 1.9, 0.12, hutRoofMat, 1.3, false, false)
       const poleS = s + 1.8
-      track.pointAt(poleS, lat, _p, ground.yAt(poleS, lat))
+      track.pointAt(poleS, lat, _p, ground.standAt(poleS, lat))
       const pole = new THREE.CylinderGeometry(0.03, 0.03, 3.6, 6)
       pole.translate(_p.x, _p.y + 1.8, _p.z)
       postGeos.push(pole)
@@ -124,7 +127,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       const pm = new THREE.Matrix4()
       orient(panelS, panelLat, 2.05, pm)
       flagPanels.push(pm)
-      track.pointAt(panelS, panelLat, _p, ground.yAt(panelS, panelLat))
+      track.pointAt(panelS, panelLat, _p, ground.standAt(panelS, panelLat))
       const panelPost = new THREE.CylinderGeometry(0.04, 0.04, 1.75, 6)
       panelPost.translate(_p.x, _p.y + 0.875, _p.z)
       postGeos.push(panelPost)
@@ -170,25 +173,46 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
   // --- rubbered-in braking zones (dark streaks laid down before the slow corners) ---------------
   {
     const rubberTex = brakingRubberTexture()
-    // lit rubber so the streaks take the asphalt's shading (polygon offset keeps it off the road
-    // surface on the reversed-Z path; three flips the offset sign there)
+    // lit rubber so the streaks take the asphalt's shading: a decal on the DRAWN road (ground.decal),
+    // LAYER.road.rubber up — soft (no depth write), so nothing z-fights it, but a ribbon of its own
+    // chorded 33 mm under the road's fold at the hairpin and was invisible there
     // Kept light: at 0.7 opacity over the whole road width this painted the T1, hairpin and
     // chicane braking zones black from above (2026-09 audit). The real rubber sits in the two
     // driven lanes and only darkens the surface a little.
     const rubberMat = new THREE.MeshStandardMaterial({ map: rubberTex, alphaMap: rubberTex, color: 0x2a2a2c, roughness: 0.85, metalness: 0, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
-    const geos: THREE.BufferGeometry[] = []
+    const quads: DecalQuad[] = []
+    const L = track.length
     for (const z of OVERTAKE_ZONES) {
       const from = z.s - 60
       const to = z.s + 30
       // the two lanes the cars brake in (the same u the asphalt tile rubbers in), not the full width
       for (const c of [-0.38, 0.38]) {
-        geos.push(ribbonGeometry(track, from, to, (s) => track.halfWidthAt(s) * (c + 0.3), (s) => track.halfWidthAt(s) * (c - 0.3), () => 0.006, () => 0.006, 2, 10))
+        const l: Fn = (s) => track.halfWidthAt(s) * (c + 0.3), r: Fn = (s) => track.halfWidthAt(s) * (c - 0.3)
+        const rows = ground.plan.lattice(from, to, 2)
+        for (let i = 0; i < rows.length - 1; i++) {
+          const sa = rows[i]!, sb = rows[i + 1]!
+          const xz: number[] = []
+          for (const [s, lat] of [[sa, r(sa)], [sa, l(sa)], [sb, l(sb)], [sb, r(sb)]] as const) {
+            track.pointAt(s, lat, _p, 0)
+            xz.push(_p.x, _p.z)
+          }
+          track.pointAt((sa + sb) / 2, (l(sa) + r(sa)) / 2, _p, 0)
+          quads.push({ xz, yHint: _p.y, attrs: (x, zz) => {
+            const p = track.nearestOnRange(x, zz, sa, sb, 2)
+            const f = (p.lateral - r(p.s)) / (l(p.s) - r(p.s))
+            return [1 - Math.min(1, Math.max(0, f)), signedDelta(from, p.s, L) / 10]
+          } })
+        }
       }
     }
-    const rubber = new THREE.Mesh(mergeGeometries(geos, false)!, rubberMat)
-    rubber.renderOrder = 1
-    rubber.name = 'brakingRubber'
-    group.add(rubber)
+    const built = ground.decal(quads, LAYER.road.rubber, [{ name: 'uv', size: 2 }])
+    if (built.geo) {
+      const rubber = new THREE.Mesh(built.geo, rubberMat)
+      rubber.renderOrder = 1
+      rubber.name = 'brakingRubber'
+      markDecal(rubber, LAYER.road.rubber, built.stats)
+      group.add(rubber)
+    }
   }
 
   // --- TV camera masts -------------------------------------------------------------------------
@@ -201,7 +225,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
     TV_CAMERA_SPOTS.forEach((s, i) => {
       // a few of the generated spots land in a gravel trap or a run-off; those carry an override
       const lat = TV_MAST_OVERRIDES[s] ?? cameraSide(track, s) * (hw + 9)
-      track.pointAt(s, lat, _p, ground.yAt(s, lat))
+      track.pointAt(s, lat, _p, ground.standAt(s, lat))
       masts.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 3.5, _p.z))
       cams.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 8.3, _p.z))
     })
@@ -251,7 +275,7 @@ function buildingHeight(f: OsmFeature, area: number): number {
  * the footprint's highest ground — in three material groups (park / works / canopies).
  */
 function buildOsmBuildings(ctx: EnvBuildContext) {
-  const { track, terrain, group, keepOut } = ctx
+  const { track, terrain, ground, group, keepOut } = ctx
   const cx = track.center.x, cz = track.center.z
   const inside = (x: number, z: number) => Math.abs(x - cx) < 1600 && Math.abs(z - cz) < 1200
   const owned = new Set<number>([OSM_PIT_BUILDING.id, ...BUILDINGS.map((b) => b.osmWay).filter((id): id is number => id !== null)])
@@ -286,7 +310,7 @@ function buildOsmBuildings(ctx: EnvBuildContext) {
       const [e0, n0] = f.en[i]!, [e1, n1] = f.en[(i + 1) % f.en.length]!
       area += (e0 * n1 - e1 * n0) / 2
       track.enToWorld(e0, n0, v)
-      const g = terrain.meshHeightAt(v.x, v.z)
+      const g = ground.standY(v.x, v.z)
       if (g < gMin) gMin = g
       if (g > gMax) gMax = g
       rMax = Math.max(rMax, Math.hypot(e0 - ce, n0 - cn) * k)
@@ -380,7 +404,7 @@ function keepOutSecondaryPaving(ctx: EnvBuildContext) {
  * tower; six catenary cables run between consecutive line vertices as plain lines.
  */
 function buildPowerLines(ctx: EnvBuildContext) {
-  const { track, terrain, group, quality } = ctx
+  const { track, ground, group, quality } = ctx
   const H = 42
   const baseHalf = 3.6
   const topHalf = 1.1
@@ -442,7 +466,7 @@ function buildPowerLines(ctx: EnvBuildContext) {
   for (const t of OSM_POWER_TOWERS) {
     const p = track.enToWorld(t.en[0], t.en[1], new THREE.Vector3())
     if (!inside(p.x, p.z)) continue
-    p.y = terrain.meshHeightAt(p.x, p.z) - 0.3
+    p.y = ground.standY(p.x, p.z) - 0.3
     let best: (typeof lineVerts)[number] | null = null
     let bd = 9
     for (const v of lineVerts) {
@@ -474,7 +498,7 @@ function buildPowerLines(ctx: EnvBuildContext) {
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i]!, b = pts[i + 1]!
       if (!inside(a.x, a.z) || !inside(b.x, b.z)) continue
-      const ya = terrain.meshHeightAt(a.x, a.z), yb = terrain.meshHeightAt(b.x, b.z)
+      const ya = ground.standY(a.x, a.z), yb = ground.standY(b.x, b.z)
       const dir = b.clone().sub(a).setY(0)
       const span = dir.length()
       if (span < 20 || span > 700) continue

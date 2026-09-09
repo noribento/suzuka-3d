@@ -69,12 +69,12 @@ export const THREE = await import(path.join(ROOT, 'node_modules/three/build/thre
 
 /**
  * Build the same scene graph the app builds, in the same order as
- * `app/components/RaceViewport.client.vue`, and settle the terrain.
+ * `app/components/RaceViewport.client.vue` (the terrain is settled inside buildEnvironment,
+ * before anything stands on the ground).
  *
- * @param {{ tier?: 'high' | 'low', settle?: boolean }} opts — `settle: false` leaves the terrain
- *   unclamped so a probe can compare clamp settings
+ * @param {{ tier?: 'high' | 'low' }} opts
  */
-export async function buildScene({ tier = 'high', settle = true } = {}) {
+export async function buildScene({ tier = 'high' } = {}) {
   const { Track } = await import(path.join(ROOT, 'app/sim/track.ts'))
   const suz = await import(path.join(ROOT, 'app/data/suzuka.ts'))
   const envMod = await import(path.join(ROOT, 'app/three/environment.ts'))
@@ -83,13 +83,11 @@ export async function buildScene({ tier = 'high', settle = true } = {}) {
   const track = new Track(suz.CIRCUIT)
   const q = quality.QUALITY[tier]
   const env = envMod.buildEnvironment(track, q, 7, null)
-  const trackMeshes = tmMod.buildTrackMeshes(track, env.terrain, env.ground)
-  // the same order as RaceViewport: everything that samples the ground is built first, then the
-  // clamp runs. The painted markings matter to the audit — they are the layer most likely to end
-  // up buried under the sheet they belong to.
+  const trackMeshes = tmMod.buildTrackMeshes(track, env.ground)
+  // the painted markings matter to the audit — they are the layer most likely to end up buried
+  // under the face they belong to
   const linesMod = await import(path.join(ROOT, 'app/three/lines.ts'))
   const whiteLines = linesMod.buildLines(track, env.ground)
-  if (settle) env.terrain.settle()
   const root = new THREE.Group()
   root.add(env.group, trackMeshes.group, whiteLines)
   return { track, env, terrain: env.terrain, ground: env.ground, plan: env.plan, groundMeshes: env.groundMeshes, trackMeshes, whiteLines, root, quality: q }
