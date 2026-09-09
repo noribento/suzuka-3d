@@ -139,7 +139,9 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
     if (!def.lines) continue
     const pts = laneWorldPath(track, def)
     if (pts.length < 3) continue
-    for (const side of [1, -1] as const) laneStripe(track, ground, pts, def.width / 2 - 0.1, side, 0.15, quads)
+    // 0.2 m inside the lane's edge: the drawn lane (its ring, sampled at 2 m) sits a few
+    // centimetres inside the declared width on the inside of its bends
+    for (const side of [1, -1] as const) laneStripe(track, ground, pts, def.width / 2 - 0.2, side, 0.15, quads)
   }
 
   // --- grid slots and the start line ----------------------------------------------------------

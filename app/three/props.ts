@@ -302,8 +302,8 @@ function buildOsmBuildings(ctx: EnvBuildContext) {
     track.enToWorld(ce, cn, v)
     if (!inside(v.x, v.z)) continue
     // buildings right beside the road were never modelled as boxes here: 6 m clearance of the verge
-    const near = terrain.distanceToTrack(v.x, v.z, 80)
-    if (near.i >= 0 && near.d < track.halfWidthAt(near.s) + 6) continue
+    const near = ground.plan.project(v.x, v.z)
+    if (near.d < track.halfWidthAt(near.s) + 6) continue
     let area = 0
     let gMin = Infinity, gMax = -Infinity, rMax = 0
     for (let i = 0; i < f.en.length; i++) {

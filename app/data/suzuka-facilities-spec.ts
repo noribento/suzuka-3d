@@ -1174,7 +1174,8 @@ export const GROUND_AREAS: GroundArea[] = [
   // --- secondary paving: OSM raceways that are not the lap (props.ts used to filter OSM_RACEWAY at runtime)
   { name: '南コース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525062, width: 10 } },
   { name: 'カートコース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525698, width: 7 } },
-  { name: 'OSM raceway 183393709（最終コーナー外側のループ）', kind: 'asphaltArea', source: 'osm', footprint: { way: 183393709, width: 9 }, unverified: ['width', 'purpose'] },
+  // 8 m, not 9: the loop's two legs run 9.5 m apart at their closest and a 9 m sweep drew 4 m² twice
+  { name: 'OSM raceway 183393709（最終コーナー外側のループ）', kind: 'asphaltArea', source: 'osm', footprint: { way: 183393709, width: 8 }, unverified: ['width', 'purpose'] },
   // --- the retention basins (BASINS in suzuka-barriers-spec.ts): dry mud in late March -------------
   // The ground inside is sunk by stands.ts facilityRelief (a floor `depth` below the shoreline
   // with a 9 m bank), so the face follows the basin's own shape; the season picks its material

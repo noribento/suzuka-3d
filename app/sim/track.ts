@@ -242,18 +242,31 @@ export class Track {
     this.boxSmooth(this.kappa, this.kappaS, Math.round(10 / this.ds))
 
     // width, camber (banked into the local corner direction) and gradient per sample
+    const rollRaw = new Float32Array(n)
     for (let i = 0; i < n; i++) {
       const s = i * this.ds
       this.hw[i] = interpKeyframes(WIDTH_KEYFRAMES, s, length) / 2
       const camber = (interpKeyframes(CAMBER_KEYFRAMES, s, length) * Math.PI) / 180
       const k = this.kappaS[i]!
-      const dir = Math.abs(k) < 1 / 800 ? 0 : k > 0 ? 1 : -1
+      // the banking follows the smoothed curvature and saturates at 1/400 m — a hard gate at
+      // 1/800 m flipped the full camber on and off between two samples (3.5° in 2 m at T1's exit),
+      // a twist no road has and no mesh cell can follow (24 mm at its centre)
+      const dir = Math.max(-1, Math.min(1, k * 400))
       // banking into a left-hander raises the right (outside) edge → negative roll
-      this.roll[i] = -dir * camber
+      rollRaw[i] = -dir * camber
       const a = (i - 1 + n) % n
       const b = (i + 1) % n
       this.slope[i] = (this.py[b]! - this.py[a]!) / (2 * this.ds)
     }
+    // the crossfall changes over the superelevation run-off, ±30 m here: a 4° camber then takes
+    // ~60 m to build. Two box passes of ±15 m (a triangular kernel), not one: a box leaves the
+    // roll with kinks at the ends of every run-off, and a road-frame cell that straddles a kink
+    // chords the twist — 2.7 mm at the kerb's back (lateral 7 m) on the hairpin approach, over
+    // the 2 mm the road frame allows. The triangle is C1, so a cell's chord is the twist's
+    // curvature × L²/8: 4° over ±15 m is 0.8 mm at the road's edge for a 2 m cell (±8 m: 2.7 mm)
+    const rollTmp = new Float32Array(n)
+    this.boxSmooth(rollRaw, rollTmp, Math.round(15 / this.ds))
+    this.boxSmooth(rollTmp, this.roll, Math.round(15 / this.ds))
 
     this.corners = this.findCorners()
     this.buildRacingLine()

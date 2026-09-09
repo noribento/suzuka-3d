@@ -12,8 +12,13 @@ import { osmWay } from './trackside'
 
 /** longest edge of a world-polygon triangle (m): fine enough to drape, coarse enough for the clamp */
 const WORLD_STEP = 4
-/** a triangle thinner than this draws nothing; its vertices would still take a sideways normal */
-const MIN_WIDTH = 0.002
+/**
+ * a triangle thinner than this (below the pool's 1 mm quantisation) draws nothing. Wider slivers
+ * are kept: earcut fans a straight, densely sampled contour (a 0.1 m arc along a straight OSM
+ * edge) into ladders of 2 m × 4 mm ears, and dropping them left 7 cm bands of bare ground inside
+ * the T1 pond. Vertex normals are area-weighted over every face, so a sliver's own tilt is nothing.
+ */
+const MIN_WIDTH = 0.0001
 
 /**
  * The ground MESH: the plan's partition turned into faces.
@@ -125,6 +130,8 @@ export const PLANAR_UV: Partial<Record<OwnerKind, [number, number]>> = {
 }
 
 const _p = new THREE.Vector3()
+/** a stitch strip is extended over declared-capped stations only while its rails stay this close (m) */
+const MAX_STRIP_WIDTH = 15
 
 /** vertex pool: one entry per (station, lateral), written once by the first (highest) owner */
 class Pool {
@@ -246,7 +253,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     if ('profile' in rule) {
       // the kerb: the profile at this vertex's own offset (its columns are the breakpoints)
       const kb = kerbAt(plan.kerbs, track, s, cell.side)
-      return _p.y + kerbProfileHeight(kb.width, kb.taper, Math.abs(lateral) - track.halfWidthAt(s))
+      return _p.y + kerbProfileHeight(kb.width, kb.taper, kb.spread, Math.abs(lateral) - track.halfWidthAt(s))
     }
     return _p.y + rule.dy
   }
@@ -295,6 +302,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
    */
   const DEVIATION = 0.04
   const MIN_EDGE = 1
+  const OWNER_EDGE = 0.5
   const refine = <T extends { p: number; q: number; r: number; kind: OwnerKind }>(tris: T[], maxEdge: number, fixed: Set<string>, yOf: (x: number, z: number) => number, ownerAt: ((x: number, z: number) => Owner) | null, make: (p: number, q: number, r: number, kind: OwnerKind) => T): T[] => {
     const edgeKey = (u: number, v: number) => (u < v ? `${u},${v}` : `${v},${u}`)
     const mid = new Map<string, number>()
@@ -350,7 +358,9 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
         const xs = [pool.x[z.p]!, pool.x[z.q]!, pool.x[z.r]!], zs = [pool.z[z.p]!, pool.z[z.q]!, pool.z[z.r]!]
         if (nearRing(Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs))) {
           const o = ownerAt(cx, cz).name
-          if (ownerAt(xs[0]!, zs[0]!).name !== o || ownerAt(xs[1]!, zs[1]!).name !== o || ownerAt(xs[2]!, zs[2]!).name !== o) v = MIN_EDGE
+          // a triangle across a ring's edge is split to OWNER_EDGE, half the field's MIN_EDGE:
+          // its owner is read at the centroid, and the census (0.5 m) must not see the other side
+          if (ownerAt(xs[0]!, zs[0]!).name !== o || ownerAt(xs[1]!, zs[1]!).name !== o || ownerAt(xs[2]!, zs[2]!).name !== o) v = OWNER_EDGE
         }
       }
       verdict.set(z, v)
@@ -409,13 +419,27 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       return { side: pSide, station: plan.stationIndexAt(j * track.ds) }
     }
     const runs: Run[] = []
+    /**
+     * A run: stations whose raster is capped by a facing stretch, and stations at their declared
+     * verge whose edge still lies within a strip's width of the facing stretch's edge (the other
+     * side was capped at THIS edge — the meet-at-the-edge cap of ground-plan — and the strip
+     * between the two is needed all the same).
+     */
+    const d = (p: number, q: number) => Math.hypot(pool.x[p]! - pool.x[q]!, pool.z[p]! - pool.z[q]!)
+    const zippable = (side: Side, k: number): boolean => {
+      const c = plan.sides[side].cap[k]
+      const p = facing(side, k)
+      if (!p) return false
+      if (c === 2 || c === 3) return true
+      const v = extentVertex(k, side), w = extentVertex(p.station, p.side)
+      return v !== undefined && w !== undefined && d(v, w) <= MAX_STRIP_WIDTH
+    }
     for (const side of [1, -1] as const) {
-      const cap = plan.sides[side].cap
       let i = 0
       while (i < m) {
-        if (cap[i] !== 2) { i++; continue }
+        if (!zippable(side, i)) { i++; continue }
         let e = i
-        while (e + 1 < m && cap[e + 1] === 2) e++
+        while (e + 1 < m && zippable(side, e + 1)) e++
         if (e - i >= 2) runs.push({ side, start: i, end: e, id: runs.length })
         i = e + 1
       }
@@ -429,7 +453,6 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       return run ? { run, station: p.station } : null
     }
     const paired = new Set<string>()
-    const d = (p: number, q: number) => Math.hypot(pool.x[p]! - pool.x[q]!, pool.z[p]! - pool.z[q]!)
     /**
      * The contiguous station ranges of two facing runs that zip to each other, as extent
      * vertices. Each starts as the stations of one run whose bisector partner lies in the other,
@@ -454,9 +477,16 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       const soft = (side: Side, k: number) => { const c = plan.sides[side].cap[k]; return c === 0 || c === 4 }
       const facesRange = (side: Side, k: number, oSide: Side, lo: number, hi: number) => { const p = facing(side, k); return !!p && p.side === oSide && p.station >= lo - 5 && p.station <= hi + 5 }
       const free = (side: Side, k: number) => soft(side, k) && !runAt(side, k) && !zipped[side][k]
+      /** the station's extent vertex lies within MAX_STRIP_WIDTH of the other range's rail (a pocket is narrow; the crossover's rails are not) */
+      const near = (side: Side, k: number, oSide: Side, lo: number, hi: number): boolean => {
+        const v = extentVertex(k, side)
+        if (v === undefined) return false
+        for (let q = lo; q <= hi; q++) { const w = extentVertex(q, oSide); if (w !== undefined && d(v, w) <= MAX_STRIP_WIDTH) return true }
+        return false
+      }
       const extend = (run: Run, lo: number, hi: number, other: Run, oLo: number, oHi: number): [number, number] => {
-        while (lo > 0 && free(run.side, lo - 1) && facesRange(run.side, lo - 1, other.side, oLo, oHi)) lo--
-        while (hi < m - 1 && free(run.side, hi + 1) && facesRange(run.side, hi + 1, other.side, oLo, oHi)) hi++
+        while (lo > 0 && free(run.side, lo - 1) && facesRange(run.side, lo - 1, other.side, oLo, oHi) && near(run.side, lo - 1, other.side, oLo, oHi)) lo--
+        while (hi < m - 1 && free(run.side, hi + 1) && facesRange(run.side, hi + 1, other.side, oLo, oHi) && near(run.side, hi + 1, other.side, oLo, oHi)) hi++
         return [lo, hi]
       }
       for (let it = 0; it < 3; it++) {
@@ -484,6 +514,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       // align the two polylines end to end: the pairing with the smaller total end distance (a
       // wedge-shaped strip has its mouth ends far apart, so "the end nearest a[0]" picked the apex)
       if (d(a[0]!, b[0]!) + d(a[a.length - 1]!, b[b.length - 1]!) > d(a[0]!, b[b.length - 1]!) + d(a[a.length - 1]!, b[0]!)) { b.reverse(); bSt.reverse() }
+
       const outerA = (k: number) => plan.ownerAtSL(plan.stations[k]!, A.side, plan.sides[A.side].W[k]! - 0.01, true)
       const outerB = (k: number) => plan.ownerAtSL(plan.stations[k]!, B.side, plan.sides[B.side].W[k]! - 0.01, true)
       let area = 0
@@ -601,18 +632,32 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
   const CELL = 8
   const cellKey = (ix: number, iz: number) => (ix + 32768) * 65536 + (iz + 32768)
-  const stitchCells = new Map<number, number[]>()
-  for (let t = 0; t < stitchTriList.length; t += 3) {
-    const a = stitchTriList[t]!, b = stitchTriList[t + 1]!, c = stitchTriList[t + 2]!
+  /**
+   * Triangles that cover ground besides the raster: the stitch strips, then every world part as
+   * it is drawn (higher precedence first), so a ring traces its part around the parts of the
+   * rings above it exactly as it does around the raster — the shared boundary is one set of
+   * vertices, and no verify-by-centroid sliver is left to overlap (the helipad in the paddock,
+   * the slip lane in the chicane apron, the turf island).
+   */
+  const coverList: number[] = []
+  const coverCells = new Map<number, number[]>()
+  const addCover = (t: number) => {
+    const a = coverList[t]!, b = coverList[t + 1]!, c = coverList[t + 2]!
     const i0 = Math.floor(Math.min(pool.x[a]!, pool.x[b]!, pool.x[c]!) / CELL), i1 = Math.floor(Math.max(pool.x[a]!, pool.x[b]!, pool.x[c]!) / CELL)
     const j0 = Math.floor(Math.min(pool.z[a]!, pool.z[b]!, pool.z[c]!) / CELL), j1 = Math.floor(Math.max(pool.z[a]!, pool.z[b]!, pool.z[c]!) / CELL)
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = cellKey(i, j); let arr = stitchCells.get(k); if (!arr) { arr = []; stitchCells.set(k, arr) } arr.push(t) }
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = cellKey(i, j); let arr = coverCells.get(k); if (!arr) { arr = []; coverCells.set(k, arr) } arr.push(t) }
   }
+  const coverTriangle = (a: number, b: number, c: number) => { const t = coverList.length; coverList.push(a, b, c); addCover(t) }
+  // the raster cells first (their own triangles, so a point is tested against every stretch's
+  // raster and not the one it projects onto — the paddock band and the T1–T2 basin lie between
+  // two stretches, and a projection onto the wrong one called covered ground bare), then the strips
+  for (const arr of triByKind.values()) for (let k = 0; k < arr.length; k += 3) coverTriangle(arr[k]!, arr[k + 1]!, arr[k + 2]!)
+  for (let k = 0; k < stitchTriList.length; k += 3) coverTriangle(stitchTriList[k]!, stitchTriList[k + 1]!, stitchTriList[k + 2]!)
   const inStitch = (x: number, z: number): boolean => {
-    const arr = stitchCells.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)))
+    const arr = coverCells.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)))
     if (!arr) return false
     for (const t of arr) {
-      const a = stitchTriList[t]!, b = stitchTriList[t + 1]!, c = stitchTriList[t + 2]!
+      const a = coverList[t]!, b = coverList[t + 1]!, c = coverList[t + 2]!
       const ax = pool.x[a]!, az = pool.z[a]!, bx = pool.x[b]!, bz = pool.z[b]!, cx = pool.x[c]!, cz = pool.z[c]!
       const dd = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
       if (Math.abs(dd) < 1e-12) continue
@@ -622,7 +667,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     }
     return false
   }
-  const covered = (x: number, z: number): boolean => inRaster(x, z).inside || inStitch(x, z)
+  const covered = (x: number, z: number): boolean => inStitch(x, z)
 
   // --- the union boundary U: the extent polylines, the stitched parts replaced by the strips' end edges
   // A ring's part beyond the covered ground is bounded by pieces of the ring and pieces of U, so
@@ -658,7 +703,14 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   {
     const seen = new Set<number>()
     for (const [v0, nb] of uAdj) {
-      if (seen.has(v0) || nb.length !== 2) { if (nb.length !== 2) uBad++; continue }
+      if (seen.has(v0) || nb.length !== 2) {
+        if (nb.length !== 2) {
+          uBad++
+          const pr = plan.project(pool.x[v0]!, pool.z[v0]!)
+          console.warn(`[ground-mesh] union boundary: vertex at (${pool.x[v0]!.toFixed(1)}, ${pool.z[v0]!.toFixed(1)}) s ${pr.s.toFixed(1)} lat ${pr.lateral.toFixed(1)} has ${nb.length} boundary edges — ${nb.map((q) => { const p = plan.project(pool.x[q]!, pool.z[q]!); return `(${p.s.toFixed(1)}/${p.lateral.toFixed(1)})` }).join(' ')}`)
+        }
+        continue
+      }
       const loop: number[] = [v0]
       seen.add(v0)
       let prev = v0, cur = nb[0]!
@@ -699,13 +751,51 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
   /** U edges by cell, for locating a crossing point on the boundary */
   const uCells = new Map<number, [number, number][]>()
-  for (let li = 0; li < uLoops.length; li++) {
+  const indexLoop = (li: number) => {
     const loop = uLoops[li]!
     for (let k = 0; k < loop.length; k++) {
       const p = loop[k]!, q = loop[(k + 1) % loop.length]!
+      uEdge.set(`${p}|${q}`, { loop: li, k })
       const i0 = Math.floor(Math.min(pool.x[p]!, pool.x[q]!) / CELL), i1 = Math.floor(Math.max(pool.x[p]!, pool.x[q]!) / CELL)
       const j0 = Math.floor(Math.min(pool.z[p]!, pool.z[q]!) / CELL), j1 = Math.floor(Math.max(pool.z[p]!, pool.z[q]!) / CELL)
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const kk = cellKey(i, j); let arr = uCells.get(kk); if (!arr) { arr = []; uCells.set(kk, arr) } arr.push([li, k]) }
+    }
+  }
+  for (let li = 0; li < uLoops.length; li++) indexLoop(li)
+  /**
+   * U as a DIRECTED boundary: the successor of every vertex, the uncovered ground on the left.
+   * A drawn world part joins the covered ground and its outline is spliced in: the pieces of U it
+   * walked are interior now and go, the arcs of the ring it followed become boundary (reversed,
+   * covered on their right), and a hole it kept becomes a loop of its own. The loops are re-read
+   * from the successors afterwards — no probe vote is needed, the directions are inherited.
+   */
+  const uNext = new Map<number, number>()
+  for (const loop of uLoops) for (let k = 0; k < loop.length; k++) uNext.set(loop[k]!, loop[(k + 1) % loop.length]!)
+  const rebuildLoops = () => {
+    uLoops.length = 0
+    uEdge.clear()
+    uCells.clear()
+    const seen = new Set<number>()
+    for (const v0 of uNext.keys()) {
+      if (seen.has(v0)) continue
+      const loop = [v0]
+      seen.add(v0)
+      let cur = uNext.get(v0)!
+      let ok = true
+      while (cur !== v0) {
+        if (seen.has(cur) || !uNext.has(cur) || loop.length > uNext.size) { ok = false; break }
+        loop.push(cur)
+        seen.add(cur)
+        cur = uNext.get(cur)!
+      }
+      if (!ok || loop.length < 3) {
+        uBad++
+        const pr = plan.project(pool.x[v0]!, pool.z[v0]!)
+        console.warn(`[ground-mesh] union boundary: a chain of ${loop.length} vertices from (${pool.x[v0]!.toFixed(0)}, ${pool.z[v0]!.toFixed(0)}) s ${pr.s.toFixed(0)} lat ${pr.lateral.toFixed(0)} does not close after a world part was spliced in — dropped`)
+        continue
+      }
+      uLoops.push(loop)
+      indexLoop(uLoops.length - 1)
     }
   }
   /** the U edge nearest to (x, z) and the point's parameter on it; null when none is within 1 m */
@@ -735,23 +825,96 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   let droppedWorldArea = 0
   /** world parts are tagged 16 + part index in the triangle source (diagnostics) */
   let partId = 0
-  const emitPolygon = (owner: Owner, contour: { x: number; z: number; v?: number }[], holes: Pt[][], window?: [number, number], verify?: (x: number, z: number) => boolean) => {
+  const emitPolygon = (owner: Owner, contour: { x: number; z: number; v?: number }[], holes: Pt[][], window?: [number, number], verify?: (x: number, z: number) => boolean): { emitted: number; idx: number[]; holeIdx: number[][] } => {
       const shape = contour.map((p) => new THREE.Vector2(p.x, -p.z))
       const holeShapes = holes.map((h) => h.map((p) => new THREE.Vector2(p.x, -p.z)).reverse())
       let faces: number[][]
       try { faces = THREE.ShapeUtils.triangulateShape(shape, holeShapes) } catch { faces = [] }
+      const nothing = { emitted: 0, idx: [], holeIdx: [] }
       if (!faces.length) {
         // a contour of a few points at a crossing is a sliver the raster already covers to within
         // its width; a real part failing is a build error
         let a2 = 0
         for (let i = 0; i < contour.length; i++) { const p = contour[i]!, q = contour[(i + 1) % contour.length]!; a2 += p.x * q.z - q.x * p.z }
-        if (Math.abs(a2) / 2 < 2) return
+        if (Math.abs(a2) / 2 < 2) return nothing
         fail(`"${owner.name}": its world part (${(Math.abs(a2) / 2).toFixed(0)} m²) could not be triangulated`)
-        return
+        return nothing
       }
       // vertex table: contour first, then the holes (the order triangulateShape indexes them)
       const pts: { x: number; z: number; v?: number }[] = [...contour, ...holes.flatMap((h) => [...h].reverse().map((p) => ({ x: p.x, z: p.z })))]
       let tris = faces.map((f) => [f[0]!, f[1]!, f[2]!] as [number, number, number])
+      /*
+       * earcut drops a vertex it finds exactly collinear with its neighbours (the pool's 1 mm
+       * quantisation makes a straight extent chain exactly collinear) and its triangles then run
+       * past it: a vertex the raster shares with the contour hangs on an edge of the part, and
+       * the crack is a sub-millimetre slit the census found at the paddock's edge (s 92). Every
+       * boundary vertex lying on a triangle's edge splits that triangle there.
+       */
+      {
+        const nb = pts.length
+        const CELL = 1
+        const key = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768)
+        const cells = new Map<number, number[]>()
+        for (let i = 0; i < nb; i++) { const k = key(Math.floor(pts[i]!.x / CELL), Math.floor(pts[i]!.z / CELL)); let a = cells.get(k); if (!a) { a = []; cells.set(k, a) } a.push(i) }
+        const onEdge = (a: number, b: number, c: number): number | null => {
+          const ax = pts[a]!.x, az = pts[a]!.z, dx = pts[b]!.x - ax, dz = pts[b]!.z - az
+          const l2 = dx * dx + dz * dz
+          if (l2 < 1e-12) return null
+          const len = Math.sqrt(l2)
+          const steps = Math.ceil(len / (CELL / 2))
+          let best: number | null = null, bt = Infinity
+          const seen = new Set<number>()
+          for (let s = 0; s <= steps; s++) {
+            const tt = s / steps
+            const cx = Math.floor((ax + dx * tt) / CELL), cz = Math.floor((az + dz * tt) / CELL)
+            for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+              const k = key(cx + i, cz + j)
+              if (seen.has(k)) continue
+              seen.add(k)
+              const arr = cells.get(k)
+              if (!arr) continue
+              for (const p of arr) {
+                if (p === a || p === b || p === c) continue
+                const px = pts[p]!.x - ax, pz = pts[p]!.z - az
+                // a vertex at an end of the edge (a near-duplicate of it, within the pool's 1 mm)
+                // is not on it: two such vertices split each other's edges forever
+                if (px * px + pz * pz < 4e-6 || (px - dx) * (px - dx) + (pz - dz) * (pz - dz) < 4e-6) continue
+                const u = (px * dx + pz * dz) / l2
+                if (u <= 0 || u >= 1 || u >= bt) continue
+                if (Math.abs(px * dz - pz * dx) / len > 0.001) continue
+                bt = u; best = p
+              }
+            }
+          }
+          return best
+        }
+        const work = tris
+        const out: [number, number, number][] = []
+        // a triangle seen before is drawn as it is: four vertices within a millimetre of one line,
+        // in the wrong order, split each other's edges in a cycle (a 5 mm sliver of the T1–T2
+        // basin's edge); the cycle's leftover is a sub-millimetre double coat the coverage test drops
+        const seen = new Set<string>()
+        while (work.length) {
+          const [a, b, c] = work.pop()!
+          const tk = [a, b, c].sort((u, v) => u - v).join(',')
+          if (seen.has(tk)) { out.push([a, b, c]); continue }
+          seen.add(tk)
+          // a collinear ear (earcut leaves a few: three contour vertices within a millimetre of one
+          // line) has its third vertex on its long edge — split there it makes itself again, forever;
+          // thinner than the pool's quantisation, it is dropped
+          const ar = (pts[b]!.x - pts[a]!.x) * (pts[c]!.z - pts[a]!.z) - (pts[b]!.z - pts[a]!.z) * (pts[c]!.x - pts[a]!.x)
+          const longest = Math.max(Math.hypot(pts[b]!.x - pts[a]!.x, pts[b]!.z - pts[a]!.z), Math.hypot(pts[c]!.x - pts[b]!.x, pts[c]!.z - pts[b]!.z), Math.hypot(pts[a]!.x - pts[c]!.x, pts[a]!.z - pts[c]!.z))
+          if (longest < 1e-9 || Math.abs(ar) / longest < 0.001) continue
+          let p = onEdge(a, b, c)
+          if (p !== null) { work.push([a, p, c], [p, b, c]); continue }
+          p = onEdge(b, c, a)
+          if (p !== null) { work.push([a, b, p], [a, p, c]); continue }
+          p = onEdge(c, a, b)
+          if (p !== null) { work.push([a, b, p], [p, b, c]); continue }
+          out.push([a, b, c])
+        }
+        tris = out
+      }
       // refine until no edge is longer than WORLD_STEP; split per EDGE so neighbours agree
       const mid = new Map<string, number>()
       const midpoint = (a: number, b: number): number => {
@@ -807,33 +970,53 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       }
       let emitted = 0, area = 0, rejected = 0, rejectedArea = 0
       const srcTag = 16 + (partId++ % 200)
+      const trisDump = (globalThis as unknown as { GM_DEBUG?: string; GM_DEBUG_TRIS?: unknown }).GM_DEBUG === owner.name ? { before: before.map((z) => [z.p, z.q, z.r].map((v) => [pool.x[v]!, pool.z[v]!])), after: [] as unknown[] } : null
+      if (trisDump) (globalThis as unknown as { GM_DEBUG_TRIS?: unknown }).GM_DEBUG_TRIS = trisDump
+      const debugRejected: { area: number; x: number; z: number }[] = []
+      const drawn: number[] = []
       for (const { p: ia, q: ib, r: ic } of poolTris) {
         // drop slivers: a hair-thin ear spans metres of terrain and takes a sideways normal
         const cross = (pool.x[ib]! - pool.x[ia]!) * (pool.z[ic]! - pool.z[ia]!) - (pool.z[ib]! - pool.z[ia]!) * (pool.x[ic]! - pool.x[ia]!)
         const longest = Math.max(Math.hypot(pool.x[ib]! - pool.x[ia]!, pool.z[ib]! - pool.z[ia]!), Math.hypot(pool.x[ic]! - pool.x[ib]!, pool.z[ic]! - pool.z[ib]!), Math.hypot(pool.x[ia]! - pool.x[ic]!, pool.z[ia]! - pool.z[ic]!))
-        if (longest <= 1e-9 || Math.abs(cross) / longest <= MIN_WIDTH) { dropped++; continue }
-        // a triangle the plan says is not this owner's (covered ground, a nested higher ring) is
-        // dropped; a traced part that loses many of them was traced wrong and is reported
-        if (verify && !verify((pool.x[ia]! + pool.x[ib]! + pool.x[ic]!) / 3, (pool.z[ia]! + pool.z[ib]! + pool.z[ic]!) / 3)) {
+        if (longest <= 1e-9 || Math.abs(cross) / longest <= MIN_WIDTH) { dropped++; if (trisDump) trisDump.after.push({ v: [ia, ib, ic].map((v) => [pool.x[v]!, pool.z[v]!]), verdict: 'sliver' }); continue }
+        // a triangle the plan says is not this owner's (covered ground — the part's own triangles
+        // drawn so far included, so earcut's duplicate ears on collinear points draw once — or a
+        // nested higher ring) is dropped; a traced part that loses many was traced wrong and is reported
+        const cxT = (pool.x[ia]! + pool.x[ib]! + pool.x[ic]!) / 3, czT = (pool.z[ia]! + pool.z[ib]! + pool.z[ic]!) / 3
+        if (covered(cxT, czT) || (verify && !verify(cxT, czT))) {
           rejected++
           rejectedArea += Math.abs(cross) / 2
           droppedWorldArea += Math.abs(cross) / 2
-          if ((globalThis as unknown as { GM_DEBUG?: string }).GM_DEBUG === owner.name && rejected <= 12) {
-            const cx = (pool.x[ia]! + pool.x[ib]! + pool.x[ic]!) / 3, cz = (pool.z[ia]! + pool.z[ib]! + pool.z[ic]!) / 3
-            const pr = plan.project(cx, cz)
-            console.info(`[gm-debug] rejected triangle at (${cx.toFixed(1)}, ${cz.toFixed(1)}) s ${pr.s.toFixed(1)} lat ${pr.lateral.toFixed(1)} area ${(Math.abs(cross) / 2).toFixed(2)} covered ${covered(cx, cz)} inRaster ${inRaster(cx, cz).inside} extentDrawn ${plan.extentDrawn(pr.s, pr.lateral > 0 ? 1 : -1).toFixed(2)} owner ${plan.ownerAt(cx, cz).name}`)
-          }
+          if ((globalThis as unknown as { GM_DEBUG?: string }).GM_DEBUG === owner.name) debugRejected.push({ area: Math.abs(cross) / 2, x: (pool.x[ia]! + pool.x[ib]! + pool.x[ic]!) / 3, z: (pool.z[ia]! + pool.z[ib]! + pool.z[ic]!) / 3 })
+          if (trisDump) trisDump.after.push({ v: [ia, ib, ic].map((v) => [pool.x[v]!, pool.z[v]!]), verdict: `rejected covered=${covered((pool.x[ia]! + pool.x[ib]! + pool.x[ic]!) / 3, (pool.z[ia]! + pool.z[ib]! + pool.z[ic]!) / 3)}` })
           continue
         }
+        if (trisDump) trisDump.after.push({ v: [ia, ib, ic].map((v) => [pool.x[v]!, pool.z[v]!]), verdict: 'emitted' })
         tri(owner.kind, ia, ib, ic, srcTag)
+        coverTriangle(ia, ib, ic)
+        drawn.push(ia, ib, ic)
         worldTris++
         emitted++
         area += Math.abs(cross) / 2
       }
+      // the part is covered ground from now on; the caller splices its outline into the boundary
+      const holeIdx: number[][] = []
+      let at = contour.length
+      for (const h of holes) { holeIdx.push(idx.slice(at, at + h.length)); at += h.length }
       console.info(`[ground-mesh] world part "${owner.name}": ${contour.length} contour vertices, ${holes.length} holes, ${emitted} triangles, ${area.toFixed(0)} m²${rejected ? ` (${rejected} rejected, ${rejectedArea.toFixed(1)} m²)` : ''}`)
+      if (debugRejected.length) {
+        debugRejected.sort((p, q) => q.area - p.area)
+        for (const d of debugRejected.slice(0, 10)) {
+          const pr = plan.project(d.x, d.z)
+          console.info(`[gm-debug] rejected ${d.area.toFixed(1)} m² at (${d.x.toFixed(1)}, ${d.z.toFixed(1)}) s ${pr.s.toFixed(1)} lat ${pr.lateral.toFixed(1)} inRaster ${inRaster(d.x, d.z).inside} inStitch ${inStitch(d.x, d.z)} extentDrawn ${plan.extentDrawn(pr.s, pr.lateral > 0 ? 1 : -1).toFixed(2)} owner ${plan.ownerAt(d.x, d.z).name}`)
+        }
+        const sample = contour.filter((_p, k) => k % Math.max(1, Math.floor(contour.length / 24)) === 0).map((p) => { const pr = plan.project(p.x, p.z); return `s${pr.s.toFixed(0)}/${pr.lateral.toFixed(0)}${covered(p.x, p.z) ? 'c' : ''}` })
+        console.info(`[gm-debug] contour (every ${Math.max(1, Math.floor(contour.length / 24))}th, c = covered): ${sample.join(' ')}`)
+      }
       // slivers along the contour's raster edges are expected to fall either way; a real share of
       // the area on covered ground means the contour was traced wrong
-      if (rejectedArea > 2 && rejectedArea > area * 0.05) console.warn(`[ground-mesh] "${owner.name}": ${rejectedArea.toFixed(0)} m² of ${(area + rejectedArea).toFixed(0)} m² of a world part lie on covered ground or inside a higher ring — the traced contour is doubtful`)
+      if (rejectedArea > 2 && rejectedArea > area * 0.05) console.warn(`[ground-mesh] "${owner.name}": ${rejectedArea.toFixed(0)} m² of ${(area + rejectedArea).toFixed(0)} m² of a world part lie on covered ground — the traced contour is doubtful`)
+      return { emitted, idx: idx.slice(0, contour.length), holeIdx }
   }
   /** a 'way' footprint far from every raster: the OSM polyline swept as a quad grid on the field */
   const emitSweep = (r: RingOwner, width: number) => {
@@ -861,20 +1044,41 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       const l = Math.hypot(dx, dz) || 1
       dx /= l; dz /= l
       const row: number[] = []
+      const prev = grid[grid.length - 1]
       for (let k = 0; k < rails; k++) {
         const t = (0.5 - k / (rails - 1)) * width
         const x = p.x + dz * t, z = p.z - dx * t
+        // on the inside of a bend tighter than the offset the rail turns back on itself and the
+        // quads fold over one another (the secondary paving at T18); such a rail stalls at its
+        // previous vertex instead
+        if (prev && (x - pool.x[prev[k]!]!) * dx + (z - pool.z[prev[k]!]!) * dz < 0) { row.push(prev[k]!); continue }
         const pr = plan.project(x, z)
         row.push(pool.addWorld(x, field.y(x, z), z, pr.s, pr.lateral))
       }
       grid.push(row)
     }
+    // the winding of the first quad: every quad must wind the same way, or it has folded over its
+    // neighbour on the inside of a bend (the secondary paving at T18) and is left out — a small
+    // notch on the inside instead of two coats of asphalt
+    const triArea = (a: number, b: number, c: number) => (pool.x[b]! - pool.x[a]!) * (pool.z[c]! - pool.z[a]!) - (pool.z[b]! - pool.z[a]!) * (pool.x[c]! - pool.x[a]!)
+    let sign = 0
     for (let i = 0; i < count - 1; i++) {
       for (let k = 0; k < rails - 1; k++) {
         const p00 = grid[i]![k]!, p01 = grid[i]![k + 1]!, p10 = grid[i + 1]![k]!, p11 = grid[i + 1]![k + 1]!
-        tri(r.owner.kind, p00, p10, p01, 1)
-        tri(r.owner.kind, p01, p10, p11, 1)
-        worldTris += 2
+        const a1 = triArea(p00, p10, p01), a2 = triArea(p01, p10, p11)
+        if (Math.abs(a1) < 1e-6 && Math.abs(a2) < 1e-6) continue
+        if (sign === 0) sign = Math.sign(Math.abs(a1) > Math.abs(a2) ? a1 : a2)
+        // either triangle winding the other way: the quad has folded over its neighbour
+        if ((Math.abs(a1) > 1e-6 && Math.sign(a1) !== sign) || (Math.abs(a2) > 1e-6 && Math.sign(a2) !== sign)) continue
+        // ...and a quad over ground already covered — the sweep's own earlier quads where the way
+        // knots (OSM 183393709 doubles back on itself for 2 m) — is left out too: a notch, not two coats
+        for (const [a, b, c] of [[p00, p10, p01], [p01, p10, p11]] as const) {
+          const xs = [pool.x[a]!, pool.x[b]!, pool.x[c]!], zs = [pool.z[a]!, pool.z[b]!, pool.z[c]!]
+          if (covered((xs[0]! + xs[1]! + xs[2]!) / 3, (zs[0]! + zs[1]! + zs[2]!) / 3)) continue
+          tri(r.owner.kind, a, b, c, 1)
+          coverTriangle(a, b, c)
+          worldTris++
+        }
       }
     }
   }
@@ -899,34 +1103,45 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       }
       return out
     }
-    /** rings processed so far (higher precedence first): a nested one is a hole in this one's part */
-    const done: RingOwner[] = []
-    /** boundary loops that enclose an uncovered pocket entirely inside a ring, claimed by the first (highest) ring that contains them */
-    const claimedLoops = new Set<number>()
-    for (const r of plan.rings) {
-      // a higher ring is nested when every vertex is inside this ring or within 0.15 m of its
-      // boundary (the turf island and the apron share their road-side edge to the millimetre)
-      const nearEdge = (p: Pt, ring: readonly Pt[], tol: number): boolean => {
-        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-          const a = ring[j]!, b = ring[i]!
-          const dx = b.x - a.x, dz = b.z - a.z
-          const l2 = dx * dx + dz * dz || 1
-          const tt = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2))
-          if (Math.hypot(p.x - a.x - dx * tt, p.z - a.z - dz * tt) < tol) return true
+    /**
+     * The dense resampling undone for the polygon: a ring's OWN outline (an arc between two
+     * crossings, a hole loop touching nothing) is shared with no other face, so its 0.1 m points
+     * along a straight OSM edge only feed earcut ladders of 2 m × 4 mm ears, which the
+     * refinement then multiplies (240k world triangles for 37k). Douglas–Peucker at 2 mm keeps
+     * every real vertex; the crossings at the ends stay where they are.
+     */
+    const thin = <P extends { x: number; z: number }>(pts: readonly P[], tol: number): P[] => {
+      if (pts.length < 3) return [...pts]
+      const keep = new Uint8Array(pts.length)
+      keep[0] = 1; keep[pts.length - 1] = 1
+      const stack: [number, number][] = [[0, pts.length - 1]]
+      while (stack.length) {
+        const [i0, i1] = stack.pop()!
+        if (i1 - i0 < 2) continue
+        const a = pts[i0]!, b = pts[i1]!
+        const dx = b.x - a.x, dz = b.z - a.z
+        const len = Math.hypot(dx, dz) || 1
+        let worst = -1, wd = tol
+        for (let i = i0 + 1; i < i1; i++) {
+          const p = pts[i]!
+          const d = len > 1e-9 ? Math.abs((p.x - a.x) * dz - (p.z - a.z) * dx) / len : Math.hypot(p.x - a.x, p.z - a.z)
+          if (d > wd) { wd = d; worst = i }
         }
-        return false
+        if (worst < 0) continue
+        keep[worst] = 1
+        stack.push([i0, worst], [worst, i1])
       }
-      const higherNested = done.filter((o) => ownerBeats(o.owner, r.owner) && o.ring.outer.every((p) => inWorldRing(p.x, p.z, r.ring) || nearEdge(p, r.ring.outer, 0.15)))
-      /** every higher-precedence ring that overlaps this one at all: its ground is never this owner's */
-      const higherAny = done.filter((o) => ownerBeats(o.owner, r.owner) && !(o.ring.box[1] < r.ring.box[0] || o.ring.box[0] > r.ring.box[1] || o.ring.box[3] < r.ring.box[2] || o.ring.box[2] > r.ring.box[3]))
-      done.push(r)
+      return pts.filter((_p, i) => keep[i])
+    }
+    for (const r of plan.rings) {
       /*
-       * The ring's boundary as loops: its outer ring (interior on the left), then its holes and
-       * the higher-precedence rings nested in it, REVERSED so that this owner's ground is on their
-       * left too. Every loop is resampled to ≤ 2 m so a raster edge crossing a long segment (the
-       * side of a paddock band) is seen by the vertex tests.
+       * The ring's boundary as loops: its outer ring (interior on the left), then its holes,
+       * REVERSED so that this owner's ground is on their left too. The rings above it in
+       * precedence need no loops of their own here: their parts are covered ground with their
+       * outlines in U, and their raster cells are the raster. Every loop is resampled to 0.1 m
+       * so a raster edge crossing a long segment is seen by the vertex tests.
        */
-      const loops: Pt[][] = [dense(r.ring.outer, 0.1), ...r.ring.holes.map((h) => dense(h, 0.1).reverse()), ...higherNested.map((o) => dense(o.ring.outer, 0.1).reverse())]
+      const loops: Pt[][] = [dense(r.ring.outer, 0.1), ...r.ring.holes.map((h) => dense(h, 0.1).reverse())]
       const flags = loops.map((lp) => lp.map((p) => covered(p.x, p.z)))
       const nInside = flags[0]!.filter((f) => f).length
       // a ring whose boundary is covered everywhere can still enclose an uncovered pocket (the
@@ -937,7 +1152,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
         // every ≤ WORLD_STEP): earcut on a 10 m wide, kilometre-long annulus makes long slivers
         // that the refinement then multiplies tenfold
         if (r.area && 'way' in r.area.footprint) { emitSweep(r, r.area.footprint.width); continue }
-        emitPolygon(r.owner, loops[0]!.map((p) => ({ x: p.x, z: p.z })), loops.slice(1).map((h) => [...h].reverse()), r.ring.sRange)
+        emitPolygon(r.owner, thin(loops[0]!, 0.002).map((p) => ({ x: p.x, z: p.z })), loops.slice(1).map((h) => thin([...h].reverse(), 0.002)), r.ring.sRange)
         continue
       }
       /*
@@ -990,19 +1205,40 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       const posOf = (c: { loop: number; k: number; t: number }) => c.k + c.t
       const onU = (c: { x: number; z: number; y: number }): { x: number; z: number; v: number } => ({ x: c.x, z: c.z, v: pool.addWorld(c.x, c.y, c.z, plan.project(c.x, c.z).s, 0) })
       const visited = new Set<number>()
-      const insideRing = (x: number, z: number) => inWorldRing(x, z, r.ring) && !higherAny.some((o) => inWorldRing(x, z, o.ring))
-      const polygons: { x: number; z: number; v?: number }[][] = []
+      const nearRingEdge = (x: number, z: number, tol: number): boolean => {
+        const ring = r.ring.outer
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const a = ring[j]!, b = ring[i]!
+          const dx = b.x - a.x, dz = b.z - a.z
+          const l2 = dx * dx + dz * dz || 1
+          const tt = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2))
+          if (Math.hypot(x - a.x - dx * tt, z - a.z - dz * tt) < tol) return true
+        }
+        return false
+      }
+      // a triangle along the ring's edge whose centroid lands a hair outside it (a conform split
+      // of an edge triangle) is the ring's: 5 cm of tolerance, or the edge is left as bare slivers
+      const insideRing = (x: number, z: number) => inWorldRing(x, z, r.ring) || nearRingEdge(x, z, 0.05)
+      /** a polygon's boundary pieces: the arcs of this ring and the pieces of U between them, as contour index ranges */
+      type Piece = { kind: 'arc'; from: number; to: number } | { kind: 'U'; loop: number; kB: number; kA: number; from: number; to: number; walked: number[] }
+      const polygons: { contour: { x: number; z: number; v?: number }[]; pieces: Piece[] }[] = []
       for (const first of arcs) {
         if (visited.has(first.id)) continue
         const contour: { x: number; z: number; v?: number }[] = []
+        const pieces: Piece[] = []
         let cur: Arc = first
         let ok = true
         for (let guard = 0; guard <= arcs.length; guard++) {
           visited.add(cur.id)
           const lp = loops[cur.loop]!, n = lp.length
+          const a0 = contour.length
           contour.push(onU(cur.A))
-          for (let i = cur.i0; ; i = (i + 1) % n) { contour.push({ x: lp[i]!.x, z: lp[i]!.z }); if (i === cur.i1) break }
+          const arcPts: Pt[] = []
+          for (let i = cur.i0; ; i = (i + 1) % n) { arcPts.push({ x: lp[i]!.x, z: lp[i]!.z }); if (i === cur.i1) break }
+          for (const p of thin(arcPts, 0.002)) contour.push(p)
           contour.push(onU(cur.B))
+          const b0 = contour.length - 1
+          pieces.push({ kind: 'arc', from: a0, to: b0 })
           // the next crossing of this ring along B's loop of U, ahead of B in the loop's orientation
           const uloop = uLoops[cur.B.loop]!
           const len = uloop.length
@@ -1018,31 +1254,89 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
             break
           }
           // the boundary vertices strictly between B and the next crossing, in loop order
+          const walked: number[] = []
           for (let step = 1; step <= len; step++) {
             const kk = (cur.B.k + step) % len
             if ((kk - pB + len) % len >= best) break
             const v = uloop[kk]!
             contour.push({ x: pool.x[v]!, z: pool.z[v]!, v })
+            walked.push(v)
           }
+          pieces.push({ kind: 'U', loop: cur.B.loop, kB: cur.B.k, kA: next.A.k, from: b0, to: next === first ? 0 : contour.length, walked })
           if (debug) console.info(`[gm-debug] from arc ${cur.id} B → next arc ${next.id} (${nextIsA ? 'A' : 'B'}) ${best.toFixed(2)} edges ahead on loop ${cur.B.loop} (len ${len})`)
           if (next === first) break
           cur = next
         }
         if (debug) console.info(`[gm-debug] polygon from arc ${first.id}: ok ${ok}, contour ${contour.length}`)
+        const dumpTo = (globalThis as unknown as { GM_DEBUG_CONTOURS?: unknown[] }).GM_DEBUG_CONTOURS
+        if (Array.isArray(dumpTo)) dumpTo.push({ name: r.owner.name, ok, contour: contour.map((p) => [p.x, p.z]), pieces: pieces.map((p) => ({ ...p, walked: undefined })) })
         if (!ok || contour.length < 3) continue
-        polygons.push(contour)
+        polygons.push({ contour, pieces })
       }
-      // hole loops the covered ground never touches: earcut holes of the polygon that contains them
-      for (const contour of polygons) {
+      // --- the splice of U for this ring's parts, applied together once they are drawn
+      /** split points on U edges: key loop|k, the parameter along the edge, the vertex, entry (B) or exit (A) */
+      const splits = new Map<string, { t: number; v: number; role: 'B' | 'A' }[]>()
+      const consumed = new Set<number>()
+      const chains: number[][] = []
+      const newLoops: number[][] = []
+      const tOf = (li: number, k: number, v: number): number => {
+        const loop = uLoops[li]!, p = loop[k]!, q = loop[(k + 1) % loop.length]!
+        const dx = pool.x[q]! - pool.x[p]!, dz = pool.z[q]! - pool.z[p]!
+        const l2 = dx * dx + dz * dz || 1
+        return Math.max(0, Math.min(1, ((pool.x[v]! - pool.x[p]!) * dx + (pool.z[v]! - pool.z[p]!) * dz) / l2))
+      }
+      const split = (li: number, k: number, v: number, role: 'B' | 'A') => {
+        const key = `${li}|${k}`
+        let list = splits.get(key)
+        if (!list) { list = []; splits.set(key, list) }
+        list.push({ t: tOf(li, k, v), v, role })
+      }
+      const crossedLoops = new Set(arcs.flatMap((a) => [a.A.loop, a.B.loop]))
+      const loopArea2 = (loop: number[]): number => { let a2 = 0; for (let k = 0; k < loop.length; k++) { const p = loop[k]!, q = loop[(k + 1) % loop.length]!; a2 += pool.x[p]! * -pool.z[q]! - pool.x[q]! * -pool.z[p]! } return a2 }
+      /**
+       * The holes of a polygon: the ring's own hole loops the covered ground never touches, and
+       * every covered ISLAND inside it — a loop of U with the covered ground inside (a part of a
+       * higher ring, the pond in the paddock) that none of this ring's arcs crosses. An island's
+       * loop is consumed once the part is drawn around it: covered on both sides, it is no boundary.
+       */
+      const islands: number[] = []
+      const holesOf = (contour: { x: number; z: number }[]): Pt[][] => {
         const holes: Pt[][] = []
-        for (const li of untouched) { const h = loops[li]!; if (inRing(h[0]!.x, h[0]!.z, contour)) holes.push([...h].reverse()) }
-        emitPolygon(r.owner, contour, holes, r.ring.sRange, (x, z) => !covered(x, z) && insideRing(x, z))
+        for (const li of untouched) { const h = loops[li]!; if (inRing(h[0]!.x, h[0]!.z, contour)) holes.push(thin([...h].reverse(), 0.002)) }
+        for (let li = 0; li < uLoops.length; li++) {
+          if (crossedLoops.has(li)) continue
+          const loop = uLoops[li]!
+          if (loop.length > 2000 || loopArea2(loop) >= 0) continue
+          const v0 = loop[0]!
+          if (!inRing(pool.x[v0]!, pool.z[v0]!, contour)) continue
+          islands.push(li)
+          holes.push(loop.map((v) => ({ x: pool.x[v]!, z: pool.z[v]! })))
+        }
+        return holes
+      }
+      for (const poly of polygons) {
+        islands.length = 0
+        const res = emitPolygon(r.owner, poly.contour, holesOf(poly.contour), r.ring.sRange, (x, z) => !covered(x, z) && insideRing(x, z))
+        if (!res.emitted) continue
+        for (const li of islands) for (const v of uLoops[li]!) consumed.add(v)
+        for (const pc of poly.pieces) {
+          if (pc.kind === 'arc') {
+            // the arc reversed: from its entry B back to its exit A, the part on its right
+            const chain: number[] = []
+            for (let k = pc.to; k >= pc.from; k--) chain.push(res.idx[k]!)
+            chains.push(chain)
+          } else {
+            split(pc.loop, pc.kB, res.idx[pc.from]!, 'B')
+            split(pc.loop, pc.kA, res.idx[pc.to]!, 'A')
+            for (const v of pc.walked) consumed.add(v)
+          }
+        }
+        for (const h of res.holeIdx) newLoops.push(h)
       }
       // an uncovered pocket bounded by the covered ground alone — a loop of U that none of this
       // ring's loops crosses — that lies inside the ring is the ring's ground too (the Casio
       // triangle's middle, beyond both legs' rasters, inside the turf island)
       for (let li = 0; li < uLoops.length; li++) {
-        if (claimedLoops.has(li)) continue
         const loop = uLoops[li]!
         if (debug) {
           let a2d = 0
@@ -1060,10 +1354,40 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
         let a2 = 0
         for (let k = 0; k < loop.length; k++) { const p = loop[k]!, q = loop[(k + 1) % loop.length]!; a2 += pool.x[p]! * -pool.z[q]! - pool.x[q]! * -pool.z[p]! }
         if (a2 <= 0) continue // uncovered on the OUTSIDE of this loop: it encloses covered ground, not a pocket
-        claimedLoops.add(li)
-        const holes: Pt[][] = []
-        for (const li2 of untouched) { const h = loops[li2]!; if (inRing(h[0]!.x, h[0]!.z, loop.map((v) => ({ x: pool.x[v]!, z: pool.z[v]! })))) holes.push([...h].reverse()) }
-        emitPolygon(r.owner, loop.map((v) => ({ x: pool.x[v]!, z: pool.z[v]!, v })), holes, r.ring.sRange, (x, z) => !covered(x, z) && insideRing(x, z))
+        const contour = loop.map((v) => ({ x: pool.x[v]!, z: pool.z[v]!, v }))
+        islands.length = 0
+        const res = emitPolygon(r.owner, contour, holesOf(contour), r.ring.sRange, (x, z) => !covered(x, z) && insideRing(x, z))
+        if (!res.emitted) continue
+        for (const v of loop) consumed.add(v)
+        for (const li of islands) for (const v of uLoops[li]!) consumed.add(v)
+        for (const h of res.holeIdx) newLoops.push(h)
+      }
+      // apply: the consumed pieces go, the split edges keep their outer parts, the arcs link them
+      if (consumed.size || splits.size || chains.length || newLoops.length) {
+        for (const v of consumed) uNext.delete(v)
+        for (const [key, list] of splits) {
+          const [li, k] = key.split('|').map(Number) as [number, number]
+          const loop = uLoops[li]!, p = loop[k]!, q = loop[(k + 1) % loop.length]!
+          list.sort((a, b) => a.t - b.t)
+          let cursor: number | null = consumed.has(p) || list[0]!.role === 'A' ? null : p
+          for (const sp of list) {
+            if (sp.role === 'B') { if (cursor !== null && cursor !== sp.v) uNext.set(cursor, sp.v); cursor = null }
+            else cursor = sp.v
+          }
+          if (cursor !== null && cursor !== q && !consumed.has(q)) uNext.set(cursor, q)
+        }
+        for (const chain of chains) for (let k = 0; k + 1 < chain.length; k++) if (chain[k] !== chain[k + 1]) uNext.set(chain[k]!, chain[k + 1]!)
+        for (const h of newLoops) {
+          const loop: number[] = []
+          for (const v of h) if (loop.length === 0 || loop[loop.length - 1] !== v) loop.push(v)
+          while (loop.length > 1 && loop[0] === loop[loop.length - 1]) loop.pop()
+          if (loop.length < 3) continue
+          let a2 = 0
+          for (let k = 0; k < loop.length; k++) { const p = loop[k]!, q = loop[(k + 1) % loop.length]!; a2 += pool.x[p]! * -pool.z[q]! - pool.x[q]! * -pool.z[p]! }
+          if (a2 < 0) loop.reverse() // the hole's inside is uncovered: on the left
+          for (let k = 0; k < loop.length; k++) uNext.set(loop[k]!, loop[(k + 1) % loop.length]!)
+        }
+        rebuildLoops()
       }
     }
   }
@@ -1288,7 +1612,8 @@ class FaceIndex {
         if (Math.abs((ay + by + cy) / 3 - q.yHint) > DECAL_LAYER) return
         if (Math.max(ax, bx, cx) < bx0 || Math.min(ax, bx, cx) > bx1 || Math.max(az, bz, cz) < bz0 || Math.min(az, bz, cz) > bz1) return
         const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
-        if (Math.abs(d) < 1e-12) return
+        // a sliver face triangle (under 1e-6 m²) is not drawn to any purpose and the audit does not count it: no decal from it
+        if (Math.abs(d) < 2e-6) return
         // clip the triangle against the quad's four edges
         let n = 3
         inX[0] = ax; inZ[0] = az; inX[1] = bx; inZ[1] = bz; inX[2] = cx; inZ[2] = cz

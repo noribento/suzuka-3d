@@ -13,6 +13,7 @@ import { freezeStatic } from '~/three/instancing'
 import { markAllDirty, textureBytes } from '~/three/textures'
 import { buildTrackMeshes, type TrackMeshes } from '~/three/track-mesh'
 import { assertGroundRegistered, buildEnvironment, type Environment } from '~/three/environment'
+import { groundCensus } from '~/three/ground-census'
 import { buildCarModel, CAR_DIMENSIONS, type CarModel } from '~/three/car-model'
 import { buildBarriers } from '~/three/barriers'
 import { buildLines, setLineViewportHeight } from '~/three/lines'
@@ -319,6 +320,8 @@ async function setup() {
     ;(window as unknown as { __suzuka: unknown }).__suzuka = {
       THREE, ctx, rig, track, env, trackMeshes, models, motion, store, perf, perfMax, assets,
       plan: env.plan, groundMeshes: env.groundMeshes,
+      /** R1 at runtime: the face visible from above vs the plan's owner (surface-check G1's cut for the browser) */
+      groundCensus: (opts?: { stepS?: number; stepAcross?: number; seam?: number }) => groundCensus(track, env!.plan, env!.groundMeshes, opts),
       get race() { return race },
       get audio() { return audio },
       RaceAudio,

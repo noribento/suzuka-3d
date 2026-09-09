@@ -163,8 +163,8 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
   // the park / main gate lie 150–450 m behind the main grandstand — beyond the 200 m reach of
   // the track search below, so they are tested against three anchor points instead
   const park = [5550, 5750, 80].map((s) => track.pointAt(s, 300, new THREE.Vector3()))
-  const inCherryZone = (x: number, z: number, near: { i: number; s: number; lateral: number }): boolean => {
-    if (near.i >= 0) {
+  const inCherryZone = (x: number, z: number, near: { d: number; s: number; lateral: number }): boolean => {
+    if (near.d < 200) {
       if (near.s >= 2600 && near.s <= 2800) return true
       if (near.s >= 1000 && near.s <= 1400 && near.lateral > 0) return true
     }
@@ -175,9 +175,9 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
     tries++
     const x = rng.range(b.minX - 420, b.maxX + 420)
     const z = rng.range(b.minZ - 380, b.maxZ + 380)
-    const near = terrain.distanceToTrack(x, z, 200)
+    const near = ground.plan.project(x, z)
     if (near.d < 44) continue
-    if (near.i >= 0) {
+    if (near.d < 200) {
       const s = near.s
       const inPitZone = s >= 5540 || s <= 90
       if (inPitZone && near.lateral > -125 && near.lateral < 80) continue

@@ -1454,14 +1454,14 @@ function q2Frames(ctx: EnvBuildContext, feats: OsmFeature[]): { frame: Frame; le
     // which long side faces the track: the nearer midpoint
     const sideA = new THREE.Vector3().addScaledVector(along, mid).addScaledVector(across, minB)
     const sideB = new THREE.Vector3().addScaledVector(along, mid).addScaledVector(across, maxB)
-    const dA = terrain.distanceToTrack(sideA.x, sideA.z, 200), dB = terrain.distanceToTrack(sideB.x, sideB.z, 200)
+    const dA = ground.plan.project(sideA.x, sideA.z), dB = ground.plan.project(sideB.x, sideB.z)
     const frontIsA = dA.d < dB.d
     const back = frontIsA ? across.clone() : across.clone().negate()
     const near = frontIsA ? dA : dB
     // the frame's along-direction keeps (along × up) pointing to the back so the deck faces up
     const dir = back.clone().cross(Y_UP).normalize()
     const origin = new THREE.Vector3().addScaledVector(along, dir.dot(along) > 0 ? minA : maxA).addScaledVector(across, frontIsA ? minB : maxB)
-    origin.y = near.i >= 0 ? track.py[near.i]! : ground.field.y(origin.x, origin.z)
+    origin.y = near.d < 200 ? track.pointAt(near.s, 0, _p, 0).y : ground.field.y(origin.x, origin.z)
     out.push({ frame: localFrame(ground, origin, dir, back, len, near.s), len, width })
   }
   return out

@@ -43,8 +43,10 @@ node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアト�
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
 node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 80 MB）・VRAM 見積・KTX2 mip の検査
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
-node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・SURFACE_PATCHES の整合性
-node scripts/audit/surface-check.mjs --strict # 面の被覆・地形の突き抜け・シートの密度・レイヤ段差（GPU も網も不要、約 10 秒）
+node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・GROUND_AREAS の整合性
+node scripts/audit/surface-check.mjs --strict # 地面の区画のガード G0〜G12（GPU も網も不要、ティアごとに約 100 秒）
+pnpm check                                    # 上の 3 つをまとめて（typecheck → facilities-check → surface-check 高／低ティア）
+git config core.hooksPath .githooks           # 任意：コミット前に pnpm check を走らせるフック（.githooks/pre-commit、--no-verify で一回だけ飛ばせる）
 node scripts/shots.mjs --assets 1             # 固定視点のスクリーンショット（--preset / --custom / --tier）
 node scripts/audit/aerial.mjs                # 国土地理院シームレス空中写真 z18 を .cache/audit/ に取得してモザイク化
 node scripts/audit/overlay.mjs               # アプリが描く線（暖色）と OSM（寒色）を写真に重ね、17 区間に切り出す
@@ -243,19 +245,42 @@ scripts/
   道との二等分線・橋の 3 つの上限で切り、切られた面積は残余として計測します（`surface-check` G10）。帯で表せない面
   （カシオトライアングルの舗装、パドック、池、二輪シケインの舗装）は `GROUND_AREAS` のワールドポリゴン（OSM ウェイ、
   手読みの (s, lateral)）で、ラスターの外側だけをワールド XZ で三角形分割し、境界はラスターの頂点に縫い付けます。
-- **地面の契約**（`app/three/ground.ts`、`scripts/audit/surface-check.mjs` が全部計測、`pnpm check` で強制）：
-  (1) 不透明な地面は区画の面だけで、`Terrain.addGroundFace`（`ground-mesh.ts` が発行した `GroundFace` しか受けない）で
-  登録し、`buildEnvironment` が面を作った直後に `terrain.settle()` で地形グリッド（13.3 m、低ティア 17.7 m）を各面の
-  三角形の下へ**厳密に**沈めます（交差多角形の頂点で最大違反量を取る）。三相ビルド（描く → settle → 置く）です。
-  (2) 地面の上に立つ物（レーン縁石・ソーセージ）は `GROUND_OBJECTS` の行（幅の上限、縁の沈み 20 mm、天端 50/100 mm）で
-  `Ground.standY`（描画済みの面、無ければ沈めた地形メッシュ）に立ちます。他の設備・建物・樹木も `standY`／`standAt` です。
-  (3) デカール（塗装エプロン・緑帯・白線・ブレーキング痕・DRS 線）は `Ground.decal` で**描画済みの面の三角形そのものを
-  切り出して `LAYER` の段だけ持ち上げた**ものです。面のどんな折れとも共面なので埋まりません。段は最低 8 mm——低ティアと
-  SwiftShader は `logarithmicDepthBuffer` で `gl_FragDepth` を書くため **`polygonOffset` が無効**で、幾何の分離だけで
-  成立させます。
-  (4) 面の三角形は地形グリッドの半分より細かく（G7）、場フレームの面は高さ場から 40 mm 以内（G3）。
-  (5) 0 でない許容値は `surface-check.mjs` の `ALLOWANCES`（guard・key・上限・理由・期限フェーズ）だけで、期限を過ぎると
-  落ちます。規則の全文（R1〜R14）は P5 で書きます。
+- **地面の契約**（`app/three/ground.ts`、`ground-plan.ts`、`ground-mesh.ts`、`ground-field.ts`。`scripts/audit/surface-check.mjs` が
+  ビルドしたシーンをプランと突き合わせて全部計測し、`pnpm check` で強制します。ガード番号はそのスクリプトのものです）：
+  - **R1 1 点 1 オーナー**。所有は `PRECEDENCE`（路面 > 縁石 > 橋肩 > ピットレーン > ピットエプロン > レーン > エリア行を
+    layer 降順 > グラベル帯 > アスファルト帯 > 芝 > 地形）で**データの足跡**から XZ で決まり、ビルダーは高さで可視性を決めません。
+    不透明な地面は区画の面だけ：`Terrain.addGroundFace` は `ground-mesh.ts` が発行した `GroundFace` しか受けません。
+    G1 census（真上から見える面の種類 vs `plan.ownerAt`、境界 0.5 m の帯を除いて不一致 0。e2e は実行時の
+    `__suzuka.groundCensus()` で同じことを見る）、G2 overlap（同じ点を覆う面は同じ面も含めて 0）。
+  - **R2 不透明オーナー間にリフト無し**。隣り合うオーナーは境界の頂点を共有し、`LAYER` は「物」と「デカール」の段だけです。
+    G9 seam（同じ XZ の頂点は位置も法線もビット同一）。
+  - **R3 頂点の高さは 1 つ**。頂点プールが固有の XZ を 1 回だけ、最上位オーナーの `RULE_OF` 規則で評価します。地面モジュールの外は
+    `terrain.heightAt / meshHeightAt / distanceToTrack` を呼ばず、`ground.standY / standAt / decalY` と `ground.plan.project`
+    を使います（G8 のソース lint = 0）。スタンドだけは relief を自分で定義するので解析的な `ground.field` を読みます。
+  - **R4 高さ場は C0**。`ground-field.ts` の `field.y` は連続で（サンプルごとのクロスフェード、ユークリッド距離のキャップ）、
+    G5 が 0.25 m あたり 8 mm 超の跳びを数えます。残る跳びは `stands.ts` の relief の縁（許容、P6）。
+  - **R5 単射**。ラスターの幅は宣言帯 ∧ フォールド上限 ∧ 向かい合う道との二等分線 ∧ 立体交差の上限で、プランが切ります。
+    切られた宣言帯は残余として G10 が型付きの上限と突き合わせます（P6 で OSM の砂の行が埋める）。
+  - **R6 フレーム**。`road / kerb / deckShoulder / pitLane / pitApron` は路面平面（縁石は自分の横位置での断面）、他は高さ場。
+    両者は共有頂点でしか会いません。G3：路面フレームは 2 mm 以内、場フレームは 40 mm 以内。縁石の端は 0.5 m の高さランプ
+    （8 行、双線形セルの弦 1.2 mm）と、端の外 0.5 m で路肩へ収束する平らなくさび（縁石の所有）です。
+  - **R7 ワールドリングは入れ子か素**。リングと範囲の交差ごとに駅を入れ、駅の法線上でリングは区間の列（`MAX_RING_INTERVALS`）。
+    区間の合流・分岐はトラックを閉じて新しく始めます。部分的に重なるリングはビルドエラー（行を割る）。
+  - **R8 地面の上に立つ物**（レーン縁石・ソーセージ）は `GROUND_OBJECTS` の行（幅の上限、縁の沈み 20 mm、天端 50／100 mm）で
+    `settle()` 後に `standY` に立ちます。G2 は幅を面積／延長で、G3 は沈みと天端を全頂点で測ります。
+  - **R9 デカール**は `Ground.decal` で**描画済みの面の三角形そのものをクアッドで切り出し**、`LAYER` の段（8〜30 mm）だけ持ち上げた
+    ものです。面のどんな折れとも共面。`polygonOffset` には頼りません（対数深度では無効）。G3-decal：台 +6 mm 未満のサンプル 0。
+  - **R10 解像度**。面の XZ 辺は地形グリッド（13.3 m、低ティア 17.7 m）の半分以下、場フレームは 4 m 以下（`refine`：
+    4 m → 場との偏差 40 mm で 1 m → オーナー不一致で 0.5 m → conform）。G7。
+  - **R11 登録**。地面 0.3 m 以内・コース 60 m 以内の不透明な水平面は全部 `GroundFace`（G8 の幾何検査）。地形グリッドは
+    `terrain.settle()` で全面の三角形の下へ厳密に沈み（G6）、三相ビルド（描く → settle → 置く）で設備はその後に立ちます。
+  - **R12 メッシュ品質**。零面積 0、生きた頂点の零法線 0、場フレームの面の傾きは場の傾きから 10° 以内（G4、relief の縁は許容）。
+    G11 は隣接駅で 0.5 m 超落ちる辺を「場が落ちない所」だけ数えます。
+  - **R13 数値ベースラインを持たない**。0 でない許容は `surface-check.mjs` の `ALLOWANCES`（guard・key・上限・理由・期限フェーズ）
+    だけで、期限フェーズに達すると落ちます。ガードはデータ・プラン・場・ビルド済みシーンしか import しません。
+  - **R14 執筆**。面は表の 1 行（`RUNOFF_ZONES` / `KERBS` / `OFFSET_LANES` / `GROUND_AREAS`）。行に高さ・リフト・順序・
+    メッシュ名・登録の語彙はありません。ワールド → s は必ずその行の窓で（`nearestOnRange` / `plan.project(x, z, window)`）。
+  - 起動コスト（Node、高ティア）：プラン約 3 s＋メッシュ約 5 s、三角形約 37.6 万。ブラウザでは e2e の `setupMs` で見ます。
 - **白線** (`app/three/lines.ts`)：全周のエッジライン、ピット入口・出口の分離線と合流テーパー、ピットレーンの
   各線、グリッドとスタートラインは 1 メッシュのジオメトリです。15 cm の線は遠景で 1 px を切るので、
   頂点シェーダが視距離から m/px を求めて画面上の半幅が 0.6 px を下回る分だけ横に押し広げます

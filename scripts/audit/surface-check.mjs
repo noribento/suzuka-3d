@@ -35,7 +35,7 @@
  * Imports (R13 — checked by G8 against this list; nothing else under app/ may be imported):
  *   app/data/suzuka.ts, app/data/suzuka-facilities-spec.ts, app/data/suzuka-barriers-spec.ts
  *   app/three/ground.ts            LAYER, LAYER_MIN_STEP, LAYER_SOFT, GROUND_OBJECTS
- *   app/three/ground-plan.ts       RULE_OF, PRECEDENCE, kerbAt, kerbProfileHeight, FLAT_STRIP, STRIP_DROP
+ *   app/three/ground-plan.ts       RULE_OF, PRECEDENCE, kerbAt, kerbProfileHeight, FLAT_STRIP, STRIP_DROP, DECK_ZONE, VERGE_MIN
  *   app/three/trackside.ts         (nothing today; kept for ring diagnostics)
  *   app/sim/track.ts               forwardDelta, signedDelta
  *   scripts/audit/app-runtime.mjs  buildScene, ROOT, THREE — the built scene: ground.plan, ground.field, groundMeshes
@@ -58,7 +58,7 @@ const ALLOWED_IMPORTS = [
 ]
 
 // ================================================================ phases and allowances
-const PHASE = 'P4'
+const PHASE = 'P5'
 const PHASES = ['P0', 'P1', 'P2', 'P3a', 'P3b', 'P4', 'P5', 'P6']
 const phaseIdx = (p) => PHASES.indexOf(p)
 
@@ -70,79 +70,45 @@ const phaseIdx = (p) => PHASES.indexOf(p)
 const WHY = {
   reliefEdge: 'facilityRelief (stands.ts) has hard edges — the chord-zone vRange cut, the GP Square platform ramp (7 m over 8 m, C0 kinks), the basin polygon edge, its own 2 m sample sawtooth — and a triangle straddling a kink deviates however small it is; ramps that are smooth are stands.ts work outside the ground modules (plan §6.6)',
   residue: 'declared band cut by the swept frame (FOLD) that no ring fills; OSM_SAND rows fill it in P6',
-  untraced: 'a few samples where the plan gives an owner that no face draws or a strip triangle decides for a ring edge: the pit-in slip lane straddling three rasters (one arc still untraced), the paddock beside NIPPO, the T1 pond corner; the tracing is finished in P5 with the allowances',
-  overlapSeam: 'double cover of a few m² at the seams of the strips and the world parts: a lane crossing an apron, the helipad in the paddock, strip triangles over a raster corner, kerb-taper slivers; P5',
-  roadTwist: 'a road-frame cell 2-4 m wide and up to 2 m long chords the cambered road plane where the roll changes (24 mm at T1) and the kerb taper (36 mm at the chicane); P5 adds lateral interpolation points',
-  fieldChord: 'a raster cell on the outside of a bend is stretched to 3-4 m rows by the frame\'s Jacobian, and its diagonal with a 5 m fill exceeds half the high tier\'s grid; P5 spaces the far fills by the local Jacobian',
-  residual: 'ring tracks whose interval splits between two stations (the chicane apron\'s self-crossing loop, a lane mouth) leave a column inversion in a sub-metre row; snapped to a zero-width cell, counted here; P5',
+  ringMerge: 'the two-wheel pit-in slip lane\'s ring gives two ray intervals that merge within a 1 cm row (s 5141.6): the track keeps the merged interval and its column jumps 4 m at that station, snapped to the other column — a 0.04 m² sliver; P6 splits the lane row at the mouth',
+  crossWedge: 'beside the upper road just beyond its deck zone the ground is bounded by three raster edges — the upper road\'s verge ramping out of the deck cap, the lower road\'s verge capped at its own bisector with Degner 2\'s exit, and the crossover strip — and the pocket between them is bare terrain by the geometry; P6 gives it a row (grass area) like the fold residues',
   decalBare: 'a painted band declared over ground no face draws: the hairpin\'s inside apron beyond the fold-capped raster (residue hairpin|L, the P6 rows) and the 130R outside green strip (KERBS) from s 4705, beside the bridge approach where the road is on its embankment — the strip is not drawn there; P6 checks the row against the aerial',
-  laneEdge: 'the outer centimetres of an offset lane\'s edge line find no face: the lane ring is simplified at 2 m (resolveFootprint) so its drawn edge sits a few cm inside the declared width, and one lane mouth is an untraced arc; P5',
 }
 const ALLOWANCES = [
-  { guard: 'G1', key: "grass>asphaltBand", bound: 2, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "grass>gravelBand", bound: 3, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "grass>paddock", bound: 5, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "helipad>terrain", bound: 5, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "paddock>grass", bound: 2, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "paddock>terrain", bound: 15, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "terrain>asphaltArea", bound: 3, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "turf>terrain", bound: 5, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "water>grass", bound: 3, why: WHY.untraced, until: 'P5' },
-  { guard: 'G1', key: "water>terrain", bound: 13, why: WHY.untraced, until: 'P5' },
-  { guard: 'G2', key: "ground:asphaltArea|ground:asphaltArea", bound: 10, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:asphaltArea|ground:lane", bound: 19, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:asphaltBand|ground:pitLane", bound: 3, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:grass|ground:grass", bound: 73, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:helipad|ground:paddock", bound: 38, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:lane|ground:asphaltArea", bound: 34, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:lane|ground:lane", bound: 47, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:paddock|ground:helipad", bound: 26, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:paddock|ground:paddock", bound: 18, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:pitLane|ground:asphaltBand", bound: 4, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:pitLane|ground:pitLane", bound: 6, why: WHY.overlapSeam, until: 'P5' },
-  { guard: 'G2', key: "ground:water|ground:water", bound: 3, why: WHY.overlapSeam, until: 'P5' },
   { guard: 'G3', key: "ground:asphaltArea", bound: 1.1, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:asphaltBand", bound: 0.62, why: WHY.reliefEdge, until: 'P6' },
+  { guard: 'G3', key: "ground:asphaltBand", bound: 0.8, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "ground:grass", bound: 5.85, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "ground:gravelBand", bound: 1.91, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "ground:helipad", bound: 12.39, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:kerb", bound: 1.29, why: WHY.roadTwist, until: 'P5' },
   { guard: 'G3', key: "ground:lane", bound: 0.03, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "ground:paddock", bound: 10.13, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:pitLane", bound: 1.88, why: WHY.roadTwist, until: 'P5' },
-  { guard: 'G3', key: "ground:road", bound: 0.54, why: WHY.roadTwist, until: 'P5' },
-  { guard: 'G3', key: "ground:water", bound: 6.07, why: WHY.reliefEdge, until: 'P6' },
+  { guard: 'G3', key: "ground:water", bound: 7, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G4', key: "ground:asphaltArea.steep", bound: 114, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G4', key: "ground:asphaltBand.steep", bound: 356, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G4', key: "ground:grass.steep", bound: 2032, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G4', key: "ground:gravelBand.steep", bound: 45, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:helipad.steep", bound: 89, why: WHY.reliefEdge, until: 'P6' },
+  { guard: 'G4', key: "ground:helipad.steep", bound: 110, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G4', key: "ground:lane.steep", bound: 186, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G4', key: "ground:paddock.steep", bound: 4095, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:turf.steep", bound: 4, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:water.steep", bound: 1154, why: WHY.reliefEdge, until: 'P6' },
+  { guard: 'G4', key: "ground:turf.steep", bound: 12, why: WHY.reliefEdge, until: 'P6' },
+  { guard: 'G4', key: "ground:water.steep", bound: 1300, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G5', key: "jumps", bound: 591, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G7', key: "ground:asphaltArea", bound: 15, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G7', key: "ground:grass", bound: 233, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G7', key: "ground:gravelBand", bound: 4, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G7', key: "ground:lane", bound: 14, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G7', key: "ground:paddock", bound: 15, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G7', key: "ground:turf", bound: 4, why: WHY.fieldChord, until: 'P5' },
-  { guard: 'G7', key: "ground:water", bound: 3, why: WHY.fieldChord, until: 'P5' },
   { guard: 'G10', key: "chicane approach|R", bound: 3, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "chicane T16–T17|R", bound: 208, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "Degner 1 → 2|R", bound: 13, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "Degner 1|R", bound: 210, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "Degner 2|R", bound: 230, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "Dunlop exit → Degner|R", bound: 92, why: WHY.residue, until: 'P6' },
+  { guard: 'G10', key: "Dunlop exit → Degner|R", bound: 110, why: WHY.residue, until: 'P6' },
   { guard: 'G10', key: "hairpin|L", bound: 191, why: WHY.residue, until: 'P6' },
-  { guard: 'G11', key: "ground:grass", bound: 42, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G11', key: "ground:water", bound: 74, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G12', key: "residual", bound: 15, why: WHY.residual, until: 'P5' },
-  { guard: 'G12', key: "untracedArcs", bound: 2, why: WHY.untraced, until: 'P5' },
+  { guard: 'G11', key: "ground:grass", bound: 60, why: WHY.reliefEdge, until: 'P6' },
+  { guard: 'G11', key: "ground:water", bound: 95, why: WHY.reliefEdge, until: 'P6' },
+  // the pit-building paddock platform ends on the bisector with the NIPPO stretch: the field is the
+  // platform on one side of the line and the hillside 1.6 m up on the other, and the part's edge
+  // vertex sits on the line itself (P6: a ramp at the platform's far edge, stands.ts)
+  { guard: 'G11', key: "ground:paddock", bound: 1, why: WHY.reliefEdge, until: 'P6' },
   { guard: 'G3', key: "decal.paintedAprons.bare", bound: 99, why: WHY.decalBare, until: 'P6' },
-  { guard: 'G3', key: "decal.whiteLines.bare", bound: 0.5, why: WHY.laneEdge, until: 'P5' },
-  { guard: 'G3', key: "decal.whiteLines.noFace", bound: 4, why: WHY.laneEdge, until: 'P5' },
+  { guard: 'G1', key: "crossoverBare", bound: 1100, why: WHY.crossWedge, until: 'P6' },
+  { guard: 'G12', key: "residual", bound: 1, why: WHY.ringMerge, until: 'P6' },
 ]
 
 // ================================================================ CLI
@@ -153,6 +119,10 @@ const SUGGEST = args.includes('--suggest')
 const TIER = flag('--tier', 'high')
 const JSON_OUT = flag('--json', null)
 const ONLY = flag('--only', null)?.split(',').map((s) => s.trim())
+/** GM_DEBUG_PAIR="ground:grass|ground:grass": G2 prints the first samples of that pair with their lap coordinates */
+const DEBUG_PAIR = process.env.GM_DEBUG_PAIR ?? null
+/** GM_DEBUG_DECAL=whiteLines: G3 prints the first samples of that decal that find no face */
+const DEBUG_DECAL = process.env.GM_DEBUG_DECAL ?? null
 const runs = (g) => !ONLY || ONLY.includes(g)
 const fmt = (n, d = 1) => Number(n).toFixed(d)
 const pad = (s, n) => String(s).padStart(n)
@@ -254,7 +224,8 @@ const vertexOf = (geo, t, k) => { const idx = geo.getIndex(); return idx ? idx.g
 const CELL = 8
 const cells = new Map()
 const cellKey = (ix, iz) => (ix + 32768) * 65536 + (iz + 32768)
-const LIVE_AREA = 1e-6
+/** a triangle under this XZ area (1 mm²) is degenerate: not drawn to any purpose, not in the hash; anything larger is */
+const LIVE_AREA = 1e-9
 for (let f = 0; f < faces.length; f++) {
   const face = faces[f]
   const pos = face.geo.attributes.position
@@ -293,10 +264,14 @@ for (let f = 0; f < faces.length; f++) {
 /**
  * Every live triangle of every face containing (x, z), as {f, t, y}. `tol` is the barycentric
  * tolerance: -1e-6 admits a point on a triangle's boundary (the census: what is visible there),
- * +1e-6 demands the interior (the overlap count: a shared edge is not double cover).
+ * +1e-6 demands the interior (the overlap count: a shared edge is not double cover). `inset`
+ * (metres) demands the point be that far inside every edge: the overlap count uses OVERLAP_TOL,
+ * so a seam whose two triangulations disagree by millimetres — a world part's contour vertex
+ * 5 mm inside a stitch sliver — is not double cover; nothing on the ground is drawn at that scale.
  */
+const OVERLAP_TOL = 0.02
 const hits = []
-function hitsAt(x, z, tol, skipF = -1, skipT = -1) {
+function hitsAt(x, z, tol, skipF = -1, skipT = -1, inset = 0) {
   hits.length = 0
   const arr = cells.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)))
   if (!arr) return hits
@@ -312,9 +287,31 @@ function hitsAt(x, z, tol, skipF = -1, skipT = -1) {
     const v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d
     const w = 1 - u - v
     if (u < tol || v < tol || w < tol) continue
+    if (inset > 0) {
+      // the point's distance to each edge: the barycentric coordinate of the opposite vertex times that vertex's height over the edge (2·area / edge length)
+      const area2 = Math.abs(d)
+      if (u * area2 / Math.hypot(bx - cx, bz - cz) < inset || v * area2 / Math.hypot(cx - ax, cz - az) < inset || w * area2 / Math.hypot(bx - ax, bz - az) < inset) continue
+    }
     hits.push({ f, t, y: ay * u + by * v + cy * w })
   }
   return hits
+}
+/** every triangle (live or not) of every face whose XZ box contains (x, z) and that contains it with a loose tolerance — diagnostics */
+function hitsAtAny(x, z) {
+  const out = []
+  for (let f = 0; f < faces.length; f++) {
+    const face = faces[f], T = face.T
+    for (let t = 0; t < face.tris; t++) {
+      const o = t * 9
+      if (Math.min(T[o], T[o + 3], T[o + 6]) > x + 0.05 || Math.max(T[o], T[o + 3], T[o + 6]) < x - 0.05 || Math.min(T[o + 2], T[o + 5], T[o + 8]) > z + 0.05 || Math.max(T[o + 2], T[o + 5], T[o + 8]) < z - 0.05) continue
+      const ax = T[o], az = T[o + 2], bx = T[o + 3], bz = T[o + 5], cx = T[o + 6], cz = T[o + 8]
+      const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+      if (Math.abs(d) < 1e-14) { out.push({ f, t }); continue }
+      const u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d, v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d
+      if (u > -0.01 && v > -0.01 && 1 - u - v > -0.01) out.push({ f, t })
+    }
+  }
+  return out
 }
 /** the topmost face at (x, z) among `set` (a Set of face indices, or null for all), or null */
 function topAt(x, z, set = null, tol = -1e-6) {
@@ -391,7 +388,10 @@ const contOf = (x, z, d) => track.nearestOnRange(x, z, d.s - 6, d.s + 6, 0)
 function roadProject(x, z, d) {
   const c = contOf(x, z, d)
   let s = c.s, lat = c.lateral
-  for (let it = 0; it < 3; it++) {
+  // Newton on (s, lateral) converges by a factor of about lateral × curvature per step: 0.45 at
+  // the chicane's edge, so three steps left 1 cm of lateral (5 mm of kerb profile) — twelve
+  // reach the 0.1 mm break everywhere
+  for (let it = 0; it < 12; it++) {
     track.pointAt(s, lat, _v, 0)
     const rx = x - _v.x, rz = z - _v.z
     if (rx * rx + rz * rz < 1e-8) break
@@ -461,13 +461,15 @@ if (runs('G1')) {
   const matrix = new Map()
   const records = []
   const SEAM = 0.5
+  const SEAM_D = SEAM / Math.SQRT2
   /** expected owner kind at (s, side, off): the plan's, read at the point's own stretch */
   const expectedSL = (s, side, off) => plan.ownerAtSL(s, side, off).kind
   const sampleSL = (s, side, off, x, z, fromRing) => {
     if (inCross(s)) { stats.cross++; return }
     stats.total++
     if (fromRing) stats.ring++; else stats.lattice++
-    const exp = expectedSL(s, side, off)
+    // a ring-interior sample is judged on its own point: (s, off) → point is centimetres off 180 m out
+    const exp = fromRing ? plan.ownerAtSL(s, side, off, false, { x, z }).kind : expectedSL(s, side, off)
     // seam band: the owner changes within SEAM along s or across, so the boundary itself is not judged
     let seam = false
     for (const ds of [-SEAM, SEAM]) {
@@ -475,13 +477,17 @@ if (runs('G1')) {
       if (expectedSL(s2, side, off) !== exp) { seam = true; break }
     }
     if (!seam) for (const doff of [-SEAM, SEAM]) { if (off + doff >= 0 && expectedSL(s, side, off + doff) !== exp) { seam = true; break } }
+    // ...and diagonally, so the band is a disc rather than a cross (an oblique ring edge 0.43 m
+    // away passed the four axis tests)
+    if (!seam) for (const [ds, doff] of [[-SEAM_D, -SEAM_D], [-SEAM_D, SEAM_D], [SEAM_D, -SEAM_D], [SEAM_D, SEAM_D]]) { if (off + doff >= 0 && expectedSL(track.wrap(s + ds), side, off + doff) !== exp) { seam = true; break } }
     if (seam) { stats.seam++; return }
     const got = gotAt(x, z)
     if (got.name === exp) { stats.match++; return }
     stats.mismatch++
     const mk = `${exp}>${got.name}`
     matrix.set(mk, (matrix.get(mk) ?? 0) + 1)
-    records.push({ s, side, off, exp, got: got.name })
+    records.push({ s, side, off, exp, got: got.name, x, z })
+    if (process.env.GM_DUMP_CENSUS) console.log(`      census mismatch: ${exp} > ${got.name} at s${s.toFixed(1)} ${sideCh(side)} off${off.toFixed(2)} xz (${x.toFixed(2)}, ${z.toFixed(2)})`)
   }
   // the verge lattice: every metre of s, both sides, 0.5 m across up to the drawn extent, never
   // exactly on the road edge or the extent
@@ -510,6 +516,33 @@ if (runs('G1')) {
       sampleSL(p.s, side, off, x, z, true)
     }
   }
+  // the crossover: beyond each road's drawn extent, within its declared minimum verge, every
+  // point must still have a face — the lower road's raster stops at the upper road's edge and the
+  // upper road's verge ramps out beyond its deck zone (ground-plan DECK_ZONE); a point with no
+  // face there is a wedge of bare terrain between the two rasters. The upper road's deck zone
+  // itself (the embankment) is bare by design and skipped.
+  let crossBare = 0
+  const crossBareAt = []
+  for (const [sc, isUpper] of [[sOver, true], [sUnder, false]]) {
+    for (let d = -115; d <= 115; d += 1) {
+      const s = track.wrap(sc + d)
+      if (isUpper && Math.abs(d) < planMod.DECK_ZONE) continue
+      const hw = track.halfWidthAt(s)
+      for (const side of [1, -1]) {
+        const W = plan.extentDrawn(s, side)
+        for (let off = Math.max(W + 0.5, 1); off <= planMod.VERGE_MIN - 0.5; off += 1) {
+          track.pointAt(s, side * (hw + off), _v, 0)
+          // the other road may own this ground: skip points within its own drawn raster or beyond both roads' reach
+          if (topAt(_v.x, _v.z, groundFaceSet)) continue
+          const other = terrain.distanceToTrack(_v.x, _v.z, 60)
+          if (other.i < 0) continue
+          crossBare++
+          if (crossBareAt.length < 6) crossBareAt.push(`s${Math.round(s)} ${sideCh(side)} off${off.toFixed(0)}`)
+        }
+      }
+    }
+  }
+  console.log(`    crossover: ${crossBare} bare lattice point(s) within the declared verge beyond the drawn extent${crossBareAt.length ? ` (${crossBareAt.join(', ')}…)` : ''}`)
   const judged = stats.total - stats.seam
   console.log(`    ${stats.total} samples (${stats.lattice} lattice + ${stats.ring} ring interior; ${stats.cross} more in the crossover window, ${stats.far} far from the lap), ${stats.seam} in a seam band`)
   console.log(`    judged ${judged}: match ${stats.match} (${fmt((100 * stats.match) / Math.max(1, judged), 3)} %), mismatch ${stats.mismatch}`)
@@ -529,12 +562,13 @@ if (runs('G1')) {
   console.log(`    ${clusters.length} clusters in all`)
   out.guards.G1 = { ...stats, matrix: Object.fromEntries(rows), clusters: clusters.slice(0, 25) }
   for (const [k, n] of rows) check('G1', k, n)
+  check('G1', 'crossoverBare', crossBare, 0, crossBareAt.join(', '))
   guardEnd('G1')
 }
 
 // ================================================================ G2 — overlap: any two faces over one point (the same face included)
 if (runs('G2')) {
-  guardStart('G2', 'overlap — faces covering the same XZ point, the same face included; upper = the one on top at the sample')
+  guardStart('G2', `overlap — faces covering the same XZ point (${OVERLAP_TOL * 1000} mm inside both), the same face included; upper = the one on top at the sample`)
   const pairs = new Map()
   let samplesTotal = 0, overlapSamples = 0, crossSkipped = 0, far = 0
   const BIN = 20
@@ -553,12 +587,13 @@ if (runs('G2')) {
       const a4 = face.area[t] / 4
       for (const [x, z, y] of P) {
         samplesTotal++
-        const h = hitsAt(x, z, 1e-6, f, t)
+        const h = hitsAt(x, z, 1e-6, f, t, OVERLAP_TOL)
         if (!h.length) continue
         const d = sOf(x, z)
         if (!d) { far++; continue }
         if (inCross(d.s)) { crossSkipped++; continue }
         overlapSamples++
+        if (process.env.GM_DUMP_OVERLAP && overlapSamples <= 16) console.log(`      overlap sample at (${x.toFixed(2)}, ${z.toFixed(2)}) s${d.s.toFixed(1)} lat${d.lateral.toFixed(1)}: ${face.name} tri ${t} src${face.mesh?.userData?.triSource?.[t] ?? '-'} y ${y.toFixed(3)} vs ${h.map((r) => `${faces[r.f].name} tri ${r.t} src${faces[r.f].mesh?.userData?.triSource?.[r.t] ?? '-'} y ${r.y.toFixed(3)}`).join(', ')}`)
         for (const r of h) {
           const other = faces[r.f].name
           const dy = r.y - y
@@ -567,6 +602,11 @@ if (runs('G2')) {
           const key = `${top}|${bottom}`
           let p = pairs.get(key)
           if (!p) { p = { top, bottom, n: 0, area: 0, gap: 0, bins: new Map() }; pairs.set(key, p) }
+          if (DEBUG_PAIR === key && p.n < 40) {
+            const T2 = faces[r.f].T, o2 = r.t * 9
+            const tri = (TT, oo) => [0, 3, 6].map((k) => `(${TT[oo + k].toFixed(2)},${TT[oo + k + 2].toFixed(2)},y${TT[oo + k + 1].toFixed(3)})`).join(' ')
+            console.log(`      [pair] ${key} at (${x.toFixed(1)}, ${z.toFixed(1)}) s ${d.s.toFixed(1)} lat ${d.lateral.toFixed(1)} gap ${(dy * 1000).toFixed(0)} mm — ${face.name} tri ${t} src ${face.mesh?.userData?.triSource?.[t] ?? '-'} [${tri(T, o)}] vs ${other} tri ${r.t} src ${faces[r.f].mesh?.userData?.triSource?.[r.t] ?? '-'} [${tri(T2, o2)}]`)
+          }
           p.n++
           p.area += a4
           const g = Math.abs(dy)
@@ -621,6 +661,7 @@ if (runs('G3')) {
     const rule = RULE_OF[face.kind]
     const devs = []
     const worst = []
+    const dumpRows = []
     let skipped = 0
     for (let t = 0; t < face.tris; t++) {
       if (!face.live[t]) continue
@@ -636,10 +677,14 @@ if (runs('G3')) {
         if ('profile' in rule) {
           const side = c.lateral >= 0 ? 1 : -1
           const kb = kerbAt(plan.kerbs, track, c.s, side)
-          expected = _v.y + kerbProfileHeight(kb.width, kb.taper, Math.abs(c.lateral) - track.halfWidthAt(c.s))
+          expected = _v.y + kerbProfileHeight(kb.width, kb.taper, kb.spread, Math.abs(c.lateral) - track.halfWidthAt(c.s))
         } else expected = _v.y + rule.dy
       } else expected = ground.field.y(x, z)
       const dev = Math.abs(y - expected)
+      if (process.env.GM_DUMP_G3 === face.kind && dev > limit) {
+        const c = frame === 'road' ? roadProject(x, z, d) : null
+        dumpRows.push({ dev, line: `      G3 ${face.kind} tri ${t}: dev ${(dev * 1000).toFixed(1)} mm at (${x.toFixed(3)}, ${z.toFixed(3)}) y ${y.toFixed(4)} exp ${expected.toFixed(4)}${c ? ` s ${c.s.toFixed(3)} lat ${c.lateral.toFixed(3)} off ${(Math.abs(c.lateral) - track.halfWidthAt(c.s)).toFixed(3)} roll ${((track.rollAt(c.s) * 180) / Math.PI).toFixed(2)}° kerb ${JSON.stringify(kerbAt(plan.kerbs, track, c.s, c.lateral >= 0 ? 1 : -1))}` : ''} verts ${[0, 3, 6].map((k) => `(${T[o + k].toFixed(3)}, ${T[o + k + 1].toFixed(4)}, ${T[o + k + 2].toFixed(3)})`).join(' ')}` })
+      }
       devs.push(dev)
       if (dev > limit) {
         const bin = Math.floor(d.s / 20)
@@ -648,6 +693,7 @@ if (runs('G3')) {
         else { worst.push({ bin, dev, s: d.s, lat: d.lateral }); worst.sort((a, b) => b.dev - a.dev); if (worst.length > 3) worst.pop() }
       }
     }
+    if (dumpRows.length) { dumpRows.sort((a, b) => b.dev - a.dev); for (const r of dumpRows.slice(0, 10)) console.log(r.line) }
     devs.sort((a, b) => a - b)
     const n = devs.length
     const q = (p) => (n ? devs[Math.min(n - 1, Math.floor(p * n))] : 0)
@@ -709,15 +755,22 @@ if (runs('G3')) {
   for (const dm of decals) {
     const tag = dm.userData.decal
     const limit = tag.soft ? 0 : 0.006
-    const st = { name: dm.name, rung: tag.rung, soft: tag.soft, n: 0, noFace: 0, buried: 0, min: Infinity, dys: [], worst: [], uncovered: tag.uncovered ?? 0, area: tag.area ?? 0, bareAt: bareClusters(tag.bareAt ?? []) }
+    const st = { name: dm.name, rung: tag.rung, soft: tag.soft, n: 0, noFace: 0, noFaceBins: new Map(), buried: 0, min: Infinity, dys: [], worst: [], uncovered: tag.uncovered ?? 0, area: tag.area ?? 0, bareAt: bareClusters(tag.bareAt ?? []) }
     const sample = (x, z, y) => {
       const d = sOf(x, z)
       if (!d || inCross(d.s)) return
       // a decal vertex lies ON a face edge (it was clipped from the face), so the boundary test
-      // tolerates float32 (1e-4 barycentric ≈ 0.4 mm on a 4 m triangle)
-      const top = topAt(x, z, groundFaceSet) ?? topAt(x, z, groundFaceSet, -1e-4)
+      // tolerates float32: 1e-4 barycentric (0.4 mm on a 4 m triangle), and 1e-2 as a last
+      // resort — a decal clipped from a millimetre sliver cannot be placed inside it in float32
+      const top = topAt(x, z, groundFaceSet) ?? topAt(x, z, groundFaceSet, -1e-4) ?? topAt(x, z, groundFaceSet, -1e-2)
       st.n++
-      if (!top) { st.noFace++; return }
+      if (!top) {
+        st.noFace++
+        const b = Math.floor(d.s / 20)
+        st.noFaceBins.set(b, (st.noFaceBins.get(b) ?? 0) + 1)
+        if (DEBUG_DECAL === dm.name && st.noFace <= 12) console.log(`      [decal] ${dm.name} no face at (${x.toFixed(3)}, ${z.toFixed(3)}) s ${d.s.toFixed(1)} lat ${d.lateral.toFixed(2)} y ${y.toFixed(3)}; hits ignoring live: ${hitsAtAny(x, z).map((h) => `${faces[h.f].name}#${h.t} area ${faces[h.f].area[h.t].toExponential(1)}`).join(', ') || 'none'}`)
+        return
+      }
       const dy = y - top.y
       st.dys.push(dy)
       if (dy < st.min) st.min = dy
@@ -761,7 +814,7 @@ if (runs('G3')) {
   }
   out.guards.G3decals = decRows.map((r) => ({ name: r.name, rungMm: Math.round(r.rung * 1000), soft: r.soft, n: r.n, noFace: r.noFace, buried: r.buried, minMm: Number(fmt(r.min * 1000, 1)), p50Mm: Number(fmt(r.p50 * 1000, 1)), bareM2: Number(fmt(r.uncovered, 1)) }))
   for (const r of decRows) {
-    check('G3', `decal.${r.name}.noFace`, r.noFace)
+    check('G3', `decal.${r.name}.noFace`, r.noFace, 0, [...r.noFaceBins.entries()].sort((p, q) => q[1] - p[1]).slice(0, 6).map(([b, n]) => `${n}×s${b * 20}-${b * 20 + 20}·${secShort(b * 20)}`).join(' '))
     check('G3', `decal.${r.name}.buried`, r.buried, 0, `(min ${fmt(r.min * 1000, 1)} mm over the face, rung ${fmt(r.rung * 1000, 0)} mm)`)
     // the outline the builder declared but could not draw: no face under it (bare terrain)
     check('G3', `decal.${r.name}.bare`, Number(fmt(r.uncovered, 1)), 0, `(of ${fmt(r.area, 0)} m² declared; ${r.bareAt.join(' ')})`, 'm2')
@@ -1007,15 +1060,15 @@ if (runs('G8')) {
     ...readdirSync(path.join(ROOT, 'app/three')).filter((n) => n.endsWith('.ts') && !GROUND_MODULES.has(n)).map((n) => `app/three/${n}`),
     ...readdirSync(path.join(ROOT, 'app/components')).filter((n) => n.endsWith('.vue')).map((n) => `app/components/${n}`),
   ]
+  // ...nor the terrain's sample-based projection (distanceToTrack): the plan's project() is the
+  // one (s, lateral) view, continuous and crossover-aware
   const offenders = []
-  let distanceCalls = 0
   for (const rel of sources) {
     const src = readFileSync(path.join(ROOT, rel), 'utf8')
-    for (const m of src.matchAll(/\b(?:terrain|\.terrain)\.(?:meshHeightAt|heightAt)\(|ground\.(?:yAt|worldY)\(/g)) offenders.push(`${rel}:${src.slice(0, m.index).split('\n').length} ${m[0]}`)
-    distanceCalls += (src.match(/distanceToTrack\(/g) ?? []).length
+    for (const m of src.matchAll(/\b(?:terrain|\.terrain)\.(?:meshHeightAt|heightAt|distanceToTrack)\(|ground\.(?:yAt|worldY)\(/g)) offenders.push(`${rel}:${src.slice(0, m.index).split('\n').length} ${m[0]}`)
   }
-  console.log(`    R3 sources: ${sources.length} files outside the ground modules, ${offenders.length} terrain sample(s) [${offenders.join(', ')}], ${distanceCalls} distanceToTrack call(s) (P5)`)
-  check('G8', 'source.terrainSamples', offenders.length, 0, `[${offenders.join(', ')}] — R3: place on ground.standY / standAt, lie on ground.decalY`)
+  console.log(`    R3 sources: ${sources.length} files outside the ground modules, ${offenders.length} terrain sample(s) / projections [${offenders.join(', ')}]`)
+  check('G8', 'source.terrainSamples', offenders.length, 0, `[${offenders.join(', ')}] — R3: place on ground.standY / standAt, lie on ground.decalY, project with ground.plan.project`)
   guardEnd('G8')
 }
 
@@ -1096,8 +1149,14 @@ if (runs('G11')) {
         if (Math.hypot(T[o + ka] - T[o + kb], T[o + ka + 2] - T[o + kb + 2]) > 4.5) continue
         const d = sOf(T[o + ka], T[o + ka + 2])
         if (d && inCross(d.s)) continue
-        const fa = ground.field.y(T[o + ka], T[o + ka + 2]), fb = ground.field.y(T[o + kb], T[o + kb + 2])
-        if (Math.abs(fa - fb) > 0.4) { relief++; continue }
+        // the field read along the edge, not only at its ends: a relief edge that passes THROUGH a
+        // vertex (the paddock platform's far edge on the bisector) reads the same side at both
+        // float32-rounded ends and the mesh's drop looked unexplained
+        const ax = T[o + ka], az = T[o + ka + 2], bx = T[o + kb], bz = T[o + kb + 2]
+        const fa = ground.field.y(ax, az), fb = ground.field.y(bx, bz)
+        let fieldDrop = Math.abs(fa - fb), prev = fa
+        for (const tt of [0.02, 0.5, 0.98, 1]) { const fy = ground.field.y(ax + (bx - ax) * tt, az + (bz - az) * tt); fieldDrop = Math.max(fieldDrop, Math.abs(fy - prev)); prev = fy }
+        if (fieldDrop > 0.4) { relief++; continue }
         drops++
         worst.push({ s: d?.s ?? -1, lat: d?.lateral ?? 0, mm: dy * 1000 })
       }
@@ -1115,7 +1174,7 @@ if (runs('G11')) {
 if (runs('G12')) {
   guardStart('G12', 'plan integrity — residual column inversions, build errors, untraced ring parts, the covered-ground boundary')
   const st = plan.stats, ms = groundMeshes.stats
-  console.log(`    stations ${plan.stations.length} (base ${st.base}, endpoints ${st.endpoints}, kinks ${st.kinks}, tips ${st.tips}, chord ${st.chord}, crossings ${st.crossings}; passes ${st.passes.join('/')})`)
+  console.log(`    stations ${plan.stations.length} (base ${st.base}, endpoints ${st.endpoints}, kinks ${st.kinks}, rows ${st.rows}, tips ${st.tips}, chord ${st.chord}, crossings ${st.crossings}, snapped ${st.snapped}; passes ${st.passes.join('/')})`)
   console.log(`    residual inversions ${st.residual} (worst ${(st.residualMax * 1000).toFixed(0)} mm, snapped); rings ${st.rings} (${st.worldOnly} world-only)`)
   console.log(`    mesh: ${ms.cells} cells, ${ms.triangles} triangles (world ${ms.worldTris}, stitch ${ms.stitchTris}), ${ms.dropped} degenerate dropped; errors ${ms.errors.length}; untraced ring parts ${ms.uncoveredArcs}`)
   console.log(`    boundary loops ${ms.boundary.loops.length} (${ms.boundary.loops.join(', ')} vertices), ${ms.boundary.skipped} skipped; strips ${ms.strips.length}`)

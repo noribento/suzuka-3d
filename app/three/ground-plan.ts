@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { CIRCUIT } from '~/data/suzuka'
 import { GROUND_AREAS, RUNOFF_ZONES, type GroundArea, type GroundFootprint, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS, OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
-import { forwardDelta, signedDelta, type Track } from '~/sim/track'
+import { forwardDelta, ROLL_CAP, signedDelta, type Track } from '~/sim/track'
 import { laneWorldPath, osmWay, patchOutline, simplifyRing } from './trackside'
 
 /**
@@ -124,6 +124,30 @@ export const CROSS_WINDOW = 115
 /** facing stretches stop this far short of their bisector; the stitch strip covers the gap */
 export const BISECTOR_MARGIN = 0.5
 /**
+ * Metres from the crossover along the upper road within which its raster is the deck shoulder
+ * alone (the bridge and its embankment walls); the lower road's verge passes under it freely.
+ * Beyond, the upper road's verge ramps out (crossoverCap) and the lower road's raster is capped
+ * at the upper's actual edge, so the two meet at a stitch strip instead of leaving a wedge of
+ * bare terrain (s 4741–4750 right, found in P4) or overlapping (Degner 2, s 2180–2200).
+ */
+export const DECK_ZONE = 50
+/** the longest outer chord a raster row may have between two stations (a 5 m fill spacing then keeps every diagonal under the high tier's 6.77 m half-grid) */
+export const MAX_ROW_CHORD = 4
+/**
+ * Metres of extent per metre of s the raster's edge may gain or lose (the extent table): steeper
+ * than the ring reach's REACH_SLOPE, so the verge out of a tight spot — the upper road beside the
+ * lower road's raster at the crossover — is back at its full width within a few rows instead of
+ * leaving a wedge of bare terrain; a 2 m row still keeps its edge segment under 4.5 m.
+ */
+export const EXTENT_SLOPE = 2
+/**
+ * In the crossover windows a road's verge reaches the facing road's raster edge when that edge
+ * lies within this many metres beyond its declared minimum: the ground under the upper road's
+ * embankment approach is the lower road's, and the upper road's verge ramping out of its deck
+ * zone recedes faster than the slope limit lets the lower road's follow unless it is declared.
+ */
+export const CROSS_BRIDGE = 25
+/**
  * A terrain gap narrower than this between the verge and an area row is rastered as grass, so
  * the area is one mesh with the verge. 40 m reaches the retention basins from the Esses and the
  * T1 exit; the kart tracks and the South Course, 100 m out, stay world polygons.
@@ -140,6 +164,8 @@ const REACH_SLOPE = 1.0
 const BISECTOR_MIN_LAP = 40
 /** kerb ends ramp their width from 0 to full over this length */
 export const KERB_TAPER = 0.5
+/** rows across the height ramp of a kerb's end (stations at KERB_TAPER / KERB_TAPER_STEPS) */
+export const KERB_TAPER_STEPS = 8
 /**
  * Fill columns (metres beyond the road edge): every raster cell stays under 4 m across in the
  * verge and under 5 m beyond 12 m — on the outside of a bend a 2 m row is stretched to 3-4 m by
@@ -391,29 +417,55 @@ export function subtractInterval(from: number, to: number, cutFrom: number, cutT
  * both ends). The profile columns and heights are the FULL profile scaled by the taper, so the
  * columns stay in order while the kerb grows out of the road edge.
  */
-export function kerbAt(spans: readonly KerbSpan[], track: Track, s: number, side: Side): { width: number; taper: number } {
+/**
+ * The kerb at s on `side`: its full `width`; `taper`, the HEIGHT factor, rising from 0 at the
+ * span's ends to 1 over KERB_TAPER inside it; and `spread`, the COLUMN factor, 1 inside the span
+ * and falling to 0 over KERB_TAPER outside it — so the kerb's columns converge on the road edge
+ * over half a metre beyond its end instead of collapsing within one row, where they crossed every
+ * column between (a ring's edge 0.2 m out) and no station could resolve the crossings.
+ */
+export function kerbAt(spans: readonly KerbSpan[], track: Track, s: number, side: Side): { width: number; taper: number; spread: number } {
   const L = track.length
-  let best = { width: 0, taper: 0 }
+  let best = { width: 0, taper: 0, spread: 0 }
   for (const k of spans) {
     if (k.side !== side) continue
-    const d = forwardDelta(k.from, track.wrap(s), L)
     const len = forwardDelta(k.from, k.to, L)
-    if (d > len) continue
-    const taper = Math.min(1, d / KERB_TAPER, (len - d) / KERB_TAPER)
-    if (k.width * taper > best.width * best.taper) best = { width: k.width, taper }
+    const d = signedDelta(k.from, track.wrap(s), L)
+    // distance outside the span (0 inside), measured the short way round
+    const outside = d < 0 ? -d : d > len ? d - len : 0
+    if (outside >= KERB_TAPER) continue
+    const taper = outside > 0 ? 0 : Math.min(1, d / KERB_TAPER, (len - d) / KERB_TAPER)
+    const spread = 1 - outside / KERB_TAPER
+    const score = k.width * (taper + spread * 0.01)
+    if (score > best.width * (best.taper + best.spread * 0.01)) best = { width: k.width, taper, spread }
   }
   return best
 }
 
-/** Width of the flat kerb at s on `side`, tapering to 0 over KERB_TAPER at both ends (0 = none). */
+/**
+ * Width of the kerb's ground at s on `side` (0 = none): its full width over its whole span (the
+ * ends fade in HEIGHT, kerbHeights), and beyond the span the converging wedge of its columns —
+ * flat, at the road plane, but the kerb's own: when the wedge belonged to whatever lay outside,
+ * a ring's edge 0.2 m out (the chicane apron) was a real boundary crossing four real kerb columns
+ * within 25 cm, and the crossings 1 cm apart were tied to one station and left inverted.
+ */
 export function kerbWidthTapered(spans: readonly KerbSpan[], track: Track, s: number, side: Side): number {
   const k = kerbAt(spans, track, s, side)
-  return k.width * k.taper
+  return k.width * k.spread
 }
 
-/** The kerb's cross-section, metres beyond the road edge, for a full width `w0` scaled by `t` */
-export function kerbColumns(w0: number, t: number): [number, number, number, number] {
-  return [0.3 * t, 0.55 * w0 * t, (w0 - 0.15) * t, w0 * t]
+/**
+ * The kerb's cross-section, metres beyond the road edge, for a full width `w0` and the column
+ * factor `spread` (kerbAt). Inside the span the columns do not move: a kerb's end is a HEIGHT
+ * ramp over KERB_TAPER (kerbHeights scales by the taper), so the surface between two stations is
+ * linear in s at every offset and a cell chords it exactly — columns that narrowed with the
+ * height made the profile's breakpoints move between stations, and a cell across a tapering end
+ * chorded it by up to 50 mm (the chicane's exit kerb). Beyond the span the columns converge on
+ * the road edge at height 0.
+ */
+export function kerbColumns(w0: number, spread: number): [number, number, number, number] {
+  if (w0 <= 0 || spread <= 0) return [0, 0, 0, 0]
+  return [0.3 * spread, 0.55 * w0 * spread, (w0 - 0.15) * spread, w0 * spread]
 }
 /** heights of the kerb columns [ramp, crown, back, out] above the road plane, scaled by the taper */
 export function kerbHeights(t: number): [number, number, number, number] {
@@ -424,8 +476,8 @@ export function kerbHeights(t: number): [number, number, number, number] {
  * piecewise linear between its columns, so any vertex a kerb cell touches — a fill or a ring
  * column that happens to fall inside the kerb — gets the same surface the kerb's own columns do.
  */
-export function kerbProfileHeight(w0: number, t: number, off: number): number {
-  const cols = kerbColumns(w0, t)
+export function kerbProfileHeight(w0: number, t: number, spread: number, off: number): number {
+  const cols = kerbColumns(w0, spread)
   const hs = kerbHeights(t)
   if (off <= 0) return 0
   let o0 = 0, h0 = 0
@@ -595,7 +647,7 @@ export function laneFootprint(track: Track, def: OffsetLaneDef): WorldRing | nul
 export interface Column {
   id: string
   /** what the column is the boundary of, for the builder's diagnostics */
-  role: 'edge' | 'kerb' | 'deck' | 'pit' | 'band' | 'ring' | 'fill' | 'extent'
+  role: 'edge' | 'kerb' | 'deck' | 'pit' | 'band' | 'ring' | 'fill' | 'extent' | 'kink'
   /** off (m beyond the road edge) per station; NaN never — absent columns are collapsed */
   off: Float64Array
   /** first / last station index where the column is genuinely present (inclusive); fills and bands always */
@@ -608,15 +660,17 @@ export interface Column {
   real: Uint8Array
 }
 
+/** whether station i lies in the column's active range (every station for a column without one) */
+export function columnActive(c: Column, i: number): boolean {
+  if (!c.active) return true
+  const [a, b] = c.active
+  return a <= b ? i >= a && i <= b : i >= a || i <= b
+}
 /** a fill, or a column that is not an owner boundary at station i: a free vertex the snap may move */
 function isFree(c: Column, i: number): boolean {
   if (c.role === 'fill') return true
-  if (c.role === 'ring' && c.active) {
-    // outside its track a ring column is a parked point, whatever owner boundary it happens to sit on
-    const [a, b] = c.active
-    const inside = a <= b ? i >= a && i <= b : i >= a || i <= b
-    if (!inside) return true
-  }
+  // outside its track a ring column is a parked point, whatever owner boundary it happens to sit on
+  if (c.role === 'ring' && !columnActive(c, i)) return true
   return c.real[i] === 0
 }
 /** the column is an owner boundary somewhere in the row (i, j): crossings with it need a station */
@@ -631,9 +685,14 @@ export const COLUMN_TIE = 0.002
  * The column order for the row that starts at station i: by position at i, ties (within
  * COLUMN_TIE) by position at the next station, then by column index. Every consumer of the plan
  * (the mesh builder, the guards) must use this order so cells are formed identically.
+ *
+ * A column that is no owner boundary at either station is left out: it has no cell of its own,
+ * and kept in the order it dragged the fills it crossed aside (a ring column parked halfway round
+ * the lap from its track, a gravel band's edge hidden under a lane) — 7–8 m edges in the cells.
+ * The edge, the fills and the extent are always in.
  */
 export function columnOrder(cols: readonly Column[], i: number, j: number): Int32Array {
-  const idx = cols.map((_c, k) => k)
+  const idx = cols.map((_c, k) => k).filter((k) => { const c = cols[k]!; return c.role === 'fill' || c.role === 'extent' || c.role === 'edge' || rowReal(c, i, j) })
   idx.sort((a, b) => {
     const da = cols[a]!.off[i]! - cols[b]!.off[i]!
     if (Math.abs(da) > COLUMN_TIE) return da
@@ -697,7 +756,8 @@ export interface GroundPlan {
    * `inRaster` says the point is inside a raster cell (the mesh builder asking for a cell whose
    * centre falls a hair beyond the extent between two stations): the world/terrain branch is skipped.
    */
-  ownerAtSL: (s: number, side: Side, off: number, inRaster?: boolean) => Owner
+  /** the owner at (s, side, off); `at` = the world point itself when the caller has it (beyond the extent the ring test is on the point, and rebuilding it from (s, off) 180 m out is centimetres off) */
+  ownerAtSL: (s: number, side: Side, off: number, inRaster?: boolean, at?: { x: number; z: number }) => Owner
   /** the owner at world (x, z); `window` restricts the projection to one stretch of road */
   ownerAt: (x: number, z: number, window?: [number, number]) => Owner
   /** continuous projection onto the road (crossover-aware unless a window is given) */
@@ -714,7 +774,7 @@ export interface GroundPlan {
    */
   lattice: (s0: number, s1: number, maxStep: number) => number[]
   /** how many stations were inserted for each reason (diagnostics) */
-  stats: { base: number; endpoints: number; kinks: number; tips: number; crossings: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[] }
+  stats: { base: number; endpoints: number; kinks: number; rows: number; tips: number; crossings: number; snapped: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[] }
 }
 
 export interface PlanOptions {
@@ -735,7 +795,6 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   const kerbs = kerbSpans(track)
   const pit = CIRCUIT.pit
   const sOver = track.crossing.sOver, sUnder = track.crossing.sUnder
-  const nearCrossing = (s: number) => Math.abs(signedDelta(sOver, s, L)) < CROSS_WINDOW || Math.abs(signedDelta(sUnder, s, L)) < CROSS_WINDOW
 
   // --- fold table (measured Jacobian of the swept frame), per side ----------------------------
   const foldTable = { 1: new Float32Array(n), '-1': new Float32Array(n) }
@@ -779,7 +838,33 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   }
   const foldSafe = (s: number, side: Side) => sampleAt(foldTable[side], s)
 
+  // area rows that are lateral bands declare ground too (the paddock aprons)
+  const areaBands = GROUND_AREAS.flatMap((a) => ('band' in a.footprint ? [a.footprint] : []))
+  const areaOuter = (s: number, side: Side): number => {
+    let out = 0
+    for (const b of areaBands) {
+      if (b.band !== side) continue
+      if (forwardDelta(b.sRange[0], track.wrap(s), L) > forwardDelta(b.sRange[0], b.sRange[1], L)) continue
+      out = Math.max(out, Math.abs(b.lat[0]), Math.abs(b.lat[1]))
+    }
+    return out
+  }
+  /**
+   * The upper road's raster within DECK_ZONE of the crossover is its deck shoulder alone (the
+   * bridge and its embankment walls). Beyond, the upper road's verge is the ground up to the
+   * lower road's raster edge (the meet-at-the-edge cap below), ramped out by the extent's slope
+   * limit — so no wedge of bare terrain is left between the two rasters and none overlaps.
+   */
+  const crossoverCap = (s: number): number => (Math.abs(signedDelta(sOver, s, L)) < DECK_ZONE ? DECK_SHOULDER : EXTENT_MAX)
+
   // --- bisector cap: half the distance to any facing sample of another stretch ------------------
+  // Two facing stretches stop BISECTOR_MARGIN short of their bisector each; the stitch strip zips
+  // the two edges. The crossover is the one asymmetric case: the lower road passes under the upper
+  // road's deck zone freely, and beyond it — where the upper road's verge ramps out of its deck cap
+  // at EXTENT_SLOPE and is short of the bisector — the lower road's cap is where its ray meets the
+  // upper road's raster EDGE (its extent as it will be drawn, slope-limited, read in a second
+  // round), so the ground under the embankment approach is the lower road's and no wedge of bare
+  // terrain is left between the two.
   const bisector = { 1: new Float32Array(n).fill(EXTENT_MAX), '-1': new Float32Array(n).fill(EXTENT_MAX) }
   /** the facing sample that set the raw bisector cap per station and side (−1 = none) */
   const partner = { 1: new Int32Array(n).fill(-1), '-1': new Int32Array(n).fill(-1) }
@@ -788,25 +873,113 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     const reach = 2 * EXTENT_MAX + 30
     const reach2 = reach ** 2
     const raw = { 1: new Float32Array(n).fill(EXTENT_MAX), '-1': new Float32Array(n).fill(EXTENT_MAX) }
-    for (let i = 0; i < n; i++) {
-      const si = i * ds
-      if (nearCrossing(si)) continue
-      const px = track.px[i]!, pz = track.pz[i]!, nx = track.nx[i]!, nz = track.nz[i]!
-      const hwI = track.hw[i]!
-      track.forEachSampleNear(px, pz, reach, (j, d2) => {
-        if (d2 > reach2) return
-        const lap = Math.abs(i - j)
-        if (Math.min(lap, n - lap) < minLap) return
-        if (nearCrossing(j * ds)) return
-        const dx = track.px[j]! - px, dz = track.pz[j]! - pz
-        for (const side of [1, -1] as const) {
-          const dot = (dx * nx + dz * nz) * side
-          if (dot <= 0.5) continue
-          const cap = d2 / (2 * dot) - hwI
-          const arr = raw[side]
-          if (cap < arr[i]!) { arr[i] = Math.max(FLAT_STRIP + 1, cap); partner[side][i] = j }
+    /** the corner run (index into track.corners) a sample lies in, −1 on a straight */
+    const cornerOf = new Int16Array(n).fill(-1)
+    track.corners.forEach((c, ci) => { const len = forwardDelta(c.from, c.to, L); for (let d = 0; d <= len; d += ds) cornerOf[Math.round(track.wrap(c.from + d) / ds) % n] = ci })
+    const sameCorner = (i: number, j: number) => cornerOf[i]! >= 0 && cornerOf[i] === cornerOf[j]
+    /** GP_DEBUG_CAP=<s>: print the winning meeting cap of the samples within 3 m of s */
+    const DEBUG_CAP = (globalThis as unknown as { GP_DEBUG_CAP?: number }).GP_DEBUG_CAP ?? null
+    const dOver = (s: number) => Math.abs(signedDelta(sOver, s, L))
+    const dUnder = (s: number) => Math.abs(signedDelta(sUnder, s, L))
+    const onUpper = (s: number) => dOver(s) < CROSS_WINDOW
+    const onLower = (s: number) => dUnder(s) < CROSS_WINDOW
+    /** a sample's own extent on `side` without a bisector: its declared verge, the fold and the deck cap */
+    const ownCap = (j: number, sideJ: Side): number => {
+      const sj = j * ds, hwJ = track.hw[j]!
+      const declared = Math.min(EXTENT_MAX, Math.max(VERGE_MIN, layout.declaredOuter(sj, sideJ) - hwJ, areaOuter(sj, sideJ) - hwJ))
+      return Math.max(0, Math.min(declared, foldSafe(sj, sideJ), crossoverCap(sj)))
+    }
+    /** the partner's extent the caps read: round 1 its own cap and half the distance, round 2 the slope-limited result */
+    let limited: { 1: Float32Array; '-1': Float32Array } | null = null
+    /** the drawn extent of sample k on the side facing (px, pz): the side, the extent and the edge vertex */
+    const edgeOf = (k: number, px: number, pz: number, d2: number): { side: Side; W: number; x: number; z: number } => {
+      const dotK = (px - track.px[k]!) * track.nx[k]! + (pz - track.pz[k]!) * track.nz[k]!
+      const sideK: Side = dotK > 0 ? 1 : -1
+      const hwK = track.hw[k]!
+      let W: number
+      if (limited) W = limited[sideK][k]!
+      else {
+        const half = Math.abs(dotK) > 0.5 ? d2 / (2 * Math.abs(dotK)) - hwK : EXTENT_MAX
+        W = Math.min(ownCap(k, sideK), half - BISECTOR_MARGIN)
+      }
+      W = Math.max(0, W)
+      return { side: sideK, W, x: track.px[k]! + track.nx[k]! * sideK * (hwK + W), z: track.pz[k]! + track.nz[k]! * sideK * (hwK + W) }
+    }
+    const round = () => {
+      for (const side of [1, -1] as const) { raw[side].fill(EXTENT_MAX); partner[side].fill(-1) }
+      for (let i = 0; i < n; i++) {
+        const si = i * ds
+        const px = track.px[i]!, pz = track.pz[i]!, nx = track.nx[i]!, nz = track.nz[i]!
+        const hwI = track.hw[i]!
+        const iLower = onLower(si)
+        track.forEachSampleNear(px, pz, reach, (j, d2) => {
+          if (d2 > reach2) return
+          const lap = Math.abs(i - j)
+          if (Math.min(lap, n - lap) < minLap) return
+          // the two legs of one corner do not face each other across its inside: the fold cap
+          // bounds the inside verge, and a bisector between the legs (Degner 2, 47 m of lap) made
+          // a strip across the corner that the crossover's strip then overlapped
+          if (sameCorner(i, j)) return
+          const j2 = (j + 1) % n
+          const sj = j * ds
+          // the lower road passes under the deck zone of the upper road freely
+          if (iLower && onUpper(sj) && (dOver(sj) < DECK_ZONE || dOver(j2 * ds) < DECK_ZONE)) return
+          const dx = track.px[j]! - px, dz = track.pz[j]! - pz
+          const meetsUpper = iLower && onUpper(sj)
+          if (!meetsUpper && onUpper(si) && onLower(sj) && dOver(si) < DECK_ZONE) return
+          for (const side of [1, -1] as const) {
+            const dot = (dx * nx + dz * nz) * side
+            if (dot <= 0.5) continue
+            let cap: number
+            if (meetsUpper) {
+              // the upper road's edge segment between samples j and j+1, and where i's ray meets it
+              const a = edgeOf(j, px, pz, d2)
+              const b = edgeOf(j2, px, pz, (track.px[j2]! - px) ** 2 + (track.pz[j2]! - pz) ** 2)
+              if (a.side !== b.side) continue
+              const ox = px + nx * side * hwI, oz = pz + nz * side * hwI
+              const ux = nx * side, uz = nz * side
+              const ex = b.x - a.x, ez = b.z - a.z
+              const den = ux * ez - uz * ex
+              if (Math.abs(den) < 1e-9) continue
+              const rx = a.x - ox, rz = a.z - oz
+              const tt = (rx * ez - rz * ex) / den
+              const lam = (rx * uz - rz * ux) / den
+              if (lam < -0.02 || lam > 1.02 || tt <= 0) continue
+              cap = tt
+              if (DEBUG_CAP !== null && Math.abs(si - DEBUG_CAP) < 3) console.info(`[gp-debug] cap s ${si.toFixed(1)} side ${side}: ${tt.toFixed(2)} from segment j ${sj.toFixed(0)}–${(j2 * ds).toFixed(0)} side ${a.side} W ${a.W.toFixed(1)}/${b.W.toFixed(1)} lam ${lam.toFixed(2)}${limited ? ' [limited]' : ''}`)
+            } else cap = d2 / (2 * dot) - hwI
+            const arr = raw[side]
+            if (cap < arr[i]!) { arr[i] = Math.max(FLAT_STRIP + 1, cap); partner[side][i] = j }
+          }
+        })
+      }
+    }
+    round()
+    // then rounds against the partner's extent AS IT WILL BE DRAWN (its own cap ∧ the last round's
+    // cap, slope-limited along s), until the caps settle: each side moves to the other's edge,
+    // and where both were short of their bisector the two would otherwise overshoot each other
+    const prevRaw = { 1: new Float32Array(n), '-1': new Float32Array(n) }
+    for (let it = 0; it < 6; it++) {
+      const lim = { 1: new Float32Array(n), '-1': new Float32Array(n) }
+      const step = EXTENT_SLOPE * ds
+      for (const side of [1, -1] as const) {
+        const w = lim[side]
+        for (let i = 0; i < n; i++) w[i] = Math.min(ownCap(i, side), raw[side][i]! - BISECTOR_MARGIN)
+        for (let pass = 0; pass < 2; pass++) {
+          for (let k = 1; k <= n; k++) {
+            const i = pass === 0 ? k % n : (n - k) % n
+            const j = pass === 0 ? (i - 1 + n) % n : (i + 1) % n
+            if (w[i]! > w[j]! + step) w[i] = w[j]! + step
+          }
         }
-      })
+        prevRaw[side].set(raw[side])
+      }
+      limited = lim
+      round()
+      let moved = 0
+      for (const side of [1, -1] as const) for (let i = 0; i < n; i++) moved = Math.max(moved, Math.abs(Math.min(raw[side][i]!, EXTENT_MAX) - Math.min(prevRaw[side][i]!, EXTENT_MAX)))
+      if (DEBUG_CAP !== null) console.info(`[gp-debug] bisector round ${it + 2}: caps moved by ${moved.toFixed(2)} m at most`)
+      if (moved < 0.05) break
     }
     // running min over ±10 m then a box smooth, clamped back to the bound (the fold-table idiom)
     const R = Math.round(10 / ds)
@@ -831,21 +1004,6 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   const bisectorPartner = (s: number, side: Side): number => partner[side][Math.round(track.wrap(s) / ds) % n]!
 
   // --- the extent: declared ∧ fold ∧ bisector ∧ crossover ------------------------------------------
-  const crossoverCap = (s: number): number => {
-    const d = Math.abs(signedDelta(sOver, s, L))
-    return DECK_SHOULDER + (EXTENT_MAX - DECK_SHOULDER) * smoothstep((d - 50) / 60)
-  }
-  // area rows that are lateral bands declare ground too (the paddock aprons)
-  const areaBands = GROUND_AREAS.flatMap((a) => ('band' in a.footprint ? [a.footprint] : []))
-  const areaOuter = (s: number, side: Side): number => {
-    let out = 0
-    for (const b of areaBands) {
-      if (b.band !== side) continue
-      if (forwardDelta(b.sRange[0], track.wrap(s), L) > forwardDelta(b.sRange[0], b.sRange[1], L)) continue
-      out = Math.max(out, Math.abs(b.lat[0]), Math.abs(b.lat[1]))
-    }
-    return out
-  }
   /**
    * How far the world rings reach along the station ray at s (m beyond the road edge), per metre
    * of the lap: an area that lies beside the road is rastered out to its far edge, not only to
@@ -859,18 +1017,63 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     const f = u - Math.floor(u)
     return t[i]! * (1 - f) + t[(i + 1) % t.length]! * f
   }
+  const nearCrossing = (s: number) => Math.abs(signedDelta(sOver, s, L)) < CROSS_WINDOW || Math.abs(signedDelta(sUnder, s, L)) < CROSS_WINDOW
   const extentParts = (s: number, side: Side) => {
     const hw = track.halfWidthAt(s)
-    const declared = Math.min(EXTENT_MAX, Math.max(VERGE_MIN, layout.declaredOuter(s, side) - hw, areaOuter(s, side) - hw, ringReachAt(s, side)))
+    let declared = Math.min(EXTENT_MAX, Math.max(VERGE_MIN, layout.declaredOuter(s, side) - hw, areaOuter(s, side) - hw, ringReachAt(s, side)))
+    const meet = bisectorCap(s, side)
+    // the crossover: the verge reaches the facing road's edge when it is within CROSS_BRIDGE beyond the declared width
+    if (meet < declared + CROSS_BRIDGE && nearCrossing(s)) declared = Math.max(declared, Math.min(EXTENT_MAX, meet))
     const fold = foldSafe(s, side)
-    const bis = bisectorCap(s, side) - BISECTOR_MARGIN
+    const bis = meet - BISECTOR_MARGIN
     const bridge = crossoverCap(s)
     return { declared, fold, bis, bridge }
   }
-  const extent = (s: number, side: Side): number => {
+  const extentRaw = (s: number, side: Side): number => {
     const p = extentParts(s, side)
     return Math.max(0, Math.min(p.declared, p.fold, p.bis, p.bridge))
   }
+  const capRaw = (s: number, side: Side): ResidueEntry['cap'] | null => {
+    const p = extentParts(s, side)
+    const w = Math.min(p.declared, p.fold, p.bis, p.bridge)
+    if (p.declared <= w + 1e-6) return null
+    if (w === p.bridge) return 'BRIDGE'
+    if (w === p.fold) return 'FOLD'
+    if (w === p.bis) return 'BISECTOR'
+    return 'WIDTH'
+  }
+  /*
+   * The extent per metre of the lap, SLOPE-LIMITED: it may grow or shrink by at most EXTENT_SLOPE
+   * metres per metre of s. Every cap used to step — a band's square end, the fold cap releasing
+   * within a row, the bridge ramp at 2.75 m/m — and the raster's extent edge across such a step was
+   * one triangle edge tens of metres long (33.7 m at the paddock's end). A ramp inherits the cap it
+   * ramps down to, so the stitch runs and the residue accounting still see it as that cap.
+   */
+  const extentTable = { 1: new Float32Array(Math.ceil(L)), '-1': new Float32Array(Math.ceil(L)) }
+  const capTable = { 1: new Int8Array(Math.ceil(L)), '-1': new Int8Array(Math.ceil(L)) }
+  const CAP_CODE: Record<string, number> = { BRIDGE: 3, FOLD: 1, BISECTOR: 2, WIDTH: 4 }
+  const CAP_NAME: (ResidueEntry['cap'] | null)[] = [null, 'FOLD', 'BISECTOR', 'BRIDGE', 'WIDTH']
+  const buildExtentTable = () => {
+    const N = extentTable[1].length
+    for (const side of [1, -1] as const) {
+      const w = extentTable[side], c = capTable[side]
+      for (let i = 0; i < N; i++) { w[i] = extentRaw(i, side); c[i] = CAP_CODE[capRaw(i, side) ?? ''] ?? 0 }
+      for (let pass = 0; pass < 2; pass++) {
+        for (let k = 1; k <= N; k++) {
+          const i = pass === 0 ? k % N : (N - k) % N
+          const j = pass === 0 ? (i - 1 + N) % N : (i + 1) % N
+          if (w[i]! > w[j]! + EXTENT_SLOPE) { w[i] = w[j]! + EXTENT_SLOPE; c[i] = c[j]! }
+        }
+      }
+    }
+  }
+  const tableAt = (tbl: Float32Array, s: number): number => {
+    const u = track.wrap(s)
+    const i = Math.floor(u) % tbl.length
+    const f = u - Math.floor(u)
+    return tbl[i]! * (1 - f) + tbl[(i + 1) % tbl.length]! * f
+  }
+  const extent = (s: number, side: Side): number => tableAt(extentTable[side], s)
   /** the station table the drawn extent reads; set once the stations are final */
   let drawnStations: Float64Array | null = null
   let drawnW: { 1: Float64Array; '-1': Float64Array } | null = null
@@ -900,15 +1103,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     if (lam < -0.05 || lam > 1.05 || tt < 0) return extent(s, side)
     return tt
   }
-  const extentCap = (s: number, side: Side): ResidueEntry['cap'] | null => {
-    const p = extentParts(s, side)
-    const w = Math.min(p.declared, p.fold, p.bis, p.bridge)
-    if (p.declared <= w + 1e-6) return null
-    if (w === p.bridge) return 'BRIDGE'
-    if (w === p.fold) return 'FOLD'
-    if (w === p.bis) return 'BISECTOR'
-    return 'WIDTH'
-  }
+  const extentCap = (s: number, side: Side): ResidueEntry['cap'] | null => CAP_NAME[capTable[side][Math.round(track.wrap(s)) % capTable[side].length]!] ?? null
 
   // --- world rings: areas by precedence, then the lanes ---------------------------------------------
   const rings: RingOwner[] = []
@@ -1004,27 +1199,57 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     }
   }
 
+  buildExtentTable()
+
   // --- stations ---------------------------------------------------------------------------------
   const wanted: number[] = []
-  const stats = { base: n, endpoints: 0, kinks: 0, tips: 0, crossings: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[] }
+  const stats = { base: n, endpoints: 0, kinks: 0, rows: 0, tips: 0, crossings: 0, snapped: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[] }
   lap('rings')
   for (let i = 0; i < n; i++) wanted.push(i * ds)
   const endpoint = (s: number) => { wanted.push(track.wrap(s)); stats.endpoints++ }
-  for (const k of kerbs) for (const s of [k.from, k.from + KERB_TAPER, k.to - KERB_TAPER, k.to]) endpoint(s)
+  // a kerb's end: the column-convergence zone outside the span, then the height ramp inside it in
+  // KERB_TAPER_STEPS rows — the ramp is (height profile) × (taper), bilinear across a cell, and a
+  // triangle chords a bilinear cell by ΔhΔt/9: the back cell's 85 mm × a whole 0.5 m ramp is 9 mm,
+  // eight rows (6.25 cm, above the 5 cm station thinning) bring it to 1.2 mm under the road frame's 2 mm
+  for (const k of kerbs) {
+    for (const s of [k.from - KERB_TAPER, k.from, k.to, k.to + KERB_TAPER]) endpoint(s)
+    for (let j = 1; j <= KERB_TAPER_STEPS; j++) { endpoint(k.from + (KERB_TAPER * j) / KERB_TAPER_STEPS); endpoint(k.to - (KERB_TAPER * j) / KERB_TAPER_STEPS) }
+  }
   for (const s of [pit.entryS, pit.entryS + PIT_TAPER, pit.exitS - PIT_TAPER, pit.exitS, pit.limitStartS - 40, pit.limitStartS - 40 + PIT_TAPER, pit.limitEndS - PIT_TAPER, pit.limitEndS, pit.entryS + pit.entryRamp, pit.exitS - pit.exitRamp]) endpoint(s)
   for (const r of runs) { endpoint(r.from); endpoint(r.to) }
   for (const s of [sOver - DECK_REACH, sOver - DECK_REACH + 0.1, sOver + DECK_REACH - 0.1, sOver + DECK_REACH, sOver - 19, sOver + 19]) endpoint(s)
   for (const s of opts.extraStations ?? []) endpoint(s)
-  // kinks of the ring-reach table: the extent is linear between integer metres, so a station at
+  // kinks of the extent table: the extent is linear between integer metres, so a station at
   // every metre where its slope changes makes the raster's extent chord follow it exactly (without
   // them the chord across a rise cut a corner off the raster, which no face covered)
   for (const side of [1, -1] as const) {
-    const r = ringReach[side]
+    const r = extentTable[side]
     const N = r.length
     for (let i = 0; i < N; i++) {
       const bend = r[(i + 1) % N]! - 2 * r[i]! + r[(i - 1 + N) % N]!
       if (Math.abs(bend) > 0.1) { endpoint(i); stats.kinks++ }
     }
+  }
+  // rows by their outer chord: on the outside of a bend the frame's Jacobian stretches a 2 m row
+  // to 6–8 m at the extent, and with 5 m fills the cell diagonal outgrows the terrain grid's half
+  // (the hairpin's outside, the chicane); such a row is halved until its chord is ≤ MAX_ROW_CHORD
+  {
+    const chord = (s0: number, s1: number, side: Side): number => {
+      track.pointAt(s0, side * (track.halfWidthAt(s0) + extent(s0, side)), _v, 0)
+      const x = _v.x, z = _v.z
+      track.pointAt(s1, side * (track.halfWidthAt(s1) + extent(s1, side)), _v, 0)
+      return Math.hypot(_v.x - x, _v.z - z)
+    }
+    const split = (s0: number, s1: number, depth: number) => {
+      if (depth > 4 || s1 - s0 < 0.5) return
+      if (chord(s0, s1, 1) <= MAX_ROW_CHORD && chord(s0, s1, -1) <= MAX_ROW_CHORD) return
+      const sm = (s0 + s1) / 2
+      endpoint(sm)
+      stats.rows++
+      split(s0, sm, depth + 1)
+      split(sm, s1, depth + 1)
+    }
+    for (let i = 0; i < n; i++) split(i * ds, (i + 1) * ds, 0)
   }
   // ring tips per side: the s extremes of the ring's vertices on that side of the road
   const ringSpan = new Map<RingOwner, { 1: [number, number] | null; '-1': [number, number] | null }>()
@@ -1056,18 +1281,19 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     ringSpan.set(r, span)
   }
 
-  let stations = dedupStations(wanted, L)
+  let stations = dedupStations(wanted, L, 0.05, ds)
   lap('stations')
 
   // --- owners (used by the columns to decide which of them are real boundaries) -------------------
   const hwOf = (s: number) => track.halfWidthAt(s)
   const pitSpanOf = pitLaneSpan(track, pit)
-  const ownerAtSL = (s: number, side: Side, off: number, inRaster = false): Owner => {
+  const ownerAtSL = (s: number, side: Side, off: number, inRaster = false, at?: { x: number; z: number }): Owner => {
     if (off < 0) return ROAD
     const hw = hwOf(s)
     const W = extentDrawn(s, side)
     if (off > W + 1e-6 && !inRaster) {
-      track.pointAt(s, side * (hw + off), _v, 0)
+      if (at) _v.set(at.x, 0, at.z)
+      else track.pointAt(s, side * (hw + off), _v, 0)
       let best: Owner | null = null
       for (const r of rings) if (inWorldRing(_v.x, _v.z, r.ring) && (!best || ownerBeats(r.owner, best))) best = r.owner
       return best ?? TERRAIN
@@ -1101,7 +1327,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     return h
   }
   const realCache = new Map<string, number>()
-  const kerbCache = new Map<string, { width: number; taper: number }>()
+  const kerbCache = new Map<string, { width: number; taper: number; spread: number }>()
   const kerbAtCached = (s: number, side: Side) => {
     const key = `${side}|${s.toFixed(3)}`
     let k = kerbCache.get(key)
@@ -1131,13 +1357,17 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     }
     col('edge', 'edge', null, () => 0)
     // kerb profile columns (collapsed at 0 where there is no kerb)
-    const kc = (s: number) => { const k = kerbAtCached(s, side); return kerbColumns(k.width, k.taper) }
+    const kc = (s: number) => { const k = kerbAtCached(s, side); return kerbColumns(k.width, k.spread) }
     col('kerb.ramp', 'kerb', null, (_i, s) => kc(s)[0])
     col('kerb.crown', 'kerb', null, (_i, s) => kc(s)[1])
     col('kerb.back', 'kerb', null, (_i, s) => kc(s)[2])
     col('kerb.out', 'kerb', null, (_i, s) => kc(s)[3])
     // the crossover deck shoulder
     col('deck.out', 'deck', null, (_i, s) => deckShoulderAt(track, s))
+    // the road plane's crossfall breaks at |lateral| = ROLL_CAP (track.ts rollLift: the full
+    // camber inside it, a fifth beyond): a road-frame cell straddling it — the pit lane at its
+    // entry — chorded the kink by 8 mm, so the kink is a column of its own
+    col('roll.cap', 'kink', null, (i, _s) => ROLL_CAP - hwA[i]!)
     // the pit lane and the garage apron (right side, over their windows; collapsed at 0 elsewhere)
     if (side < 0) {
       const pl = pitLaneSpan(track, pit)
@@ -1185,16 +1415,27 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         if (h.length > MAX_RING_INTERVALS) throw new Error(`[ground-plan] "${r.owner.name}" crosses one station ray ${h.length} times on side ${side} — split the row`)
         const next: Tr[] = []
         const used = new Set<number>()
-        for (const t of open) {
-          const last = t.iv[t.iv.length - 1]!
-          let best = -1, bo = 0
-          h.forEach((iv, k) => {
-            if (used.has(k)) return
-            const o = Math.min(iv[1], last[1]) - Math.max(iv[0], last[0])
-            if (o > bo || (best < 0 && o > -0.5 && o > bo - 0.5)) { best = k; bo = o }
-          })
-          if (best >= 0) { used.add(best); t.iv.push(h[best]!); t.end = i; next.push(t) }
-        }
+        // a track continues into the one interval it overlaps, when that interval overlaps no
+        // other track. Two tracks meeting one interval (a notch closing: the pit-in slip lane at
+        // s 5141.6) or one track meeting two (a notch opening) END here and the intervals start
+        // fresh tracks: continued, the survivor's in column jumped 4 m within a 2 cm row and no
+        // station could resolve the crossings it made (a 3.7 m residual, snapped)
+        const overlapOf = (iv: [number, number], last: [number, number]) => Math.min(iv[1], last[1]) - Math.max(iv[0], last[0])
+        const meets = (t: Tr): number[] => { const last = t.iv[t.iv.length - 1]!; const out: number[] = []; h.forEach((iv, k) => { if (overlapOf(iv, last) > 0.05) out.push(k) }); return out }
+        const hits = open.map(meets)
+        const tracksOn = h.map((_iv, k) => hits.filter((ks) => ks.includes(k)).length)
+        open.forEach((t, ti) => {
+          const ks = hits[ti]!
+          let best = -1
+          if (ks.length === 1 && tracksOn[ks[0]!] === 1) best = ks[0]!
+          else if (ks.length === 0) {
+            // no overlap: the interval that slid just past it, if that one is otherwise free
+            const last = t.iv[t.iv.length - 1]!
+            let bo = -0.5
+            h.forEach((iv, k) => { if (used.has(k) || tracksOn[k]! > 0) return; const o = overlapOf(iv, last); if (o > bo) { best = k; bo = o } })
+          }
+          if (best >= 0 && !used.has(best)) { used.add(best); t.iv.push(h[best]!); t.end = i; next.push(t) }
+        })
         h.forEach((iv, k) => { if (!used.has(k)) { const t: Tr = { start: i, end: i, iv: [iv] }; tracks.push(t); next.push(t) } })
         open = next
       }
@@ -1212,11 +1453,15 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
           const first = t.iv[0]!, last = t.iv[t.iv.length - 1]!
           const dAfter = rel(t.end, i), dBefore = rel(i, t.start)
           const edge = (dAfter < dBefore ? last : first)[which]
-          // ...snapped onto the fill column just inside that edge, so it coincides with a vertex
-          // the row has anyway and costs no cell of its own
-          if (which === 0) { let best = 0; for (const fo of FILL_OFFS) if (fo <= edge + 1e-6) best = fo; return best }
-          for (const fo of FILL_OFFS) if (fo >= edge - 1e-6) return fo
-          return EXTENT_MAX
+          // ...snapped onto the fill column just INSIDE the interval (the in edge up, the out edge
+          // down), so it coincides with a vertex the row has anyway and costs no cell of its own,
+          // and the parked pair never reaches past the ring: parked outward, the pair at the
+          // station before a tip spanned [fill below in, fill above out], and the row to the tip
+          // was a sliver of the ring's kind 2.5 m beyond it (the pit exit yard at s 103)
+          if (which === 0) { for (const fo of FILL_OFFS) if (fo >= edge - 1e-6) return fo; return edge }
+          let best = 0
+          for (const fo of FILL_OFFS) if (fo <= edge + 1e-6) best = fo
+          return best
         }
         // one station of margin either side so the tip vertex belongs to both adjacent rows
         const active: [number, number] = [(t.start - 1 + m) % m, (t.end + 1) % m]
@@ -1232,6 +1477,10 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         const o = c.off[i]!
         if (c.role === 'extent') { c.real[i] = 1; continue }
         if (o <= 0.005 || o >= W[i]! - 0.005) { c.real[i] = 0; continue }
+        // the kerb's profile columns are height breakpoints, not owner boundaries: a free one is
+        // dragged by whatever real column passes through the kerb (the asphalt band's edge at
+        // T1's exit, the chicane apron's edge) and the cell then chords the profile by 26–76 mm
+        if (c.role === 'kerb' || c.role === 'kink') { c.real[i] = 1; continue }
         const key = `${side}|${st[i]!.toFixed(3)}|${o.toFixed(3)}`
         let r = realCache.get(key)
         if (r === undefined) {
@@ -1258,10 +1507,12 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   /** how far the drawn boundary (the chord between stations) may stray from the plan's curve */
   const chordDebug = new Map<string, { n: number; max: number; at: number }>()
   const CHORD_TOL = 0.1
+  /** a crossing this close to a station (m along s) ties the two columns at the station instead of getting one of its own */
+  const SNAP_NEAR = 0.02
   /** ring outlines are polylines with a vertex every ~2 m: a looser bound keeps the station count sane */
   const CHORD_TOL_RING = 0.25
   /** rows shorter than this are slivers: no station is inserted inside them and their bow-ties are ignored */
-  const MICRO_ROW = 0.05
+  const MICRO_ROW = 0.01
   const tipRing = (colId: string): WorldRing | null => {
     const key = colId.replace(/#\d+\.(in|out)$/, '')
     const r = rings.find((q) => `${q.owner.kind}:${q.owner.name}` === key)
@@ -1269,7 +1520,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   }
   let sides = { 1: evalSide(1, stations), '-1': evalSide(-1, stations) }
   lap('eval0')
-  for (let pass = 0; pass < 6; pass++) {
+  for (let pass = 0; pass < 8; pass++) {
     const extra: number[] = []
     for (const side of [1, -1] as const) {
       const cols = sides[side].columns
@@ -1285,16 +1536,30 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
           for (let a = 0; a < cols.length; a++) {
             const c = cols[a]!
             if (!rowReal(c, i, j)) continue
-            // ring track ids are re-assigned on every evaluation, so their midpoint comparison is
-            // only meaningful on the first pass (later passes would match a different track)
-            if (c.role === 'ring' && pass > 0) continue
             const chord = (c.off[i]! + c.off[j]!) / 2
-            const mc = mid.get(c.id)
-            if (mc && Math.abs(mc.off[i]! - chord) > (c.role === 'ring' ? CHORD_TOL_RING : CHORD_TOL)) {
+            // a ring column is checked against the ring itself at the row's midpoint — the nearest
+            // edge of its intervals there — not against the midpoint evaluation's column of the
+            // same id: track ids are re-assigned per evaluation, and a merge or a tip renumbers
+            // them (the T1 pond's edge then kept a 1.7 m chord at s 150)
+            let dev = 0
+            if (c.role === 'ring') {
+              const ring = tipRing(c.id)
+              if (!ring) continue
+              const sm = track.wrap((s0 + s1) / 2)
+              const which = c.id.endsWith('.in') ? 0 : 1
+              dev = Infinity
+              for (const iv of rayHit(sm, side, ring, extent(sm, side))) dev = Math.min(dev, Math.abs(iv[which]! - chord))
+              if (dev === Infinity) continue
+            } else {
+              const mc = mid.get(c.id)
+              if (!mc) continue
+              dev = Math.abs(mc.off[i]! - chord)
+            }
+            if (dev > (c.role === 'ring' ? CHORD_TOL_RING : CHORD_TOL)) {
               extra.push(track.wrap((s0 + s1) / 2))
               stats.chord++
               stats.chordBy[c.role] = (stats.chordBy[c.role] ?? 0) + 1
-              if (c.role === 'ring' && pass === 0) { const k = c.id; const e = chordDebug.get(k) ?? { n: 0, max: 0, at: 0 }; e.n++; const dv = Math.abs(mc.off[i]! - chord); if (dv > e.max) { e.max = dv; e.at = s0 }; chordDebug.set(k, e) }
+              if (c.role === 'ring' && pass === 0) { const k = c.id; const e = chordDebug.get(k) ?? { n: 0, max: 0, at: 0 }; e.n++; const dv = dev; if (dv > e.max) { e.max = dv; e.at = s0 }; chordDebug.set(k, e) }
               break
             }
           }
@@ -1339,6 +1604,21 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
             const db = cols[a]!.off[j]! - cb.off[j]!
             if ((da > COLUMN_TIE && db < -COLUMN_TIE) || (da < -COLUMN_TIE && db > COLUMN_TIE)) {
               const t = da / (da - db)
+              // a crossing within SNAP_NEAR of a station is at that station: the two columns are
+              // tied there (a station a centimetre away would be thinned, and the crossing would
+              // then drag a fill or snap a real column metres aside — 8 m edges at the T1 pond)
+              const dI = t * (s1 - s0), dJ = (1 - t) * (s1 - s0)
+              const near = Math.min(dI, dJ) >= SNAP_NEAR ? -1 : dI <= dJ ? i : j
+              if (near >= 0) {
+                // the column that gives way: a fill, else the one that is not a kerb breakpoint, else the later one
+                const ca = cols[a]!
+                const mover = cb.role === 'fill' ? cb : ca.role === 'kerb' || ca.role === 'kink' ? cb : cb.role === 'kerb' || cb.role === 'kink' ? ca : cb
+                const other = mover === ca ? cb : ca
+                if ((globalThis as { GP_DEBUG_TIE?: boolean }).GP_DEBUG_TIE && Math.abs(mover.off[near]! - other.off[near]!) > 0.5) console.log(`[ground-plan] tie at s ${stations[near]!.toFixed(3)} side ${side}: ${mover.id} ${mover.off[near]!.toFixed(2)} → ${other.id} ${other.off[near]!.toFixed(2)} (row ${s0.toFixed(3)}→${s1.toFixed(3)}, t ${t.toFixed(3)})`)
+                mover.off[near] = other.off[near]!
+                stats.snapped++
+                continue
+              }
               extra.push(track.wrap(s0 + (s1 - s0) * t))
               stats.crossings++
             }
@@ -1351,9 +1631,12 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     // leftover crossings are not worth a full re-evaluation (≈ 0.5 s each) once there are few or
     // once a pass stops removing them (the same sub-5 cm crossings are found again and deduplicated
     // away): the snap below turns them into zero-width cells
-    const prev = stats.passes[stats.passes.length - 2]
-    if (extra.length < 40 || (prev !== undefined && extra.length > prev * 0.7)) break
-    stations = dedupStations([...stations, ...extra], L)
+    // crossings within the dedup distance of a station cannot add one: they are what the snap
+    // below turns into zero-width cells; the passes continue while the others still add stations
+    // (a crossing left over is a fill clamped 8 m aside — a long edge in the drawn cell)
+    const fresh = dedupStations([...stations, ...extra], L, 0.01, ds).length - stations.length
+    if (fresh === 0 || pass === 7) break
+    stations = dedupStations([...stations, ...extra], L, 0.01, ds)
     sides = { 1: evalSide(1, stations), '-1': evalSide(-1, stations) }
     lap('pass-eval')
   }
@@ -1371,9 +1654,13 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   let residual = 0
   let residualMax = 0
   const residualLog: string[] = []
-  for (const side of [1, -1] as const) {
+  // two sweeps: row i writes station i+1's columns, which row i+1 then orders — except at the
+  // wrap, where the last row writes station 0 after row 0 has already ordered it (a bow-tie cell
+  // at s 0 on the right, found in P5); the second sweep re-orders every row on the final values
+  for (const side of [1, -1] as const) for (let sweep = 0; sweep < 2; sweep++) {
     const cols = sides[side].columns
     const m = stations.length
+    // the second sweep re-orders on snapped values: what it snaps again is the same inversion
     for (let i = 0; i < m; i++) {
       const j = (i + 1) % m
       const rowLen = stations[j]! + (j === 0 ? L : 0) - stations[i]!
@@ -1385,19 +1672,23 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       // one is a residual (a crossing the passes above did not resolve)
       let maxReal = -Infinity
       let maxRealId = ''
+      let maxRealCol: Column | null = null
       for (let k = 0; k < order.length; k++) {
         const c = cols[order[k]!]!
         if (isFree(c, j)) { if (c.off[j]! < maxReal) c.off[j] = maxReal }
         else {
           if (c.off[j]! < maxReal - COLUMN_TIE) {
-            if (rowLen > MICRO_ROW) {
+            if (rowLen > MICRO_ROW && !sweep) {
               residual++
               residualMax = Math.max(residualMax, maxReal - c.off[j]!)
               if (maxReal - c.off[j]! > 0.05 && residualLog.length < 12) residualLog.push(`side ${side} s ${stations[i]!.toFixed(1)}→${stations[j]!.toFixed(1)}: ${c.id} ${c.off[i]!.toFixed(2)}→${c.off[j]!.toFixed(2)} under ${maxRealId} (${maxReal.toFixed(2)}) — snapped`)
             }
-            c.off[j] = maxReal
+            // a kerb breakpoint keeps its place (moved, the kerb's profile is chorded by 50 mm);
+            // the real column above it comes down to it instead
+            if ((c.role === 'kerb' || c.role === 'kink') && maxRealCol && maxRealCol.role !== 'kerb' && maxRealCol.role !== 'kink') { maxRealCol.off[j] = c.off[j]!; maxReal = c.off[j]! }
+            else c.off[j] = maxReal
           }
-          if (c.off[j]! > maxReal) { maxReal = c.off[j]!; maxRealId = c.id }
+          if (c.off[j]! > maxReal) { maxReal = c.off[j]!; maxRealId = c.id; maxRealCol = c }
         }
       }
       // (2) free columns above a following real one are lowered
@@ -1430,7 +1721,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     const hw = hwOf(p.s)
     if (Math.abs(p.lateral) <= hw) return ROAD
     const side: Side = p.lateral > 0 ? 1 : -1
-    return ownerAtSL(p.s, side, Math.abs(p.lateral) - hw)
+    return ownerAtSL(p.s, side, Math.abs(p.lateral) - hw, false, { x, z })
   }
 
   // --- residue: declared band beyond the extent that no ring covers ----------------------------
@@ -1532,16 +1823,21 @@ export function rayHitRing(track: Track, s: number, side: Side, r: WorldRing, W:
   const fx = ex + nx * W, fz = ez + nz * W
   if (Math.max(ex, fx) < b[0] || Math.min(ex, fx) > b[1] || Math.max(ez, fz) < b[2] || Math.min(ez, fz) > b[3]) return []
   const ts: number[] = []
+  // crossing-number rule: an edge crosses the line when its ends lie on different sides of it,
+  // a vertex ON the line counting as the negative side — so a vertex the line passes through is
+  // counted for exactly one of its two edges. Testing the edge parameter 0 ≤ u < 1 instead
+  // counted such a vertex twice or not at all (float noise), which flipped the parity of every
+  // crossing beyond it: the chicane apron's edge 0.2 m out, sampled 1 cm from one of its 1 m
+  // vertices, came back as [9.86, W] instead of [0.2, 9.86] at one station and the ring's columns
+  // jumped 6 m within a 2 cm row
   const cross = (ring: readonly Pt[]) => {
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
       const a = ring[j]!, c = ring[i]!
-      const dx = c.x - a.x, dz = c.z - a.z
-      const den = nx * dz - nz * dx
-      if (Math.abs(den) < 1e-12) continue
-      const rx = a.x - ex, rz = a.z - ez
-      const t = (rx * dz - rz * dx) / den
-      const u = (rx * nz - rz * nx) / den
-      if (u >= 0 && u < 1) ts.push(t)
+      const fa = (a.x - ex) * nz - (a.z - ez) * nx
+      const fc = (c.x - ex) * nz - (c.z - ez) * nx
+      if (fa > 0 === fc > 0) continue
+      const u = fa / (fa - fc)
+      ts.push((a.x - ex + (c.x - a.x) * u) * nx + (a.z - ez + (c.z - a.z) * u) * nz)
     }
   }
   cross(r.outer)
@@ -1564,14 +1860,34 @@ export function rayHitRing(track: Track, s: number, side: Side, r: WorldRing, W:
   return out.map(([a, c]): [number, number] => [Math.min(W, Math.max(0, a)), Math.min(W, Math.max(0, c))]).filter(([a, c]) => c - a > 1e-6)
 }
 
-function dedupStations(wanted: number[], L: number): Float64Array {
+/**
+ * Sort and thin a station list: stations closer than `tol` are one. The base set thins at 5 cm;
+ * crossing stations at 1 cm — a real boundary crossing a fill 2 cm past a station dragged the fill
+ * 5 m aside when the crossing was thinned away (an 8 m edge at the T1 pond's edge), and a 1 cm
+ * row is a sliver the snap ignores.
+ */
+function dedupStations(wanted: number[], L: number, tol: number, ds: number): Float64Array {
   const sorted = wanted.map((s) => ((s % L) + L) % L).sort((a, b) => a - b)
+  // the base stations — the track's own samples, every ds — are never dropped: the road's profile
+  // and roll are linear between samples, and a row that straddles one chords the kink there
+  // (2 mm at a kerb's back where a kerb station 3.6 cm short of a sample had displaced it). An
+  // inserted station stays beside a base one unless it is within a centimetre of it
+  const isBase = (s: number) => Math.abs(s / ds - Math.round(s / ds)) < 1e-6
   const out: number[] = []
-  for (const s of sorted) if (!out.length || s - out[out.length - 1]! > 0.05) out.push(s)
-  // the lap is closed: a station within the dedup distance of 0 duplicates the first one
-  if (out.length > 1 && L - out[out.length - 1]! <= 0.05) out.pop()
+  for (const s of sorted) {
+    if (!out.length) { out.push(s); continue }
+    const last = out[out.length - 1]!
+    const d = s - last
+    if (d > tol) { out.push(s); continue }
+    if (isBase(s)) { if (d > BASE_NEAR || isBase(last)) out.push(s); else out[out.length - 1] = s }
+    else if (isBase(last) && d > BASE_NEAR) out.push(s)
+  }
+  // the lap is closed: a station within a centimetre of 0 duplicates the first one
+  if (out.length > 1 && L - out[out.length - 1]! <= BASE_NEAR) out.pop()
   return Float64Array.from(out)
 }
+/** an inserted station closer than this to a base station is that station */
+const BASE_NEAR = 0.01
 
 /** index of the first station ≥ s (wrapping to 0 past the last one) */
 function indexAtOrAfter(stations: Float64Array, s: number): number {

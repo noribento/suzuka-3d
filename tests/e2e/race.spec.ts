@@ -58,6 +58,10 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(built.lineAttrs).toContain('aAcross')
     expect(built.lineAttrs).toContain('aHalf')
     expect(built.lineTris).toBeGreaterThan(5000)
+    // R1 at runtime: every judged point shows the owner the plan declares (the offline G1 census, thinned)
+    const census = await page.evaluate(() => (window as any).__suzuka.groundCensus())
+    expect(census.samples).toBeGreaterThan(20_000)
+    expect(census.mismatch, JSON.stringify(census.worst)).toBe(0)
     // E is two blocks on one hillside, C follows its front edge — neither is a chord slab any more
     expect(built.stands).toContain('stand-E1')
     expect(built.stands).toContain('stand-E2')
