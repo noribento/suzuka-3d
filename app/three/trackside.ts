@@ -387,7 +387,8 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
         const pts = f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
         const off = node.offset ?? 0
         const out: { x: number; z: number }[] = []
-        for (let i = 0; i < pts.length; i++) {
+        const [v0, v1] = node.verts ?? [0, pts.length - 1]
+        for (let i = Math.max(0, v0); i <= Math.min(pts.length - 1, v1); i++) {
           const a = pts[Math.max(0, i - 1)]!, b = pts[Math.min(pts.length - 1, i + 1)]!
           const dx = b.x - a.x, dz = b.z - a.z
           const inv = 1 / (Math.hypot(dx, dz) || 1)
@@ -428,8 +429,35 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
     for (const id of p.osm) {
       const f = byId.get(id)
       if (!f) continue
-      for (const [e, n] of f.en) {
-        const x = e * track.enScale, z = -n * track.enScale
+      let pts = f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
+      /*
+       * `grow`: the polygon offset outward by that many metres (each vertex along the mean of
+       * its two edge normals, the miter capped at twice the offset). Two OSM polygons that share
+       * an edge are digitised with slivers and notches between them (natural=sand 467386919 and
+       * landuse=grass 467386918 inside Degner 2 leave a 1–2 m strip of nobody's ground): the
+       * lower-layer one grown a metre closes it, and the higher layer keeps the visible edge.
+       */
+      if (p.grow && pts.length >= 3) {
+        let area2 = 0
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) area2 += pts[j]!.x * pts[i]!.z - pts[i]!.x * pts[j]!.z
+        const sign = area2 > 0 ? 1 : -1
+        const grown: { x: number; z: number }[] = []
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[(i - 1 + pts.length) % pts.length]!, b = pts[i]!, c = pts[(i + 1) % pts.length]!
+          const n1 = [b.z - a.z, -(b.x - a.x)], n2 = [c.z - b.z, -(c.x - b.x)]
+          const l1 = Math.hypot(n1[0]!, n1[1]!) || 1, l2 = Math.hypot(n2[0]!, n2[1]!) || 1
+          let nx = n1[0]! / l1 + n2[0]! / l2, nz = n1[1]! / l1 + n2[1]! / l2
+          const ln = Math.hypot(nx, nz)
+          if (ln < 1e-6) { grown.push(b); continue }
+          // the miter: 1 / cos(half angle), capped
+          const cosHalf = Math.max(0.5, ln / 2)
+          nx /= ln; nz /= ln
+          const d = (p.grow / cosHalf) * sign
+          grown.push({ x: b.x + nx * d, z: b.z + nz * d })
+        }
+        pts = grown
+      }
+      for (const { x, z } of pts) {
         const m = track.nearestOnRange(x, z, s0, s1, 60)
         if (p.latMax && Math.abs(m.lateral) > p.latMax) continue
         if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + gapAt(m.s, m.lateral >= 0 ? 1 : -1)) { atLat(m.s, m.lateral); continue }
@@ -484,6 +512,7 @@ export interface SurfacePatchLike {
   straight?: boolean
   latMax?: number
   minGap?: number
+  grow?: number
 }
 
 /**

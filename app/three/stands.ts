@@ -1587,6 +1587,8 @@ interface PolyZone {
 
 type ReliefZone = TrackZone | ChordZone | PolyZone
 
+/** a chord zone's claim fades to nothing over this many metres inside each edge of its v band */
+const V_FADE = 8
 function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile']): ChordZone {
   // the path's own bounding box, grown by the fades and the v band it claims
   const pad = Math.max(fade[0], fade[1]) + Math.max(Math.abs(vRange[0]), Math.abs(vRange[1]))
@@ -1751,8 +1753,9 @@ function reliefZones(track: Track): ReliefZone[] {
   }
 
   // main grandstand: the level fill platform behind V1 (GP Square) is ≈ 7.3 m above the track
-  // (no fade along s: the A1 temporary stand starts 5 m past its end at track level)
-  zones.push(zone([5560, 70], [0, 0], (_s, a) => {
+  // (5 m fades along s: the A1 temporary stand starts 5 m past its end at track level, and cut
+  // dead the platform's ends were 7 m walls in the height field)
+  zones.push(zone([5560, 70], [5, 5], (_s, a) => {
       if (a < 30) return null
       if (a < 38) return fill(ramp(a, 30, 0, 38, 7.3))
       if (a < 110) return fill(7.3)
@@ -1817,10 +1820,13 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       }
       if (!inside) continue
       const k = Math.min(1, edge / zone.bank)
-      const h = zone.shoreY + (zone.floorY - zone.shoreY) * (k * k * (3 - 2 * k))
+      // the bank is a WEIGHT over the floor, 0 at the shoreline: the ground descends from whatever
+      // it is at the rim (a hillside 4 m above the road plane at the T1 pond's back) to the floor
+      // over `bank` metres. A level shoreline at the road plane stepped 4 m down off that hill
+      // (G11: 90 drops, G5: 0.5 m jumps along the rim)
       // 'cap' so the basin only ever lowers the ground, and rank 0 so it wins over a stand platform
       if (out && outRank < 1) continue
-      out = [h, 1, 'cap']
+      out = [zone.floorY, k * k * (3 - 2 * k), 'cap']
       outRank = 1
       outD2 = edge * edge
       continue
@@ -1839,7 +1845,11 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       if (t >= 1) continue
       const r = zone.profile(uc, v)
       if (!r) continue
-      const w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
+      let w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
+      // ...and across the v band's two edges, over V_FADE metres inside them: cut hard, the E hill's
+      // plateau ended in an 11 m cliff at the band's edge (G5's worst jump)
+      const vIn = Math.min(v - zone.vRange[0], zone.vRange[1] - v)
+      if (vIn < V_FADE) { const q = vIn / V_FADE; w *= q * q * (3 - 2 * q) }
       const rank = r[3] ?? 1
       const d2 = v * v + endGap * endGap
       if (out && (rank > outRank || (rank === outRank && d2 >= outD2))) continue
@@ -1883,17 +1893,31 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
     const sBi = bi * track.ds
     const r = zone.profile(sBi, lateral)
     if (!r) continue
-    // fade the claim out past the stand's own ends
+    // the profile is read at a SAMPLE: between two samples the relief would step every 2 m (a
+    // sawtooth the faces chord by 40 mm), so it is blended with the neighbouring sample the point
+    // lies towards, by its distance along the tangent; a neighbour with no claim fades it out
+    const along = dx * track.tx[bi]! + dz * track.tz[bi]!
+    const bj = along >= 0 ? (bi + 1) % track.n : (bi - 1 + track.n) % track.n
+    const tt = Math.min(1, Math.abs(along) / track.ds)
+    let h = track.py[bi]! + r[0]
     let w = r[1]
-    if (forwardDelta(zone.core[0], sBi, L) > coreLen) {
-      const before = forwardDelta(sBi, zone.core[0], L), after = forwardDelta(zone.core[1], sBi, L)
+    if (tt > 0 && forwardDelta(zone.from, bj * track.ds, L) <= forwardDelta(zone.from, zone.to, L)) {
+      const dxj = x - track.px[bj]!, dzj = z - track.pz[bj]!
+      const rj = zone.profile(bj * track.ds, dxj * track.nx[bj]! + dzj * track.nz[bj]!)
+      if (rj && rj[2] === r[2]) { h += (track.py[bj]! + rj[0] - h) * tt; w += (rj[1] - w) * tt }
+      else w *= 1 - tt
+    }
+    // fade the claim out past the stand's own ends
+    const sAt = track.wrap(sBi + along)
+    if (forwardDelta(zone.core[0], sAt, L) > coreLen) {
+      const before = forwardDelta(sAt, zone.core[0], L), after = forwardDelta(zone.core[1], sAt, L)
       const t = before < after ? before / Math.max(1e-6, zone.fade[0]) : after / Math.max(1e-6, zone.fade[1])
       if (t >= 1) continue
       w *= 1 - t * t * (3 - 2 * t)
     }
     const rank = r[3] ?? 1
     if (out && (rank > outRank || (rank === outRank && best >= outD2))) continue
-    out = [track.py[bi]! + r[0], w, r[2]]
+    out = [h, w, r[2]]
     outRank = rank
     outD2 = best
   }

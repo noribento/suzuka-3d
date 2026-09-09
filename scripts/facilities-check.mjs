@@ -597,6 +597,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     let minOff = Infinity, minKerb = 0, minS = 0
     for (const q of ring) {
       const m = track.nearestOnRange(q.x, q.z, patch.sRange[0], patch.sRange[1], 60)
+      // a ring that passes under the crossover crosses the upper road's footprint in XZ (the
+      // Degner-side grass runs under the bridge): the deck zone is not a road edge it can respect
+      if (Math.min(arcLen(track.crossing.sOver, m.s), arcLen(m.s, track.crossing.sOver)) < 50) continue
       const off = Math.abs(m.lateral) - track.halfWidthAt(m.s)
       if (off < minOff) { minOff = off; minKerb = trackside.kerbWidthAt(track, m.s, m.lateral >= 0 ? 1 : -1); minS = m.s }
     }

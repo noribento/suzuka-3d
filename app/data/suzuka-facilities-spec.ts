@@ -1038,8 +1038,12 @@ export const RUNOFF_ZONES: RunoffZone[] = [
   // three separate beds down the Dunlop stretch, with grass between them and the link-road wedge
   { name: 'Dunlop entry trap', sRange: [1660, 1760], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [44, 50], gravel: [5.5, 44] }, source: 'osm' },
   { name: 'Dunlop trap', sRange: [1760, 1880], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 9], grass: [33, 40], gravel: [9, 33] }, source: 'osm' },
-  { name: 'Dunlop exit trap', sRange: [1880, 1945], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 14], grass: [26, 34], gravel: [14, 26] }, source: 'osm' },
-  { name: 'Dunlop exit → Degner', sRange: [1945, 2054], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [5.5, 25.5], gravel: null }, source: 'osm' },
+  // the gravel is declared 2 m PAST its OSM edge (26): from s 1893 OSM grass 467386918 (a
+  // GROUND_AREAS ring, which outranks the band) cuts it on that edge exactly, and a band edge
+  // declared on the same line crossed the ring's every few centimetres (column ties, bow-ties)
+  { name: 'Dunlop exit trap', sRange: [1880, 1945], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 14], grass: [28, 34], gravel: [14, 28] }, source: 'osm' },
+  // right grass to 24, the outer edge of OSM grass 467386918 at s 2041–2053 (25.5 left a 1 m strip beyond the ring)
+  { name: 'Dunlop exit → Degner', sRange: [1945, 2054], left: { asphalt: [0, 2.5], grass: [2.5, 7], gravel: null }, right: { asphalt: [0, 5.5], grass: [5.5, 24], gravel: null }, source: 'osm' },
   { name: 'Degner 1', sRange: [2054, 2076], left: { asphalt: [0, 4], grass: [9, 14], gravel: [4, 9] }, right: { asphalt: [0, 7.5], grass: [7.5, 25], gravel: null }, source: 'osm' },
   // the inside of Degner 1–2 is grass to the wall: the old 25–40 m band was drawn across the
   // wedge between the two roads and up the crossover embankment
@@ -1092,8 +1096,8 @@ export const PAINTED_APRONS: { name: string; sRange: [number, number]; side: Sid
 export type PatchNode =
   | [number, number]
   | { edge: Side; from: number; to: number; off?: number }
-  /** an OSM way's world polyline, `offset` metres to the LEFT of its own direction of travel */
-  | { way: number; offset?: number; reverse?: boolean }
+  /** an OSM way's world polyline, `offset` metres to the LEFT of its own direction of travel; `verts` = the vertex index range [first, last] to use (an open wall that runs on past the area) */
+  | { way: number; offset?: number; reverse?: boolean; verts?: [number, number] }
 
 
 /**
@@ -1115,7 +1119,7 @@ export type GroundFootprint =
   /** a hand / edge / way-node ring (PatchNode, resolved by trackside.ts patchOutline), measured in the row's s window */
   | { ring: PatchNode[]; sRange: [number, number]; straight?: boolean; minGap?: number }
   /** closed OSM way(s) */
-  | { osm: number[]; sRange: [number, number]; straight?: boolean; latMax?: number; minGap?: number }
+  | { osm: number[]; sRange: [number, number]; straight?: boolean; latMax?: number; minGap?: number; /** metres the polygon is grown outward (closes the slivers between OSM polygons that share an edge; pair with a lower `layer`) */ grow?: number }
   /** an OSM polyline swept `width` metres wide (the secondary paving) */
   | { way: number; width: number; sRange?: [number, number] }
   /** a lateral band on `side` from the centreline (the paddock aprons) */
@@ -1144,7 +1148,9 @@ export const GROUND_AREAS: GroundArea[] = [
   // Beyond the loop's kerb the aerial is warm-toned dirt, so the loop's outer kerb IS the edge.
   {
     name: 'シケイン舗装エプロン', kind: 'asphaltArea', layer: 0, source: 'photo',
-    footprint: { sRange: [5100, 5300], ring: [{ edge: 1, from: 5126, to: 5262, off: 0.2 }, { way: 183391653, offset: 5.0, reverse: true }] },
+    // off 0.25, not the default 0.2: the exit kerb's converging wedge crosses 0.20 exactly where
+    // this edge sits, and two boundaries meeting on one value are a bow-tie the snap counts
+    footprint: { sRange: [5100, 5300], ring: [{ edge: 1, from: 5126, to: 5262, off: 0.25 }, { way: 183391653, offset: 5.0, reverse: true }] },
     unverified: ['the 5.0 m offset is half the loop width + its kerb, read off the aerial (±1.5 m)'],
   },
   // the right side is paved out to the inner edge of OSM grass 467219900 (−9.9…−14.2). The outer
@@ -1156,7 +1162,9 @@ export const GROUND_AREAS: GroundArea[] = [
     footprint: {
       sRange: [5120, 5230],
       ring: [
-        { edge: -1, from: 5128, to: 5205, off: 0.2 },
+        // the edge run ends 1.5 m past the last hand point: a closing segment along one station's
+        // ray gave that ray a hair-thin interval and the ring's column a 1.5 m jump
+        { edge: -1, from: 5128, to: 5206.5, off: 0.2 },
         [5205, -12.5], [5195, -13.0], [5185, -14.0], [5175, -16.5], [5165, -16.5], [5155, -15.0],
         [5148, -24.0], [5140, -25.0], [5133, -16.0], [5128, -9.0],
       ],
@@ -1183,6 +1191,61 @@ export const GROUND_AREAS: GroundArea[] = [
   // OSM rings: 184005565 spans s 108-233 at lateral −54…−156, 132793884 s 414-543 at −26…−94.
   { name: 'T1 インフィールドの池', kind: 'water', source: 'osm', footprint: { osm: [184005565], sRange: [90, 250], straight: true } },
   { name: 'T1–T2 調整池', kind: 'water', source: 'osm', footprint: { osm: [132793884], sRange: [400, 560], straight: true } },
+  // --- the eyes of the tight bends: ground the swept frame cannot reach (the FOLD cap) ---------
+  // The hairpin is a left-hander of 21–24 m radius: its inside frame folds ~7 m out, and the eye
+  // beyond was 181 m² of declared band no raster could draw. In the 国土地理院 aerial the eye is:
+  // the chevron apron from the road to the low inner wall round the marshal post (the
+  // 'hairpin-inside' barrier run, +11…+13.5 m), then bare dirt with sparse grass out to the
+  // U-shaped outer wall (OSM 183999771, +17…+22 m). (s, lateral) is exact inside the inner wall
+  // (the inside edge's radius is 15–18 m); the outer wall bounds the eye in world XZ, vertices
+  // 0–10 (11–16 run on down the approach). The eye is one grass ring from the road edge to the
+  // outer wall; the apron is a higher layer cut out of it, stopping 0.3 m short of the wall line
+  // so the barrier stands on the dirt, not in the tarmac.
+  {
+    name: 'ヘアピンの目', kind: 'grassArea', source: 'photo',
+    footprint: { sRange: [2590, 2750], ring: [{ edge: 1, from: 2648, to: 2745, off: 0.2 }, { way: 183999771, offset: -0.5, verts: [0, 10] }] },
+    unverified: ['dirt with sparse grass at 0.27 m/px; drawn as grass (the season\'s dry look), not as gravel'],
+  },
+  {
+    name: 'ヘアピン内側エプロン', kind: 'asphaltArea', layer: 1, source: 'photo',
+    // the inner line every 4 m round the apex: a chord across the 10 m-radius arc cut the corner
+    // by 0.5 m and put the wall inside the apron
+    footprint: {
+      sRange: [2640, 2750],
+      ring: [
+        { edge: 1, from: 2648, to: 2745, off: 0.2 },
+        [2745, 12.2], [2734, 13.2], [2726, 12.4], [2718, 11.6], [2710, 11], [2704, 10.6], [2700, 10.6], [2696, 10.6], [2692, 10.6], [2688, 10.6], [2684, 10.6], [2680, 10.6], [2676, 10.6], [2672, 10.6], [2668, 10.6], [2664, 10.6], [2662, 10.6], [2656, 11.6], [2650, 12.6], [2648, 13.4],
+      ],
+    },
+    unverified: ['the inner wall line is the barrier run\'s samples less 0.4 m (aerial, ±1 m)'],
+  },
+  // The inside of Degner 1–2 (a right-hander pair) folds 8–9 m out; OSM landuse=grass 467386918
+  // is the grass from the road edge to the inner wall (−21…−27 m) and on round the crossover to
+  // the upper road (s 4800–4980): one polygon, so its window spans both stretches and the wedge
+  // between the two roads beyond the deck zone is its world part.
+  { name: 'デグナー内側〜立体交差の芝', kind: 'grassArea', source: 'osm', footprint: { osm: [467386918], sRange: [2035, 4980], straight: true } },
+  // OSM natural=sand 467386919 is 130R's outside trap AND the gravel that fills the triangle
+  // between the upper road (s 4620–4760), Degner 2's exit (s 2250–2290) and that grass: the
+  // crossover wedge beyond both roads' extents (G1 crossoverBare) is its world part.
+  // Grown 1 m and one layer under the grass: where OSM's sand and grass polygons share an edge
+  // they are digitised with slivers of nobody's ground between them (2.5 m would close the strip
+  // below as well, but folds the polygon at its concave corners).
+  { name: '130R 外側〜立体交差のグラベル', kind: 'gravelArea', layer: -1, source: 'osm', footprint: { osm: [467386919], sRange: [4600, 4980], straight: true, grow: 1 } },
+  // Inside Degner 2 the OSM sand stops 3.5 m short of the OSM grass (s 2197–2248): a strip of
+  // nobody's ground the aerial does not resolve (a path?). Its two long sides are the two
+  // polygons' own edges — vertices 52–53 of the grass, 37–38 of the sand — so it fits both
+  // exactly; its narrow end (s 2188–2197, under a metre) is the grown gravel's. Taken to the
+  // polygons' meeting point the strip ended in an acute tip that the station rays hit ambiguously
+  // (a 0.7 m column jump, a residual).
+  {
+    name: 'デグナー2内側の帯（砂と芝の間）', kind: 'gravelArea', layer: -2, source: 'osm',
+    footprint: { sRange: [2190, 2260], ring: [{ way: 467386918, verts: [52, 53] }, { way: 467386919, verts: [37, 38], reverse: true }] },
+    unverified: ['drawn as gravel; may be a service path'],
+  },
+  // The inside of T16 (right, 21–23 m radius) folds 3 m out; beyond the paved apron OSM
+  // landuse=grass 467219900 (−10…−40 m) is the grass to the tyre barriers. Layer −1: where the
+  // OSM polygon and the aerial-read apron overlap (127 m²), the apron's measured edge wins.
+  { name: 'シケイン右の芝', kind: 'grassArea', layer: -1, source: 'osm', footprint: { osm: [467219900], sRange: [5140, 5290], straight: true } },
 ]
 
 /** Debris-fence height in front of the stands: FIA-standard 3.5 m; Suzuka-specific heights UNVERIFIED. */

@@ -40,6 +40,9 @@ const ROAD_CUT = 0.12
 const FILL_SLOPE = 0.35
 /** Radius of the road-plane blend, metres. */
 const ROAD_R = 140
+// NOTE (P6): rounding the crease where the cap meets the ground (a smooth minimum over ±2 m)
+// was tried and reverted — the fillet's own curvature chorded the 2 m raster cells worse than
+// the crease did (the asphalt band's median deviation went 2.7 → 9.3 mm).
 /** Decay of the cross-fade towards the nearest road, metres: e^-5 for a road 30 m further away. */
 const ROAD_FALLOFF = 6
 

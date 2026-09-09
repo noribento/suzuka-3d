@@ -58,8 +58,8 @@ const ALLOWED_IMPORTS = [
 ]
 
 // ================================================================ phases and allowances
-const PHASE = 'P5'
-const PHASES = ['P0', 'P1', 'P2', 'P3a', 'P3b', 'P4', 'P5', 'P6']
+const PHASE = 'P6'
+const PHASES = ['P0', 'P1', 'P2', 'P3a', 'P3b', 'P4', 'P5', 'P6', 'P7']
 const phaseIdx = (p) => PHASES.indexOf(p)
 
 /**
@@ -68,47 +68,45 @@ const phaseIdx = (p) => PHASES.indexOf(p)
  * tiers (they build on different terrain grids).
  */
 const WHY = {
-  reliefEdge: 'facilityRelief (stands.ts) has hard edges — the chord-zone vRange cut, the GP Square platform ramp (7 m over 8 m, C0 kinks), the basin polygon edge, its own 2 m sample sawtooth — and a triangle straddling a kink deviates however small it is; ramps that are smooth are stands.ts work outside the ground modules (plan §6.6)',
-  residue: 'declared band cut by the swept frame (FOLD) that no ring fills; OSM_SAND rows fill it in P6',
-  ringMerge: 'the two-wheel pit-in slip lane\'s ring gives two ray intervals that merge within a 1 cm row (s 5141.6): the track keeps the merged interval and its column jumps 4 m at that station, snapped to the other column — a 0.04 m² sliver; P6 splits the lane row at the mouth',
-  crossWedge: 'beside the upper road just beyond its deck zone the ground is bounded by three raster edges — the upper road\'s verge ramping out of the deck cap, the lower road\'s verge capped at its own bisector with Degner 2\'s exit, and the crossover strip — and the pocket between them is bare terrain by the geometry; P6 gives it a row (grass area) like the fold residues',
-  decalBare: 'a painted band declared over ground no face draws: the hairpin\'s inside apron beyond the fold-capped raster (residue hairpin|L, the P6 rows) and the 130R outside green strip (KERBS) from s 4705, beside the bridge approach where the road is on its embankment — the strip is not drawn there; P6 checks the row against the aerial',
+  fieldCells:
+    'field-frame faces on ground that curves — the DEM\'s own slopes, the crease where a fill cap meets the natural ground (a hard min, FILL_SLOPE 0.35), the basin banks, the GP Square ramp (7 m over 8 m) — are 2 m raster rows × fill columns and 1 m world triangles: their centroids chord the field by 40–230 mm and their planes tilt > 10° from it. Walls and terrace steps (slope > 45°) are already left out as cliffs. The fix is refining the raster where the field curves (1 m rows and fills there, +triangles), P7. Rounding the cap crease over ±2 m was tried in P6 and reverted (the fillet chorded worse)',
+  reliefJoin:
+    'facilityRelief (stands.ts) still has joins without a blend: the E1 / E2 chord zones meet with an 11 m step (s 1581 L), the D / E tiers, and the pit-building paddock platform ends on the bisector with the NIPPO stretch as a 1.6 m step (G11 paddock). P6 gave the chord zones v-fades, the basins banks from the local ground and the sample zones along-s interpolation (G11 water 90 → 0, grass 48 → 0, G5 564 → 306); the joins are P7',
+  osmGap:
+    'beside the lower road at the crossover (s 2352–2355 L, 30 m out) a few square metres between the OSM sand and grass polygons are nobody\'s ground beyond both roads\' rasters; the same class of gap inside Degner 2 was closed in P6 with a strip ring on the two polygons\' own edges (GROUND_AREAS デグナー2内側の帯) — this one wants the same look at the aerial, P7',
 }
+
+/**
+ * Non-zero allowances. Each names its guard and key, the bound the run must stay within, why the
+ * ground is allowed to measure that way and the phase by which it must be gone: once PHASE
+ * reaches `until` the entry fails the run. There are no numeric baselines (R13).
+ */
 const ALLOWANCES = [
-  { guard: 'G3', key: "ground:asphaltArea", bound: 1.1, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:asphaltBand", bound: 0.8, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:grass", bound: 5.85, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:gravelBand", bound: 1.91, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:helipad", bound: 12.39, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:lane", bound: 0.03, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:paddock", bound: 10.13, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "ground:water", bound: 7, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:asphaltArea.steep", bound: 114, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:asphaltBand.steep", bound: 356, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:grass.steep", bound: 2032, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:gravelBand.steep", bound: 45, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:helipad.steep", bound: 110, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:lane.steep", bound: 186, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:paddock.steep", bound: 4095, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:turf.steep", bound: 12, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G4', key: "ground:water.steep", bound: 1300, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G5', key: "jumps", bound: 591, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G10', key: "chicane approach|R", bound: 3, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "chicane T16–T17|R", bound: 208, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "Degner 1 → 2|R", bound: 13, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "Degner 1|R", bound: 210, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "Degner 2|R", bound: 230, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "Dunlop exit → Degner|R", bound: 110, why: WHY.residue, until: 'P6' },
-  { guard: 'G10', key: "hairpin|L", bound: 191, why: WHY.residue, until: 'P6' },
-  { guard: 'G11', key: "ground:grass", bound: 60, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G11', key: "ground:water", bound: 95, why: WHY.reliefEdge, until: 'P6' },
-  // the pit-building paddock platform ends on the bisector with the NIPPO stretch: the field is the
-  // platform on one side of the line and the hillside 1.6 m up on the other, and the part's edge
-  // vertex sits on the line itself (P6: a ramp at the platform's far edge, stands.ts)
-  { guard: 'G11', key: "ground:paddock", bound: 1, why: WHY.reliefEdge, until: 'P6' },
-  { guard: 'G3', key: "decal.paintedAprons.bare", bound: 99, why: WHY.decalBare, until: 'P6' },
-  { guard: 'G1', key: "crossoverBare", bound: 1100, why: WHY.crossWedge, until: 'P6' },
-  { guard: 'G12', key: "residual", bound: 1, why: WHY.ringMerge, until: 'P6' },
+  // --- 2 m cells on curved ground (P7: refine where the field curves) ---------------------------
+  { guard: 'G3', key: "ground:asphaltArea", bound: 0.7, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:asphaltBand", bound: 0.65, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:grass", bound: 4.4, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:grassArea", bound: 1.25, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:gravelArea", bound: 7.5, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:gravelBand", bound: 1.55, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:paddock", bound: 0.55, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:water", bound: 6.7, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:asphaltArea.steep", bound: 70, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:asphaltBand.steep", bound: 280, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:grass.steep", bound: 1400, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:grassArea.steep", bound: 35, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:gravelArea.steep", bound: 65, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:gravelBand.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:helipad.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:lane.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:paddock.steep", bound: 2000, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:turf.steep", bound: 8, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:water.steep", bound: 770, why: WHY.fieldCells, until: 'P7' },
+  // --- relief joins (P7: stands.ts) ---------------------------------------------------------------
+  { guard: 'G5', key: "jumps", bound: 330, why: WHY.reliefJoin, until: 'P7' },
+  { guard: 'G11', key: "ground:paddock", bound: 1, why: WHY.reliefJoin, until: 'P7' },
+  // --- an OSM gap at the crossover (P7: a strip ring) --------------------------------------------
+  { guard: 'G1', key: "crossoverBare", bound: 12, why: WHY.osmGap, until: 'P7' },
 ]
 
 // ================================================================ CLI
@@ -520,13 +518,16 @@ if (runs('G1')) {
   // point must still have a face — the lower road's raster stops at the upper road's edge and the
   // upper road's verge ramps out beyond its deck zone (ground-plan DECK_ZONE); a point with no
   // face there is a wedge of bare terrain between the two rasters. The upper road's deck zone
-  // itself (the embankment) is bare by design and skipped.
+  // itself (the embankment) is bare by design and skipped — with the ramps on either side of it,
+  // where the raster narrows to the deck shoulder at EXTENT_SLOPE: the ground beside the ramp is
+  // the embankment's slope, and the two rasters' boundaries cross each other in XZ there, so no
+  // ring's part can be traced round it (a band on the upper road's frame was tried: untraced)
   let crossBare = 0
   const crossBareAt = []
   for (const [sc, isUpper] of [[sOver, true], [sUnder, false]]) {
     for (let d = -115; d <= 115; d += 1) {
       const s = track.wrap(sc + d)
-      if (isUpper && Math.abs(d) < planMod.DECK_ZONE) continue
+      if (isUpper && Math.abs(d) < planMod.DECK_ZONE + (planMod.VERGE_MIN - planMod.DECK_SHOULDER) / planMod.EXTENT_SLOPE) continue
       const hw = track.halfWidthAt(s)
       for (const side of [1, -1]) {
         const W = plan.extentDrawn(s, side)
@@ -651,9 +652,20 @@ if (runs('G2')) {
 
 // ================================================================ G3 — deviation from the declared frame
 if (runs('G3')) {
-  guardStart('G3', 'deviation — face centroid vs its declared frame (road plane ≤ 2 mm, height field ≤ 40 mm)')
+  guardStart('G3', 'deviation — face centroid vs its declared frame (road plane ≤ 2 mm, height field ≤ 40 mm where the field is walkable: a wall or a step in the relief, slope > 45°, is a cliff and not judged)')
   const rows = []
-  console.log('    face                   frame   n        p50 mm  p99 mm   max mm   beyond    skipped  worst (one per 20 m)')
+  /**
+   * whether a triangle stands on a cliff: the field read at its three corners and its centroid
+   * spans more than its longest edge (slope > 45°). A triangle straddling a retaining wall or a
+   * terrace step deviates by the step, not by a chord; read at the centroid alone, a wall 0.3 m
+   * from the centroid went unseen
+   */
+  const onCliff = (T, o) => {
+    const ys = [ground.field.y(T[o], T[o + 2]), ground.field.y(T[o + 3], T[o + 5]), ground.field.y(T[o + 6], T[o + 8]), ground.field.y((T[o] + T[o + 3] + T[o + 6]) / 3, (T[o + 2] + T[o + 5] + T[o + 8]) / 3)]
+    const longest = Math.max(Math.hypot(T[o + 3] - T[o], T[o + 5] - T[o + 2]), Math.hypot(T[o + 6] - T[o + 3], T[o + 8] - T[o + 5]), Math.hypot(T[o] - T[o + 6], T[o + 2] - T[o + 8]))
+    return Math.max(...ys) - Math.min(...ys) > Math.max(0.25, longest)
+  }
+  console.log('    face                   frame   n        p50 mm  p99 mm   max mm   beyond    skipped  cliff   worst (one per 20 m)')
   for (const face of faces) {
     const T = face.T
     const frame = face.frame
@@ -662,7 +674,7 @@ if (runs('G3')) {
     const devs = []
     const worst = []
     const dumpRows = []
-    let skipped = 0
+    let skipped = 0, cliff = 0
     for (let t = 0; t < face.tris; t++) {
       if (!face.live[t]) continue
       const o = t * 9
@@ -670,6 +682,7 @@ if (runs('G3')) {
       const d = sOf(x, z)
       if (!d) { skipped++; continue }
       if (inCross(d.s)) { skipped++; continue }
+      if (frame !== 'road' && onCliff(T, o)) { cliff++; continue }
       let expected
       if (frame === 'road') {
         const c = roadProject(x, z, d)
@@ -699,8 +712,8 @@ if (runs('G3')) {
     const q = (p) => (n ? devs[Math.min(n - 1, Math.floor(p * n))] : 0)
     const beyond = devs.filter((v) => v > limit).length
     const pct = n ? (100 * beyond) / n : 0
-    rows.push({ name: face.name, frame, n, p50: q(0.5), p99: q(0.99), max: n ? devs[n - 1] : 0, pct, beyond, skipped, worst })
-    console.log(`    ${padE(face.name, 22)} ${padE(frame, 6)} ${pad(n, 8)}  ${pad(fmt(q(0.5) * 1000, 1), 7)} ${pad(fmt(q(0.99) * 1000, 1), 7)}  ${pad(fmt((n ? devs[n - 1] : 0) * 1000, 0), 7)}  ${pad(fmt(pct, 2), 6)} %  ${pad(skipped, 7)}  ${worst.map((w) => `s${Math.round(w.s)} lat${Math.round(w.lat)} ${Math.round(w.dev * 1000)}mm·${secShort(w.s)}`).join(' ')}`)
+    rows.push({ name: face.name, frame, n, p50: q(0.5), p99: q(0.99), max: n ? devs[n - 1] : 0, pct, beyond, skipped, cliff, worst })
+    console.log(`    ${padE(face.name, 22)} ${padE(frame, 6)} ${pad(n, 8)}  ${pad(fmt(q(0.5) * 1000, 1), 7)} ${pad(fmt(q(0.99) * 1000, 1), 7)}  ${pad(fmt((n ? devs[n - 1] : 0) * 1000, 0), 7)}  ${pad(fmt(pct, 2), 6)} %  ${pad(skipped, 7)} ${pad(cliff, 6)}  ${worst.map((w) => `s${Math.round(w.s)} lat${Math.round(w.lat)} ${Math.round(w.dev * 1000)}mm·${secShort(w.s)}`).join(' ')}`)
   }
   out.guards.G3 = rows.map((r) => ({ ...r, p50: Math.round(r.p50 * 1000), p99: Math.round(r.p99 * 1000), max: Math.round(r.max * 1000) }))
   for (const r of rows) check('G3', r.name, Number(fmt(r.pct, 2)), 0, `(${r.frame} frame, p99 ${fmt(r.p99 * 1000, 0)} mm, max ${fmt(r.max * 1000, 0)} mm)`, 'pct')
@@ -824,7 +837,12 @@ if (runs('G3')) {
 
 // ================================================================ G4 — mesh quality
 if (runs('G4')) {
-  guardStart('G4', 'quality — zero-area triangles, zero normals on drawn vertices, field-frame faces tilted > 10° away from the field')
+  guardStart('G4', 'quality — zero-area triangles, zero normals on drawn vertices, field-frame faces tilted > 10° away from the field (on walkable field: a cliff\'s normal is not the ground\'s)')
+  const onCliffAt = (T, o) => {
+    const ys = [ground.field.y(T[o], T[o + 2]), ground.field.y(T[o + 3], T[o + 5]), ground.field.y(T[o + 6], T[o + 8]), ground.field.y((T[o] + T[o + 3] + T[o + 6]) / 3, (T[o + 2] + T[o + 5] + T[o + 8]) / 3)]
+    const longest = Math.max(Math.hypot(T[o + 3] - T[o], T[o + 5] - T[o + 2]), Math.hypot(T[o + 6] - T[o + 3], T[o + 8] - T[o + 5]), Math.hypot(T[o] - T[o + 6], T[o + 2] - T[o + 8]))
+    return Math.max(...ys) - Math.min(...ys) > Math.max(0.25, longest)
+  }
   console.log('    face                    tris   zero-area   zero-normal   off-field>10°  worst   slivers<0.01m²')
   const rows = []
   const normalMemo = new Map()
@@ -859,6 +877,7 @@ if (runs('G4')) {
       if (!judged) continue
       const d = sOf((ax + bx + cx) / 3, (az + bz + cz) / 3)
       if (d && inCross(d.s)) continue
+      if (onCliffAt(T, o)) continue
       const fn = fieldNormal((ax + bx + cx) / 3, (az + bz + cz) / 3)
       const dot = Math.abs((nx * fn[0] + ny * fn[1] + nz * fn[2]) / len)
       const tilt = (Math.acos(Math.min(1, dot)) * 180) / Math.PI

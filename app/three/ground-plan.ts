@@ -1610,9 +1610,19 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
               const dI = t * (s1 - s0), dJ = (1 - t) * (s1 - s0)
               const near = Math.min(dI, dJ) >= SNAP_NEAR ? -1 : dI <= dJ ? i : j
               if (near >= 0) {
-                // the column that gives way: a fill, else the one that is not a kerb breakpoint, else the later one
+                // the column that gives way: a fill, else the one that is not a kerb breakpoint, else
+                // the one whose move does not cross its own partner (a ring's .out tied onto a band
+                // edge below the ring's .in inverted the pair — a bow-tie the snap then counted),
+                // else the later one
                 const ca = cols[a]!
-                const mover = cb.role === 'fill' ? cb : ca.role === 'kerb' || ca.role === 'kink' ? cb : cb.role === 'kerb' || cb.role === 'kink' ? ca : cb
+                const partnerOf = (c: Column): Column | undefined => (c.role === 'ring' ? cols.find((d) => d.id === (c.id.endsWith('.in') ? c.id.slice(0, -3) + '.out' : c.id.slice(0, -4) + '.in')) : undefined)
+                const inverts = (c: Column, v: number): boolean => { const p = partnerOf(c); if (!p) return false; return c.id.endsWith('.in') ? v > p.off[near]! + COLUMN_TIE : v < p.off[near]! - COLUMN_TIE }
+                let mover = cb.role === 'fill' ? cb : ca.role === 'kerb' || ca.role === 'kink' ? cb : cb.role === 'kerb' || cb.role === 'kink' ? ca : cb
+                if (mover.role !== 'fill' && inverts(mover, (mover === ca ? cb : ca).off[near]!)) {
+                  const alt = mover === ca ? cb : ca
+                  if (alt.role !== 'kerb' && alt.role !== 'kink' && !inverts(alt, mover.off[near]!)) mover = alt
+                  else { extra.push(track.wrap(s0 + (s1 - s0) * t)); stats.crossings++; continue }
+                }
                 const other = mover === ca ? cb : ca
                 if ((globalThis as { GP_DEBUG_TIE?: boolean }).GP_DEBUG_TIE && Math.abs(mover.off[near]! - other.off[near]!) > 0.5) console.log(`[ground-plan] tie at s ${stations[near]!.toFixed(3)} side ${side}: ${mover.id} ${mover.off[near]!.toFixed(2)} → ${other.id} ${other.off[near]!.toFixed(2)} (row ${s0.toFixed(3)}→${s1.toFixed(3)}, t ${t.toFixed(3)})`)
                 mover.off[near] = other.off[near]!
@@ -1681,7 +1691,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
             if (rowLen > MICRO_ROW && !sweep) {
               residual++
               residualMax = Math.max(residualMax, maxReal - c.off[j]!)
-              if (maxReal - c.off[j]! > 0.05 && residualLog.length < 12) residualLog.push(`side ${side} s ${stations[i]!.toFixed(1)}→${stations[j]!.toFixed(1)}: ${c.id} ${c.off[i]!.toFixed(2)}→${c.off[j]!.toFixed(2)} under ${maxRealId} (${maxReal.toFixed(2)}) — snapped`)
+              if ((maxReal - c.off[j]! > 0.05 || (globalThis as { GP_DEBUG_RESIDUAL?: boolean }).GP_DEBUG_RESIDUAL) && residualLog.length < 12) residualLog.push(`side ${side} s ${stations[i]!.toFixed(1)}→${stations[j]!.toFixed(1)}: ${c.id} ${c.off[i]!.toFixed(2)}→${c.off[j]!.toFixed(2)} under ${maxRealId} (${maxReal.toFixed(2)}) — snapped`)
             }
             // a kerb breakpoint keeps its place (moved, the kerb's profile is chorded by 50 mm);
             // the real column above it comes down to it instead

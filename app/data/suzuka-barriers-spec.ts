@@ -183,7 +183,9 @@ export const KERBS: KerbDef[] = [
   { name: 'Degner straight green', sRange: [2100, 2290], side: 1, kind: 'green', width: 1.5, unverified: ['paint vs grass'] },
   { name: 'Spoon outside turf', sRange: [3555, 3920], side: -1, kind: 'green', width: 2.2 },
   { name: 'Spoon exit inside green', sRange: [3860, 3935], side: 1, kind: 'green', width: 1.2 },
-  { name: '130R outside green', sRange: [4705, 4800], side: -1, kind: 'green', width: 4.0 },
+  // from the end of the deck zone: on the bridge and its embankment (s 4663–4763) the only ground
+  // face is the 1.2 m deck shoulder, and a strip beyond it had nothing to lie on
+  { name: '130R outside green', sRange: [4765, 4800], side: -1, kind: 'green', width: 4.0, unverified: ['whether the strip runs onto the bridge'] },
   { name: 'T18 exit green', sRange: [5370, 5420], side: 1, kind: 'green', width: 1.2, unverified: ['absent in the 2017–20 aerial'] },
 ]
 
