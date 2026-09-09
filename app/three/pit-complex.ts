@@ -2,15 +2,12 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { DRIVERS, TEAMS } from '~/data/drivers'
 import {
-  SEASON,
   BUILDINGS, COLOURS, GARAGE_ORDER, LEADER_TOWER, PIT_BUILDING, PIT_GARAGE_COUNT, PIT_GARAGE_PITCH, PIT_WALL, PRAT_PERCH, SCREENS, garageS,
 } from '~/data/suzuka-facilities-spec'
-import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_WATER, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
-import { BASINS } from '~/data/suzuka-barriers-spec'
+import { OSM_BUILDINGS, OSM_PIT_BUILDING, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
-import { LAYER } from './ground'
-import { addMacro, profileRibbonGeometry, ribbonGeometry } from './track-mesh'
+import { profileRibbonGeometry, ribbonGeometry } from './track-mesh'
 import { bucketedInstancedMeshes } from './instancing'
 import { cutoutParams, pbrFromAssets } from './materials'
 import { EMISSIVE, emissiveScale } from './emissive'
@@ -585,37 +582,6 @@ function meshTexture(k: number): THREE.Texture {
   return t
 }
 
-function helipadTexture(k: number): THREE.Texture {
-  const w = 256
-  const { c, ctx } = canvas(w, w, k)
-  ctx.fillStyle = '#6f7275'
-  ctx.fillRect(0, 0, w, w)
-  ctx.strokeStyle = '#f4f4f2'
-  ctx.lineWidth = 10
-  ctx.beginPath()
-  ctx.arc(w / 2, w / 2, w * 0.44, 0, Math.PI * 2)
-  ctx.stroke()
-  label(ctx, 'H', w / 2, w / 2, 150, '#f4f4f2', 900)
-  return tex(c, THREE.ClampToEdgeWrapping)
-}
-
-/** Plain paddock asphalt: grey noise so the macro-variation patch has a map to modulate. */
-function asphaltTexture(k: number): THREE.Texture {
-  const w = 256
-  const { c, ctx } = canvas(w, w, k)
-  const img = ctx.createImageData(c.width, c.height)
-  let seed = 12345
-  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = 96 + rnd() * 26
-    img.data[i] = v
-    img.data[i + 1] = v + 1
-    img.data[i + 2] = v + 3
-    img.data[i + 3] = 255
-  }
-  ctx.putImageData(img, 0, 0)
-  return tex(c)
-}
 
 // ---------------------------------------------------------------- the builder
 
@@ -655,7 +621,6 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
   const boardMat = (map: THREE.Texture, emissive = 0) =>
     new THREE.MeshStandardMaterial({ map, roughness: 0.45, ...(emissive ? { emissive: 0xffffff, emissiveMap: map, emissiveIntensity: emissive * emissiveScale() } : {}) })
   const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 })
-  const waterMat = new THREE.MeshStandardMaterial({ color: 0x2f4d58, roughness: 0.08, metalness: 0.55 })
 
   const add = (geos: THREE.BufferGeometry[], mat: THREE.Material, name: string, cast: boolean): THREE.Mesh | null => {
     if (!geos.length) return null
@@ -1137,76 +1102,10 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     boxes.instanced(perch.length, 0.1, perch.height - 0.9, backs, 0.5, false, 'perchBacks')
   }
 
-  // --- helipad beside the final-corner end (aerial: the H sits west of the pod nose) ------------------
+  // --- paddock: footprint buildings, prefabs, transporters, tents, flags, car park ------------------
+  // (the asphalt aprons behind the building and around the medical centre are the `paddock` rows
+  // of GROUND_AREAS, drawn by ground-mesh.ts on the field; the helipad is its `helipad` row)
   {
-    // The spec's HELIPAD record (s 200, lateral −48) is the 2009 dossier's guess; the GSI aerial
-    // shows the H next to the rounded final-corner end, so it is placed there.
-    const hs = 5566, hl = -78, r = 8
-    // Built in the lap's own frame and draped, not as a flat CircleGeometry with an Object3D
-    // transform. Two reasons: the transform left the geometry at the origin, so the terrain clamp
-    // and the audit both read the wrong positions; and the ground under it falls 4.4 m across the
-    // disc, so a flat pad would have needed a 1.6 m bowl carved under it to stay visible.
-    const RINGS = 4, SEGS = 40
-    const padPos: number[] = []
-    const padUv: number[] = []
-    const padIdx: number[] = []
-    const padAt = (ds: number, dl: number) => {
-      const y = ground.yAt(track.wrap(hs + ds), hl + dl) + LAYER.mesh.helipad
-      track.pointAt(track.wrap(hs + ds), hl + dl, _p, y)
-      padPos.push(_p.x, _p.y, _p.z)
-      padUv.push(0.5 + ds / (2 * r), 0.5 + dl / (2 * r))
-    }
-    padAt(0, 0)
-    for (let ring = 1; ring <= RINGS; ring++) {
-      const rr = (r * ring) / RINGS
-      for (let a = 0; a < SEGS; a++) padAt(rr * Math.cos((a / SEGS) * Math.PI * 2), rr * Math.sin((a / SEGS) * Math.PI * 2))
-    }
-    for (let a = 0; a < SEGS; a++) padIdx.push(0, 1 + a, 1 + ((a + 1) % SEGS))
-    for (let ring = 1; ring < RINGS; ring++) {
-      const inner = 1 + (ring - 1) * SEGS, outer = inner + SEGS
-      for (let a = 0; a < SEGS; a++) {
-        const b = (a + 1) % SEGS
-        padIdx.push(inner + a, outer + a, inner + b, inner + b, outer + a, outer + b)
-      }
-    }
-    const padGeo = new THREE.BufferGeometry()
-    padGeo.setAttribute('position', new THREE.Float32BufferAttribute(padPos, 3))
-    padGeo.setAttribute('uv', new THREE.Float32BufferAttribute(padUv, 2))
-    padGeo.setIndex(padIdx)
-    padGeo.computeVertexNormals()
-    const pad = new THREE.Mesh(padGeo, boardMat(helipadTexture(k)))
-    pad.name = 'helipad'
-    pad.receiveShadow = true
-    group.add(pad)
-    ctx.terrain.addGroundSurface(padGeo, { name: 'helipad', maxDrop: 12 })
-  }
-
-  // --- paddock: asphalt aprons, footprint buildings, prefabs, transporters, tents, flags, car park ------
-  {
-    const asphaltMat = new THREE.MeshStandardMaterial({ map: asphaltTexture(k), color: 0xb8b8b8, roughness: 0.95 })
-    addMacro(asphaltMat, new THREE.Vector2(40 / 250, 40 / 250))
-    /**
-     * A draped apron across `lats`. Both the lateral list and the s step are refined to
-     * PADDOCK_STEP: the hand-written list has 6-12 m gaps and the terrain grid is 13.3 m
-     * (17.7 m on the low tier), so the apron used to be a chord over every rise between its
-     * samples — measured, the terrain came through it over 16.7 % of its area, worst 0.70 m.
-     */
-    const PADDOCK_STEP = 3
-    const drape = (s0: number, s1: number, lats: number[], lift: number) => {
-      const dense: number[] = []
-      for (let i = 0; i < lats.length - 1; i++) {
-        const a = lats[i]!, b = lats[i + 1]!
-        const parts = Math.max(1, Math.ceil(Math.abs(b - a) / PADDOCK_STEP))
-        for (let q = 0; q < parts; q++) dense.push(a + ((b - a) * q) / parts)
-      }
-      dense.push(lats[lats.length - 1]!)
-      const edges: [Fn, Fn][] = dense.map((lat) => [K(lat), (s) => ground.yAt(s, lat) + lift])
-      return profileRibbonGeometry(track, s0, s1, edges, PADDOCK_STEP, 40, dense.map((lat) => lat / 40))
-    }
-    // behind the building (the flat zone of the terrain), and the pit-exit yard around the medical centre
-    const paddock = add([drape(5536, 100, [-125, -118, -112, -106, -100, -88, -76, -66, -57.3], LAYER.mesh.paddock), drape(103, 205, [-52, -44, -36, -28, -24.9], LAYER.mesh.paddock)], asphaltMat, 'paddockAsphalt', false)
-    if (paddock) ctx.terrain.addGroundSurface(paddock.geometry, { name: 'paddockAsphalt', maxDrop: 12 })
-
     // real footprints: the spec'd buildings plus every other OSM building inside the paddock box
     const capGeos: THREE.BufferGeometry[] = []
     const wallGeos: THREE.BufferGeometry[] = []
@@ -1303,73 +1202,6 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     }
     boxes.instanced(0.12, 5, 0.01, lines, 0.8, false, 'parkingLines')
     boxes.instanced(1.8, 4.4, 1.45, cars, 0.45, true, 'parkedCars')
-  }
-
-  // --- basins: dry earth in late March, water only where the season keeps it ---------------------
-  {
-    // Both retention basins are dry mud in the 2026 race-weekend photos (the audit's S01-04 /
-    // S02-05): a blue sheet at grade read as a lake from every camera. They are drawn as a sunken
-    // floor with a rim instead, and BASINS.dry flips back to water for the October palette.
-    const waterGeos: THREE.BufferGeometry[] = []
-    const dryGeos: THREE.BufferGeometry[] = []
-    const rimGeos: THREE.BufferGeometry[] = []
-    for (const f of OSM_WATER) {
-      const def = BASINS.find((b) => b.osmWay === f.id)
-      const dry = (def?.dry ?? false) && SEASON === 'spring'
-      const heights = f.en.map(([e, n]) => {
-        track.enToWorld(e, n, _p)
-        return ctx.terrain.heightAt(_p.x, _p.z)
-      }).sort((a, b) => a - b)
-      const shore = heights[Math.floor(heights.length * 0.3)]!
-      const shape = new THREE.Shape(f.en.map(([e, n]) => new THREE.Vector2(e, n)))
-      if (!dry) {
-        const geo = new THREE.ShapeGeometry(shape)
-        geo.applyMatrix4(enMatrix(track, shore - 0.05))
-        waterGeos.push(geo)
-        continue
-      }
-      // floor: the footprint shrunk towards its centroid, sunk by `depth`; rim: the ring between
-      // the shrunk floor and the shoreline, so the bank is a slope rather than a cliff
-      const depth = def?.depth ?? 2.5
-      let ce = 0, cn = 0
-      for (const [e, n] of f.en) {
-        ce += e / f.en.length
-        cn += n / f.en.length
-      }
-      const inset = f.en.map(([e, n]): [number, number] => [ce + (e - ce) * 0.82, cn + (cn === n ? 0 : (n - cn) * 0.82)])
-      const floor = new THREE.ShapeGeometry(new THREE.Shape(inset.map(([e, n]) => new THREE.Vector2(e, n))))
-      floor.applyMatrix4(enMatrix(track, shore - depth))
-      dryGeos.push(floor)
-      // bank: one quad per footprint edge, from the shoreline down to the sunk floor
-      const pos: number[] = []
-      const uv: number[] = []
-      for (let i = 0; i < f.en.length; i++) {
-        const j = (i + 1) % f.en.length
-        const a = f.en[i]!, b = f.en[j]!
-        const ai = inset[i]!, bi = inset[j]!
-        const P = (e: number, n: number, y: number) => {
-          track.enToWorld(e, n, _p)
-          pos.push(_p.x, y, _p.z)
-        }
-        P(a[0], a[1], shore)
-        P(ai[0], ai[1], shore - depth)
-        P(b[0], b[1], shore)
-        P(ai[0], ai[1], shore - depth)
-        P(bi[0], bi[1], shore - depth)
-        P(b[0], b[1], shore)
-        uv.push(0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0)
-      }
-      const bank = new THREE.BufferGeometry()
-      bank.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-      bank.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
-      bank.computeVertexNormals()
-      rimGeos.push(bank)
-    }
-    const water = add(waterGeos, waterMat, 'water', false)
-    if (water) water.castShadow = false
-    const dryMat = new THREE.MeshStandardMaterial({ color: 0x8a7d66, roughness: 0.95, side: THREE.DoubleSide })
-    add(dryGeos, dryMat, 'basinFloor', false)
-    add(rimGeos, dryMat, 'basinBank', false)
   }
 
   // --- merge the building shells --------------------------------------------------------------------

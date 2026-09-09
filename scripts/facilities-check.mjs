@@ -298,7 +298,6 @@ if (lt && (Math.abs(lt.centroid[0] - spec.LEADER_TOWER.s) > 2 || Math.abs(lt.cen
 // ---------------------------------------------------------------- 7. barrier runs
 const bar = await import('../app/data/suzuka-barriers-spec.ts')
 const trackside = await import('../app/three/trackside.ts')
-const surfaces = await import('../app/three/surfaces.ts')
 const RUN_CLEAR = 0.4 // m beyond the half-width a barrier vertex must stay
 /** stretches of road other than the run's own that come within `r` of (x, z) */
 function otherRoad(x, z, sRange, ownY, r = 45) {
@@ -331,8 +330,13 @@ for (const st of spec.STANDS) {
     standFootprints.push({ id: st.id, ring: f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale })) })
   }
 }
-/** the paved SURFACE_PATCHES aprons, so a barrier cannot be planted in the middle of one */
-const apronRings = spec.SURFACE_PATCHES.filter((p) => p.kind === 'asphalt').map((p) => ({ name: p.name, ring: trackside.patchOutline(track, p, 2) }))
+/**
+ * The GROUND_AREAS rows that are outlines (ring / osm footprints), in the shape patchOutline
+ * takes — the band, way and disc footprints are resolved by ground-plan.ts and have no ring to lint.
+ */
+const areaPatches = spec.GROUND_AREAS.flatMap((a) => ('ring' in a.footprint || 'osm' in a.footprint ? [{ name: a.name, kind: a.kind, layer: a.layer ?? 0, ...a.footprint }] : []))
+/** the paved aprons, so a barrier cannot be planted in the middle of one */
+const apronRings = areaPatches.filter((p) => p.kind === 'asphaltArea').map((p) => ({ name: p.name, ring: trackside.patchOutline(track, p, 2) }))
 function pavedApronAt(x, z) {
   for (const { name, ring } of apronRings) {
     let inside = false
@@ -424,7 +428,7 @@ for (const run of bar.BARRIERS) {
   if (worstOther) fail(`${run.id}: crosses another stretch of road at s ${fmt(worstOther.s, 0)} (that road's s ${fmt(worstOther.s2 ?? worstOther.s, 0)}, lateral ${fmt(worstOther.lat)})`)
   if (standHit) fail(`${run.id}: runs inside stand ${standHit.id} at s ${fmt(standHit.s, 0)} (lateral ${fmt(standHit.lat)} vs front ${fmt(standHit.front)})`, soft)
   if (standWorldHit) fail(`${run.id}: stands inside the OSM footprint of ${standWorldHit.id} at s ${fmt(standWorldHit.s, 0)} (world ${fmt(standWorldHit.x, 0)},${fmt(standWorldHit.z, 0)})`)
-  if (apronHit > 8) fail(`${run.id}: ${apronHit} m of it stands on a paved SURFACE_PATCHES apron (a barrier belongs at the edge of the tarmac, not in it)`)
+  if (apronHit > 8) fail(`${run.id}: ${apronHit} m of it stands on a paved GROUND_AREAS apron (a barrier belongs at the edge of the tarmac, not in it)`)
   if (maxStep > 6) fail(`${run.id}: ${fmt(maxStep)} m lateral step over 2 m of s (a right-angle jog)`, soft)
   runRows.push({ id: run.id, kind: run.kind, side: run.side, s: `${s0}→${s1}`, samples: r.samples.length, clear: fmt(minClear), src: run.source.osm ? `osm ${run.source.osm.length}` : `hand ${run.source.samples.length}`, unv: run.unverified ? 'U' : '' })
 }
@@ -498,16 +502,13 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
 
 // ---------------------------------------------------------------- 9. surface patches
 /**
- * A9. SURFACE_PATCHES ring validity.
+ * A9. GROUND_AREAS outline validity (the ring / osm footprints).
  *
  * `trackside.patchOutline` can emit a ring that is not a simple polygon — the `minGap` clamp
  * projects vertices onto `halfWidth + minGap`, the Catmull-Rom resample overshoots at a sharp
- * corner, and the `osm` branch mixes clamped and unclamped points. `surfaces.ts` then hands the
- * result to `THREE.ShapeUtils.triangulateShape` and never looks at what came back, so a
+ * corner, and the `osm` branch mixes clamped and unclamped points. `ground-mesh.ts` hands the
+ * part of the ring outside the raster to `THREE.ShapeUtils.triangulateShape`, so a
  * self-intersecting outline turns into overlapping and inverted triangles instead of an error.
- *
- * All three patches pass today (205/205, 115/115, 70/70 faces, area ratio 1.0000), so this is a
- * regression guard, not a bug hunt.
  */
 {
   const seg = (p1, q1, p2, q2) => {
@@ -520,10 +521,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   const patchRings = []
   console.log('\nsurface patches')
   console.log('name                       kind     layer  verts  faces  area m2   tri/ring')
-  // the ring as surfaces.ts triangulates it: the exactly-collinear filler the resampler adds is
+  // the ring as ground-plan.ts resolves it: the exactly-collinear filler the resampler adds is
   // dropped there, and checking the raw outline would report a defect that never reaches a mesh
-  for (const patch of spec.SURFACE_PATCHES) {
-    const ring = surfaces.simplifyRing(trackside.patchOutline(track, patch, 2))
+  for (const patch of areaPatches) {
+    const ring = trackside.simplifyRing(trackside.patchOutline(track, patch, 2))
     const n = ring.length
     if (n < 3) {
       fail(`patch "${patch.name}": outline resolved to ${n} vertices`)
@@ -580,8 +581,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
      *
      * `straight` resampling splits a segment into EQUAL linear steps, so every interpolated point
      * is exactly on the chord; ear clipping turns each into a zero-area triangle whose vertices end
-     * up with a (0,0,0) normal and shade black. `surfaces.ts` drops them before triangulating, so a
-     * ring arriving here with a long collinear run means that pass has stopped working.
+     * up with a (0,0,0) normal and shade black. `ground-plan.ts` drops them (simplifyRing) before
+     * the mesh triangulates, so a ring arriving here with a long collinear run means that pass has
+     * stopped working.
      *
      * And a ring vertex must clear the KERB, not just the old flat 0.8 m: the turf island's whole
      * road-side boundary used to sit at off 0.80 inside a 1.3 m kerb, which drew over it.
@@ -603,10 +605,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   }
 
   /**
-   * A3. `SurfacePatch.layer` is documented as the paint order, but `surfaces.ts` groups by `kind`
-   * and lifts by `PATCH_LIFT[kind]`, so `layer` is not what decides the stack. Until it is
-   * (Phase 4), two overlapping patches must at least differ in BOTH — same `layer` means no
-   * defined winner, and same `kind` means an identical height and an exact z-fight.
+   * A3. Two area rows that overlap must be nested with distinct `layer`s: the ground plan cuts the
+   * higher one out of the lower (a hole), and with equal layers the row order alone decides —
+   * which is not something a reader of the table can see. A partial overlap is a plan-time
+   * build error (ground-plan.ts, rule R7), so it is not judged here.
    */
   const inRing = (x, z, r) => {
     let inside = false
@@ -630,8 +632,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       }
       if (overlap < 1) continue
       const pair = `"${A.patch.name}" × "${B.patch.name}" (${overlap} m2)`
-      if (A.patch.layer === B.patch.layer) fail(`patches ${pair} overlap and share layer ${A.patch.layer} — no defined winner`)
-      if (A.patch.kind === B.patch.kind) fail(`patches ${pair} overlap and share kind "${A.patch.kind}" — identical PATCH_LIFT, so they z-fight exactly`)
+      if (A.patch.layer === B.patch.layer) fail(`areas ${pair} overlap and share layer ${A.patch.layer} — no defined winner`)
       const [under, over] = A.patch.layer < B.patch.layer ? [A, B] : [B, A]
       console.log(`  overlap ${pair}: layer ${under.patch.layer} "${under.patch.kind}" under layer ${over.patch.layer} "${over.patch.kind}"`)
       // only the LOWER patch can be buried — the higher one covering it is the whole point

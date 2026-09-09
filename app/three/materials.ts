@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { SEASON, SEASON_GRASS } from '~/data/suzuka-facilities-spec'
 import type { AssetRegistry, ManifestAsset } from './assets'
 import type { Quality } from './quality'
-import { GREENUP_TILE_M, grassMaps, greenUpMask, macroMap } from './textures'
+import { ASPHALT_DETAIL_M, ASPHALT_TILE_M, ASPHALT_WIDTH_M, GREENUP_TILE_M, asphaltDetailMaps, grassMaps, greenUpMask, macroMap, type MaterialMaps } from './textures'
 
 /**
  * Photo-PBR material factories on top of the asset registry.
@@ -181,5 +181,96 @@ export function grassSurfaceMaterial(reg: AssetRegistry | null, uvMetres: readon
     m.color.setRGB(0.79, 0.81, 0.66)
   }
   addGrassSurface(m, { uvMetres, macroPeriodM })
+  return m
+}
+
+/**
+ * Macro variation: a second, very low-frequency texture modulates albedo (×0.85–1.15 → the
+ * map stores 0.68–0.92, rescaled here) and roughness so a tiling surface stops repeating.
+ * `scale` maps the material's uv into the macro texture (one macro period per 1/scale uv
+ * units). Installed as an onBeforeCompile patch; setupMaterials chains it under CSM.
+ */
+export function addMacro(mat: THREE.MeshStandardMaterial, scale: THREE.Vector2, stripes = 0) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMacro = { value: macroMap() }
+    shader.uniforms.uMacroScale = { value: scale }
+    shader.uniforms.uStripes = { value: stripes }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uMacro;
+        uniform vec2 uMacroScale;
+        uniform float uStripes;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        float macro = texture2D(uMacro, vMapUv * uMacroScale).r * 1.25;
+        diffuseColor.rgb *= macro;
+        // mown bands: four per texture tile along v, alternately darker / lighter
+        diffuseColor.rgb *= mix(1.0, mod(floor(vMapUv.y * 4.0), 2.0) < 0.5 ? 0.86 : 1.06, uStripes);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
+  }
+  mat.customProgramCacheKey = () => 'macro'
+}
+
+/**
+ * The asphalt surface: macro variation (as addMacro) plus the isotropic detail tile that carries
+ * the aggregate the base map no longer can (see asphaltDetailMaps).
+ *
+ * The detail layer is sampled in METRIC uv — `vMapUv` scaled by the road's real size over the
+ * detail tile's — so the grain keeps its physical size regardless of the base tile's anisotropic
+ * texel budget. Its albedo term has mean 1.0 and its normal mean flat, so both simply cease to
+ * exist under minification; there is deliberately no distance fade to maintain.
+ *
+ * This needs its OWN program cache key: addMacro hands out 'macro' to the pit lane, the paddock
+ * and the terrain, and a shared key would let the grass be handed the road's program.
+ */
+export function addRoadSurface(mat: THREE.MeshStandardMaterial, macroScale: THREE.Vector2, uWidthM = ASPHALT_WIDTH_M) {
+  const detail = asphaltDetailMaps()
+  const detailScale = new THREE.Vector2(uWidthM / ASPHALT_DETAIL_M, ASPHALT_TILE_M / ASPHALT_DETAIL_M)
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMacro = { value: macroMap() }
+    shader.uniforms.uMacroScale = { value: macroScale }
+    shader.uniforms.uDetail = { value: detail.map }
+    shader.uniforms.uDetailNormal = { value: detail.normalMap! }
+    shader.uniforms.uDetailScale = { value: detailScale }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uMacro;
+        uniform vec2 uMacroScale;
+        uniform sampler2D uDetail;
+        uniform sampler2D uDetailNormal;
+        uniform vec2 uDetailScale;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        // ±7 %: the old ±15 % read as blotches at overview scale (2026-09 audit)
+        float macro = 1.0 + (texture2D(uMacro, vMapUv * uMacroScale).r * 1.25 - 1.0) * 0.45;
+        // mean-1.0 multiplier: its mips converge to 1.0, so the grain fades out on its own
+        diffuseColor.rgb *= macro * (texture2D(uDetail, vMapUv * uDetailScale).r * 2.0);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
+      // Perturb AFTER the chunk rather than inside it: onBeforeCompile sees `#include` directives
+      // (resolveIncludes runs later), and appending keeps this independent of the chunk's internals.
+      // `mapN` and `tbn` are both declared in main()'s scope by normal_fragment_begin /
+      // normal_fragment_maps, under exactly this define.
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        #ifdef USE_NORMALMAP_TANGENTSPACE
+          mapN.xy += texture2D(uDetailNormal, vMapUv * uDetailScale).xy * 2.0 - 1.0;
+          normal = normalize(tbn * mapN);
+        #endif`)
+    if (!shader.fragmentShader.includes('uDetailNormal, vMapUv')) {
+      // a three upgrade that renamed the chunk would silently drop the aggregate; the e2e suite
+      // fails on console.error, so this cannot ship unnoticed
+      console.error('normal_fragment_maps not found: the asphalt detail normal was not applied')
+    }
+  }
+  mat.customProgramCacheKey = () => 'macro|road'
+}
+
+/** MeshStandardMaterial from a procedural map set (map / normalMap / roughnessMap). */
+export function pbr(maps: MaterialMaps, extra: THREE.MeshStandardMaterialParameters = {}, normalScale = 1): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ map: maps.map, roughness: 1, metalness: 0, ...extra })
+  if (maps.normalMap) {
+    m.normalMap = maps.normalMap
+    m.normalScale.set(normalScale, normalScale)
+  }
+  if (maps.roughnessMap) m.roughnessMap = maps.roughnessMap
   return m
 }

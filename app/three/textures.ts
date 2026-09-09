@@ -1524,3 +1524,42 @@ export function apronPaintTexture(): THREE.Texture {
     return makeTexture(c, { aniso: groundAniso() })
   })
 }
+
+/**
+ * Plain paddock asphalt: grey noise so the macro-variation patch has a map to modulate. Was a
+ * pit-complex.ts canvas; it lives here since the paddock is a ground face (ground-materials.ts).
+ */
+export function paddockAsphaltTexture(): THREE.Texture {
+  return cached(`paddockAsphalt|${textureScale}`, () => {
+    const [w, h] = scaled(256, 256)
+    const rng = mulberry(12345)
+    const c = paint(w, h, (_x, _y, out) => {
+      const v = 96 + rng() * 26
+      out[0] = v
+      out[1] = v + 1
+      out[2] = v + 3
+    })
+    return makeTexture(c)
+  })
+}
+
+/** The helipad disc: grey pad, white ring and H, one texture across the whole disc (uv 0..1). */
+export function helipadTexture(): THREE.Texture {
+  return cached(`helipad|${textureScale}`, () => {
+    const [w] = scaled(256, 256)
+    const { c, ctx } = canvas(w, w)
+    ctx.fillStyle = '#6f7275'
+    ctx.fillRect(0, 0, w, w)
+    ctx.strokeStyle = '#f4f4f2'
+    ctx.lineWidth = w * 0.04
+    ctx.beginPath()
+    ctx.arc(w / 2, w / 2, w * 0.44, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.fillStyle = '#f4f4f2'
+    ctx.font = `900 ${Math.round(w * 0.58)}px 'Titillium Web', 'Segoe UI', Arial, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('H', w / 2, w / 2 + w * 0.02)
+    return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
+  })
+}

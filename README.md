@@ -160,13 +160,16 @@ app/
     post.ts                    # ポストプロセス（GTAO、HDR bloom、望遠 DoF、モーションブラー、ビネット、グレイン、色収差、SMAA）
     emissive.ts                # 発光値の一覧（bloom 閾値に対する輝度設計、ブレーキディスクの黒体ランプ）
     instancing.ts              # サーキット全域の InstancedMesh を地形チャンク／距離でバケット分割（フラスタムカリング）
-    ground.ts                  # 路肩〜ランオフ〜地形の高さ関数（トラックサイドの全オブジェクトが参照。曲率で幅を絞る折り返し対策つき）
-    surfaces.ts                # SURFACE_PATCHES: 帯では表せない面（シケインの舗装エプロン・人工芝）
-    track-mesh.ts              # 路面（可変幅・カント）、断面つき縁石、ソーセージ縁石、グラベル、橋、ピットレーン、グリッド、シグナル
+    ground.ts                  # 地面の入口: プラン・高さ場・描画済み面（builtY）を束ねる Ground と、デカール／物の高さ表 LAYER
+    ground-plan.ts             # 地面の区画（XZ で 1 点 1 オーナー）: 駅・カラム・範囲（fold／二等分線／橋の上限）・PRECEDENCE・RULE_OF・ownerAt
+    ground-field.ts            # 唯一の連続した高さ場（路肩 2 m のストリップ規則、2〜8 m の混合、地形 + RUNOFF_LIFT）
+    ground-mesh.ts             # 区画をメッシュにする: 頂点プール（共有頂点・1 頂点 1 高さ）、ラスター、縫い合わせ帯、リングのワールド部、種類別 ground:<kind>
+    ground-materials.ts        # 種類別マテリアル（路面・縁石・帯・エリア・パドック・ヘリパッド・池）
+    track-mesh.ts              # 地面でないもの: ソーセージ縁石、塗装エプロン（描画済み面上のデカール）、橋、ピットウォール、DRS 線、シグナル
     barriers.ts                # 全周のバリア（実データ表 `BARRIERS` から: コンクリート壁・タイヤ壁・ガードレール・デブリフェンス）
     trackside.ts               # OSM way／実測サンプル → 所属道路の lateral(s) 解決（図 8 の折り返し対策つき）
     lines.ts                   # 白線レイヤー（全周のエッジライン、ピット各線、グリッド。画面上の最小幅を保つ頂点シェーダ）
-    lanes.ts                   # 二輪シケイン・スリップロード・西コースピットレーン（コースのフレームで組む舗装）
+    lanes.ts                   # 二輪シケイン・スリップロードの縁石（舗装そのものは GROUND_AREAS／OFFSET_LANES の足跡として地面の区画が描く）
     environment.ts             # 地形（チャンク、施設のリリーフ）と各ビルダーの共有コンテキスト、観覧車
     stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場）、弦フレーム、地形リリーフ
     pit-complex.ts             # ピットビル（勾配追従スイープ、ガレージ、表彰台、ポッド、ビジョン）、リーダータワー、ピットウォール、パドック、水面
@@ -190,11 +193,11 @@ scripts/
   sun-model-check.mjs          # 太陽モデルの不変条件（空の膝 < bloom 閾値 < 発光体 < プローブ < ディスク、露出の有界性、Sky.js のアンカー文字列）を Node で検証
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
-  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／SURFACE_PATCHES の輪郭・layer 契約・RUNOFF_ZONES 衛生
+  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生
   assets/                      # fetch / import-misc / bake-crowd-atlas / sources（アセットパイプライン）
   facilities/                  # build-facilities（Overpass → TS）、build-power、dem-profile（DEM5A → 標高キーフレーム）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
-                               #   surface-check（面のガード）、app-runtime（アプリのビルダーを Node で走らせる土台）、surface-baseline.json（面のベースライン）
+                               #   surface-check（面のガード）、app-runtime（アプリのビルダーを Node で走らせる土台）
 ```
 
 ## Rendering notes

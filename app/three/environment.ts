@@ -4,6 +4,9 @@ import { Rng } from '~/sim/random'
 import { ROLL_CAP, type Track } from '~/sim/track'
 import { makeGround, type Ground } from './ground'
 import { makeField, type GroundField } from './ground-field'
+import { buildGroundPlan, type GroundPlan } from './ground-plan'
+import { buildGroundMeshes, isGroundFace, type BuiltGround, type GroundFace } from './ground-mesh'
+import { groundMaterials } from './ground-materials'
 import { buildCrowd } from './crowd'
 import { grassSurfaceMaterial } from './materials'
 import { QUALITY, type Quality } from './quality'
@@ -44,10 +47,14 @@ const ROAD_FALLOFF = 6
  * A ground sheet registered with the terrain (`Terrain.addGroundSurface`).
  *
  * Every horizontal surface drawn over the terrain MUST be registered: the height grid is 13.3 m
- * (17.7 m on the low tier) and the sheets sit 2-10 cm above it, so without the clamp the terrain
- * rises straight through them. Measured before this existed: the paddock apron behind the pit
- * building was pierced over 16.7 % of its area (worst 0.70 m), the secondary paving over 26.6 %
- * (worst 2.75 m) and the offset lanes over 13.6 % (worst 0.24 m).
+ * (17.7 m on the low tier) and the faces sit centimetres above it, so without the clamp the
+ * terrain rises straight through them. Measured before this existed: the paddock apron behind the
+ * pit building was pierced over 16.7 % of its area (worst 0.70 m), the secondary paving over
+ * 26.6 % (worst 2.75 m) and the offset lanes over 13.6 % (worst 0.24 m).
+ *
+ * The ground itself registers through `addGroundFace` (a branded GroundFace from ground-mesh.ts);
+ * this raw form remains for the objects that still stand on the ground as swept ribbons (the
+ * offset-lane kerbs, until they become placed objects).
  */
 export interface GroundReg {
   /** declared clearance the terrain must keep below the sheet (m) */
@@ -228,6 +235,20 @@ export class Terrain {
       return
     }
     this.sheets.push({ geo, margin, maxDrop, name, flat })
+  }
+
+  /**
+   * Register one drawn ground face (ground-mesh.ts). Only a face minted by `buildGroundMeshes` is
+   * accepted: the partition is the one source of opaque ground, so nothing else can claim to be it.
+   */
+  addGroundFace(face: GroundFace) {
+    if (!isGroundFace(face)) {
+      console.error('[terrain] addGroundFace: not a GroundFace minted by buildGroundMeshes — refused')
+      return
+    }
+    // maxDrop 12: the deepest cut the ground needs is ~9.4 m, where the verge meets the relief
+    // platform E-1 stands on; the cap bounds a runaway and surface-check reports what it refuses
+    this.addGroundSurface(face.geo, { name: face.mesh.name, margin: 0.1, maxDrop: 12 })
   }
 
   /** The registrations, for scripts/audit/surface-check.mjs (a sheet may be merged into a mesh). */
@@ -687,13 +708,11 @@ export class Terrain {
 }
 
 /**
- * Names that mark a mesh as a ground sheet — a flat surface drawn over the terrain that the grid
- * must be pushed under. `scripts/audit/surface-check.mjs` reads the same pattern out of the
- * sources (guard A4a), so a new sheet cannot be added without the author declaring it.
- *
- * Decals (paint, rubber, white lines) ride on another sheet and are deliberately not here.
+ * Names that mark a mesh as ground — the `ground:<kind>` faces of ground-mesh.ts and the
+ * offset-lane kerbs that still stand on it as a ribbon. Decals (paint, rubber, white lines) ride
+ * on a face and are deliberately not here.
  */
-export const GROUND_NAME_RE = /^(asphalt$|runoff|gravel$|surface-|pitLane$|lanePaving$|laneKerbs$|secondaryPaving$|paddockAsphalt$|helipad$)/
+export const GROUND_NAME_RE = /^(ground:|laneKerbs$)/
 
 /**
  * Dev sweep: every ground sheet in the scene must have gone through `Terrain.addGroundSurface`.
@@ -747,6 +766,10 @@ export interface Environment {
   terrain: Terrain
   /** Ground surface beside the road (shared with the track meshes and barriers). */
   ground: Ground
+  /** the ground partition the faces were built from */
+  plan: GroundPlan
+  /** the drawn ground: one mesh per owner kind */
+  groundMeshes: BuiltGround
   ferrisWheel: THREE.Group | null
   /** per frame; `cameraPos` drives the crowd density LOD and yaw */
   update: (dt: number, cameraPos?: THREE.Vector3) => void
@@ -757,7 +780,18 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   const terrain = new Terrain(track, quality.terrain, assets)
   group.add(terrain.group)
   const field: GroundField = makeField(track, terrain)
-  const ground = makeGround(track, field)
+  // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,
+  // one height per vertex) → registered so settle() pushes the grid under them. Built before
+  // anything that stands on the ground, so the decals and objects can read the DRAWN faces.
+  const tPlan = performance.now()
+  const plan = buildGroundPlan(track)
+  const ground = makeGround(track, field, plan)
+  const tMesh = performance.now()
+  const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets))
+  group.add(groundMeshes.group)
+  for (const face of groundMeshes.faces) terrain.addGroundFace(face)
+  ground.builtY = groundMeshes.yAt
+  if (import.meta.dev) console.info(`[ground] plan ${(tMesh - tPlan).toFixed(0)} ms (${plan.stations.length} stations), meshes ${groundMeshes.stats.buildMs.toFixed(0)} ms (${groundMeshes.stats.triangles} triangles, ${groundMeshes.faces.length} faces)`)
   // only the trees draw from this generator (the crowd seeds its own)
   const rng = new Rng(seed)
 
@@ -804,5 +838,5 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     }
   }
 
-  return { group, terrain, ground, ferrisWheel, update }
+  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, update }
 }

@@ -277,7 +277,7 @@ async function setup() {
   ctx.scene.add(env.group)
   trackMeshes = buildTrackMeshes(track, env.terrain, env.ground)
   const barriers = buildBarriers(track, q, env.ground)
-  const whiteLines = buildLines(track, env.ground, trackMeshes.surfaceLiftAt)
+  const whiteLines = buildLines(track, env.ground)
   // Every ground sheet has registered by now: push the coarse grid under all of them, put the
   // skirt back below it and upload the grid once.
   //
@@ -325,6 +325,7 @@ async function setup() {
     // debug hook for the e2e suite and the probe scripts (getters keep restart / audio creation live)
     ;(window as unknown as { __suzuka: unknown }).__suzuka = {
       THREE, ctx, rig, track, env, trackMeshes, models, motion, store, perf, perfMax, assets,
+      plan: env.plan, groundMeshes: env.groundMeshes,
       get race() { return race },
       get audio() { return audio },
       RaceAudio,

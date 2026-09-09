@@ -310,14 +310,14 @@ export function resolveLine(track: Track, source: LineSource, sRange: [number, n
 }
 
 /**
- * World-space closed outline of a SURFACE_PATCHES polygon, resampled every `step` metres.
+ * World-space closed outline of a GROUND_AREAS ring / osm footprint, resampled every `step` metres.
  *
  * World space, not (s, lateral) — for the same reason `laneWorldPath` is: through the chicane the
  * swept frame folds past ~16 m on the inside (see ground.ts FOLD_SAFE), so a lateral read off a
  * map does not land where it reads, and a polygon interpolated in track coordinates tears. Each
  * node is turned into world points independently; only then is the ring resampled.
  */
-/** Margin a SURFACE_PATCHES ring keeps beyond the kerb it must not sit under (m). */
+/** Margin an area ring keeps beyond the kerb it must not sit under (m). */
 const KERB_CLEAR = 0.15
 /**
  * The flat 2 m strip beside the asphalt already has an owner — the run-off ribbons and the kerbs,
@@ -484,4 +484,26 @@ export interface SurfacePatchLike {
   straight?: boolean
   latMax?: number
   minGap?: number
+}
+
+/**
+ * Drop ring vertices that are exactly collinear with their neighbours.
+ *
+ * `patchOutline`'s `straight` resampling splits each raw segment into EQUAL linear steps, so
+ * every interpolated point lies exactly on the chord: 55 of the chicane turf ring's 72 vertices
+ * were collinear. Ear clipping turns each of them into a zero-area ear whose vertices end up
+ * with a (0,0,0) normal and shade black. Only EXACT collinearity is removed: a looser tolerance
+ * moved two rings that share a boundary apart from each other.
+ */
+export function simplifyRing(ring: { x: number; z: number }[]): { x: number; z: number }[] {
+  const n = ring.length
+  if (n < 4) return ring
+  const out: { x: number; z: number }[] = []
+  for (let i = 0; i < n; i++) {
+    const a = ring[(i - 1 + n) % n]!, b = ring[i]!, c = ring[(i + 1) % n]!
+    // twice the triangle area; 1e-4 m² keeps anything that is a real corner
+    const cross = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)
+    if (Math.abs(cross) > 2e-4) out.push(b)
+  }
+  return out.length >= 3 ? out : ring
 }

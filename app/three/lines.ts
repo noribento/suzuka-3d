@@ -6,12 +6,13 @@ import { alongAt, garageS, type Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 import { laneWorldPath, type LanePoint } from './trackside'
 import type { Ground } from './ground'
-import { FLAT_STRIP, LAYER } from './ground'
+import { LAYER } from './ground'
 
 type Fn = (s: number) => number
 
 const _a = new THREE.Vector3()
 const _b = new THREE.Vector3()
+const _c = new THREE.Vector3()
 
 /** Painted lines sit this far above the surface they are on (plus polygon offset). */
 const LIFT = 0.012
@@ -32,7 +33,7 @@ const MIN_HALF_PX = 0.6
  * and `aHalf` the signed half-width in metres, and the offset is applied in view depth, so the
  * paint keeps its real size in close-ups and stays visible from the air.
  */
-export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: number, lateral: number) => number = () => 0): THREE.Mesh {
+export function buildLines(track: Track, ground: Ground): THREE.Mesh {
   const L = track.length
   const pit = CIRCUIT.pit
   const hwAt: Fn = (s) => track.halfWidthAt(s)
@@ -61,15 +62,20 @@ export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: numb
    * belongs to and was invisible: both speed-limit lines, the lane edges, the fast/working divider
    * and all 11 garage box outlines.
    *
-   * `surfaceLiftAt` adds the SURFACE_PATCHES layer (surfaces.ts) — the chicane apron sits 3 cm
-   * proud of the verge, and without this the two-wheel chicane's edge lines are buried under it.
+   * Beyond the road edge the paint lies on the DRAWN ground face (ground.builtY): the faces are
+   * a triangulation of the field, and a line placed on the field itself would sit under a facet
+   * wherever the two differ, so the line reads the face it is painted on. The strip beside the
+   * asphalt is no exception: its first cell shares its inner vertices with the road and ramps
+   * down to STRIP_DROP, so a fixed strip rung buried the outer half of the edge line.
    */
+  /** the drawn ground face at world (x, z), or the field where no face is drawn */
+  const faceY = (x: number, z: number): number => ground.builtY(x, z)?.y ?? ground.field.y(x, z)
   const surfaceY = (s: number, lat: number): number => {
     const off = Math.abs(lat) - hwAt(s)
     if (off <= 0) return LAYER.road.line
     if (onPitSurface(s, lat)) return LAYER.pit.line
-    if (off <= FLAT_STRIP) return LAYER.strip.line
-    return ground.yAt(s, lat) + surfaceLiftAt(s, lat) + LIFT
+    track.pointAt(s, lat, _c, 0)
+    return faceY(_c.x, _c.z) - _c.y + LAYER.verge.line
   }
 
   /**
@@ -167,7 +173,7 @@ export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: numb
     const pts = laneWorldPath(track, def)
     if (pts.length < 3) continue
     for (const side of [1, -1] as const) {
-      const geo = laneStripe(track, pts, def.width / 2 - 0.1, side, 0.15, surfaceY)
+      const geo = laneStripe(track, pts, def.width / 2 - 0.1, side, 0.15, faceY)
       if (geo) geos.push(geo)
     }
   }
@@ -201,7 +207,7 @@ export function buildLines(track: Track, ground: Ground, surfaceLiftAt: (s: numb
  * the stretch where the lane is still on the racing surface (the split and merge mouths, where the
  * lap's own edge line already has its gap).
  */
-function laneStripe(track: Track, pts: LanePoint[], dist: number, side: 1 | -1, w: number, surfaceY: (s: number, lat: number) => number): THREE.BufferGeometry | null {
+function laneStripe(track: Track, pts: LanePoint[], dist: number, side: 1 | -1, w: number, faceY: (x: number, z: number) => number): THREE.BufferGeometry | null {
   const keep = pts.filter((p) => Math.abs(p.lat) > track.halfWidthAt(p.s) + 1.5)
   if (keep.length < 3) return null
   const n = keep.length
@@ -217,11 +223,10 @@ function laneStripe(track: Track, pts: LanePoint[], dist: number, side: 1 | -1, 
     const inv = 1 / (Math.hypot(dx, dz) || 1)
     // unit normal of the lane path, pointing to `side`
     const nx = dz * inv * side, nz = -dx * inv * side
-    track.pointAt(p.s, p.lat, _a, 0)
-    // above the lane paving it marks, not below it: lanes.ts drapes the paving at
-    // LAYER.verge.lane and this line used to sit 4 mm under it
-    const y = _a.y + surfaceY(p.s, p.lat) - LIFT + (LAYER.verge.laneLine - LAYER.verge.grass)
     const cx = p.x + nx * dist, cz = p.z + nz * dist
+    // above the drawn lane face at the stripe's OWN position (it runs `dist` beside the lane's
+    // centreline, and the face under the centreline is a different facet), at the lane-line rung
+    const y = faceY(cx, cz) + LAYER.verge.laneLine
     const k = i * 2
     pos.set([cx + nx * w / 2, y, cz + nz * w / 2, cx - nx * w / 2, y, cz - nz * w / 2], k * 3)
     across.set([nx, nz, nx, nz], k * 2)

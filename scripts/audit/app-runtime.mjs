@@ -11,7 +11,7 @@
  *    the audit measures positions, never pixels.
  *
  *   import { buildScene } from './app-runtime.mjs'
- *   const { track, terrain, ground, scene } = await buildScene()
+ *   const { track, terrain, ground, plan, groundMeshes, root } = await buildScene()
  */
 import { registerHooks, createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
@@ -88,9 +88,9 @@ export async function buildScene({ tier = 'high', settle = true } = {}) {
   // clamp runs. The painted markings matter to the audit — they are the layer most likely to end
   // up buried under the sheet they belong to.
   const linesMod = await import(path.join(ROOT, 'app/three/lines.ts'))
-  const whiteLines = linesMod.buildLines(track, env.ground, trackMeshes.surfaceLiftAt)
+  const whiteLines = linesMod.buildLines(track, env.ground)
   if (settle) env.terrain.settle()
   const root = new THREE.Group()
   root.add(env.group, trackMeshes.group, whiteLines)
-  return { track, env, terrain: env.terrain, ground: env.ground, trackMeshes, whiteLines, root, quality: q }
+  return { track, env, terrain: env.terrain, ground: env.ground, plan: env.plan, groundMeshes: env.groundMeshes, trackMeshes, whiteLines, root, quality: q }
 }

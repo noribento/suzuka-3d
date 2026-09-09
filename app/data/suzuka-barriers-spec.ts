@@ -123,7 +123,7 @@ export const BARRIERS: BarrierRun[] = [
   { id: '130r-exit-wall', kind: 'concrete', side: -1, sRange: [4997, 5085], source: { osm: [184102364] }, unverified: ['starts 10 m outside the end of the 130R tyre wall — check the joint on the overlay'] },
   { id: 'chicane-approach-right-a', kind: 'guardrail', side: -1, sRange: [5085, 5134], minGap: 2.0, source: { osm: [467219908] } },
   // Moved out from the -8…-9 the 2026-09 audit guessed: walking outward from the road edge in the
-  // aerial, the run-off there is paved to 7–11 m past it (SURFACE_PATCHES 'シケイン舗装エプロン（右）'),
+  // aerial, the run-off there is paved to 7–11 m past it (GROUND_AREAS 'シケイン舗装エプロン（右）'),
   // so a rail at -9 stood in the middle of the tarmac. It now follows the outer edge of that apron.
   { id: 'chicane-approach-right-b', kind: 'guardrail', side: -1, sRange: [5150, 5203], minGap: 2.0, source: { samples: P([[5150, -16.0], [5160, -17.5], [5175, -17.5], [5185, -15.0], [5195, -14.0], [5203, -13.5]]) }, note: 'gap at 5134–5150 for the two-wheel pit-in slip road (OSM 467219908 stops at the slip)', unverified: ['no OSM way and not resolvable at 0.49 m/px — read from the edge of the paved run-off, ±3 m'] },
   { id: 'chicane-exit-tyres', kind: 'tyre', side: -1, sRange: [5203, 5252], source: { osm: [467219893, 467219895, 467219896, 467219894] } },
@@ -249,7 +249,7 @@ export interface OffsetLaneDef {
   latMax?: number
   /** kerbs on the lane, as fractions of its length [from, to] and the lane side (+1 = left of the lane's direction) */
   kerbs?: { from: number; to: number; side: Side }[]
-  /** the lane already runs on a SURFACE_PATCHES apron: draw its lines and kerbs, not a second ribbon */
+  /** the lane already runs on a GROUND_AREAS apron: it gets no footprint of its own, only its lines and kerbs */
   paved?: boolean
   lines?: boolean
   unverified?: string[]
@@ -259,10 +259,9 @@ export const OFFSET_LANES: OffsetLaneDef[] = [
   // the OSM way only maps the first spur (out to ≈ −25); the loop's centreline is read off the
   // aerial (measured outer edge minus half the 10 m width)
   { name: '200R 二輪シケイン', osmWay: 183309794, samples: P([[2931, -6], [2939, -22], [2952, -33], [2975, -45], [3003, -51], [3016, -46], [3024, -36], [3040, -21], [3050, -8]]), sRange: [2925, 3055], side: -1, width: 10, lines: true, kerbs: [{ from: 0.12, to: 0.3, side: 1 }, { from: 0.42, to: 0.6, side: -1 }, { from: 0.72, to: 0.9, side: 1 }] },
-  // `paved`: the Casio Triangle is one asphalt sheet (SURFACE_PATCHES 'シケイン舗装エプロン'), so a
-  // second 8 m ribbon of the same texture at a different lift would only add a seam. The row must
-  // stay in the table even so — props.ts builds its skip-set from OFFSET_LANES, and dropping it
-  // would resurrect the old terrain-draped ribbon across the racing surface.
+  // `paved`: the Casio Triangle is one asphalt sheet (GROUND_AREAS 'シケイン舗装エプロン'), so the
+  // lane claims no ground of its own (ground-plan.ts laneFootprint returns null); the row stays
+  // for its edge lines (lines.ts) and kerbs (lanes.ts).
   { name: 'Astemo 二輪ダブルシケイン', osmWay: 183391653, sRange: [5145, 5265], side: 1, width: 8, paved: true, lines: true, kerbs: [{ from: 0.16, to: 0.40, side: 1 }, { from: 0.56, to: 0.84, side: -1 }], unverified: ['kerb extents read off the aerial'] },
   { name: '西コースピットレーン', osmWay: 411295350, sRange: [4150, 4375], side: -1, width: 8, lines: true },
   { name: '二輪ピット入口スリップ', osmWay: 411296898, sRange: [5125, 5215], side: -1, width: 6, latMax: 48, lines: true },

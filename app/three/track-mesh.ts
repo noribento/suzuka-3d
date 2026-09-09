@@ -2,13 +2,13 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { CIRCUIT } from '~/data/suzuka'
-import { PAINTED_APRONS, RUNOFF_ZONES, type Side } from '~/data/suzuka-facilities-spec'
+import { PAINTED_APRONS, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
-import { APRON_TILE_M, APRON_UV, ASPHALT_DETAIL_M, ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, apronPaintTexture, asphaltDetailMaps, asphaltMaps, boardTexture, concreteMaps, gravelMaps, kerbMaps, macroMap, turfMaps, type MaterialMaps } from './textures'
-import { FLAT_STRIP, LAYER, RUNOFF_LIFT, RUNOFF_WIDTH, STRIP_DROP, type Ground } from './ground'
-import { grassSurfaceMaterial, pbrFromAssets, repeatMetres, tileMetres } from './materials'
-import { buildSurfacePatches } from './surfaces'
+import { APRON_TILE_M, APRON_UV, apronPaintTexture, boardTexture, concreteMaps } from './textures'
+import { LAYER, STRIP_DROP, type Ground } from './ground'
+import { kerbWidthTapered } from './ground-plan'
+import { pbr } from './materials'
 import type { Terrain } from './environment'
 
 type Fn = (s: number) => number
@@ -99,7 +99,6 @@ export function profileRibbonGeometry(track: Track, s0: number, s1: number, edge
   return g
 }
 
-/** Vertical wall along a lateral offset, from yBottom(s) to yTop(s) (both relative to track height). */
 /**
  * Vertical strip along the track between two height functions. `vScale` is metres per texture
  * tile along the wall; `uScale` (optional) is metres per tile up the wall — without it one tile
@@ -133,452 +132,44 @@ export function wallGeometry(track: Track, s0: number, s1: number, lat: Fn, yBot
   return g
 }
 
-/**
- * Macro variation: a second, very low-frequency texture modulates albedo (×0.85–1.15 → the
- * map stores 0.68–0.92, rescaled here) and roughness so a tiling surface stops repeating.
- * `scale` maps the material's uv into the macro texture (one macro period per 1/scale uv
- * units). Installed as an onBeforeCompile patch; setupMaterials chains it under CSM.
- */
-export function addMacro(mat: THREE.MeshStandardMaterial, scale: THREE.Vector2, stripes = 0) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uMacro = { value: macroMap() }
-    shader.uniforms.uMacroScale = { value: scale }
-    shader.uniforms.uStripes = { value: stripes }
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-        uniform sampler2D uMacro;
-        uniform vec2 uMacroScale;
-        uniform float uStripes;`)
-      .replace('#include <map_fragment>', `#include <map_fragment>
-        float macro = texture2D(uMacro, vMapUv * uMacroScale).r * 1.25;
-        diffuseColor.rgb *= macro;
-        // mown bands: four per texture tile along v, alternately darker / lighter
-        diffuseColor.rgb *= mix(1.0, mod(floor(vMapUv.y * 4.0), 2.0) < 0.5 ? 0.86 : 1.06, uStripes);`)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
-  }
-  mat.customProgramCacheKey = () => 'macro'
-}
-
-/**
- * The asphalt surface: macro variation (as addMacro) plus the isotropic detail tile that carries
- * the aggregate the base map no longer can (see asphaltDetailMaps).
- *
- * The detail layer is sampled in METRIC uv — `vMapUv` scaled by the road's real size over the
- * detail tile's — so the grain keeps its physical size regardless of the base tile's anisotropic
- * texel budget. Its albedo term has mean 1.0 and its normal mean flat, so both simply cease to
- * exist under minification; there is deliberately no distance fade to maintain.
- *
- * This needs its OWN program cache key: addMacro hands out 'macro' to the road, the pit lane, the
- * verge grass and the terrain, and a shared key would let the grass be handed the road's program.
- */
-export function addRoadSurface(mat: THREE.MeshStandardMaterial, macroScale: THREE.Vector2, uWidthM = ASPHALT_WIDTH_M) {
-  const detail = asphaltDetailMaps()
-  const detailScale = new THREE.Vector2(uWidthM / ASPHALT_DETAIL_M, ASPHALT_TILE_M / ASPHALT_DETAIL_M)
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uMacro = { value: macroMap() }
-    shader.uniforms.uMacroScale = { value: macroScale }
-    shader.uniforms.uDetail = { value: detail.map }
-    shader.uniforms.uDetailNormal = { value: detail.normalMap! }
-    shader.uniforms.uDetailScale = { value: detailScale }
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-        uniform sampler2D uMacro;
-        uniform vec2 uMacroScale;
-        uniform sampler2D uDetail;
-        uniform sampler2D uDetailNormal;
-        uniform vec2 uDetailScale;`)
-      .replace('#include <map_fragment>', `#include <map_fragment>
-        // ±7 %: the old ±15 % read as blotches at overview scale (2026-09 audit)
-        float macro = 1.0 + (texture2D(uMacro, vMapUv * uMacroScale).r * 1.25 - 1.0) * 0.45;
-        // mean-1.0 multiplier: its mips converge to 1.0, so the grain fades out on its own
-        diffuseColor.rgb *= macro * (texture2D(uDetail, vMapUv * uDetailScale).r * 2.0);`)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
-      // Perturb AFTER the chunk rather than inside it: onBeforeCompile sees `#include` directives
-      // (resolveIncludes runs later), and appending keeps this independent of the chunk's internals.
-      // `mapN` and `tbn` are both declared in main()'s scope by normal_fragment_begin /
-      // normal_fragment_maps, under exactly this define.
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        #ifdef USE_NORMALMAP_TANGENTSPACE
-          mapN.xy += texture2D(uDetailNormal, vMapUv * uDetailScale).xy * 2.0 - 1.0;
-          normal = normalize(tbn * mapN);
-        #endif`)
-    if (!shader.fragmentShader.includes('uDetailNormal, vMapUv')) {
-      // a three upgrade that renamed the chunk would silently drop the aggregate; the e2e suite
-      // fails on console.error, so this cannot ship unnoticed
-      console.error('normal_fragment_maps not found: the asphalt detail normal was not applied')
-    }
-  }
-  mat.customProgramCacheKey = () => 'macro|road'
-}
-
-function pbr(maps: MaterialMaps, extra: THREE.MeshStandardMaterialParameters = {}, normalScale = 1): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ map: maps.map, roughness: 1, metalness: 0, ...extra })
-  if (maps.normalMap) {
-    m.normalMap = maps.normalMap
-    m.normalScale.set(normalScale, normalScale)
-  }
-  if (maps.roughnessMap) m.roughnessMap = maps.roughnessMap
-  return m
-}
-
-// ---------------------------------------------------------------------------------------------
-// run-off layout from RUNOFF_ZONES
-
-/** Furthest the OSM bands reach from the centreline; the gravel geometry stops here. */
-export const RUNOFF_MAX_LAT = 55
-/** An asphalt band narrower than this beyond the road edge is registration noise, not a surface. */
-const ASPHALT_MIN_W = 0.5
-/** Gravel starts behind the kerb line (as it always did), never in the flat strip's first metre. */
-const GRAVEL_INNER = 1.0
-/** Zone boundaries are blended over this many metres so adjacent tables never step. */
-const BAND_SMOOTH_M = 16
-
-export interface RunoffLayout {
-  /** outer edge (m from the centreline, ≥ the local half-width) of the asphalt run-off on `side` */
-  asphaltOuter: (s: number, side: Side) => number
-  /** gravel band [inner, outer] (m from the centreline) on `side`, or null where there is none */
-  gravel: (s: number, side: Side) => [number, number] | null
-}
-
-export interface GravelRun {
-  from: number
-  to: number
-  side: Side
-  /** widest outer edge of the trap, metres beyond the road edge (for the barrier line) */
-  outer: number
-}
-
-const layoutCache = new WeakMap<Track, { layout: RunoffLayout; runs: GravelRun[] }>()
-
-/** Per-side, per-s run-off bands interpolated from RUNOFF_ZONES (cached per track). */
-export function runoffLayout(track: Track): RunoffLayout {
-  return layoutFor(track).layout
-}
-
-/** Contiguous gravel traps (driving order) — the barriers follow their far edge. */
-export function gravelRuns(track: Track): GravelRun[] {
-  return layoutFor(track).runs
-}
-
-function layoutFor(track: Track) {
-  let hit = layoutCache.get(track)
-  if (!hit) {
-    hit = buildLayout(track)
-    layoutCache.set(track, hit)
-  }
-  return hit
-}
-
-/** Circular linear interpolation across the NaN gaps of a per-metre table. */
-function fillGaps(arr: Float32Array, fallback: number) {
-  const N = arr.length
-  let first = -1
-  for (let i = 0; i < N; i++) if (!Number.isNaN(arr[i]!)) { first = i; break }
-  if (first < 0) {
-    arr.fill(fallback)
-    return
-  }
-  let i = first
-  let guard = 0
-  while (guard++ < N + 1) {
-    // advance to the next NaN run starting after i
-    let j = (i + 1) % N
-    while (j !== first && !Number.isNaN(arr[j]!)) j = (j + 1) % N
-    if (j === first) break
-    const a = arr[(j - 1 + N) % N]!
-    let k = j
-    let n = 0
-    while (Number.isNaN(arr[k]!)) { k = (k + 1) % N; n++ }
-    const b = arr[k]!
-    for (let m = 0; m < n; m++) arr[(j + m) % N] = a + ((b - a) * (m + 1)) / (n + 1)
-    i = k
-    if (i === first) break
-  }
-}
-
-/** Circular box filter of half-width `r` metres. */
-function smoothCircular(arr: Float32Array, r: number): Float32Array {
-  const N = arr.length
-  const out = new Float32Array(N)
-  const w = 2 * r + 1
-  let sum = 0
-  for (let k = -r; k <= r; k++) sum += arr[(k + N) % N]!
-  for (let i = 0; i < N; i++) {
-    out[i] = sum / w
-    sum += arr[(i + r + 1) % N]! - arr[(i - r + N) % N]!
-  }
-  return out
-}
-
-function buildLayout(track: Track): { layout: RunoffLayout; runs: GravelRun[] } {
-  const L = track.length
-  const N = Math.ceil(L)
-  // per side, per metre of s: asphalt outer edge, gravel inner edge, gravel width; NaN = not
-  // covered by any zone (the gaps between corners), interpolated afterwards
-  const table = () => ({ a: new Float32Array(N).fill(NaN), gi: new Float32Array(N).fill(NaN), gw: new Float32Array(N).fill(NaN) })
-  const tabs = { left: table(), right: table() }
-  const tab = (side: Side) => (side > 0 ? tabs.left : tabs.right)
-  for (const z of RUNOFF_ZONES) {
-    const len = forwardDelta(z.sRange[0], z.sRange[1], L)
-    for (let d = 0; d <= len; d++) {
-      const i = Math.round(track.wrap(z.sRange[0] + d)) % N
-      for (const side of [1, -1] as const) {
-        const band = side > 0 ? z.left : z.right
-        const t = tab(side)
-        t.a[i] = band.asphalt ? band.asphalt[1] : 0
-        if (band.gravel) {
-          t.gi[i] = band.gravel[0]
-          t.gw[i] = band.gravel[1] - band.gravel[0]
-        } else t.gw[i] = 0 // the inner edge stays NaN → borrowed from the neighbours (width 0 anyway)
-      }
-    }
-  }
-  const smoothed = (side: Side) => {
-    const t = tab(side)
-    fillGaps(t.a, 0)
-    fillGaps(t.gi, 12)
-    fillGaps(t.gw, 0)
-    const r = Math.round(BAND_SMOOTH_M / 2)
-    return { a: smoothCircular(t.a, r), gi: smoothCircular(t.gi, r), gw: smoothCircular(t.gw, r) }
-  }
-  const S = { left: smoothed(1), right: smoothed(-1) }
-  const at = (arr: Float32Array, s: number): number => {
-    const x = track.wrap(s)
-    const i = Math.floor(x) % N
-    const f = x - Math.floor(x)
-    return arr[i]! * (1 - f) + arr[(i + 1) % N]! * f
-  }
-  const asphaltOuter = (s: number, side: Side): number => {
-    const hw = track.halfWidthAt(s)
-    const a = at((side > 0 ? S.left : S.right).a, s)
-    return a >= hw + ASPHALT_MIN_W ? Math.min(a, hw + RUNOFF_MAX_LAT) : hw
-  }
-  const gravel = (s: number, side: Side): [number, number] | null => {
-    const hw = track.halfWidthAt(s)
-    const t = side > 0 ? S.left : S.right
-    const giRaw = at(t.gi, s)
-    const outer = Math.min(giRaw + at(t.gw, s), RUNOFF_MAX_LAT)
-    const inner = Math.max(giRaw, hw + GRAVEL_INNER, asphaltOuter(s, side))
-    return outer - inner > 0.3 ? [inner, outer] : null
-  }
-  // contiguous traps per side (1 m scan, circular), gaps under 8 m bridged, stubs dropped
-  const runs: GravelRun[] = []
-  for (const side of [1, -1] as const) {
-    const present = new Uint8Array(N)
-    const outerAt = new Float32Array(N)
-    for (let i = 0; i < N; i++) {
-      const g = gravel(i, side)
-      if (g) {
-        present[i] = 1
-        outerAt[i] = g[1] - track.halfWidthAt(i)
-      }
-    }
-    for (let i = 0; i < N; i++) {
-      if (present[i] && !present[(i - 1 + N) % N]) {
-        let j = i
-        let gap = 0
-        let outer = 0
-        let len = 0
-        while (len < N) {
-          const k = (i + len) % N
-          if (present[k]) {
-            gap = 0
-            outer = Math.max(outer, outerAt[k]!)
-            j = k
-          } else if (++gap > 8) break
-          len++
-        }
-        const runLen = forwardDelta(i, j, L)
-        if (runLen >= 12) runs.push({ from: i, to: j, side, outer })
-      }
-    }
-  }
-  return { layout: { asphaltOuter, gravel }, runs }
-}
-
 // ---------------------------------------------------------------------------------------------
 
 export interface TrackMeshes {
   group: THREE.Group
-  surface: THREE.Mesh
   startLampMaterials: THREE.MeshStandardMaterial[]
-  /** metres the SURFACE_PATCHES layer raises the ground at (s, lateral) — lines.ts rides on it */
-  surfaceLiftAt: (s: number, lateral: number) => number
 }
 
-/** Cross-section sample offsets (m beyond the asphalt edge) of the draped run-off ribbons. */
-const RUNOFF_OFFSETS = [0, FLAT_STRIP, 3.5, 5.5, 8, 11, 14.5, 18.5, 23, 28, RUNOFF_WIDTH]
-/** Metres one uv unit of the grass run-off spans (the terrain uses 9 too, so both share the tile scale). */
-const GRASS_UV_M = 9
-/** Decals sit this far above the surface they are painted on (plus polygon offset). */
+/** Decals sit this far above the face they are painted on (plus polygon offset). */
 const DECAL_LIFT = 0.006
 
-
+/**
+ * What stands on or beside the racing surface that is NOT ground: the sausage kerbs, the painted
+ * aprons and green strips (decals on the drawn ground), the crossover bridge's slab, walls, rails
+ * and piers, the pit wall with its boards, the DRS markings and the start gantry.
+ *
+ * The ground itself — the road, the kerbs, the run-off bands, the gravel, the pit lane and its
+ * apron, the paved areas — is the partition of ground-plan.ts drawn by ground-mesh.ts. Nothing
+ * here draws an opaque horizontal surface at ground level; the audit (surface-check G8) fails
+ * on one that is not a registered ground face.
+ */
 export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground): TrackMeshes {
   const group = new THREE.Group()
-  const assets = terrain.assets
   /** local half-width — the road narrows to ~10.5 m at the Degners and widens to 15 m on the pit straight */
   const hwAt: Fn = (s) => track.halfWidthAt(s)
   const hw = track.halfWidth
   const L = track.length
-  const zero: Fn = () => 0
   const cross = track.crossing
-  const groundHeightAt = (x: number, z: number) => terrain.heightAt(x, z)
-  /** surfaces the terrain mesh must stay underneath */
-  /** every sheet drawn over the terrain, with the name it is registered under */
-  const groundGeos: [THREE.BufferGeometry, string][] = []
-  const layout = runoffLayout(track)
-  /** outer edge of the asphalt run-off, never beyond the draped verge (the bridge deck narrows it) */
-  const aOut = (s: number, side: Side) => Math.min(layout.asphaltOuter(s, side), hwAt(s) + ground.runoffWidth(s, side))
-  /** gravel band on `side`, narrowed with the verge near the bridge */
-  const gravelAt = (s: number, side: Side): [number, number] | null => {
-    const g = layout.gravel(s, side)
-    if (!g) return null
-    const outer = Math.min(g[1], hwAt(s) + (ground.runoffWidth(s, side) * RUNOFF_MAX_LAT) / RUNOFF_WIDTH)
-    // a bed cannot start inside a patch that owns the ground there. The gravel is laid ON the
-    // grass ribbon rather than owning the ground itself, so it can use the unlimited measurement:
-    // retracting it too far exposes grass, never terrain.
-    const inner = Math.max(g[0], hwAt(s) + patches.vergeCut(s, side, true))
-    return outer - inner > 0.3 ? [inner, outer] : null
-  }
-  /** height of the ground surface at (s, lat) relative to the road plane: the asphalt run-off where there is one, the grass otherwise */
-  const surfaceY = (s: number, lat: number, side: Side): number => {
-    const off = Math.abs(lat) - hwAt(s)
-    const onAsphalt = Math.abs(lat) < aOut(s, side) - 1e-3
-    if (off <= FLAT_STRIP + 1e-3) return STRIP_DROP + (onAsphalt ? 0.01 : 0)
-    return ground.yAt(s, lat) + (onAsphalt ? 0.01 : 0)
-  }
-
-  // --- asphalt (the cross-slope is applied inside track.pointAt) -----------------------
-  // normalScale 1: the old 0.7 is folded into the generated normals (see asphaltMaps)
-  const asphaltMat = pbr(asphaltMaps(true), {}, 1)
-  // one macro period across the road and every 300 m along it (the base tile is 20 m)
-  addRoadSurface(asphaltMat, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
-  const surface = new THREE.Mesh(ribbonGeometry(track, 0, 0, hwAt, (s) => -hwAt(s), zero, zero, 2, 20), asphaltMat)
-  surface.name = 'asphalt'
-  surface.receiveShadow = true
-  group.add(surface)
-  groundGeos.push([surface.geometry, 'asphalt'])
-
-  // --- SURFACE_PATCHES: paved / unpaved AREAS that a lateral band cannot describe ---------------
-  // Built here rather than in buildEnvironment so the polygons join `groundGeos` and the terrain
-  // is clamped under them (buildLanes is not, it only rides on ground.worldY).
-  //
-  // BEFORE the run-off ribbons, because a patch that declares `replacesVerge` owns the ground
-  // there and the ribbons have to be cut back to its edge (`vCut` below) rather than drawn
-  // underneath it — two sheets approximating the same terrain on different triangulations
-  // disagree by up to 63 mm over 4 m, which no ladder can separate.
-  const gravelMat = pbr(gravelMaps(), {}, 1.0)
-  const patchAsphaltMat = pbr(asphaltMaps(false), {}, 1)
-  // an apron has no "along", so the macro variation is isotropic instead of the road's (1, 20/300)
-  addRoadSurface(patchAsphaltMat, new THREE.Vector2(ASPHALT_WIDTH_M / 120, ASPHALT_TILE_M / 120))
-  const patches = buildSurfacePatches(track, ground, groundHeightAt, {
-    asphalt: patchAsphaltMat,
-    turf: pbr(turfMaps(), { roughness: 0.95 }, 0.9),
-    gravel: gravelMat,
-    // the terrain's own tile scale and macro period, so the islands phase-lock to it
-    grass: grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [250, 250], 0.8),
-  })
-  for (const m of patches.meshes) group.add(m)
-  for (const g of patches.geometries) groundGeos.push([g, 'surfacePatches'])
-
-  /**
-   * Inner edge every verge band is pushed out to: the dual of `aOut`. Zero where no patch
-   * declares `replacesVerge`, so everywhere else the ribbons are untouched.
-   */
-  const vCut = (s: number, side: Side) => patches.vergeCut(s, side)
-  const cutHere = (s: number, side: Side) => vCut(s, side) > FLAT_STRIP + 1e-3
-
-  // --- run-off, per RUNOFF_ZONES: asphalt band → gravel → grass ("half and half") ------------
-  // The grass ribbon covers the whole verge (a flat strip under the kerbs, then draped over the
-  // terrain — see ground.ts) except where the asphalt band is: its inner edges collapse onto the
-  // asphalt's outer edge, so the two never overlap. Macro / green-up periods as before (34 m
-  // across, 120 m along); u is metres from the road edge so the tile stays registered to it.
-  const grassMat = grassSurfaceMaterial(assets, [GRASS_UV_M, GRASS_UV_M], [RUNOFF_WIDTH, 120], 0.8)
-  const runoffGeo = (side: Side) => {
-    // ...and except where a `replacesVerge` patch owns the ground: the inner edges collapse onto
-    // the patch's outer edge exactly as they collapse onto the asphalt band's
-    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.max(aOut(s, side), hwAt(s) + vCut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH))
-    const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => ground.yAt(s, lat(s))])
-    const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - hwAt(s)) / GRASS_UV_M
-    // edges must run right-to-left (increasing lateral)
-    if (side < 0) {
-      edges.reverse()
-      return profileRibbonGeometry(track, 0, 0, edges, 4, GRASS_UV_M, (e, s) => u(edges.length - 1 - e, s))
-    }
-    return profileRibbonGeometry(track, 0, 0, edges, 4, GRASS_UV_M, u)
-  }
-  const runoffL = new THREE.Mesh(runoffGeo(1), grassMat)
-  const runoffR = new THREE.Mesh(runoffGeo(-1), grassMat)
-  runoffL.receiveShadow = runoffR.receiveShadow = true
-  runoffL.name = 'runoffL'
-  runoffR.name = 'runoffR'
-  group.add(runoffL, runoffR)
-  groundGeos.push([runoffL.geometry, 'runoffL'], [runoffR.geometry, 'runoffR'])
-
-  // asphalt run-off: the unlined tile (repeating across), 1 cm proud of the grass plane so the
-  // seam at its outer edge reads as a kerb-less lip; edges collapse onto the band's outer edge
-  const runoffAsphaltMat = pbr(asphaltMaps(false), {}, 1)
-  addRoadSurface(runoffAsphaltMat, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
-  const runoffAsphaltGeo = (side: Side) => {
-    // where a patch owns the verge the band still carries the flat strip — the patch keeps clear
-    // of it (patchOutline's STRIP_CLEAR) — but stops there instead of running on underneath
-    const lats = RUNOFF_OFFSETS.map((off): Fn => (s) => side * Math.min(aOut(s, side), hwAt(s) + (off * ground.runoffWidth(s, side)) / RUNOFF_WIDTH, cutHere(s, side) ? hwAt(s) + FLAT_STRIP : Infinity))
-    const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => surfaceY(s, lat(s), side)])
-    const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - hwAt(s)) / ASPHALT_WIDTH_M
-    if (side < 0) {
-      edges.reverse()
-      return profileRibbonGeometry(track, 0, 0, edges, 4, ASPHALT_TILE_M, (e, s) => u(edges.length - 1 - e, s))
-    }
-    return profileRibbonGeometry(track, 0, 0, edges, 4, ASPHALT_TILE_M, u)
-  }
-  const runoffAsphaltL = new THREE.Mesh(runoffAsphaltGeo(1), runoffAsphaltMat)
-  const runoffAsphaltR = new THREE.Mesh(runoffAsphaltGeo(-1), runoffAsphaltMat)
-  runoffAsphaltL.receiveShadow = runoffAsphaltR.receiveShadow = true
-  runoffAsphaltL.name = 'runoffAsphaltL'
-  runoffAsphaltR.name = 'runoffAsphaltR'
-  group.add(runoffAsphaltL, runoffAsphaltR)
-  groundGeos.push([runoffAsphaltL.geometry, 'runoffAsphaltL'], [runoffAsphaltR.geometry, 'runoffAsphaltR'])
-
-
-  // --- kerbs and green strips from the KERBS table -------------------------------------------
-  // Not from track.corners any more: the corner finder splits the 200R into seven gentle bends and
-  // the Dunlop arc into four, and kerbed both sides of every one of them — 1.4 km of kerb the
-  // circuit does not have. KERBS lists the ones the aerial actually shows.
-  const kerbMat = pbr(kerbMaps(), { roughness: 0.75 }, 0.9)
-  const kerbGeos: THREE.BufferGeometry[] = []
-  const kerbSpansBuilt: { from: number; to: number; side: Side; width: number }[] = []
-  const sausageSpots: { s: number; side: 1 | -1 }[] = []
   const pit = CIRCUIT.pit
-  // no kerbs on the right where the pit lane joins and leaves the track
-  const kerbSpans = (from: number, to: number, side: 1 | -1): [number, number][] =>
-    side < 0 ? subtractInterval(from, to, pit.entryS - 4, pit.exitS + 4, L) : [[from, to]]
+  /** the ground beyond the road at world (x, z): the DRAWN face, or the field where none is drawn */
+  const groundAt = (x: number, z: number): number => ground.builtY(x, z)?.y ?? ground.field.y(x, z)
+
+  // --- sausage kerbs from the KERBS table: yellow blocks behind the exit kerb ---------------------
+  const sausageSpots: { s: number; side: 1 | -1 }[] = []
   for (const k of KERBS) {
-    if (k.kind === 'sausage') {
-      const len = forwardDelta(k.sRange[0], k.sRange[1], L)
-      for (let d = 0; d <= len; d += 1.7) sausageSpots.push({ s: k.sRange[0] + d, side: k.side })
-      continue
-    }
-    if (k.kind === 'green') continue // painted strips are decals, drawn with the aprons below
-    for (const [a2, b2] of kerbSpans(k.sRange[0], k.sRange[1], k.side)) {
-      kerbGeos.push(kerbProfile(track, a2, b2, k.side, k.width ?? 1.3, hwAt))
-      kerbSpansBuilt.push({ from: a2, to: b2, side: k.side, width: k.width ?? 1.3 })
-    }
+    if (k.kind !== 'sausage') continue
+    const len = forwardDelta(k.sRange[0], k.sRange[1], L)
+    for (let d = 0; d <= len; d += 1.7) sausageSpots.push({ s: k.sRange[0] + d, side: k.side })
   }
-  /** width of the kerb on `side` at s (0 where there is none) — the painted strips start behind it */
-  const kerbOuterAt = (s: number, side: Side): number => {
-    let w = 0
-    for (const k of kerbSpansBuilt) if (k.side === side && forwardDelta(k.from, s, L) <= forwardDelta(k.from, k.to, L)) w = Math.max(w, k.width)
-    return w
-  }
-  // one draw call per material for all kerbs
-  const kerbs = new THREE.Mesh(mergeGeometries(kerbGeos, false)!, kerbMat)
-  kerbs.name = 'kerbs'
-  kerbs.receiveShadow = true
-  group.add(kerbs)
-  // sausage kerbs: yellow blocks behind the exit kerb where the photos show them
   if (sausageSpots.length) {
     const sausageGeo = new RoundedBoxGeometry(0.4, 0.12, 1.3, 2, 0.05)
     const sausageMat = new THREE.MeshStandardMaterial({ color: 0xf2c400, roughness: 0.6 })
@@ -597,65 +188,42 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     group.add(sausages)
   }
 
-  // --- gravel traps: one ribbon per contiguous run of the table --------------------------------
-  // The band [inner, outer] moves with s (the zones taper over BAND_SMOOTH_M), so the cross-
-  // section is sampled at fixed fractions of the local width, fine enough (≤ 4 m at the widest
-  // trap) to follow the terrain out to 55 m. The trap sits 2 cm proud of the flat strip / the
-  // asphalt band and 4 cm above the draped grass further out.
-  const gravelGeos: THREE.BufferGeometry[] = []
-  const GRAVEL_EDGES = 11
-  for (const run of gravelRuns(track)) {
-    const band = (s: number): [number, number] => gravelAt(s, run.side) ?? [hwAt(s) + GRAVEL_INNER, hwAt(s) + GRAVEL_INNER]
-    const lats: Fn[] = []
-    for (let k = 0; k < GRAVEL_EDGES; k++) {
-      const f = k / (GRAVEL_EDGES - 1)
-      lats.push((s) => {
-        const [i, o] = band(s)
-        return run.side * (i + f * (o - i))
-      })
-    }
-    const edges: [Fn, Fn][] = lats.map((lat) => [
-      lat,
-      (s) => {
-        const l = lat(s)
-        const off = Math.abs(l) - hwAt(s)
-        return off <= FLAT_STRIP ? 0.02 : ground.yAt(s, l) + 0.04
-      },
-    ])
-    const u = (e: number, s: number) => (Math.abs(lats[e]!(s)) - band(s)[0]) / 3
-    if (run.side < 0) {
-      edges.reverse()
-      gravelGeos.push(profileRibbonGeometry(track, run.from, run.to, edges, 3, 3, (e, s) => u(edges.length - 1 - e, s)))
-    } else gravelGeos.push(profileRibbonGeometry(track, run.from, run.to, edges, 3, 3, u))
-  }
-  if (gravelGeos.length) {
-    const gravel = new THREE.Mesh(mergeGeometries(gravelGeos, false)!, gravelMat)
-    gravel.name = 'gravel'
-    gravel.receiveShadow = true
-    group.add(gravel)
-    groundGeos.push([gravel.geometry, 'gravel'])
-  }
-
-  // --- painted aprons and edge strips (PAINTED_APRONS + GREEN_STRIPS) --------------------------
-  // Thin decals a few mm above whichever surface they lie on, with the brakingRubber polygon-
-  // offset technique (props.ts) against z-fighting; one atlas → one material → one draw call.
+  // --- painted aprons and edge strips (PAINTED_APRONS + the 'green' KERBS rows) -----------------
+  // Thin decals a few mm above the DRAWN ground face they lie on (ground.builtY, so they are
+  // coplanar with what is rendered rather than with the field the faces approximate), with the
+  // brakingRubber polygon-offset technique (props.ts) against z-fighting; one atlas → one material.
   {
     const paintMat = new THREE.MeshStandardMaterial({ map: apronPaintTexture(), roughness: 0.65, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
     const paintGeos: THREE.BufferGeometry[] = []
+    /** width of the flat kerb on `side` at s (0 where there is none) — the painted strips start behind it */
+    const kerbOuterAt = (s: number, side: Side): number => kerbWidthTapered(ground.plan.kerbs, track, s, side)
+    /**
+     * Height of the decal above the road plane at (s, lat): on the DRAWN face, DECAL_LIFT up.
+     * Not the strip rule: the first cell beside the asphalt shares its inner vertices with the
+     * road, so the drawn strip is a ramp from the road edge down to STRIP_DROP, and a decal put at
+     * STRIP_DROP + 6 mm was 20 mm under it.
+     */
+    const decalY = (s: number, lat: number): number => {
+      track.pointAt(s, lat, _p, 0)
+      const off = Math.abs(lat) - hwAt(s)
+      const base = off <= 0 ? _p.y : groundAt(_p.x, _p.z)
+      return base - _p.y + DECAL_LIFT
+    }
     const decal = (from: number, to: number, side: Side, inner: Fn, width: Fn, uRange: readonly [number, number], across: number) => {
       const lats: Fn[] = []
       for (let k = 0; k < across; k++) {
         const f = k / (across - 1)
         lats.push((s) => side * (hwAt(s) + inner(s) + f * width(s)))
       }
-      // + the SURFACE_PATCHES layer, so a decal painted on a patch is not buried under it
-      const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => surfaceY(s, lat(s), side) + patches.liftAt(s, lat(s)) + DECAL_LIFT])
+      const edges: [Fn, Fn][] = lats.map((lat) => [lat, (s) => decalY(s, lat(s))])
       const uAt = lats.map((_l, k) => uRange[0] + (k / (across - 1)) * (uRange[1] - uRange[0]))
       if (side < 0) {
         edges.reverse()
         uAt.reverse()
       }
-      paintGeos.push(profileRibbonGeometry(track, from, to, edges, 2, APRON_TILE_M, uAt))
+      // 1 m stations and the drawn-face height at every vertex: the decal follows the ground's
+      // own facets to within a few millimetres instead of chording across them
+      paintGeos.push(profileRibbonGeometry(track, from, to, edges, 1, APRON_TILE_M, uAt))
     }
     for (const a of PAINTED_APRONS) {
       const len = forwardDelta(a.sRange[0], a.sRange[1], L)
@@ -667,43 +235,44 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
       const uv = a.pattern === 'chevrons' ? APRON_UV.chevrons : APRON_UV.turquoise
       // solid paint: a constant u well inside its region (the taps never reach a neighbour)
       const uRange: readonly [number, number] = a.pattern === 'chevrons' ? uv : [(uv[0] + uv[1]) / 2, (uv[0] + uv[1]) / 2]
-      decal(a.sRange[0], a.sRange[1], a.side, (s) => kerbOuterAt(s, a.side) + 0.05, width, uRange, 5)
+      decal(a.sRange[0], a.sRange[1], a.side, (s) => kerbOuterAt(s, a.side) + 0.05, width, uRange, 8)
     }
     for (const g of KERBS) {
       if (g.kind !== 'green') continue
       const mid = (APRON_UV.green[0] + APRON_UV.green[1]) / 2
       // behind the kerb where there is one, hard against the edge line otherwise
-      decal(g.sRange[0], g.sRange[1], g.side, (s) => (kerbOuterAt(s, g.side) > 0 ? kerbOuterAt(s, g.side) + 0.05 : 0.1), () => g.width ?? 1.2, [mid, mid], 2)
+      decal(g.sRange[0], g.sRange[1], g.side, (s) => (kerbOuterAt(s, g.side) > 0 ? kerbOuterAt(s, g.side) + 0.05 : 0.1), () => g.width ?? 1.2, [mid, mid], 3)
     }
     const paint = new THREE.Mesh(mergeGeometries(paintGeos, false)!, paintMat)
     paint.name = 'paintedAprons'
     paint.receiveShadow = true
     paint.renderOrder = 1
+    paint.userData.decal = true
     group.add(paint)
   }
 
   // --- crossover bridge -------------------------------------------------------
+  // The deck's shoulder strips are ground (the `deckShoulder` owner of the plan); what is built
+  // here is the slab under the road, the deck walls, the embankment walls down to the ground, the
+  // guard rails and the piers beside the lower track.
   const concrete = pbr(concreteMaps(), { roughness: 0.95, side: THREE.DoubleSide }, 0.6)
   const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide })
   const span = 19
   const approach = 160
   const concreteGeos: THREE.BufferGeometry[] = []
-  // deck slab
   concreteGeos.push(ribbonGeometry(track, cross.sOver - span, cross.sOver + span, (s) => hwAt(s) + 1.2, (s) => -hwAt(s) - 1.2, () => -1.3, () => -1.3, 3, 10))
   concreteGeos.push(wallGeometry(track, cross.sOver - span, cross.sOver + span, (s) => hwAt(s) + 1.2, () => -1.3, () => 0.0, 3))
   concreteGeos.push(wallGeometry(track, cross.sOver - span, cross.sOver + span, (s) => -hwAt(s) - 1.2, () => -1.3, () => 0.0, 3))
-  // embankments (walls down to the terrain) either side of the span
+  // embankments (walls down to the ground) either side of the span
   for (const [a, b] of [[cross.sOver - approach, cross.sOver - span], [cross.sOver + span, cross.sOver + approach]] as const) {
     for (const side of [1, -1] as const) {
       const lat: Fn = (s) => side * (hwAt(s) + 1.2)
       const bottom: Fn = (s) => {
         track.pointAt(s, lat(s), _p)
-        return Math.min(-0.05, groundHeightAt(_p.x, _p.z) - _p.y - 0.4)
+        return Math.min(-0.05, groundAt(_p.x, _p.z) - _p.y - 0.4)
       }
       concreteGeos.push(wallGeometry(track, a, b, lat, bottom, () => 0, 4))
     }
-    // shoulder strip covering the top edge between asphalt and wall
-    concreteGeos.push(ribbonGeometry(track, a, b, (s) => hwAt(s) + 1.2, (s) => -hwAt(s) - 1.2, () => -0.01, () => -0.01, 4, 10))
   }
   // guard rails along the whole elevated section
   const railGeos: THREE.BufferGeometry[] = []
@@ -717,58 +286,15 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   for (const lat of [hwUnder + 5, -hwUnder - 5]) {
     track.pointAt(cross.sUnder, lat, _p)
     const top = cross.yOver - 1.3
-    const bottom = groundHeightAt(_p.x, _p.z) - 1
+    const bottom = groundAt(_p.x, _p.z) - 1
     const g = pierGeo.clone()
     g.scale(1, top - bottom, 1)
     g.translate(_p.x, (top + bottom) / 2, _p.z)
     concreteGeos.push(g)
   }
 
-  // --- pit lane: between the pit wall and the garages, plus the entry / exit roads ----------
-  const pitLat = (s: number) => track.pitLateralAt(s) ?? pit.laneOffset
-  const halfLane = pit.laneWidth / 2
-  // Procedural fallback: the lined asphalt with its u range inset past the painted edge lines
-  // (cloned textures share the upload; only the transform differs) — no second asphalt set.
-  const proceduralPit = () => {
-    const lined = asphaltMaps(true)
-    const inset = (t: THREE.Texture) => {
-      const c = t.clone()
-      c.repeat.set(1 - 2 * ASPHALT_LINE_FRAC, 1)
-      c.offset.set(ASPHALT_LINE_FRAC, 0)
-      return c
-    }
-    const m = pbr({ map: inset(lined.map), normalMap: lined.normalMap && inset(lined.normalMap), roughnessMap: lined.roughnessMap && inset(lined.roughnessMap) }, {}, 1)
-    addRoadSurface(m, new THREE.Vector2(1, ASPHALT_TILE_M / 300), pit.laneWidth)
-    return m
-  }
-  // The ribbon's uv is the road convention (u unit = ASPHALT_WIDTH_M across, v unit = ASPHALT_TILE_M
-  // along). High tier: the asphalt_pit_lane photo tile (2 m) on clones with the repeat that puts
-  // it at physical scale, plus the macro variation at the same periods as the track's (one across
-  // the lane, 300 m along) — the photo already carries the aggregate the detail layer adds.
-  let pitMat: THREE.MeshStandardMaterial
-  if (assets && (['diff', 'nor_gl', 'arm'] as const).every((r) => assets.has(`tex/asphalt_pit_lane/${r}`))) {
-    pitMat = pbrFromAssets(assets, 'asphalt_pit_lane', { fallback: proceduralPit, ground: true, handBuiltUv: true })
-    const tile = tileMetres(assets, 'tex/asphalt_pit_lane/diff', 2)
-    const uvM: [number, number] = [ASPHALT_WIDTH_M, ASPHALT_TILE_M]
-    pitMat.map = repeatMetres(pitMat.map!.clone(), tile, uvM)
-    pitMat.normalMap = repeatMetres(pitMat.normalMap!.clone(), tile, uvM)
-    const arm = repeatMetres(pitMat.aoMap!.clone(), tile, uvM)
-    pitMat.aoMap = pitMat.roughnessMap = pitMat.metalnessMap = arm
-    const rep = pitMat.map.repeat
-    addMacro(pitMat, new THREE.Vector2(1 / rep.x, ASPHALT_TILE_M / 300 / rep.y))
-  } else pitMat = proceduralPit()
-  const pitLane = new THREE.Mesh(ribbonGeometry(track, pit.entryS, pit.exitS, (s) => pitLat(s) + halfLane, (s) => pitLat(s) - halfLane, () => LAYER.pit.lane, () => LAYER.pit.lane, 3, ASPHALT_TILE_M, pit.laneWidth / ASPHALT_WIDTH_M), pitMat)
-  pitLane.name = 'pitLane'
-  pitLane.receiveShadow = true
-  group.add(pitLane)
-  groundGeos.push([pitLane.geometry, 'pitLane'])
-  // Concrete apron between the pit lane and the garages. It overlaps the lane by 20 cm so no gap
-  // opens where `pitLat` ramps away, and sits LAYER.pit.concrete below it so that overlap has a
-  // defined winner — the two used to be at exactly the same height for ~600 m.
-  const apronGeo = ribbonGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.laneOffset - halfLane + 0.2, () => pit.garageFront + 0.4, () => LAYER.pit.concrete, () => LAYER.pit.concrete, 3, 4)
-  concreteGeos.push(apronGeo)
-  terrain.addGroundSurface(apronGeo, { name: 'pitApron', maxDrop: 1 })
-  // pit wall between track and pit lane, with advertising boards facing the track
+  // --- pit wall between track and pit lane, with advertising boards facing the track ------------
+  // (the pit lane and the garage apron are ground: the `pitLane` / `pitApron` owners of the plan)
   const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide })
   const boardGeos: THREE.BufferGeometry[] = []
   boardGeos.push(wallGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.wallOffset, () => STRIP_DROP, () => 1.2, 4, 64))
@@ -791,6 +317,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
   ], false)!, gridMat)
   drsLines.name = 'drsLines'
   drsLines.receiveShadow = true
+  drsLines.userData.decal = true
   group.add(drsLines)
 
   // --- start gantry with the five light clusters ------------------------------------
@@ -829,54 +356,7 @@ export function buildTrackMeshes(track: Track, terrain: Terrain, ground: Ground)
     }
   }
   group.add(gantry)
+  void terrain
 
-  // The terrain grid is coarse (13.3 m, 17.7 m on the low tier): register every sheet so
-  // terrain.settle() can push the grid underneath it. Registering is what protects a sheet — the
-  // dev sweep in RaceViewport and scripts/audit/surface-check.mjs both fail on an unregistered one.
-  // maxDrop 12: the deepest cut any of these needs is 9.41 m, where the 34 m verge runs into the
-  // relief platform E-1 stands on (six such spots, all at stand fronts, none at the crossover).
-  // The old point-sampled clamp cut them uncapped, so this keeps the terrain as it was while
-  // still bounding a runaway; surface-check reports anything the cap refuses.
-  for (const [geo, name] of groundGeos) terrain.addGroundSurface(geo, { margin: RUNOFF_LIFT + 0.05, name, maxDrop: 12 })
-
-  return { group, surface, startLampMaterials, surfaceLiftAt: patches.liftAt }
+  return { group, startLampMaterials }
 }
-
-/**
- * Kerb cross-section on `side` (+1 left / -1 right) of the road edge: 0.3 m ramp from the
- * asphalt up to 5 cm, a slightly crowned top, and a 3 cm drop into the grass behind.
- */
-function kerbProfile(track: Track, s0: number, s1: number, side: 1 | -1, width: number, hwAt: Fn): THREE.BufferGeometry {
-  const at = (off: number): Fn => (s) => side * (hwAt(s) + off)
-  const edges: [Fn, Fn][] = [
-    [at(0), () => 0.0],
-    [at(0.3), () => 0.05],
-    [at(width * 0.55), () => 0.065],
-    [at(width - 0.15), () => 0.05],
-    // just below the grass strip rather than exactly on it: the grass ribbon covers the whole
-    // verge including the ground under the kerb, and the two used to be coplanar at this edge
-    [at(width), () => LAYER.strip.kerbOuter],
-  ]
-  // edges run right-to-left (increasing lateral): the right kerb is listed outside-in
-  if (side < 0) edges.reverse()
-  return profileRibbonGeometry(track, s0, s1, edges, 1, 2)
-}
-
-/**
- * Forward intervals of [from, to] that remain after removing [cutFrom, cutTo] (all on the
- * closed lap of length L).
- */
-function subtractInterval(from: number, to: number, cutFrom: number, cutTo: number, L: number): [number, number][] {
-  const len = forwardDelta(from, to, L)
-  const cutLen = forwardDelta(cutFrom, cutTo, L)
-  let c0 = forwardDelta(from, cutFrom, L)
-  if (c0 > L / 2) c0 -= L
-  const c1 = c0 + cutLen
-  if (c1 <= 0 || c0 >= len) return [[from, to]]
-  const out: [number, number][] = []
-  if (c0 > 0) out.push([from, from + c0])
-  if (c1 < len) out.push([from + c1, to])
-  return out
-}
-
-

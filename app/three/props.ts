@@ -7,11 +7,10 @@ import type { EnvBuildContext } from './environment'
 import { brakingRubberTexture, labelTexture } from './textures'
 import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
-import { OSM_BUILDINGS, OSM_PIT_BUILDING, OSM_RACEWAY, type OsmFeature } from '~/data/suzuka-facilities'
-import { BUILDINGS } from '~/data/suzuka-facilities-spec'
-import { MARSHAL_POSTS, OFFSET_LANES, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
-import { addRoadSurface } from './track-mesh'
-import { ASPHALT_TILE_M, asphaltMaps } from './textures'
+import { OSM_BUILDINGS, OSM_PIT_BUILDING, type OsmFeature } from '~/data/suzuka-facilities'
+import { BUILDINGS, GROUND_AREAS } from '~/data/suzuka-facilities-spec'
+import { MARSHAL_POSTS, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
+import { osmWay } from './trackside'
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
@@ -215,7 +214,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
 
   buildPowerLines(ctx)
   buildOsmBuildings(ctx)
-  buildSecondaryPaving(ctx)
+  keepOutSecondaryPaving(ctx)
 
   return { flagTime }
 }
@@ -343,127 +342,20 @@ function buildOsmBuildings(ctx: EnvBuildContext) {
 
 // ---------------------------------------------------------------- secondary paving
 
-/** longest segment / rail spacing of a draped ribbon (m) — see densify() */
-const PAVING_STEP = 4
-
 /**
- * Resample a world polyline so no segment is longer than PAVING_STEP.
- *
- * The OSM ways come with vertices tens of metres apart (the longest here is 97.7 m) while the
- * terrain grid is 13.3 m, so a ribbon draped only at those vertices is a chord over every rise
- * between them: measured on the built scene, the terrain came through the secondary paving over
- * 26.6 % of its area, worst 2.75 m.
+ * The asphalt that is not the Grand Prix lap — the South Course loop, the kart tracks, the loop
+ * outside the final corner — is GROUND: the `way` rows of GROUND_AREAS, drawn by ground-mesh.ts
+ * on the field. What the props still own is keeping the trees off them: the kart and South
+ * Course loops are tree-free inside as well as on the ribbon.
  */
-function densify(pts: THREE.Vector3[], closed: boolean, step: number): THREE.Vector3[] {
-  const out: THREE.Vector3[] = []
-  const last = closed ? pts.length : pts.length - 1
-  for (let i = 0; i < last; i++) {
-    const a = pts[i]!, b = pts[(i + 1) % pts.length]!
-    const parts = Math.max(1, Math.ceil(a.distanceTo(b) / step))
-    for (let k = 0; k < parts; k++) out.push(a.clone().lerp(b, k / parts))
-  }
-  if (!closed) out.push(pts[pts.length - 1]!.clone())
-  return out
-}
-
-/**
- * Asphalt ribbon along a world polyline (open or closed), `width` metres wide, draped on the
- * terrain mesh with `lift`; mitred joints from the averaged segment normals. Swept from
- * `rails` rails so the drape follows the ground ACROSS the ribbon as well as along it.
- */
-function polylineRibbon(raw: THREE.Vector3[], width: number, closed: boolean, yAt: (x: number, z: number) => number, lift: number, tileM: number): THREE.BufferGeometry | null {
-  if (raw.length < 2) return null
-  const pts = densify(raw, closed, PAVING_STEP)
-  const rails = Math.max(2, Math.round(width / PAVING_STEP) + 1)
-  const n = pts.length
-  if (n < 2) return null
-  const count = closed ? n + 1 : n
-  const pos = new Float32Array(count * rails * 3)
-  const uv = new Float32Array(count * rails * 2)
-  const idx: number[] = []
-  let along = 0
-  const dir = new THREE.Vector3(), prev = new THREE.Vector3(), next = new THREE.Vector3(), side = new THREE.Vector3()
-  for (let i = 0; i < count; i++) {
-    const p = pts[i % n]!
-    const a = pts[(i - 1 + n) % n]!, b = pts[(i + 1) % n]!
-    prev.copy(p).sub(a).setY(0)
-    next.copy(b).sub(p).setY(0)
-    if (!closed && i === 0) prev.copy(next)
-    if (!closed && i === n - 1) next.copy(prev)
-    if (prev.lengthSq() > 0) prev.normalize()
-    if (next.lengthSq() > 0) next.normalize()
-    dir.copy(prev).add(next)
-    if (dir.lengthSq() < 1e-6) dir.copy(next)
-    dir.normalize()
-    side.set(dir.z, 0, -dir.x).multiplyScalar(width / 2)
-    if (i > 0) along += p.distanceTo(pts[(i - 1) % n]!)
-    for (let r = 0; r < rails; r++) {
-      const sgn = 1 - (2 * r) / (rails - 1)
-      const x = p.x + side.x * sgn, z = p.z + side.z * sgn
-      const k = i * rails + r
-      pos[k * 3] = x
-      pos[k * 3 + 1] = yAt(x, z) + lift
-      pos[k * 3 + 2] = z
-      uv[k * 2] = r / (rails - 1)
-      uv[k * 2 + 1] = along / tileM
-    }
-    if (i < count - 1) {
-      // (left, right, forward-left) is counter-clockwise seen from above: the ribbon faces up
-      for (let r = 0; r < rails - 1; r++) {
-        const q = i * rails + r
-        idx.push(q, q + 1, q + rails, q + 1, q + rails + 1, q + rails)
-      }
-    }
-  }
-  const g = new THREE.BufferGeometry()
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-  g.setIndex(idx)
-  g.computeVertexNormals()
-  return g
-}
-
-/**
- * The asphalt that is not the Grand Prix lap: the two-wheel chicanes and slip roads (200R, the
- * Astemo chicane and its bypass, the bike pit entry), the West Course pit lane, the South Course
- * loop inside the west section and the kart tracks beside the Motopia park — all OSM raceway
- * ways with surface=asphalt that are not part of the lap. Draped on the terrain, so they read as
- * the grey ribbons the TV wide shots show across the infield.
- */
-function buildSecondaryPaving(ctx: EnvBuildContext) {
-  const { track, terrain, ground, group, keepOut } = ctx
-  const maps = asphaltMaps(false)
-  // the run-off asphalt's own surface treatment (macro variation + detail), so the strips match the road
-  const mat = new THREE.MeshStandardMaterial({ map: maps.map, normalMap: maps.normalMap, roughnessMap: maps.roughnessMap, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
-  addRoadSurface(mat, new THREE.Vector2(1, ASPHALT_TILE_M / 300), 9)
-  const cx = track.center.x, cz = track.center.z
-  const inside = (x: number, z: number) => Math.abs(x - cx) < 1600 && Math.abs(z - cz) < 1200
-  /** the lap itself, its pit lane and the two-wheel / kart ways: widths by role */
-  const widthOf = (f: OsmFeature): number => {
-    const name = f.tags.name ?? ''
-    if (name.includes('カート')) return 7
-    if (name.includes('南コース')) return 10
-    if (name.includes('Pit Lane')) return 10
-    return 9
-  }
-  const geos: THREE.BufferGeometry[] = []
+function keepOutSecondaryPaving(ctx: EnvBuildContext) {
+  const { track, keepOut } = ctx
   let count = 0
-  // the ways that touch the lap (two-wheel chicanes, slip roads, the West Course pit lane) are
-  // built as offset lanes in the track frame by lanes.ts — a terrain ribbon along their raw
-  // polyline used to lie across the racing surface
-  const lanes = new Set(OFFSET_LANES.map((l) => l.osmWay))
-  for (const f of OSM_RACEWAY) {
-    // the lap's own ways sit on the centreline (dmin ≈ 0 and their s range covers them): skip
-    // anything that hugs the road for its whole length; keep what leaves it
-    if (f.lateral[1] - f.lateral[0] < 6 && f.dmin < 4) continue
-    if (f.tags.name === 'Pit Lane' || lanes.has(f.id) || f.dmin < 8) continue
+  for (const a of GROUND_AREAS) {
+    if (!('way' in a.footprint)) continue
+    const f = osmWay(a.footprint.way)
+    if (!f) continue
     const pts = f.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
-    if (!pts.every((p) => inside(p.x, p.z))) continue
-    // on the field, not the drawn grid: the same continuous surface every other ground sheet rides
-    const g = polylineRibbon(pts, widthOf(f), f.closed, (x, z) => ground.field.y(x, z), 0.06, ASPHALT_TILE_M)
-    if (!g) continue
-    geos.push(g)
-    // the kart and South Course loops are tree-free inside as well as on the ribbon
     if (f.closed) {
       let ce = 0, cn = 0
       for (const p of pts) {
@@ -477,20 +369,7 @@ function buildSecondaryPaving(ctx: EnvBuildContext) {
     } else for (const p of pts) keepOut.push({ x: p.x, z: p.z, r: 10 })
     count++
   }
-  if (geos.length) {
-    const merged = mergeGeometries(geos, false)
-    for (const g of geos) g.dispose()
-    if (merged) {
-      const mesh = new THREE.Mesh(merged, mat)
-      mesh.name = 'secondaryPaving'
-      mesh.receiveShadow = true
-      mesh.renderOrder = 1
-      group.add(mesh)
-      // these run right across the infield, where the drawn terrain is a 13 m facet
-      terrain.addGroundSurface(merged, { name: 'secondaryPaving', maxDrop: 12 })
-    }
-  }
-  if (import.meta.dev) console.info(`[props] ${count} secondary paved ways`)
+  if (import.meta.dev) console.info(`[props] ${count} secondary paved ways kept tree-free`)
 }
 
 /**

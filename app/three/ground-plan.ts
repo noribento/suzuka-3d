@@ -3,7 +3,7 @@ import { CIRCUIT } from '~/data/suzuka'
 import { GROUND_AREAS, RUNOFF_ZONES, type GroundArea, type GroundFootprint, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS, OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import { laneWorldPath, osmWay, patchOutline } from './trackside'
+import { laneWorldPath, osmWay, patchOutline, simplifyRing } from './trackside'
 
 /**
  * The GROUND PLAN: a partition of the ground beside the road into exactly one opaque owner per
@@ -51,7 +51,7 @@ export type HeightRule = { frame: 'road'; dy: number } | { frame: 'road'; profil
 export const RULE_OF: Record<OwnerKind, HeightRule> = {
   road: { frame: 'road', dy: 0 },
   kerb: { frame: 'road', profile: true },
-  deckShoulder: { frame: 'road', dy: -0.01 },
+  deckShoulder: { frame: 'road', dy: 0 },
   pitLane: { frame: 'road', dy: 0 },
   pitApron: { frame: 'road', dy: 0 },
   lane: { frame: 'field' },
@@ -123,10 +123,21 @@ export const DECK_REACH = 160
 export const CROSS_WINDOW = 115
 /** facing stretches stop this far short of their bisector; the stitch strip covers the gap */
 export const BISECTOR_MARGIN = 0.5
-/** a terrain gap narrower than this between the verge and an area row is rastered as grass */
-const RING_BRIDGE = 12
-/** two samples closer than this along the lap are the same stretch, never a facing pair */
-const BISECTOR_MIN_LAP = 80
+/**
+ * A terrain gap narrower than this between the verge and an area row is rastered as grass, so
+ * the area is one mesh with the verge. 40 m reaches the retention basins from the Esses and the
+ * T1 exit; the kart tracks and the South Course, 100 m out, stay world polygons.
+ */
+const RING_BRIDGE = 40
+/** the most the raster extent may change per metre of s where a ring extends it */
+const REACH_SLOPE = 1.0
+/**
+ * Two samples closer than this along the lap are the same stretch, never a facing pair. 40 m:
+ * the Casio Triangle's two legs face each other 60 m apart along the lap (80 m let their rasters
+ * overlap across the turf island); on a bend of radius R two samples of the same curve 40 m apart
+ * cap the inside at ≈ R − hw, always beyond the fold cap's 0.7 R − hw, so nothing else changes.
+ */
+const BISECTOR_MIN_LAP = 40
 /** kerb ends ramp their width from 0 to full over this length */
 export const KERB_TAPER = 0.5
 /** fill columns (metres beyond the road edge): keep every raster cell under 4 m across */
@@ -148,8 +159,13 @@ function windowRamp(track: Track, s: number, from: number, to: number, len: numb
 export function deckShoulderAt(track: Track, s: number): number {
   return DECK_SHOULDER * windowRamp(track, s, track.crossing.sOver - DECK_REACH, track.crossing.sOver + DECK_REACH, 0.1)
 }
-/** ramp length at the pit lane / apron ends: their ends are real steps, drawn as a short taper */
-const PIT_TAPER = 0.5
+/**
+ * Ramp length at the pit lane / apron ends: their ends are real steps, drawn as a short taper.
+ * 2 m, not 0.5: the apron's outer edge moves 50 m across the taper, and a station is inserted
+ * wherever it crosses a fill column (below), so the taper needs room for those stations to stay
+ * apart (dedup 5 cm) — cells of 15 cm × 4 m instead of a fan of 50 m triangles.
+ */
+const PIT_TAPER = 2
 
 function smoothstep(t: number): number {
   t = t < 0 ? 0 : t > 1 ? 1 : t
@@ -509,7 +525,7 @@ export function resolveFootprint(track: Track, fp: GroundFootprint): WorldRing |
     // an area may reach the road edge: the kerb and the road win by precedence, and the strip is a
     // height rule of the field, not a separate owner (patchOutline's 2 m clearance was for the
     // sheet stack)
-    const outer = patchOutline(track, { ...fp, minGap: fp.minGap ?? 0 }, 2)
+    const outer = simplifyRing(patchOutline(track, { ...fp, minGap: fp.minGap ?? 0 }, 2))
     if (outer.length < 3) return null
     return { outer, holes: [], box: ringBox(outer), sRange: fp.sRange }
   }
@@ -529,7 +545,9 @@ export function resolveFootprint(track: Track, fp: GroundFootprint): WorldRing |
     const outer: Pt[] = []
     for (let d = 0; d <= len; d += 2) { track.pointAt(track.wrap(s0 + d), l0, _v, 0); outer.push({ x: _v.x, z: _v.z }) }
     for (let d = len; d >= 0; d -= 2) { track.pointAt(track.wrap(s0 + d), l1, _v, 0); outer.push({ x: _v.x, z: _v.z }) }
-    const ring = windPositive(outer)
+    // the two side edges are single segments across the band: resampled so a raster boundary
+    // crossing one of them is seen by the mesh's vertex tests
+    const ring = windPositive(resampleClosed(outer, 2))
     return { outer: ring, holes: [], box: ringBox(ring), sRange: fp.sRange }
   }
   // disc
@@ -655,8 +673,16 @@ export interface GroundPlan {
   rings: RingOwner[]
   /** the fold-safe verge width per side (continuous in s) */
   foldSafe: (s: number, side: Side) => number
-  /** the raster extent, continuous in s */
+  /** the raster extent as the plan declares it, continuous in s (the extent VERTICES sit on it) */
   extent: (s: number, side: Side) => number
+  /**
+   * The raster extent as it is DRAWN: between two stations the raster's outer edge is the XZ chord
+   * between their extent vertices, and on a curved road that chord crosses the ray at s at a
+   * different offset than the ray-linear `extent` (the outer ray is stretched by the frame's
+   * Jacobian). Every owner decision — the mesh's world parts, the census — reads this one, so what
+   * the plan calls the raster is exactly what the raster draws.
+   */
+  extentDrawn: (s: number, side: Side) => number
   /** which cap bound the extent at s */
   extentCap: (s: number, side: Side) => ResidueEntry['cap'] | null
   /** the facing centreline sample index across the bisector at s on `side` (−1 = none) */
@@ -676,7 +702,7 @@ export interface GroundPlan {
   /** station index of the first station at or after s */
   stationIndexAt: (s: number) => number
   /** how many stations were inserted for each reason (diagnostics) */
-  stats: { base: number; endpoints: number; tips: number; crossings: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[] }
+  stats: { base: number; endpoints: number; kinks: number; tips: number; crossings: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[] }
 }
 
 export interface PlanOptions {
@@ -833,6 +859,35 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     const p = extentParts(s, side)
     return Math.max(0, Math.min(p.declared, p.fold, p.bis, p.bridge))
   }
+  /** the station table the drawn extent reads; set once the stations are final */
+  let drawnStations: Float64Array | null = null
+  let drawnW: { 1: Float64Array; '-1': Float64Array } | null = null
+  const _e0 = new THREE.Vector3(), _e1 = new THREE.Vector3(), _o = new THREE.Vector3()
+  const extentDrawn = (s: number, side: Side): number => {
+    if (!drawnStations || !drawnW) return extent(s, side)
+    const st = drawnStations
+    const m = st.length
+    const sw = track.wrap(s)
+    const j = indexAtOrAfter(st, sw)
+    const i = (j - 1 + m) % m
+    const si = st[i]!, sj = st[j]!
+    const Wi = drawnW[side][i]!, Wj = drawnW[side][j]!
+    if (Math.abs(Wi - Wj) < 0.02) return Wi + (Wj - Wi) * 0.5
+    track.pointAt(si, side * (track.halfWidthAt(si) + Wi), _e0, 0)
+    track.pointAt(sj, side * (track.halfWidthAt(sj) + Wj), _e1, 0)
+    const hw = track.halfWidthAt(sw)
+    track.pointAt(sw, side * hw, _o, 0)
+    track.pointAt(sw, side * (hw + 1), _v, 0)
+    const nx = _v.x - _o.x, nz = _v.z - _o.z
+    const ex = _e1.x - _e0.x, ez = _e1.z - _e0.z
+    const den = nx * ez - nz * ex
+    if (Math.abs(den) < 1e-9) return extent(s, side)
+    const rx = _e0.x - _o.x, rz = _e0.z - _o.z
+    const tt = (rx * ez - rz * ex) / den
+    const lam = (rx * nz - rz * nx) / den
+    if (lam < -0.05 || lam > 1.05 || tt < 0) return extent(s, side)
+    return tt
+  }
   const extentCap = (s: number, side: Side): ResidueEntry['cap'] | null => {
     const p = extentParts(s, side)
     const w = Math.min(p.declared, p.fold, p.bis, p.bridge)
@@ -919,11 +974,27 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       }
       for (const side of [1, -1] as const) for (let i = 0; i < N; i++) if (force[side][i]! > ringReach[side][i]!) ringReach[side][i] = force[side][i]!
     }
+    // SLOPE LIMIT: the extent may grow or shrink by at most REACH_SLOPE metres per metre of s. A
+    // ring's reach used to step from the verge width to the ring's far edge within one metre, and
+    // the raster's extent chord between two stations there — 30 m of lateral over 0.85 m of s —
+    // does not follow the ray-linear extent on a curved road (the outer ray is stretched by the
+    // frame's Jacobian), leaving a sliver of bare ground between the chord and the plan. A gentle
+    // ramp keeps the two within centimetres; the extra raster is grass over grass.
+    for (const side of [1, -1] as const) {
+      const r = ringReach[side]
+      for (let pass = 0; pass < 2; pass++) {
+        for (let k = 1; k <= N; k++) {
+          const i = pass === 0 ? k % N : (N - k) % N
+          const j = pass === 0 ? (i - 1 + N) % N : (i + 1) % N
+          if (r[i]! > r[j]! + REACH_SLOPE) r[i] = r[j]! + REACH_SLOPE
+        }
+      }
+    }
   }
 
   // --- stations ---------------------------------------------------------------------------------
   const wanted: number[] = []
-  const stats = { base: n, endpoints: 0, tips: 0, crossings: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[] }
+  const stats = { base: n, endpoints: 0, kinks: 0, tips: 0, crossings: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[] }
   lap('rings')
   for (let i = 0; i < n; i++) wanted.push(i * ds)
   const endpoint = (s: number) => { wanted.push(track.wrap(s)); stats.endpoints++ }
@@ -932,6 +1003,17 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   for (const r of runs) { endpoint(r.from); endpoint(r.to) }
   for (const s of [sOver - DECK_REACH, sOver - DECK_REACH + 0.1, sOver + DECK_REACH - 0.1, sOver + DECK_REACH, sOver - 19, sOver + 19]) endpoint(s)
   for (const s of opts.extraStations ?? []) endpoint(s)
+  // kinks of the ring-reach table: the extent is linear between integer metres, so a station at
+  // every metre where its slope changes makes the raster's extent chord follow it exactly (without
+  // them the chord across a rise cut a corner off the raster, which no face covered)
+  for (const side of [1, -1] as const) {
+    const r = ringReach[side]
+    const N = r.length
+    for (let i = 0; i < N; i++) {
+      const bend = r[(i + 1) % N]! - 2 * r[i]! + r[(i - 1 + N) % N]!
+      if (Math.abs(bend) > 0.1) { endpoint(i); stats.kinks++ }
+    }
+  }
   // ring tips per side: the s extremes of the ring's vertices on that side of the road
   const ringSpan = new Map<RingOwner, { 1: [number, number] | null; '-1': [number, number] | null }>()
   for (const r of rings) {
@@ -971,7 +1053,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   const ownerAtSL = (s: number, side: Side, off: number, inRaster = false): Owner => {
     if (off < 0) return ROAD
     const hw = hwOf(s)
-    const W = extent(s, side)
+    const W = extentDrawn(s, side)
     if (off > W + 1e-6 && !inRaster) {
       track.pointAt(s, side * (hw + off), _v, 0)
       let best: Owner | null = null
@@ -1108,14 +1190,21 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       tracks.forEach((t, k) => {
         const key = `${r.owner.kind}:${r.owner.name}#${k}`
         const pos = (i: number, which: 0 | 1): number => {
-          // stations inside the track's range index its interval list; outside, collapse onto the
-          // nearer end's interval start (a point, so the column is free there)
+          // stations inside the track's range index its interval list; outside, each column keeps
+          // ITS OWN edge of the nearer end's interval (it is a free vertex there anyway). Collapsing
+          // both onto the interval's start made the row before a wide tip — a paddock band's
+          // square end, 68 m across — a fan of triangles with 68 m edges.
           const rel = (a: number, b: number) => (b >= a ? b - a : b + m - a)
           const dIn = rel(t.start, i), len = rel(t.start, t.end)
           if (dIn <= len) return t.iv[dIn]![which]
           const first = t.iv[0]!, last = t.iv[t.iv.length - 1]!
           const dAfter = rel(t.end, i), dBefore = rel(i, t.start)
-          return dAfter < dBefore ? Math.min(last[0], last[1]) : Math.min(first[0], first[1])
+          const edge = (dAfter < dBefore ? last : first)[which]
+          // ...snapped onto the fill column just inside that edge, so it coincides with a vertex
+          // the row has anyway and costs no cell of its own
+          if (which === 0) { let best = 0; for (const fo of FILL_OFFS) if (fo <= edge + 1e-6) best = fo; return best }
+          for (const fo of FILL_OFFS) if (fo >= edge - 1e-6) return fo
+          return EXTENT_MAX
         }
         // one station of margin either side so the tip vertex belongs to both adjacent rows
         const active: [number, number] = [(t.start - 1 + m) % m, (t.end + 1) % m]
@@ -1148,7 +1237,11 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
    * more than CHORD_TOL gets a station at the midpoint (the mesh boundary IS the chord, so this is
    * how far the drawn boundary may stray from the plan's); (2) two real boundaries that cross
    * between stations get a station at the crossing, so the column order is invariant within a
-   * row. Fills and collapsed ring columns are free vertices and never cause a station.
+   * row; (3) a real boundary that crosses a FILL column between stations gets a station there
+   * too — the fill is free and would simply be clamped aside, but a boundary sweeping across
+   * many fills in one row (the pit apron's end moving 50 m over its taper) would turn the row
+   * into a fan of 50 m triangles; with a station per fill crossed the cells stay ≤ 4 m across.
+   * Collapsed ring columns are free vertices and never cause a station.
    */
   /** how far the drawn boundary (the chord between stations) may stray from the plan's curve */
   const chordDebug = new Map<string, { n: number; max: number; at: number }>()
@@ -1164,7 +1257,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   }
   let sides = { 1: evalSide(1, stations), '-1': evalSide(-1, stations) }
   lap('eval0')
-  for (let pass = 0; pass < 4; pass++) {
+  for (let pass = 0; pass < 6; pass++) {
     const extra: number[] = []
     for (const side of [1, -1] as const) {
       const cols = sides[side].columns
@@ -1225,10 +1318,13 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         }
         for (let a = 0; a < cols.length; a++) {
           if (!rowReal(cols[a]!, i, j)) continue
-          for (let b = a + 1; b < cols.length; b++) {
-            if (!rowReal(cols[b]!, i, j)) continue
-            const da = cols[a]!.off[i]! - cols[b]!.off[i]!
-            const db = cols[a]!.off[j]! - cols[b]!.off[j]!
+          for (let b = 0; b < cols.length; b++) {
+            if (b === a) continue
+            const cb = cols[b]!
+            // real × real once per pair; real × fill from the real side
+            if (cb.role === 'fill' ? false : b < a || !rowReal(cb, i, j)) continue
+            const da = cols[a]!.off[i]! - cb.off[i]!
+            const db = cols[a]!.off[j]! - cb.off[j]!
             if ((da > COLUMN_TIE && db < -COLUMN_TIE) || (da < -COLUMN_TIE && db > COLUMN_TIE)) {
               const t = da / (da - db)
               extra.push(track.wrap(s0 + (s1 - s0) * t))
@@ -1250,9 +1346,14 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   /*
    * Fills are free vertices: a fill column that a real boundary passes between two stations is
    * clamped onto that boundary at the second station (the cell between them becomes a triangle,
-   * the fill is released at the next station by the tie-break below). Real boundaries never move;
-   * their crossings got a station above, and whatever is left is within the dedup distance.
+   * the fill is released at the next station by the tie-break below). Real boundaries got a
+   * station at every crossing above; the few that still invert (a ring track whose interval
+   * splits, jumping metres within a 0.2 m row) are snapped the same way and counted as residual:
+   * a zero-width cell there is a sliver with a plausible owner, an inverted one is a bow-tie that
+   * folds over its neighbours.
    */
+  drawnStations = stations
+  drawnW = { 1: sides[1].W, '-1': sides[-1].W }
   let residual = 0
   let residualMax = 0
   const residualLog: string[] = []
@@ -1274,10 +1375,13 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         const c = cols[order[k]!]!
         if (isFree(c, j)) { if (c.off[j]! < maxReal) c.off[j] = maxReal }
         else {
-          if (c.off[j]! < maxReal - COLUMN_TIE && rowLen > MICRO_ROW) {
-            residual++
-            residualMax = Math.max(residualMax, maxReal - c.off[j]!)
-            if (maxReal - c.off[j]! > 0.05 && residualLog.length < 12) residualLog.push(`side ${side} s ${stations[i]!.toFixed(1)}→${stations[j]!.toFixed(1)}: ${c.id} ${c.off[i]!.toFixed(2)}→${c.off[j]!.toFixed(2)} under ${maxRealId} (${maxReal.toFixed(2)})`)
+          if (c.off[j]! < maxReal - COLUMN_TIE) {
+            if (rowLen > MICRO_ROW) {
+              residual++
+              residualMax = Math.max(residualMax, maxReal - c.off[j]!)
+              if (maxReal - c.off[j]! > 0.05 && residualLog.length < 12) residualLog.push(`side ${side} s ${stations[i]!.toFixed(1)}→${stations[j]!.toFixed(1)}: ${c.id} ${c.off[i]!.toFixed(2)}→${c.off[j]!.toFixed(2)} under ${maxRealId} (${maxReal.toFixed(2)}) — snapped`)
+            }
+            c.off[j] = maxReal
           }
           if (c.off[j]! > maxReal) { maxReal = c.off[j]!; maxRealId = c.id }
         }
@@ -1352,7 +1456,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   lap('residue')
   stats.buildMs = performance.now() - t0
   return {
-    track, stations, hw, sides, layout, gravelRuns: runs, kerbs, rings, foldSafe, extent, extentCap, bisectorPartner,
+    track, stations, hw, sides, layout, gravelRuns: runs, kerbs, rings, foldSafe, extent, extentDrawn, extentCap, bisectorPartner,
     ownerAtSL, ownerAt, project, residue,
     stationIndexAt: (s: number) => indexAtOrAfter(stations, track.wrap(s)),
     stats,

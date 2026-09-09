@@ -28,7 +28,7 @@ const require = createRequire(path.join(ROOT, 'package.json'))
 const sharp = require('sharp')
 const THREE = await import(path.join(ROOT, 'node_modules/three/build/three.module.js'))
 const { Track, forwardDelta, signedDelta } = await import('../../app/sim/track.ts')
-const tm = await import('../../app/three/track-mesh.ts')
+const gp = await import('../../app/three/ground-plan.ts')
 const spec = await import('../../app/data/suzuka-facilities-spec.ts')
 const bar = await import('../../app/data/suzuka-barriers-spec.ts')
 const trackside = await import('../../app/three/trackside.ts')
@@ -117,7 +117,7 @@ for (let s = 0; s < L; s += 100) {
   text(at(s, -hwAt(s) - 7), `s${s}`, '#ffffff', 11)
 }
 // run-off from RUNOFF_ZONES
-const layout = tm.runoffLayout(track)
+const layout = gp.runoffLayout(track)
 for (const side of [1, -1]) {
   sLine(0, 0, (s) => side * layout.asphaltOuter(s, side), '#e0e0e0', 1, '5,4', 4, (s) => layout.asphaltOuter(s, side) <= hwAt(s) + 0.6)
   sLine(0, 0, (s) => side * (layout.gravel(s, side)?.[0] ?? 0), '#d2b48c', 1.4, '2,3', 4, (s) => !layout.gravel(s, side))
@@ -128,7 +128,7 @@ if (OLD) {
   // the pre-audit procedural barrier line, for before/after comparisons
   const cross = track.crossing
   const pit = suz.CIRCUIT.pit
-  const gravel = tm.gravelRuns(track).map((r) => ({ ...r, outer: Math.min(40, Math.max(25, r.outer)) }))
+  const gravel = gp.gravelRuns(track).map((r) => ({ ...r, outer: Math.min(40, Math.max(25, r.outer)) }))
   const inZone = (s, z) => forwardDelta(z.from, s, L) <= forwardDelta(z.from, z.to, L)
   const dist = (s, side) => {
     let d = 11
@@ -202,17 +202,21 @@ for (const sc of spec.SCREENS) {
 const fw = px(spec.FERRIS_WHEEL.en[0] * meta.k, -spec.FERRIS_WHEEL.en[1] * meta.k)
 svg.push(`<circle cx="${f1(fw[0])}" cy="${f1(fw[1])}" r="${24 / meta.mPerPx}" fill="none" stroke="#ffe100" stroke-width="1.5"/>`)
 
-// SURFACE_PATCHES: the world-space paved / unpaved polygons (the chicane apron and its islands).
-// `--patches` drops every other layer, which is how the ring numbers are read against the aerial.
+// GROUND_AREAS: the world-space paved / unpaved areas (the chicane apron and its island, the
+// paddock aprons, the helipad, the secondary paving, the basins), resolved as the ground plan
+// resolves them. `--patches` drops every other layer, which is how the rings are read against
+// the aerial.
 if (PATCHES_ONLY) svg.length = 0
-const PATCH_FILL = { asphalt: '#8a8a8a', turf: '#36a848', gravel: '#c8a870', grass: '#b9a878' }
-for (const p of spec.SURFACE_PATCHES ?? []) {
-  const ring = trackside.patchOutline(track, p, 2)
-  if (ring.length < 3) { console.warn(`patch ${p.name}: outline did not resolve`); continue }
-  poly(ring.map((q) => px(q.x, q.z)), '#000000', 1.2, null, PATCH_FILL[p.kind] ?? '#ff00ff')
-  svg[svg.length - 1] = svg[svg.length - 1].replace('<polygon ', '<polygon fill-opacity="0.4" ')
-  const c = ring.reduce((a, q) => [a[0] + q.x / ring.length, a[1] + q.z / ring.length], [0, 0])
-  text(px(c[0], c[1]), p.name, '#ffffff', 11)
+const PATCH_FILL = { asphaltArea: '#8a8a8a', lane: '#8a8a8a', turf: '#36a848', gravelArea: '#c8a870', grassArea: '#b9a878', paddock: '#a0a0a0', helipad: '#c0c0c0', water: '#4a6a78' }
+for (const a of spec.GROUND_AREAS ?? []) {
+  const r = gp.resolveFootprint(track, a.footprint)
+  if (!r || r.outer.length < 3) { console.warn(`area ${a.name}: footprint did not resolve`); continue }
+  for (const ring of [r.outer, ...r.holes]) {
+    poly(ring.map((q) => px(q.x, q.z)), '#000000', 1.2, null, PATCH_FILL[a.kind] ?? '#ff00ff')
+    svg[svg.length - 1] = svg[svg.length - 1].replace('<polygon ', '<polygon fill-opacity="0.4" ')
+  }
+  const c = r.outer.reduce((acc, q) => [acc[0] + q.x / r.outer.length, acc[1] + q.z / r.outer.length], [0, 0])
+  text(px(c[0], c[1]), a.name, '#ffffff', 11)
 }
 
 const svgDoc = `<svg xmlns="http://www.w3.org/2000/svg" width="${meta.W}" height="${meta.H}">${svg.join('\n')}</svg>`
