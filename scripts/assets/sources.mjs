@@ -307,6 +307,26 @@ export const SOURCES = [
     files: { 'crowd_atlas_diff.png': 'bake://crowd-atlas/diff', 'crowd_atlas_mask.png': 'bake://crowd-atlas/mask' },
     maps: { diff: 'crowd_atlas_diff.png', mask: 'crowd_atlas_mask.png' },
   },
+  // Baked in-repo from app/three/car-bodies.ts (scripts/assets/bake-car-atlas.mjs): the far-field
+  // parked-car impostor atlas. 128 px cells, one row per body (minivan, kei wagon, SUV, hatchback,
+  // saloon, coach), columns = 8 yaws at one camera elevation. diff = lit RGBA with the paintwork
+  // baked white; mask = R the paintwork (what the runtime tints), black glass / tyres / lamps.
+  {
+    key: 'tex/car_atlas',
+    kind: 'texture',
+    site: 'suzuka-3d (own bake)',
+    name: 'Parked-car impostor atlas — procedural low-poly bodies',
+    pageUrl: 'https://github.com/noribento/suzuka-3d',
+    author: 'suzuka-3d',
+    credit: 'project-own bake of procedural car bodies (scripts/assets/bake-car-atlas.mjs from app/three/car-bodies.ts)',
+    licence: 'CC0-1.0',
+    resolver: 'bake',
+    bakeScript: 'node scripts/assets/bake-car-atlas.mjs',
+    res: '1k', // keeps the 1024 × 1024 canvas as baked (loadRaw only shrinks above RES_PX)
+    use: 'far-field parked-car impostors (8 yaws × 6 body rows)',
+    files: { 'car_atlas_diff.png': 'bake://car-atlas/diff', 'car_atlas_mask.png': 'bake://car-atlas/mask' },
+    maps: { diff: 'car_atlas_diff.png', mask: 'car_atlas_mask.png' },
+  },
   // Kept for provenance / later phases, never imported: the Quaternius originals (FBX/OBJ/Blend)
   // behind the Eclair GLBs, and the Universal Base Characters + Animation Library (VAT crowd).
   {

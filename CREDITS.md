@@ -76,6 +76,11 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 - This work is based on "Low poly stadium/sports arena seats" (https://sketchfab.com/3d-models/low-poly-stadiumsports-arena-seats-6bbe4c85d2a4489dbe5918831be5d886) by anDDDres (https://sketchfab.com/anDDDres) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/seats/arena_seat`
 
+### suzuka-3d (own bake)
+
+- "Parked-car impostor atlas — procedural low-poly bodies" by suzuka-3d (suzuka-3d (own bake), https://github.com/noribento/suzuka-3d), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/car_atlas/diff`, `tex/car_atlas/mask`
+
 ## Data
 
 - Footprints derived from OpenStreetMap data © OpenStreetMap contributors, ODbL 1.0 — [ODbL-1.0](https://opendatacommons.org/licenses/odbl/1-0/)
@@ -89,4 +94,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-05T06:06:34.793Z · 75 files · 29.63 MB
+Generated 2026-09-10T11:37:36.769Z · 77 files · 29.67 MB

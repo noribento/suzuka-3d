@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-05T06:06:34.793Z",
+  "generated": "2026-09-10T11:37:36.769Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -1209,6 +1209,46 @@
         "licence": "CC0-1.0",
         "author": "Dimitrios Savva",
         "sha256Source": "a215356a1180664fbbf94076f3720a4620a1121e137780ce98059621bf8b444e"
+      },
+      "modified": true
+    },
+    "tex/car_atlas/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/car_atlas_diff.5ebc4ea6.ktx2",
+      "format": "ktx2",
+      "bytes": 27642,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "suzuka-3d (own bake)",
+        "name": "Parked-car impostor atlas — procedural low-poly bodies",
+        "pageUrl": "https://github.com/noribento/suzuka-3d",
+        "url": "bake://car-atlas/diff",
+        "licence": "CC0-1.0",
+        "author": "suzuka-3d",
+        "sha256Source": "db392b06a2025aa2aab1e200b2166a17e11aef7c41041d1e931f3595f6da8a89"
+      },
+      "modified": true
+    },
+    "tex/car_atlas/mask": {
+      "kind": "texture",
+      "path": "/assets/tex/car_atlas_mask.ee963da8.ktx2",
+      "format": "ktx2",
+      "bytes": 10936,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "mask",
+      "source": {
+        "site": "suzuka-3d (own bake)",
+        "name": "Parked-car impostor atlas — procedural low-poly bodies",
+        "pageUrl": "https://github.com/noribento/suzuka-3d",
+        "url": "bake://car-atlas/mask",
+        "licence": "CC0-1.0",
+        "author": "suzuka-3d",
+        "sha256Source": "bc49618f86b23f65a33e2f5685777648eb3460ad332612187da926a6962a1108"
       },
       "modified": true
     },
