@@ -83,6 +83,9 @@ export async function buildScene({ tier = 'high' } = {}) {
   const track = new Track(suz.CIRCUIT)
   const q = quality.QUALITY[tier]
   const env = envMod.buildEnvironment(track, q, 7, null)
+  // the far field is deferred in the app; build it now (no attach: no materials to set up, no
+  // matrices to freeze) so the offline guards and scene-cost see the deferred content too
+  env.farField.drain()
   const trackMeshes = tmMod.buildTrackMeshes(track, env.ground)
   // the painted markings matter to the audit — they are the layer most likely to end up buried
   // under the face they belong to
