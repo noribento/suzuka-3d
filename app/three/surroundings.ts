@@ -1,9 +1,15 @@
 /**
- * Everything else that stands on the far terrain: buildings with roofs and facades, car parks
- * with parked cars, solar farms, utility poles and wires, the perimeter fence, light poles and
- * the Motopia / campsite extras — deferred through `ctx.farField` (stages 'paving' → 'buildings'
- * → 'dressing') and standing on `ground.standY`. Stub in C0: filled in by phase C2b.
+ * Everything else that stands on the far terrain, in far-field stage order: buildings and
+ * car parks first (they push keep-outs the woods respect), then the outskirts furniture
+ * (solar, fences, poles). Each builder defers its own jobs through `ctx.farField`.
  */
 import type { EnvBuildContext } from './environment'
+import { buildBuildings } from './buildings'
+import { buildParkedCars } from './vehicles'
+import { buildOutskirts } from './outskirts'
 
-export function buildSurroundings(_ctx: EnvBuildContext): void {}
+export function buildSurroundings(ctx: EnvBuildContext): void {
+  buildBuildings(ctx)
+  buildParkedCars(ctx)
+  buildOutskirts(ctx)
+}
