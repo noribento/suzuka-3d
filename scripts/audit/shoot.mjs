@@ -40,6 +40,8 @@ try {
     }
   }
   await page.locator('.tower .row').nth(21).waitFor({ timeout: 60000 })
+  // the far field is built after the loading screen; wait for the deferred queue to drain
+  await page.waitForFunction(() => { const d = window.__suzuka; return !!d && (!d.env?.farField || d.env.farField.pending === 0) }, null, { timeout: 120000 })
   await page.addStyleTag({ content: '.hud, .loading { display: none !important }' })
   await page.mouse.click(width / 2, height / 2)
   await page.waitForTimeout(1500)
