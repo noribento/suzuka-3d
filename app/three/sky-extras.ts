@@ -1,12 +1,25 @@
 import * as THREE from 'three'
-import { cloudTexture, treeLineTexture } from './textures'
+import { cloudTexture } from './textures'
 import type { Quality } from './quality'
 
 /**
- * Backdrop extras: a slowly drifting, sun-lit cloud layer and a distant tree-line ring that
- * hides the edge of the terrain. The sun itself (disc, aureole) is drawn by the Sky shader
- * patch and the lens flare by the grade pass — see ./sun-model.ts.
+ * Backdrop extras: a slowly drifting, sun-lit cloud layer. The horizon itself is the DEM_FAR
+ * skyline (terrain-far.ts `terrainFar`, ±35 km) — the tree-line cylinder that used to hide the
+ * terrain's edge is gone with the real ring and ridges. The sun itself (disc, aureole) is drawn
+ * by the Sky shader patch and the lens flare by the grade pass — see ./sun-model.ts.
  */
+
+/**
+ * The cloud dome's radius. 38 km puts the layer behind the whole skyline (the far ridges are at
+ * 35 km) instead of cutting the horizon clouds off at the old 9 km. A camera flown to the edge
+ * of its range is up to ~8 km from the centre, so the far side of the dome can be 46 km away —
+ * beyond the 40 km far plane; the vertex shader therefore pins the dome to the far plane like
+ * r185's Sky does (z = w, or 0 under the reversed depth range), and the depth test against the
+ * ridge still hides the clouds behind the hills. No shader cut at the horizon (plan §1c).
+ */
+export const CLOUD_DOME_RADIUS = 38000
+/** the dome was tuned at 9 km: the uv and the wind are scaled so the clouds keep their apparent size and drift */
+const CLOUD_UV_SCALE = CLOUD_DOME_RADIUS / 9000
 
 export interface SkyExtras {
   group: THREE.Group
@@ -18,7 +31,8 @@ export interface SkyExtras {
 
 // The cloud dome is a hand-written material so it can be lit: bases darken away from the sun,
 // the sun side warms up at low sun, and the layer drifts with the wind. The logdepthbuf chunks
-// keep it depth-correct on the logarithmic (low / fallback) path; they expand to nothing otherwise.
+// keep it depth-correct on the logarithmic (low / fallback) path; they expand to nothing otherwise
+// (the log depth is written from w, so the far-plane pin below does not disturb it).
 const CloudShader = {
   vertexShader: /* glsl */ `
     #include <common>
@@ -30,6 +44,13 @@ const CloudShader = {
       vDir = normalize(position);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       #include <logdepthbuf_vertex>
+      // pinned to the far plane (see CLOUD_DOME_RADIUS): NDC z 1 is the far plane, or the near
+      // plane once the depth range is reversed — then far is 0
+      #ifdef USE_REVERSED_DEPTH_BUFFER
+        gl_Position.z = 0.0;
+      #else
+        gl_Position.z = gl_Position.w;
+      #endif
     }
   `,
   fragmentShader: /* glsl */ `
@@ -58,8 +79,6 @@ const CloudShader = {
 }
 
 export function buildSkyExtras(centre: THREE.Vector3, quality?: Quality): SkyExtras {
-  // alpha-to-coverage softens the cut-out edges, but only makes sense on a multisampled scene target
-  const a2c = !!quality && quality.msaa > 0
   const group = new THREE.Group()
   group.name = 'skyExtras'
 
@@ -70,13 +89,15 @@ export function buildSkyExtras(centre: THREE.Vector3, quality?: Quality): SkyExt
     uSunColor: { value: new THREE.Color(0xffedd4) },
     uWarm: { value: 1 },
     uTime: { value: 0 },
-    uWind: { value: new THREE.Vector2(1, 0.2) },
+    uWind: { value: new THREE.Vector2(1, 0.2).multiplyScalar(CLOUD_UV_SCALE) },
     uOpacity: { value: 0.85 },
   }
   let clouds: THREE.Mesh | null = null
   if (!quality || quality.clouds) {
     cloudUniforms.uMap.value = cloudTexture()
-    const cloudGeo = new THREE.SphereGeometry(9000, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.5)
+    const cloudGeo = new THREE.SphereGeometry(CLOUD_DOME_RADIUS, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.5)
+    const cloudUv = cloudGeo.attributes.uv as THREE.BufferAttribute
+    for (let i = 0; i < cloudUv.count; i++) cloudUv.setXY(i, cloudUv.getX(i) * CLOUD_UV_SCALE, cloudUv.getY(i) * CLOUD_UV_SCALE)
     const cloudMat = new THREE.ShaderMaterial({
       uniforms: cloudUniforms,
       vertexShader: CloudShader.vertexShader,
@@ -90,16 +111,6 @@ export function buildSkyExtras(centre: THREE.Vector3, quality?: Quality): SkyExt
     clouds.position.copy(centre)
     clouds.renderOrder = -1
     group.add(clouds)
-  }
-
-  // --- distant tree line hiding the terrain edge ----------------------------------------------
-  if (!quality || quality.ring) {
-    // outside the 3400 × 2600 m terrain rectangle's short sides, tall enough to close the horizon
-    const ringGeo = new THREE.CylinderGeometry(1900, 1900, 70, 96, 1, true)
-    const ringMat = new THREE.MeshBasicMaterial({ map: treeLineTexture(), transparent: true, alphaTest: a2c ? 0.3 : 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, color: 0x3a4a38 })
-    const ring = new THREE.Mesh(ringGeo, ringMat)
-    ring.position.set(centre.x, centre.y + 40, centre.z)
-    group.add(ring)
   }
 
   const setSun = (color: THREE.Color, warm: number) => {

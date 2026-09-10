@@ -14,6 +14,8 @@ import { BoxPlacer } from './boxes'
 import type { AssetRegistry } from './assets'
 import { buildStands, facilityRelief, lateralBackMax } from './stands'
 import { demFieldFor, type DemField } from './dem'
+import { buildLandCover, type CoverLayer, type CoverRect, type LandCover } from './landcover'
+import { buildTerrainFar, RIDGE_COLOURS, type TerrainFarStats } from './terrain-far'
 import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
 import { buildLanes } from './lanes'
@@ -61,6 +63,20 @@ const ROAD_FALLOFF = 6
 const DEM_BLEND: readonly [number, number] = [60, ROAD_R]
 /** the coarse ring outside the height grid is meshed at K × the grid's spacing (terrain-far.ts) */
 const RING_K = 4
+/** the height grid's rectangle around track.center, metres */
+const GRID_W = 3400
+const GRID_D = 2600
+
+/** The height grid's world rectangle for a track (what `Terrain.grid()` reports, before the Terrain exists). */
+export function terrainRect(track: Track): CoverRect {
+  return { x0: track.center.x - GRID_W / 2, z0: track.center.z - GRID_D / 2, w: GRID_W, d: GRID_D }
+}
+
+/** The coarse ring's world rectangle (terrain-far.ts): `ringCells` cells of K × the grid spacing beyond `inner` on every side. */
+export function ringRect(inner: CoverRect, grid: [number, number], ringCells: number): CoverRect {
+  const ex = (ringCells * RING_K * inner.w) / grid[0], ez = (ringCells * RING_K * inner.d) / grid[1]
+  return { x0: inner.x0 - ex, z0: inner.z0 - ez, w: inner.w + 2 * ex, d: inner.d + 2 * ez }
+}
 
 /**
  * A registered ground face (`Terrain.addGroundFace`).
@@ -110,6 +126,13 @@ export interface TerrainRing {
   nz: number
   /** row-major `heights[j * nx + i]` */
   heights: Float32Array
+  /**
+   * unit normal per node (`normals[3 * (j * nx + i)]`), central differences on the ring's own
+   * nodes — except across the inner rectangle's edge, where the inward neighbour is the inner
+   * grid's node one inner spacing in (the asymmetric difference `refresh` uses for the same
+   * nodes), so both meshes shade the seam identically
+   */
+  normals: Float32Array
 }
 
 /** Terrain that hugs the track elevation and follows the real DEM (dem.ts) further out. */
@@ -152,14 +175,18 @@ export class Terrain {
   private nearD2 = Infinity
   private nearI = -1
 
-  /** the asset pack (null / empty on the low tier); the track meshes read it from here */
-  constructor(private track: Track, grid: [number, number] = [256, 192], readonly assets: AssetRegistry | null = null, ringCells = 25) {
+  /**
+   * `assets`: the asset pack (null / empty on the low tier); the track meshes read it from here.
+   * `cover`: the INNER land-cover layer (landcover.ts) the chunk material binds; the ring built
+   * later by terrain-far.ts binds the outer one.
+   */
+  constructor(private track: Track, grid: [number, number] = [256, 192], readonly assets: AssetRegistry | null = null, ringCells = 25, cover: CoverLayer | null = null) {
     this.NX = grid[0]
     this.NZ = grid[1]
     // the boundary snap and the ring need every K-th node to be a real node of both grids
     if (this.NX % RING_K !== 0 || this.NZ % RING_K !== 0) throw new Error(`Terrain: grid ${this.NX} × ${this.NZ} must be a multiple of ${RING_K} (quality.ts terrain)`)
     this.dem = demFieldFor(track)
-    const w = 3400, d = 2600
+    const w = GRID_W, d = GRID_D
     const cx = track.center.x, cz = track.center.z
     // sample one height grid, then cut it into chunks that share edge vertices (and normals
     // computed from the full grid, so the chunk seams are invisible)
@@ -180,7 +207,7 @@ export class Terrain {
     this.ring = this.buildRing(ringCells)
     // terrain uv = xz / 9; withered_grass at its 2 m tile on the high tier, the procedural SEASON
     // tile otherwise, one macro period every 250 m either way (materials.ts grassSurfaceMaterial)
-    const mat = grassSurfaceMaterial(assets, [9, 9], [250, 250], 0.7)
+    const mat = grassSurfaceMaterial(assets, [9, 9], [250, 250], 0.7, cover)
     this.group = new THREE.Group()
     this.group.name = 'terrain'
     const cw = this.NX / this.CH, cd = this.NZ / this.CH
@@ -220,11 +247,10 @@ export class Terrain {
     // a flat skirt far beyond the ring and the skyline: the overview camera looks past them, and
     // without ground there the Sky shader's below-horizon colours show through. It sits 1 m under
     // the lowest land node of DEM_FAR (the sea is lower still, but it is drawn by the skyline mesh)
+    // in the skyline's plain colour — at 35 km it is fog anyway, a grass tile would only alias
     const skirtSize = 100000
     const skirtGeo = new THREE.PlaneGeometry(skirtSize, skirtSize, 1, 1)
-    const skirtUv = skirtGeo.attributes.uv as THREE.BufferAttribute
-    for (let i = 0; i < skirtUv.count; i++) skirtUv.setXY(i, (skirtUv.getX(i) * skirtSize) / 9, (skirtUv.getY(i) * skirtSize) / 9)
-    const skirt = new THREE.Mesh(skirtGeo, mat)
+    const skirt = new THREE.Mesh(skirtGeo, new THREE.MeshStandardMaterial({ color: RIDGE_COLOURS.plain, roughness: 1, metalness: 0 }))
     skirt.rotation.x = -Math.PI / 2
     skirt.position.set(cx, this.dem.farLandMin - 1, cz)
     skirt.receiveShadow = false
@@ -267,8 +293,41 @@ export class Terrain {
     const x0 = this.x0 - cells * dx, z0 = this.z0 - cells * dz
     const heights = new Float32Array(nx * nz)
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) heights[j * nx + i] = this.heightAt(x0 + i * dx, z0 + j * dz)
+    // normals: central differences on the ring; across the inner rectangle's edge the inward
+    // neighbour is the inner grid's node one inner spacing in (see TerrainRing.normals / refresh)
+    const gx = this.NX + 1
+    const H = this.heights
+    const normals = new Float32Array(nx * nz * 3)
+    const iW = cells, iE = cells + this.NX / k, jN = cells, jS = cells + this.NZ / k
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        const g = j * nx + i
+        const onEdgeZ = j >= jN && j <= jS, onEdgeX = i >= iW && i <= iE
+        let sx: number, sz: number
+        if (i === iW && onEdgeZ) {
+          // west edge: the ring node one ring spacing out, the inner node one inner spacing in
+          sx = (heights[g - 1]! - H[(j - jN) * k * gx + 1]!) / (dx + this.dx)
+        } else if (i === iE && onEdgeZ) {
+          sx = (H[(j - jN) * k * gx + this.NX - 1]! - heights[g + 1]!) / (this.dx + dx)
+        } else {
+          const il = Math.max(0, i - 1), ir = Math.min(nx - 1, i + 1)
+          sx = (heights[j * nx + il]! - heights[j * nx + ir]!) / ((ir - il) * dx)
+        }
+        if (j === jN && onEdgeX) {
+          sz = (heights[g - nx]! - H[gx + (i - iW) * k]!) / (dz + this.dz)
+        } else if (j === jS && onEdgeX) {
+          sz = (H[(this.NZ - 1) * gx + (i - iW) * k]! - heights[g + nx]!) / (this.dz + dz)
+        } else {
+          const ju = Math.max(0, j - 1), jd = Math.min(nz - 1, j + 1)
+          sz = (heights[ju * nx + i]! - heights[jd * nx + i]!) / ((jd - ju) * dz)
+        }
+        const inv = 1 / Math.hypot(sx, 1, sz)
+        normals[g * 3] = sx * inv
+        normals[g * 3 + 1] = inv
+        normals[g * 3 + 2] = sz * inv
+      }
+    }
     if (import.meta.dev) {
-      const gx = this.NX + 1
       let worst = 0
       for (let j = 0; j <= this.NZ / k; j++) {
         for (let i = 0; i <= this.NX / k; i++) {
@@ -278,7 +337,12 @@ export class Terrain {
       }
       console.info(`[terrain] ring ${nx} × ${nz} nodes at ${dx.toFixed(1)} × ${dz.toFixed(1)} m, inner-node max |Δ| ${worst.toExponential(2)} m`)
     }
-    return { k, cellsX: cells, cellsZ: cells, dx, dz, x0, z0, nx, nz, heights }
+    return { k, cellsX: cells, cellsZ: cells, dx, dz, x0, z0, nx, nz, heights, normals }
+  }
+
+  /** world metres per EN metre of the track's projection (the DEM grids are in EN) */
+  get enScale(): number {
+    return this.track.enScale
   }
 
   /** The real height field beyond the road blend (dem.ts): the ring, the skyline and the water read this. */
@@ -380,8 +444,9 @@ export class Terrain {
 
   /** Re-upload vertex positions and normals from the height grid (only the chunks in `dirty` when given). */
   private refresh(dirty?: Set<number>) {
-    const gx = this.NX + 1, gz = this.NZ + 1
+    const gx = this.NX + 1
     const H = this.heights
+    const r = this.ring
     const cw = this.NX / this.CH, cd = this.NZ / this.CH
     for (const mesh of this.chunks) {
       const [ci, cj] = mesh.userData.chunk as [number, number]
@@ -394,9 +459,15 @@ export class Terrain {
           const k = j * (cw + 1) + i
           const x = this.x0 + gi * this.dx, z = this.z0 + gj * this.dz
           const y = H[gj * gx + gi]!
-          const hl = H[gj * gx + Math.max(0, gi - 1)]!, hr = H[gj * gx + Math.min(gx - 1, gi + 1)]!
-          const hu = H[Math.max(0, gj - 1) * gx + gi]!, hd = H[Math.min(gz - 1, gj + 1) * gx + gi]!
-          const nx = (hl - hr) / (2 * this.dx), nz = (hu - hd) / (2 * this.dz)
+          // across the grid's edge the outward neighbour is the ring one ring spacing out (the
+          // asymmetric difference of TerrainRing.normals), so the seam shades the same from both sides
+          let nx: number, nz: number
+          if (gi === 0) nx = (this.ringHeightAt(x - r.dx, z) - H[gj * gx + 1]!) / (r.dx + this.dx)
+          else if (gi === this.NX) nx = (H[gj * gx + gi - 1]! - this.ringHeightAt(x + r.dx, z)) / (this.dx + r.dx)
+          else nx = (H[gj * gx + gi - 1]! - H[gj * gx + gi + 1]!) / (2 * this.dx)
+          if (gj === 0) nz = (this.ringHeightAt(x, z - r.dz) - H[gx + gi]!) / (r.dz + this.dz)
+          else if (gj === this.NZ) nz = (H[(gj - 1) * gx + gi]! - this.ringHeightAt(x, z + r.dz)) / (this.dz + r.dz)
+          else nz = (H[(gj - 1) * gx + gi]! - H[(gj + 1) * gx + gi]!) / (2 * this.dz)
           const inv = 1 / Math.hypot(nx, 1, nz)
           pos.setXYZ(k, x, y, z)
           nrm.setXYZ(k, nx * inv, inv, nz * inv)
@@ -859,6 +930,8 @@ export interface EnvBuildContext {
    * flushed before they run) and must not touch the terrain grid or the ground faces.
    */
   farField: FarField
+  /** the land-cover masks (landcover.ts); `classAt` / `weightAt` for the builders that place by land use */
+  landCover: LandCover
 }
 
 export interface Environment {
@@ -873,6 +946,10 @@ export interface Environment {
   ferrisWheel: THREE.Group | null
   /** the far-field registry; the viewport starts its deferred drain after `store.ready` */
   farField: FarField
+  /** the land-cover masks and their build statistics */
+  landCover: LandCover
+  /** the ring / skyline / water meshes' statistics (terrain-far.ts) */
+  terrainFar: TerrainFarStats
   /** wall-clock ms per synchronous builder (also `group.userData.buildMs`); the deferred jobs report through `farField.stats().buildMs` */
   buildMs: Record<string, number>
   /** per frame; `cameraPos` drives the crowd density LOD and yaw, and the far field's per-cell LOD */
@@ -881,13 +958,6 @@ export interface Environment {
 
 export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Environment {
   const group = new THREE.Group()
-  const terrain = new Terrain(track, quality.terrain, assets, quality.terrainRingCells)
-  group.add(terrain.group)
-  const field: GroundField = makeField(track, terrain)
-  // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,
-  // one height per vertex) → registered and the grid settled under them → wired into `ground`.
-  // All of it before anything stands on the ground, so every object and decal below reads the
-  // DRAWN faces over the SETTLED terrain (the three-phase build: draw, settle, place).
   // wall-clock per builder, surfaced as `Environment.buildMs` / `window.__suzuka.buildMs`
   const buildMs: Record<string, number> = {}
   let tLast = performance.now()
@@ -896,10 +966,32 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     buildMs[name] = now - tLast
     tLast = now
   }
+  // the land-cover masks first: the chunk material binds the inner layer at construction. The
+  // rectangles are the grid's and the ring's (asserted against the built Terrain below).
+  const innerRect = terrainRect(track)
+  const outerRect = ringRect(innerRect, quality.terrain, quality.terrainRingCells)
+  const landCover = buildLandCover(track, quality, innerRect, outerRect)
+  lap('landCover')
+  const terrain = new Terrain(track, quality.terrain, assets, quality.terrainRingCells, landCover.layer('inner'))
+  group.add(terrain.group)
+  lap('terrain')
+  if (import.meta.dev) {
+    const g = terrain.grid(), r = terrain.ring
+    const off = Math.max(Math.abs(g.x0 - innerRect.x0), Math.abs(g.z0 - innerRect.z0), Math.abs(r.x0 - outerRect.x0), Math.abs(r.z0 - outerRect.z0), Math.abs((r.nx - 1) * r.dx - outerRect.w), Math.abs((r.nz - 1) * r.dz - outerRect.d))
+    if (off > 1e-6) console.error(`[env] land-cover rectangles differ from the terrain's by ${off.toFixed(3)} m (terrainRect / ringRect vs Terrain)`)
+  }
+  // the coarse ring, the DEM_FAR skyline and the water planes, under terrain.group
+  const terrainFar = buildTerrainFar(terrain, quality, assets, landCover.layer('outer'))
+  lap('terrainFar')
+  const field: GroundField = makeField(track, terrain)
+  // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,
+  // one height per vertex) → registered and the grid settled under them → wired into `ground`.
+  // All of it before anything stands on the ground, so every object and decal below reads the
+  // DRAWN faces over the SETTLED terrain (the three-phase build: draw, settle, place).
   const plan = buildGroundPlan(track)
   const ground = makeGround(field, plan)
   lap('plan')
-  const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets))
+  const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets, landCover.layer('inner')))
   group.add(groundMeshes.group)
   for (const face of groundMeshes.faces) terrain.addGroundFace(face)
   lap('meshes')
@@ -924,6 +1016,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     keepOut: [],
     keepOutPolys: [],
     farField,
+    landCover,
   }
 
   // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
@@ -982,5 +1075,5 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     }
   }
 
-  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, buildMs, update }
+  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, terrainFar, buildMs, update }
 }

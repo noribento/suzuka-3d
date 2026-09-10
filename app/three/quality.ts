@@ -79,10 +79,14 @@ export interface Quality {
   clouds: boolean
   /** lens flare (horizontal streak + ghosts) drawn by the grade pass around a visible sun — needs `post`; the veil is always on there */
   flare: boolean
-  /** the DEM_FAR skyline mesh (`terrainFar`, ±35 km) behind the ring */
+  /** the DEM_FAR skyline mesh (`terrainFar`, ±35 km) behind the ring (terrain-far.ts) */
   ridge: boolean
-  /** @deprecated the tree-line cylinder of sky-extras.ts, replaced by `ridge`; goes with the cylinder */
-  ring: boolean
+  /**
+   * cell size of the skyline mesh, metres — a multiple of DEM_FAR's 500 m step. 500 keeps every
+   * node (≈ 20k nodes / 40k triangles over ±35 km); 1000 takes every other one for the software
+   * rasteriser, where the ridge is a few hundred pixels of vertex-coloured fill either way.
+   */
+  ridgeCellM: number
   /** HDR post chain (bloom, grade) */
   post: boolean
   gtao: boolean
@@ -184,7 +188,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     clouds: true,
     flare: true,
     ridge: true,
-    ring: true,
+    ridgeCellM: 500,
     post: true,
     gtao: true,
     dof: true,
@@ -232,7 +236,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     clouds: false,
     flare: false,
     ridge: true,
-    ring: true,
+    ridgeCellM: 1000,
     post: false,
     gtao: false,
     dof: false,

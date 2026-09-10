@@ -50,6 +50,8 @@ test.describe('Suzuka 3D broadcast', () => {
     })
     // barriers, the painted-line layer and the offset lanes are all built from the data tables
     for (const name of ['barriers', 'whiteLines', 'lanes']) expect(built.names).toContain(name)
+    // the terrain continues past the height grid: the coarse ring and the DEM_FAR skyline (terrain-far.ts)
+    for (const name of ['terrainRing-0', 'terrainFar']) expect.soft(built.names, `${name} missing`).toContain(name)
     // the barrier runs produce every kind of trackside furniture
     for (const name of ['barrierWalls', 'tyreWalls', 'guardrails', 'railPosts-0']) {
       expect(built.names.some((n) => n.startsWith(name.split('-')[0]!))).toBe(true)
