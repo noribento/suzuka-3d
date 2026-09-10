@@ -26,6 +26,8 @@ pnpm dev        # http://localhost:3000
 pnpm build      # 本番ビルド（.output/）
 pnpm preview
 pnpm exec nuxi typecheck
+pnpm check      # typecheck → textures-lint → import-misc --check → facilities-check → scene-cost 高/低 → surface-check 高/低（約 4〜8 分）
+pnpm perf       # dev サーバー（:3100）に対して perf-probe → perf-gate（30 分超、check には入れない）
 ```
 
 `?fx=0` を付けて開くと低負荷モード（ポストプロセス無し、影は 1024²×2 カスケード、観客・樹木・テクスチャを縮小）、
@@ -43,9 +45,11 @@ node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアト�
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
 node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 80 MB）・VRAM 見積・KTX2 mip の検査
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
-node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・GROUND_AREAS の整合性
-node scripts/audit/surface-check.mjs --strict # 地面の区画のガード G0〜G12（GPU も網も不要、ティアごとに約 100 秒）
-pnpm check                                    # 上の 3 つをまとめて（typecheck → facilities-check → surface-check 高／低ティア）
+node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・GROUND_AREAS・周辺データの整合性
+node scripts/textures-lint.mjs                # テクスチャに描く文字列の商標リント（denylist / allow は scripts/trademark-*.json、1 秒未満）
+node scripts/audit/scene-cost.mjs --tier high # Node でシーンを組み、三角形・メッシュ・InstancedMesh・遠景をグループ別に集計して perf-budgets.json の static/data と照合（約 12 秒）
+node scripts/audit/surface-check.mjs --strict # 地面の区画のガード G0〜G12（GPU も網も不要、1 ティアあたり約 95〜210 秒）
+pnpm check                                    # 上をまとめて 8 段（typecheck → textures-lint → import-misc --check → facilities-check → scene-cost 高／低 → surface-check 高／低）
 git config core.hooksPath .githooks           # 任意：コミット前に pnpm check を走らせるフック（.githooks/pre-commit、--no-verify で一回だけ飛ばせる）
 node scripts/shots.mjs --assets 1             # 固定視点のスクリーンショット（--preset / --custom / --tier）
 node scripts/audit/aerial.mjs                # 国土地理院シームレス空中写真 z18 を .cache/audit/ に取得してモザイク化
@@ -97,6 +101,19 @@ pnpm sim -- --brakes --laps 3        # ブレーキディスク温度（コー�
 済ませ（初回読み込みの 504 対策）、`audio.spec.ts` は OfflineAudioContext でエンジン音を 1 ボイス描画してスペクトルを
 検証します（10,000 rpm 全負荷で 500 Hz 未満の帯域が 2 kHz 超より 8 dB 以上大きいこと、グリッドでアイドルが鳴ること、決定論性）。
 描画コストは `node scripts/perf-probe.mjs`（dev サーバーに対してカメラごとの draw call・三角形数・区間時間を採取、`.perf/` に保存）で測れます。
+
+```bash
+pnpm dev --port 3100                          # 別シェルで（:3000 は通常の開発用）
+pnpm perf                                     # perf-probe（両ティア、モード 1〜5）→ perf-gate --latest --strict
+LABEL=after-C2 pnpm perf                      # .perf/after-C2-<timestamp>.json に保存
+node scripts/perf-probe.mjs --modes 1,2,3,4,5,6 --tiers 0   # 6 = ディレクター（ゲートは報告のみ）
+pnpm perf:gate                                # 最新の .perf/*.json を scripts/perf-budgets.json と照合
+node scripts/perf-gate.mjs --file .perf/after-C2-….json --against .perf/after-phase6-….json   # Δ 列付き
+```
+
+天井は `scripts/perf-budgets.json`（ティア／モードごとの三角形・draw call の平均と最大、setupMs、programs）にあり、
+平均は budget × (1 + band) で FAIL、budget × 0.9 で警告、最大はベースラインの max/mean × 1.1 倍まで。数式はファイルの
+`comment` にそのまま書いてあります。probe は遠景（`__suzuka.env.farField.pending === 0`）が組み上がるのを待ってから採取します。
 
 ```bash
 pnpm exec playwright install --with-deps chromium   # 初回のみ（sudo が必要）
@@ -191,7 +208,10 @@ app/
     textures.ts                # ノイズ生成の PBR テクスチャ（カラー／ノーマル／ラフネス）— 低負荷ティアと、アセットが無いときのフォールバック
 scripts/
   sim-harness.mjs              # Node 用シミュレーションハーネス（pnpm sim、--brakes でディスク温度表）
-  perf-probe.mjs               # 描画コストの計測（draw call、三角形数、区間時間をカメラ／ティアごとに採取）
+  perf-probe.mjs               # 描画コストの計測（draw call、三角形数、区間時間をカメラ／ティアごとに採取、遠景の完成を待ってから）
+  perf-gate.mjs                # .perf の計測を perf-budgets.json の天井と照合（pnpm perf:gate、--strict で FAIL なら exit 1）
+  perf-budgets.json            # ティア／モードごとの天井（平均・最大・setupMs・programs）と scene-cost 用の static/data 予算
+  textures-lint.mjs            # テクスチャに描く文字列の商標リント（trademark-denylist.json / trademark-allow.json）
   sun-model-check.mjs          # 太陽モデルの不変条件（空の膝 < bloom 閾値 < 発光体 < プローブ < ディスク、露出の有界性、Sky.js のアンカー文字列）を Node で検証
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
@@ -199,7 +219,7 @@ scripts/
   assets/                      # fetch / import-misc / bake-crowd-atlas / sources（アセットパイプライン）
   facilities/                  # build-facilities（Overpass → TS）、build-power、dem-profile（DEM5A → 標高キーフレーム）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
-                               #   surface-check（面のガード）、app-runtime（アプリのビルダーを Node で走らせる土台）
+                               #   surface-check（面のガード）、scene-cost（三角形／メッシュ／遠景の静的コスト）、app-runtime（アプリのビルダーを Node で走らせる土台）
 ```
 
 ## Rendering notes

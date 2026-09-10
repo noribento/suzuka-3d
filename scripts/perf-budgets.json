@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "baseline": "after-phase6-2026-09-05T13-11-52-211Z",
+  "comment": [
+    "Render-cost ceilings for scripts/perf-gate.mjs (plan §0a). Every number here is a ceiling the SwiftShader probe",
+    "(scripts/perf-probe.mjs, 1280×720, 90 frames per mode) must stay under; the per-area allocations of a phase must",
+    "fit below warnAt × budget so the sum has headroom. Formulas, per tier/mode row of the .perf JSON:",
+    "  calls / triangles (mean over the sampled frames): FAIL when mean > budget × (1 + band); WARN when mean > budget × warnAt.",
+    "  calls / triangles (max over the sampled frames): FAIL when max > budget × maxRatio, where maxRatio =",
+    "    max(1.6, baselineMax / baselineMean × 1.1) computed per tier/mode from the reference runs (the baseline named above",
+    "    and .perf/before-phase2-2026-09-05T06-21-03-274Z.json, taking the larger — tv/heli swing 2–3× between frames).",
+    "  setupMs: WARN when > budget; FAIL when > budget × (1 + band.setupMs) = 1.5 × budget.",
+    "  loadMs: WARN when > budget, never FAIL (dev-server dependent).",
+    "  programs: the MAX over the tier's mode walk (the first sampled row of a tier is skipped — it is taken before the",
+    "    shader compiles of the later modes finish) must be ≤ the tier's programs budget (FAIL above, no band).",
+    "  errors[] must be empty on every row (FAIL otherwise).",
+    "High-tier setupMs 110000 is justified against perf-probe's 180 s .loading wait, not the e2e wall clock: the baseline",
+    "spends 83 s in setup under SwiftShader, and the e2e suite has its own, tighter, per-test timeouts.",
+    "'static' and 'data' are consumed by scripts/audit/scene-cost.mjs (Node, no browser, no asset pack — hence the",
+    "NoAssets suffix). They are placeholders until C2 measures them (+10 %) and flips measured to true; while measured is",
+    "false scene-cost reports without failing.",
+    "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only."
+  ],
+  "policy": {
+    "band": { "calls": 0.05, "triangles": 0.05, "setupMs": 0.5 },
+    "warnAt": 0.9
+  },
+  "tiers": {
+    "low": {
+      "setupMs": 5500,
+      "loadMs": 30000,
+      "programs": 60,
+      "modes": {
+        "overview": { "triangles": 1900000, "calls": 520, "maxRatio": { "triangles": 1.6, "calls": 1.6 } },
+        "heli": { "triangles": 1150000, "calls": 480, "maxRatio": { "triangles": 2.16, "calls": 3.22 } },
+        "chase": { "triangles": 1300000, "calls": 500, "maxRatio": { "triangles": 1.78, "calls": 2.05 } },
+        "onboard": { "triangles": 1150000, "calls": 460, "maxRatio": { "triangles": 1.9, "calls": 2.27 } },
+        "tv": { "triangles": 1000000, "calls": 380, "maxRatio": { "triangles": 2.03, "calls": 2.53 } }
+      }
+    },
+    "high": {
+      "setupMs": 110000,
+      "programs": 92,
+      "modes": {
+        "overview": { "triangles": 2900000, "calls": 620, "maxRatio": { "triangles": 2.01, "calls": 1.72 } },
+        "heli": { "triangles": 3800000, "calls": 1250, "maxRatio": { "triangles": 1.6, "calls": 1.6 } },
+        "chase": { "triangles": 3000000, "calls": 820, "maxRatio": { "triangles": 1.6, "calls": 1.6 } },
+        "onboard": { "triangles": 3000000, "calls": 800, "maxRatio": { "triangles": 1.64, "calls": 1.6 } },
+        "tv": { "triangles": 2700000, "calls": 700, "maxRatio": { "triangles": 1.83, "calls": 2.17 } }
+      }
+    }
+  },
+  "static": {
+    "highNoAssets": { "triangles": 4000000, "meshes": 400, "instancedMeshes": 260, "farFieldEntries": 400, "measured": false },
+    "lowNoAssets": { "triangles": 2000000, "meshes": 300, "instancedMeshes": 240, "farFieldEntries": 300, "measured": false }
+  },
+  "data": { "generatedBytes": 1048576, "measured": false }
+}

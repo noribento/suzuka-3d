@@ -49,6 +49,14 @@ export const PRESETS = [
   ['130r', [4700, -30, 10], [4830, 40, 8], 45],
   ['chicane', [5120, -18, 10], [5210, 40, 10], 45],
   ['final-corner', [5330, -20, 10], [5430, 45, 16], 45],
+  // the surroundings (plan §0f): Motopia and the hotel from the straight, the forests behind
+  // Degner and Spoon, the west car parks and the crossover bridge, the hotel from the air
+  ['motopia-from-straight', [5600, -16, 6], [5470, 300, 25], 38],
+  ['forest-degner', [2050, 30, 12], [2200, 140, 35], 45],
+  ['forest-spoon', [3600, -20, 10], [3720, -220, 40], 45],
+  ['carparks-heli', [5250, -200, 110], [5450, -380, 0], 45],
+  ['west-bridge', [4470, -16, 5], [4570, 0, 9], 40],
+  ['hotel-heli', [5500, 200, 120], [5480, 520, 10], 45],
   ['overview', null, null, 45],
 ]
 
@@ -72,6 +80,9 @@ try {
     }
   }
   await page.locator('.tower .row').nth(21).waitFor({ timeout: 60000 })
+  // the far field is built after loading in time slices; shoot only once it has drained
+  const farFieldDrained = () => page.waitForFunction(() => { const d = window.__suzuka; return !!d && (!d.env?.farField || d.env.farField.pending === 0) }, null, { timeout: 120000 })
+  await farFieldDrained()
   // the HUD would cover the compare; keep only the 3D view
   if (!args.includes('--hud')) await page.addStyleTag({ content: '.hud, .loading { display: none !important }' })
   // start the race so the grid clears the straight, then pause it
@@ -96,6 +107,7 @@ try {
     }, [cam, look, fov])
     // a few frames so the shadow cascades refit and the resolution scaler settles
     await page.waitForTimeout(tier === '1' ? 6000 : 2500)
+    await farFieldDrained()
     const file = join(out, `${name}.png`)
     // the software rasteriser needs well over the 30 s default for a high-tier frame
     await page.screenshot({ path: file, timeout: tier === '1' ? 600000 : 60000 })
