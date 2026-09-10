@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { SUR_PARKING, SUR_ROADS, SUR_SITES, SUR_SOLAR } from '~/data/suzuka-surroundings'
+import { SUR_BUILDINGS, SUR_PARKING, SUR_ROADS, SUR_SITES, SUR_SOLAR } from '~/data/suzuka-surroundings'
 import { worldRing, type SurFeatureBase } from '~/data/en-codec'
 import type { EnvBuildContext } from './environment'
 import type { Ground } from './ground'
@@ -39,27 +39,43 @@ import { armcoMaps, cached, chainLinkTexture, makeTexture, mulberry, paint, scal
  *    module = 1.0 × 1.65 m). The rings are pushed into `ctx.keepOutPolys` synchronously, so
  *    the forest's stems and the trackside scatter stay out of the farms.
  *  - FENCE `fence-<cell>` (kind 'fence', range `farField.rangeFar`): the circuit boundary
- *    775428456 resampled at 3 m — instanced 60 mm posts, a 50 mm top rail (three faces) and,
- *    with `Quality.fence`, 2.4 m mesh panels (fence003 through `cutoutFromAssets`, the
- *    procedural chain-link without the pack); a 20 m gap at every gate that lies on the boundary
- *    (of the four OSM gates only 南ゲート does — the main, hotel and parking gates stand 240–840 m
- *    outside the sports_centre polygon, on roads no fence crosses).
+ *    775428456 (171 vertices, 7,467 m) resampled at 3 m — instanced 60 mm posts, a 50 mm top
+ *    rail (three faces) and, with `Quality.fence`, 2.4 m mesh panels (fence003 through
+ *    `cutoutFromAssets`, the procedural chain-link without the pack); a 20 m gap at the boundary
+ *    point nearest each of the four OSM gates (南ゲート sits 9 m off the boundary, メインゲート
+ *    238 m, ホテルゲート 307 m and パーキングゲート 837 m outside it — for those three the gap
+ *    marks where their approach road meets the boundary). Nothing is built where the boundary
+ *    runs within `fence.minD` of the centreline: the barriers and the stands own that band.
  *  - LIGHT POLES `poles-<cell>` (kind 'poles', 600 m): one procedural 8 m pole + arm + head
  *    (36 triangles; the street_lamp_02 GLB is 20k) in the car parks' row dividers every 35 m
  *    and along the service roads inside the circuit every 40 m, the nearest to the track first
  *    up to `Quality.farField.lightPoles`. No emissive: the race is at 14:00.
  *  - UTILITY `utility-<cell>` (kind 'poles', 600 m) + `wires-<cell>` (400 m): 11 m tapered
- *    concrete poles (28 triangles with the 1.5 m crossarm) every 35 m on one side of the
+ *    concrete poles (24 triangles with the 1.5 m crossarm) every 35 m on one side of the
  *    tertiary / unclassified / residential roads outside the circuit, three catenary wires
- *    (thin dark strips, no shadow) between consecutive poles, and the white W-beam guardrail
- *    (armco maps, BARRIER_KIND.guardrail heights) on both sides of the trunk / primary /
- *    secondary roads.
+ *    (thin dark strips standing on edge — a wire has to read as a line from a camera at eye
+ *    level, and a strip lying flat is invisible there — no shadow) between consecutive poles,
+ *    and the white W-beam guardrail (armco maps, BARRIER_KIND.guardrail heights) on both sides
+ *    of the trunk / primary / secondary roads.
+ *
+ * The poles keep out of the OSM building footprints on their own (a disc from the centroid and
+ * the area, `BuildingClearance`) rather than through `ctx.keepOut` / `ctx.keepOutPolys`: those hold
+ * the car parks too, and a car park is exactly where the light poles belong.
  */
 
 /** the numbers this builder tunes (the tier budgets — lightPoles, shadows, rangeFar, fence — are in quality.ts) */
 export const OUTSKIRTS = {
   /** nothing stands closer than this to the GP centreline (m) */
   minD: 140,
+  /**
+   * A feature whose centroid is further than this outside the terrain grid is skipped before its
+   * vertex stream is decoded (the extract reaches 3.3 km, the grid 1.7 × 1.3 km — most of the
+   * 4,000 ways never come near it). The margin is generous: the longest way of the extract is a
+   * few hundred metres, so no way that touches the grid is dropped by its centroid.
+   */
+  gridMargin: 1200,
+  /** a pole keeps this many times sqrt(footprint area) away from an OSM building's centroid */
+  buildingClear: 0.6,
   solar: {
     /** row pitch (m, north–south) and the world-z phase of the rows */
     pitch: 5.5,
@@ -113,10 +129,10 @@ export const OUTSKIRTS = {
     offset: 3.5,
     arm: 1.5,
     armY: 10.3,
-    /** wires: sag = sagK × span² (m), strip width (m), segments per span, the longest span a wire is strung over (m) */
+    /** wires: sag = sagK × span² (m), strip height (m, the strip stands on edge), segments per span, the longest span a wire is strung over (m) */
     sagK: 0.00035,
     wireW: 0.08,
-    wireSegs: 6,
+    wireSegs: 5,
     maxSpan: 70,
     range: 600,
     wiresRange: 400,
@@ -233,6 +249,22 @@ function nearestVertex(x: number, z: number, ring: readonly XZ[]): number {
 
 function inGrid(g: GridShape, x: number, z: number): boolean {
   return x >= g.x0 && z >= g.z0 && x < g.x0 + g.w && z < g.z0 + g.d
+}
+
+/** further than `margin` outside the grid rectangle — the cheap pre-reject, before any decoding */
+function outsideGrid(g: GridShape, x: number, z: number, margin: number): boolean {
+  return x < g.x0 - margin || z < g.z0 - margin || x > g.x0 + g.w + margin || z > g.z0 + g.d + margin
+}
+
+/** total length of a polyline (`closed`: the edge back to the first vertex counts) */
+function pathLength(pts: readonly XZ[], closed: boolean): number {
+  let total = 0
+  const edges = closed ? pts.length : pts.length - 1
+  for (let i = 0; i < edges; i++) {
+    const a = pts[i]!, b = pts[(i + 1) % pts.length]!
+    total += Math.hypot(b[0] - a[0], b[1] - a[1])
+  }
+  return total
 }
 
 function push<T>(map: Map<number, T[]>, key: number, item: T) {
@@ -374,9 +406,10 @@ function makeMaterials(ctx: EnvBuildContext): Materials {
   for (const g of [mast, arm, head]) g.dispose()
   lightPoleGeo.computeBoundingSphere()
 
-  // the utility pole: a tapered 8-sided concrete pole and the crossarm along local x (across the road)
+  // the utility pole: a tapered 6-sided concrete pole (12 tris) and the crossarm along local x
+  // (across the road, 12 tris) — 24 triangles the wires hang from
   const up = OUTSKIRTS.utility
-  const shaft = new THREE.CylinderGeometry(0.095, 0.17, up.height, 8, 1, true)
+  const shaft = new THREE.CylinderGeometry(0.095, 0.17, up.height, 6, 1, true)
   shaft.translate(0, up.height / 2, 0)
   const cross = new THREE.BoxGeometry(up.arm, 0.09, 0.09)
   cross.translate(0, up.armY, 0)
@@ -414,11 +447,39 @@ function standOk(rule: SiteRule, x: number, z: number, lo: number, minD: number)
   return !rule.ground.builtY(x, z)
 }
 
-/** inside any keep-out disc or polygon (the buildings, car parks and farms the other builders pushed) */
-function keptOut(ctx: EnvBuildContext, x: number, z: number): boolean {
-  for (const k of ctx.keepOut) if (Math.hypot(x - k.x, z - k.z) < k.r) return true
-  for (const k of ctx.keepOutPolys) if (inBBox(x, z, k.box) && pointInRing(x, z, k.ring)) return true
-  return false
+/**
+ * A pole's clearance from the OSM buildings, from the shipped centroid and area alone (the
+ * footprints are never decoded): a disc of `buildingClear × sqrt(area)` around the centroid,
+ * ≈ 0.6 of the side of a square footprint. Read straight from `SUR_BUILDINGS` rather than from
+ * `ctx.keepOut` / `ctx.keepOutPolys`, which also carry the car parks the light poles stand in.
+ * The buildings are hashed into 100 m tiles once per build (≈ 1,300 footprints).
+ */
+class BuildingClearance {
+  private static readonly TILE = 100
+  private readonly tiles = new Map<number, { x: number; z: number; r: number }[]>()
+  constructor(enScale: number, grid: GridShape, margin: number) {
+    for (const b of SUR_BUILDINGS) {
+      const x = b.centroid[0] * enScale, z = -b.centroid[1] * enScale
+      if (outsideGrid(grid, x, z, margin)) continue
+      const r = Math.sqrt(Math.max(0, b.area)) * OUTSKIRTS.buildingClear
+      const disc = { x, z, r }
+      const reach = Math.ceil(r / BuildingClearance.TILE)
+      const i0 = Math.floor(x / BuildingClearance.TILE), j0 = Math.floor(z / BuildingClearance.TILE)
+      for (let i = i0 - reach; i <= i0 + reach; i++) {
+        for (let j = j0 - reach; j <= j0 + reach; j++) {
+          const key = i * 8192 + j
+          let list = this.tiles.get(key)
+          if (!list) this.tiles.set(key, (list = []))
+          list.push(disc)
+        }
+      }
+    }
+  }
+  hit(x: number, z: number): boolean {
+    const key = Math.floor(x / BuildingClearance.TILE) * 8192 + Math.floor(z / BuildingClearance.TILE)
+    for (const d of this.tiles.get(key) ?? []) if ((x - d.x) * (x - d.x) + (z - d.z) * (z - d.z) < d.r * d.r) return true
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -435,10 +496,14 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   const castShadow = q.farField.shadows
   let materials: Materials | null = null
   const mats = (): Materials => (materials ??= makeMaterials(ctx))
+  // both built by the first deferred job that needs them, never during the synchronous build
+  let clearance: BuildingClearance | null = null
+  const buildings = (): BuildingClearance => (clearance ??= new BuildingClearance(enScale, grid, OUTSKIRTS.gridMargin))
   let jobs = 0
   const MIN_D = OUTSKIRTS.minD
 
   const circuit = SUR_SITES.find((s) => s.id === OUTSKIRTS.fence.wayId && s.closed)
+  if (!circuit && import.meta.dev) console.warn(`[outskirts] circuit boundary ${OUTSKIRTS.fence.wayId} is not in SUR_SITES: no perimeter fence, and the poles cannot tell inside from outside`)
   const circuitRing: XZ[] = circuit ? polyline(worldRing(circuit, enScale)) : []
   const circuitBox = circuitRing.length ? ringBBox(circuitRing) : ([0, 0, 0, 0] as [number, number, number, number])
   const insideCircuit = (x: number, z: number) => circuitRing.length > 0 && inBBox(x, z, circuitBox) && pointInRing(x, z, circuitRing)
@@ -447,7 +512,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   // ===========================================================================================
   // 1. solar farms
   const S = OUTSKIRTS.solar
-  interface SolarSeg { x0: number; x1: number; z: number; lo: number; ring: XZ[]; id: number }
+  interface SolarSeg { x0: number; x1: number; z: number; lo: number; id: number }
   const solarByCell = new Map<number, SolarSeg[]>()
   let solarPolys = 0, solarRows = 0, solarSegs = 0
   const cosT = Math.cos(S.tilt), sinT = Math.sin(S.tilt)
@@ -490,7 +555,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
             const mx = (x0 + x1) / 2, mz = zf - depthXZ / 2
             if (!inGrid(grid, x0, zb) || !inGrid(grid, x1, zf) || !inGrid(grid, x0, zf) || !inGrid(grid, x1, zb)) continue
             const lo = f.dmin - Math.max(nearestVertex(x0, zf, ring), nearestVertex(x1, zf, ring), nearestVertex(mx, mz, ring)) - S.depth
-            push(solarByCell, farField.cellOf(mx, mz), { x0, x1, z: zf, lo, ring, id: f.id })
+            push(solarByCell, farField.cellOf(mx, mz), { x0, x1, z: zf, lo, id: f.id })
             solarSegs++
           }
         }
@@ -511,7 +576,11 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         let ok = true
         for (const [x, z] of samples) if (!standOk(rule, x, z, s.lo, MIN_D)) { ok = false; break }
         if (!ok) continue
-        const yF0 = ground.standY(s.x0, zf) + S.front, yF1 = ground.standY(s.x1, zf) + S.front
+        // the front edge stands `front` over the ground it is on; where the ground rises to the
+        // north (the back edge is `rise` higher) the whole panel is lifted so the BACK edge keeps
+        // that clearance too, instead of the row burying itself in the slope
+        const yF0 = Math.max(ground.standY(s.x0, zf), ground.standY(s.x0, zb) - rise) + S.front
+        const yF1 = Math.max(ground.standY(s.x1, zf), ground.standY(s.x1, zb) - rise) + S.front
         const yB0 = yF0 + rise, yB1 = yF1 + rise
         const FL = [s.x0, yF0, zf], FR = [s.x1, yF1, zf], BR = [s.x1, yB1, zb], BL = [s.x0, yB0, zb]
         const down = (p: number[]) => [p[0]! - N[0] * S.thick, p[1]! - N[1] * S.thick, p[2]! - N[2] * S.thick]
@@ -548,14 +617,13 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   const fenceByCell = new Map<number, number[]>()
   const fenceSamples: Sample[] = circuitRing.length ? resample(circuitRing, F.step, true) : []
   /** posts dropped for a gate: |arc − gate arc| < gap / 2 (wrapping) */
-  const perimeter = fenceSamples.length ? fenceSamples[fenceSamples.length - 1]!.t + F.step : 0
+  const perimeter = circuitRing.length ? pathLength(circuitRing, true) : 0
   const gateArcs: number[] = []
   if (fenceSamples.length) {
     for (const g of SUR_SITES) {
       if (g.role !== 'gate') continue
       const [gx, gz] = centroidWorld(g)
-      const near = nearestArc(circuitRing, true, gx, gz)
-      if (near.d < 60) gateArcs.push(near.t)
+      gateArcs.push(nearestArc(circuitRing, true, gx, gz).t)
     }
   }
   const atGate = (t: number) => gateArcs.some((g) => { const d = Math.abs(t - g); return Math.min(d, perimeter - d) < F.gateGap / 2 })
@@ -650,10 +718,12 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   // ===========================================================================================
   // 3. light poles: car-park row dividers and the service roads inside the circuit
   const LP = OUTSKIRTS.lightPole
-  interface PoleSite { x: number; z: number; dx: number; dz: number; lo: number }
+  interface PoleSite { x: number; z: number; dx: number; dz: number; lo: number; clear: boolean }
   const lightCandidates: PoleSite[] = []
   for (const f of SUR_PARKING) {
     if (f.area < LP.parkMinArea) continue
+    const [fx, fz] = centroidWorld(f)
+    if (outsideGrid(grid, fx, fz, OUTSKIRTS.gridMargin)) continue
     const ring = polyline(worldRing(f, enScale))
     if (ring.length < 3) continue
     const box = ringBBox(ring)
@@ -671,21 +741,24 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         if (!inBBox(x, z, box) || !pointInRing(x, z, ring)) continue
         // 3 m of car park on every side (the pole is not on the edge)
         if (!pointInRing(x + 3, z, ring) || !pointInRing(x - 3, z, ring) || !pointInRing(x, z + 3, ring) || !pointInRing(x, z - 3, ring)) continue
-        // the arm reaches across the aisle, perpendicular to the rows
-        lightCandidates.push({ x, z, dx: -pa.az, dz: pa.ax, lo: f.dmin - nearestVertex(x, z, ring) })
+        // the arm reaches across the aisle, perpendicular to the rows; a pole standing in the
+        // middle of a car park owes no clearance to the buildings around it
+        lightCandidates.push({ x, z, dx: -pa.az, dz: pa.ax, lo: f.dmin - nearestVertex(x, z, ring), clear: false })
       }
     }
   }
   for (const w of SUR_ROADS) {
     if (w.kind !== 'service') continue
     const [cx, cz] = centroidWorld(w)
-    if (!insideCircuit(cx, cz)) continue
+    if (outsideGrid(grid, cx, cz, OUTSKIRTS.gridMargin)) continue
     const pts = polyline(worldRing(w, enScale))
     const side = mulberry(w.id)() < 0.5 ? 1 : -1
     for (const s of resample(pts, LP.roadPitch, false, LP.roadPitch / 2)) {
       const nx = -s.tz * side, nz = s.tx * side
       const x = s.x + nx * LP.roadOffset, z = s.z + nz * LP.roadOffset
-      lightCandidates.push({ x, z, dx: -nx, dz: -nz, lo: w.dmin - s.dv - LP.roadOffset })
+      // the circuit's own service roads only — tested per sample, not on the way's centroid
+      if (!insideCircuit(x, z)) continue
+      lightCandidates.push({ x, z, dx: -nx, dz: -nz, lo: w.dmin - s.dv - LP.roadOffset, clear: true })
     }
   }
   // nearest to the track first: the lower bound orders the candidates, the exact rule filters them
@@ -698,7 +771,8 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
       const matrices: THREE.Matrix4[] = []
       for (const c of lightCandidates) {
         if (matrices.length >= lightBudget) break
-        if (!standOk(rule, c.x, c.z, c.lo, MIN_D) || keptOut(ctx, c.x, c.z)) continue
+        if (!standOk(rule, c.x, c.z, c.lo, MIN_D)) continue
+        if (c.clear && buildings().hit(c.x, c.z)) continue
         _p.set(c.x, ground.standY(c.x, c.z) - LP.bury, c.z)
         matrices.push(new THREE.Matrix4().compose(_p, yawTo(c.dx, c.dz, _q), _s.set(1, 1, 1)))
       }
@@ -724,7 +798,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     const guard = G.kinds.includes(w.kind)
     if (!utility && !guard) continue
     const [cx, cz] = centroidWorld(w)
-    if (insideCircuit(cx, cz)) continue
+    if (outsideGrid(grid, cx, cz, OUTSKIRTS.gridMargin)) continue
     const pts = polyline(worldRing(w, enScale))
     if (pts.length < 2) continue
     if (utility) {
@@ -735,7 +809,8 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         const s = samples[i]!
         const nx = -s.tz * side, nz = s.tx * side
         const x = s.x + nx * off, z = s.z + nz * off
-        if (!inGrid(grid, x, z)) continue
+        // outside the circuit's own grounds, tested per pole rather than on the way's centroid
+        if (!inGrid(grid, x, z) || insideCircuit(x, z)) continue
         const idx = uPoles.length
         uPoles.push({ x, z, nx, nz, lo: w.dmin - s.dv - off, way: w.id, idx: i })
         push(uByCell, farField.cellOf(x, z), idx)
@@ -766,7 +841,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     if (y !== undefined) return y
     const p = uPoles[i]!
     // the crossarm's half-length more, so the wires hung from its ends keep the 140 m too
-    y = standOk(rule, p.x, p.z, p.lo, MIN_D + U.arm / 2 + U.wireW) && !keptOut(ctx, p.x, p.z) ? ground.standY(p.x, p.z) : null
+    y = standOk(rule, p.x, p.z, p.lo, MIN_D + U.arm / 2 + U.wireW) && !buildings().hit(p.x, p.z) ? ground.standY(p.x, p.z) : null
     uSite.set(i, y)
     return y
   }
@@ -807,7 +882,9 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         if (span < 3 || span > U.maxSpan) continue
         const sag = U.sagK * span * span
         const dx = (n.x - p.x) / span, dz = (n.z - p.z) / span
-        const wx = -dz * (U.wireW / 2), wz = dx * (U.wireW / 2)
+        // the strip stands on edge (its width is in Y): a catenary is looked at from the side,
+        // and a ribbon lying flat 11 m up is edge-on — invisible — from every camera on the ground
+        const out = [-dz, 0, dx]
         const attach: [number, number][] = [[-U.arm / 2 + 0.05, armY], [U.arm / 2 - 0.05, armY], [0, wireY]]
         for (const [lx, ly] of attach) {
           const ax = p.x + p.nx * lx, az = p.z + p.nz * lx, ay = y - U.bury + ly
@@ -817,8 +894,8 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
             const t = k / U.wireSegs
             const x = ax + (bx - ax) * t, z = az + (bz - az) * t
             const yy = ay + (by - ay) * t - sag * 4 * t * (1 - t)
-            const c0 = [x - wx, yy, z - wz], c1 = [x + wx, yy, z + wz]
-            if (prev0 && prev1) wires.quad(prev0, prev1, c1, c0, [0, 1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]])
+            const c0 = [x, yy - U.wireW / 2, z], c1 = [x, yy + U.wireW / 2, z]
+            if (prev0 && prev1) wires.quad(prev0, prev1, c1, c0, out, [[0, 0], [1, 0], [1, 1], [0, 1]])
             prev0 = c0
             prev1 = c1
           }
@@ -842,10 +919,10 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         }
       }
       if (!matrices.length && !rail.triangles && !wires.triangles) return null
-      const root = new THREE.Group()
-      root.name = `utility-${cell}`
+      // the poles and the rail are one LOD level, the wires (a shorter range) another entry;
+      // both are registered parentless, so the registry adds and attaches each on its own
       const near = new THREE.Group()
-      near.name = `utilityNear-${cell}`
+      near.name = `utility-${cell}`
       if (matrices.length) {
         const inst = new THREE.InstancedMesh(m.utilityPoleGeo, m.concretePole, matrices.length)
         matrices.forEach((mat, k) => inst.setMatrixAt(k, mat))
@@ -864,7 +941,6 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         mesh.receiveShadow = true
         near.add(mesh)
       }
-      root.add(near)
       near.userData.outskirts = { family: 'utility', poles: matrices.length, guardrailM: Math.round(railM) }
       farField.register({ kind: 'poles', name: `utility-${cell}`, cell, levels: [{ object: near, range: U.range }] })
       const wireGeo = wires.build()
@@ -874,10 +950,9 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         mesh.castShadow = false
         mesh.receiveShadow = false
         mesh.userData.outskirts = { family: 'wires', spans, strips: spans * 3 }
-        root.add(mesh)
         farField.register({ kind: 'poles', name: `wires-${cell}`, cell, levels: [{ object: mesh, range: U.wiresRange }] })
       }
-      return root
+      return null
     })
   }
 
