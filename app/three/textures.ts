@@ -1247,31 +1247,6 @@ export function cloudTexture(): THREE.Texture {
   })
 }
 
-/** Silhouette of a wooded ridge line (opaque below, ragged canopy on top), tiles along u. */
-export function treeLineTexture(): THREE.Texture {
-  return cached('treeline', () => {
-    const w = 1024, h = 128
-    const { c, ctx } = canvas(w, h)
-    ctx.clearRect(0, 0, w, h)
-    const rng = mulberry(55)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, h * 0.55, w, h * 0.45)
-    for (let x = 0; x < w; x += 6) {
-      const th = 20 + rng() * 45
-      ctx.beginPath()
-      ctx.arc(x, h * 0.56, th * 0.5, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.beginPath()
-      ctx.moveTo(x - 8, h * 0.6)
-      ctx.lineTo(x, h * 0.56 - th)
-      ctx.lineTo(x + 8, h * 0.6)
-      ctx.fill()
-    }
-    const tex = makeTexture(c)
-    tex.repeat.set(24, 1)
-    return tex
-  })
-}
 
 /** Soft round sprite (alpha in the RGB, additive) for sparks and smoke. */
 /**

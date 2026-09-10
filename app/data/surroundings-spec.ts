@@ -131,5 +131,4 @@ export const SUR_LOD: Record<string, { near?: number; far?: number }> = {
   forest: { near: FOREST.hero.range, far: FOREST.stems.range },
 }
 
-// TODO(plan §1e): land-cover mask colours and the class priority order.
-export const COVER_COLOURS: Record<string, string> = {}
+/** Land-cover colours live in app/three/landcover.ts (COVER_COLOURS); nothing to hand-tune here. */

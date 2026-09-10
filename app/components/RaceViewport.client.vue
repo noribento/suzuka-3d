@@ -279,8 +279,8 @@ async function setup() {
 
   env = buildEnvironment(track, q, 7, assets)
   ctx.scene.add(env.group)
-  trackMeshes = buildTrackMeshes(track, env.ground)
-  const barriers = buildBarriers(track, q, env.ground)
+  trackMeshes = buildTrackMeshes(track, env.ground, q.fence)
+  const barriers = buildBarriers(track, q, env.ground, assets)
   const whiteLines = buildLines(track, env.ground)
   // The ground was drawn, the terrain settled under it and the grid uploaded inside
   // buildEnvironment, before anything stood on it; the track meshes, barriers and lines above

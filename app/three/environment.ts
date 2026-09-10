@@ -1050,7 +1050,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   buildForest(ctx)
   lap('forest')
 
-  // --- trees (synchronous until plan §2a moves them into the far field's 'forest' stage) --------
+  // --- trackside scatter (a deferred 'forest' job inside buildTrees, after the keep-out producers) ---
   buildTrees(ctx, ferrisWheel)
   lap('trees')
   // every cut is in (the faces' settle, the stand decks' clampUnder): upload the grid once
