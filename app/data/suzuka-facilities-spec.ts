@@ -940,28 +940,44 @@ export interface ScreenDef {
   id: string
   s: number
   lateral: number
-  /** bottom of the panel above the local track surface (m) */
+  /**
+   * Bottom of the panel: above the local track surface for a `roof` screen (the pit building is
+   * swept on the road plane), above the DRAWN GROUND (`ground.standAt`) for a `ground` one — the
+   * H and P screens stand on relief hills, not on the road plane.
+   */
   base: number
   width: number
   height: number
-  /** faces the track (default) or both ways */
-  doubleSided?: boolean
+  /** on the pit-building roof, or on two posts standing on the ground */
+  mount: 'roof' | 'ground'
+  /** 1 = the track face only, 2 = both ways */
+  faces: 1 | 2
   unverified?: string[]
 }
 
 export const SCREENS: ScreenDef[] = [
   // three permanent big screens on the pit building roof at ≈ ¼ / ½ / ¾ of the 340 m strip
-  { id: 'pit_t1', s: 10, lateral: -30, base: 17.5, width: 9, height: 5, unverified: ['s', 'size'] },
-  { id: 'pit_centre', s: 5722, lateral: -30, base: 17.5, width: 9, height: 5, doubleSided: true, unverified: ['s', 'size'] },
-  { id: 'pit_final', s: 5637, lateral: -30, base: 17.5, width: 9, height: 5, unverified: ['s', 'size'] },
-  { id: 'H', s: 2560, lateral: -50, base: 4, width: 8, height: 4.5, unverified: ['position'] },
-  { id: 'P', s: 4980, lateral: 52, base: 4, width: 8, height: 4.5, unverified: ['position'] },
-  { id: 'esses', s: 1230, lateral: -30, base: 4, width: 8, height: 4.5, unverified: ['position'] },
-  { id: 'T1_inside', s: 470, lateral: -22, base: 4, width: 8, height: 4.5, unverified: ['position'] },
+  { id: 'pit_t1', s: 10, lateral: -30, base: 17.5, width: 9, height: 5, mount: 'roof', faces: 1, unverified: ['s', 'size'] },
+  { id: 'pit_centre', s: 5722, lateral: -30, base: 17.5, width: 9, height: 5, mount: 'roof', faces: 2, unverified: ['s', 'size'] },
+  { id: 'pit_final', s: 5637, lateral: -30, base: 17.5, width: 9, height: 5, mount: 'roof', faces: 1, unverified: ['s', 'size'] },
+  // the four trackside visions on two posts (the West-straight photo shows the type: a dark box
+  // on two square legs); H / P stand on the relief hills behind the tyre walls
+  { id: 'H', s: 2560, lateral: -50, base: 4, width: 8, height: 4.5, mount: 'ground', faces: 1, unverified: ['position'] },
+  { id: 'P', s: 4980, lateral: 52, base: 4, width: 8, height: 4.5, mount: 'ground', faces: 1, unverified: ['position'] },
+  { id: 'esses', s: 1230, lateral: -30, base: 4, width: 8, height: 4.5, mount: 'ground', faces: 1, unverified: ['position'] },
+  { id: 'T1_inside', s: 470, lateral: -22, base: 4, width: 8, height: 4.5, mount: 'ground', faces: 1, unverified: ['position'] },
 ]
 
-/** DENSO Leader Tower (2009): 27.5 m, black slender column with the LED timing board. OSM way 469636517. */
-export const LEADER_TOWER = { s: 130, lateral: -10.1, height: 27.5, footprint: [3.6, 1.9] as [number, number], boardHeight: 12, boardWidth: 3.2, colour: '#1c1e22' }
+/**
+ * DENSO Leader Tower (2009): 27.5 m black lattice column with the LED timing board on top and a
+ * vertical 'SUZUKA CIRCUIT' board on the track face (the Frontstretch-lights photo: the black
+ * lattice tower behind the start gantry IS this tower — there is no second S/F tower).
+ * OSM way 469636517; facilities-check §6 holds `s`/`lateral` to its centroid within 2 / 1 m.
+ */
+export const LEADER_TOWER = {
+  s: 130, lateral: -10.1, height: 27.5, footprint: [3.6, 1.9] as [number, number], boardHeight: 12, boardWidth: 3.2, colour: '#1c1e22',
+  unverified: ['s 130 is the OSM centroid; the tower\'s shadow in .cache/audit/sections/02-t1-pit-exit-aerial.png falls across the pit-exit lane at s ≈ 125–135 and does not resolve it better than ±5 m'],
+}
 
 /** サーキットホイール (OSM way 184107083): behind stand S at the Turn-18 exit. */
 export const FERRIS_WHEEL = {
@@ -978,11 +994,40 @@ export const FERRIS_WHEEL = {
   unverified: ['height / diameter (official brochure figures)'],
 }
 
-/** Spectator tunnels under the track (DEM notches). The crossover bridge (4676–4713) is not one. */
-export const UNDERPASSES: { name: string; sRange: [number, number] }[] = [
-  { name: '観客トンネル（メインストレート）', sRange: [110, 120] },
-  { name: 'S字／NIPPO 地下道', sRange: [1770, 1795] },
-  { name: 'シケイン地下道', sRange: [5110, 5120] },
+export interface UnderpassDef {
+  name: string
+  /** what passes under / over the lap: a road (the county road, the service roads); no pedestrian tunnels are mapped */
+  kind: 'road'
+  /** the OSM way (role 'road' in suzuka-facilities.ts, added with build-facilities.mjs --add-ways); its geometry is never copied here */
+  osmWay: number
+  /** the stretch of lap it belongs to (the window every world → s mapping uses, R14) */
+  sRange: [number, number]
+  /** the BARRIERS run whose top carries the 1.1 m parapet railing over the tunnel, and where along it */
+  parapet?: { run: string; sRange: [number, number] }
+  unverified: string[]
+  note?: string
+}
+
+/**
+ * Roads that pass UNDER the lap (OSM tunnel=yes, layer −1) and the one service bridge that passes
+ * over the county road's cutting at the chicane. The DEM notches at s ≈ 110–120, 1770–1795 and
+ * 5110–5125 are these roads (dem-profile.mjs repaired them on the centreline). The crossover
+ * bridge (4676–4713) is not one — it is the lap crossing itself (structures.ts).
+ *
+ * What is built today (structures.ts): the 1.1 m tube railing on the parapets the roads pass
+ * under (the 'dunlop-inside' wall over 1775–1800, the chicane-approach rail over 5110–5125) and
+ * the chicane service bridge's 6 m slab with its two rails. The CUTTINGS THEMSELVES ARE DEFERRED
+ * (plan §9 P8): the county road is one 39 m cut from the chicane's right (5112, −8.3) to the
+ * Dunlop north side (1790, −37.8), 5 m deep, which ground-field.ts's 2–8 m blend and PolyZone's
+ * bank semantics cannot express without an R6 rule change.
+ */
+export const UNDERPASSES: UnderpassDef[] = [
+  { name: '構内道路トンネル（メインストレート）', kind: 'road', osmWay: 175231859, sRange: [100, 140], unverified: ['a works road, not a spectator tunnel (OSM yh:TYPE 構内道路, 3.0–5.5 m wide); crosses the lap at s 119'] },
+  { name: '県道三行庄野線 トンネル（ダンロップ側）', kind: 'road', osmWay: 34096664, sRange: [1760, 1810], parapet: { run: 'dunlop-inside', sRange: [1775, 1800] }, unverified: ['the tunnel way is 2 nodes (s 1779–1790, lateral −37.8 → +17); portal positions from the DEM notch ±5 m', 'the parapet stretch is the run\'s own note (1775–1800)'] },
+  { name: '県道三行庄野線 トンネル（シケイン側）', kind: 'road', osmWay: 411291884, sRange: [5095, 5145], parapet: { run: 'chicane-approach-right-a', sRange: [5110, 5125] }, unverified: ['the tunnel way is 3 nodes (s 5112–5129, lateral −8.3 → +15.1); portal positions from the DEM notch ±5 m', 'the railing stands on the guardrail\'s top (the wall the road passes under is not tabled)'] },
+  { name: '県道三行庄野線 切通し（シケイン右 ↔ ダンロップ北）', kind: 'road', osmWay: 183309812, sRange: [5080, 5120], unverified: ['the 39 m open cut between the two tunnels, from (5112, −8.3) to (1790, −37.8): depth from dem-profile.mjs (P8)'], note: 'not drawn yet (P8); the way spans both legs of the figure-8, so its window is the chicane end only' },
+  { name: '県道三行庄野線 進入路（シケイン左）', kind: 'road', osmWay: 34096665, sRange: [5125, 5400], unverified: ['the surface road from the chicane tunnel\'s left portal out past Q1 / R (lateral +15 → +248); drawn only as a far-field road (plan §2b)'], note: 'not drawn yet (P8)' },
+  { name: 'シケイン側道橋', kind: 'road', osmWay: 467219905, sRange: [5120, 5160], unverified: ['a 6 m service bridge over the cutting (OSM bridge=yes, layer 1, s 5131–5147 at lateral +27…+34); width 4 m assumed'] },
 ]
 
 /** Water bodies drawn as flat planes from their OSM polygons. */
@@ -1246,7 +1291,15 @@ export const GROUND_AREAS: GroundArea[] = [
   // landuse=grass 467219900 (−10…−40 m) is the grass to the tyre barriers. Layer −1: where the
   // OSM polygon and the aerial-read apron overlap (127 m²), the apron's measured edge wins.
   { name: 'シケイン右の芝', kind: 'grassArea', layer: -1, source: 'osm', footprint: { osm: [467219900], sRange: [5140, 5290], straight: true } },
+  // --- the service road beside the lower road at the crossover -----------------------------------
+  // The multi-level-crossing photo (Commons, from the left embankment): a one-lane asphalt service
+  // road runs along the LEFT of the lower road under the bridge, between the road's verge and the
+  // abutment / embankment, kerbed white on both edges, a curved-arm lamp and a low wire fence on
+  // its outer side (structures.ts builds those). Inside the crossover window (±115 m of sUnder),
+  // which every XZ guard excludes; the band ends inside the abutment's ±8.5 (hw 5.32 + 3.0 = 8.3).
+  {
+    name: '立体交差下の側道', kind: 'asphaltArea', source: 'photo',
+    footprint: { band: 1, sRange: [2262, 2378], lat: [5.9, 8.3] },
+    unverified: ['width and s extent read off the photo and the aerial (07-degner-under), ±3 m'],
+  },
 ]
-
-/** Debris-fence height in front of the stands: FIA-standard 3.5 m; Suzuka-specific heights UNVERIFIED. */
-export const DEBRIS_FENCE_HEIGHT = 3.5

@@ -66,6 +66,19 @@ for (const [k, v] of Object.entries(emitters)) {
 }
 ok(minEmitter > em.BLOOM_THRESHOLD, `the dimmest emitter (${minEmitter.toFixed(2)}) still clears the threshold`)
 
+// --- lit, not glowing ---------------------------------------------------------------------------
+// Panels and signal heads that are documented as visibly lit but must NOT bloom: the marshal
+// posts' digital flags and the pit-exit signal. They stay below the threshold on the high tier,
+// and above a token 0.3 so they still read as lit. Kept apart from `emitters` on purpose.
+const subThreshold = {
+  digitalFlag: em.luminance(E.digitalFlag.color, E.digitalFlag.intensity),
+  pitExitLight: em.luminance(E.pitExitLight.color, E.pitExitLight.intensity),
+}
+for (const [k, v] of Object.entries(subThreshold)) {
+  ok(v < em.BLOOM_THRESHOLD, `${k} (luminance ${v.toFixed(2)}) must stay below BLOOM_THRESHOLD ${em.BLOOM_THRESHOLD}: it is lit, not a lamp`)
+  ok(v > 0.3, `${k} (luminance ${v.toFixed(2)}) must still read as lit`)
+}
+
 // --- firefly clamp ----------------------------------------------------------------------------
 // HDR_MAX clamps the sanitized scene copy PER CHANNEL, so the bound to clear is the brightest
 // channel the model can write: the disc (added after the knee) on top of a kneed sky whose
@@ -188,3 +201,4 @@ console.log(`sun-model: ${checks} checks passed`)
 console.log(`  kneed sky ≤ ${sun.SKY_MAX} < bloom ${em.BLOOM_THRESHOLD} < emitters ≤ ${maxEmitter.toFixed(2)} < probe ${sun.SUN_PROBE_MIN} < disc ${discLow.toFixed(1)} (sunset) … ${discHigh.toFixed(1)} (midday)`)
 console.log(`  bloom ramps over ${em.BLOOM_THRESHOLD} … ${em.BLOOM_THRESHOLD + em.BLOOM_KNEE}, firefly clamp HDR_MAX ${sun.HDR_MAX} (model writes at most ${(discMaxChannel + skyMaxChannel).toFixed(1)} in a channel)`)
 for (const [k, v] of Object.entries(emitters)) console.log(`  ${k.padEnd(18)} ${v.toFixed(2)}  halo ${(bloomWeight(v) * 100).toFixed(0)}%`)
+for (const [k, v] of Object.entries(subThreshold)) console.log(`  ${k.padEnd(18)} ${v.toFixed(2)}  lit, no halo`)

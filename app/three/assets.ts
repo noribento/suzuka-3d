@@ -36,6 +36,10 @@ export interface ManifestAsset {
   /** transfer function of the pixel data: colour maps are sRGB, normal / ARM / opacity are linear */
   colorSpace?: 'srgb' | 'linear'
   role?: AssetRole
+  /** physical size of one tile along u (m), from scripts/assets/sources.mjs; absent when unknown */
+  tile?: number
+  /** source width / height when not square: one tile is `tile` × `tile / aspect` metres */
+  aspect?: number
   source?: unknown
   modified?: string
 }

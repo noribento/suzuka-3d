@@ -17,6 +17,9 @@
  *   5. Track.enScale equals an independent re-computation of the centreline pipeline, and the
  *      OSM raceway loop maps onto the app centreline within the registration tolerance.
  *   6. Every OSM stand id referenced by the spec / mapping exists in the extract.
+ *   A10. Every stand's front is screened by a fence-carrying BARRIERS run (world space, ≥ 95 %).
+ *   A11. SCREENS / SIGNS / LEADER_TOWER clear the road, the stand footprints and the pit lane;
+ *        boards only on concrete runs; UNDERPASSES reference 'road' ways.
  */
 import './ts-hooks.mjs'
 
@@ -298,6 +301,7 @@ if (lt && (Math.abs(lt.centroid[0] - spec.LEADER_TOWER.s) > 2 || Math.abs(lt.cen
 // ---------------------------------------------------------------- 7. barrier runs
 const bar = await import('../app/data/suzuka-barriers-spec.ts')
 const trackside = await import('../app/three/trackside.ts')
+const v3 = new THREE.Vector3()
 const RUN_CLEAR = 0.4 // m beyond the half-width a barrier vertex must stay
 /** stretches of road other than the run's own that come within `r` of (x, z) */
 function otherRoad(x, z, sRange, ownY, r = 45) {
@@ -683,6 +687,138 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   if (from !== null && covered.length - from > 2) gaps.push([from, covered.length])
   const gapM = gaps.reduce((a, [x, y]) => a + (y - x), 0)
   if (gapM) fail(`RUNOFF_ZONES leaves ${gapM} m of lap with no row (${gaps.map(([x, y]) => `${x}-${y}`).join(', ')}) — fillGaps invents a band there`, true)
+}
+
+// ---------------------------------------------------------------- 12. A10 — every stand is screened by a debris fence (world space)
+/**
+ * A10. Sample each stand's front edge every 2 m; from the road edge at that s to the front seat
+ * draw the line a debris would fly along, and require a FENCE-CARRYING BARRIERS run's resolved
+ * line (fence > 0 or kind 'fence'; ray projection included, so the Q2 bank wall counts) to pass
+ * within FENCE_NEAR of that line for ≥ FENCE_COVER of the samples. World space, so a stand in
+ * the figure-8 fold (Q2) is tested against the wall's real polyline, not its nominal lateral.
+ * Soft when the stand's unverified names its position / footprint. This is the check that
+ * found the G stand at 130R 48 % unscreened (the verge rail carried no fence).
+ */
+{
+  const FENCE_NEAR = 6
+  const FENCE_COVER = 0.95
+  const fences = []
+  for (const run of bar.BARRIERS) {
+    const h = run.kind === 'fence' ? 3 : run.fence ?? 0
+    if (!h) continue
+    const r = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
+    const pts = []
+    const len = arcLen(run.sRange[0], run.sRange[1])
+    for (let d = 0; d <= len; d += 2) {
+      const s = wrap(run.sRange[0] + d)
+      track.pointAt(s, r.lat(s), v3, 0)
+      pts.push({ x: v3.x, z: v3.z })
+    }
+    fences.push({ id: run.id, side: run.side, pts })
+  }
+  /** distance between two XZ segments (0 when they cross) */
+  const segSeg = (a, b, c, d) => {
+    const cross = (p, q, r) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x)
+    const s1 = cross(a, b, c), s2 = cross(a, b, d), s3 = cross(c, d, a), s4 = cross(c, d, b)
+    if (((s1 > 0) !== (s2 > 0)) && ((s3 > 0) !== (s4 > 0))) return 0
+    const pd = (p, u, w) => {
+      const dx = w.x - u.x, dz = w.z - u.z
+      const t = Math.max(0, Math.min(1, ((p.x - u.x) * dx + (p.z - u.z) * dz) / (dx * dx + dz * dz || 1)))
+      return Math.hypot(p.x - (u.x + dx * t), p.z - (u.z + dz * t))
+    }
+    return Math.min(pd(a, c, d), pd(b, c, d), pd(c, a, b), pd(d, a, b))
+  }
+  console.log('\nA10 stand screening (fence-carrying line within 6 m of road-edge → front, % of 2 m samples)')
+  for (const st of spec.STANDS) {
+    const [s0, s1] = st.sRange
+    const len = arcLen(s0, s1)
+    const soft = (st.unverified ?? []).some((u) => /footprint|position/.test(u))
+    /** (road-edge point, stand point) pairs to screen */
+    const pairs = []
+    if ((st.unverified ?? []).some((u) => /fold/.test(u))) {
+      // a stand in the figure-8 fold (Q2): its (s, lateral) front is nominal, so walk its OSM
+      // footprint rings every 2 m and take each point's nearest road inside the stand's window
+      for (const ring of standFootprints.filter((f) => f.id === st.id).map((f) => f.ring)) {
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i], b = ring[(i + 1) % ring.length]
+          const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2))
+          for (let k = 0; k < n; k++) {
+            const p = { x: a.x + ((b.x - a.x) * k) / n, z: a.z + ((b.z - a.z) * k) / n }
+            const near = track.nearestOnRange(p.x, p.z, s0, s1, 20)
+            track.pointAt(near.s, st.side * track.halfWidthAt(near.s), v3, 0)
+            pairs.push({ s: near.s, q: { x: v3.x, z: v3.z }, p })
+          }
+        }
+      }
+    } else {
+      for (let d = 0; d <= len; d += 2) {
+        const s = wrap(s0 + d)
+        const front = spec.alongAt(st.lateralFront, s, st.sRange)
+        track.pointAt(s, st.side * track.halfWidthAt(s), v3, 0)
+        const q = { x: v3.x, z: v3.z }
+        track.pointAt(s, front, v3, 0)
+        pairs.push({ s, q, p: { x: v3.x, z: v3.z } })
+      }
+    }
+    let n = 0, ok = 0
+    const holes = []
+    for (const { s, q, p } of pairs) {
+      let best = Infinity
+      for (const f of fences) {
+        if (f.side !== st.side) continue
+        for (let i = 0; i < f.pts.length - 1 && best > 0; i++) best = Math.min(best, segSeg(q, p, f.pts[i], f.pts[i + 1]))
+      }
+      n++
+      if (best <= FENCE_NEAR) ok++
+      else holes.push(Math.round(s))
+    }
+    holes.sort((a, b) => a - b)
+    const cover = n ? ok / n : 1
+    const holeTxt = holes.length ? ` (unscreened at s ${holes[0]}…${holes[holes.length - 1]})` : ''
+    console.log(`  ${st.id.padEnd(10)} ${(100 * cover).toFixed(0).padStart(3)} %${holeTxt}`)
+    if (cover < FENCE_COVER) fail(`${st.id}: only ${(100 * cover).toFixed(0)} % of its front is screened by a fence-carrying BARRIERS run${holeTxt}`, soft)
+  }
+}
+
+// ---------------------------------------------------------------- 13. A11 — screens, signs and the tower stand where they can
+/**
+ * A11. SCREENS / SIGNS / LEADER_TOWER: |lateral| ≥ hw + 1.5 (never in the road or its kerb),
+ * outside every stand's OSM footprint (world space), not inside the pit lane's band where the
+ * lane runs; `boards` only on concrete runs (the boards hang on a wall face).
+ */
+{
+  const laneHalf = pit.laneWidth / 2
+  const inPitLane = (s, lateral) => {
+    const c = track.pitLateralAt(s)
+    return c !== null && Math.abs(lateral - c) < laneHalf - 0.05
+  }
+  const items = [
+    ...spec.SCREENS.map((sc) => ({ id: `screen ${sc.id}`, s: sc.s, lateral: sc.lateral })),
+    // cameraSide: the outside of the nearest corner at hw + 3.2 (props.ts cameraSide, re-stated)
+    ...bar.SIGNS.map((sg) => {
+      let k = 0
+      for (let d = -40; d <= 40; d += 10) k += track.kappaAt(sg.s + d)
+      const side = Math.abs(k) < 1e-4 ? 1 : k > 0 ? -1 : 1
+      return { id: `sign ${sg.id}`, s: sg.s, lateral: sg.lateral === 'cameraSide' ? side * (track.halfWidthAt(sg.s) + 3.2) : sg.lateral }
+    }),
+    { id: 'LEADER_TOWER', s: spec.LEADER_TOWER.s, lateral: spec.LEADER_TOWER.lateral },
+  ]
+  for (const it of items) {
+    const hw = track.halfWidthAt(it.s)
+    if (Math.abs(it.lateral) < hw + 1.5) fail(`${it.id}: lateral ${fmt(it.lateral)} is inside hw + 1.5 (${fmt(hw + 1.5)}) at s ${it.s}`)
+    track.pointAt(it.s, it.lateral, v3, 0)
+    const inside = standFootprintAt(v3.x, v3.z)
+    if (inside) fail(`${it.id}: stands inside the OSM footprint of ${inside}`)
+    if (inPitLane(it.s, it.lateral)) fail(`${it.id}: stands in the pit lane band at s ${it.s} (lateral ${fmt(it.lateral)})`)
+    const paved = pavedApronAt(v3.x, v3.z)
+    if (paved) fail(`${it.id}: stands on the paved GROUND_AREAS apron "${paved}" (a sign belongs beside the tarmac, not on it)`)
+  }
+  for (const run of bar.BARRIERS) if (run.boards && run.kind !== 'concrete') fail(`${run.id}: boards on a ${run.kind} run — boards hang on concrete walls only`)
+  for (const u of spec.UNDERPASSES) {
+    const f = osm.osmFeature(u.osmWay)
+    if (!f) fail(`underpass "${u.name}": OSM way ${u.osmWay} missing from OSM_FEATURES (build-facilities.mjs --add-ways)`)
+    else if (f.role !== 'road') fail(`underpass "${u.name}": OSM way ${u.osmWay} has role "${f.role}", expected 'road'`)
+  }
 }
 
 // ---------------------------------------------------------------- 11. 周辺データ (surroundings + DEM)

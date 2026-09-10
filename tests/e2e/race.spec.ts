@@ -52,9 +52,14 @@ test.describe('Suzuka 3D broadcast', () => {
     for (const name of ['barriers', 'whiteLines', 'lanes']) expect(built.names).toContain(name)
     // the terrain continues past the height grid: the coarse ring and the DEM_FAR skyline (terrain-far.ts)
     for (const name of ['terrainRing-0', 'terrainFar']) expect.soft(built.names, `${name} missing`).toContain(name)
-    // the barrier runs produce every kind of trackside furniture
-    for (const name of ['barrierWalls', 'tyreWalls', 'guardrails', 'railPosts-0']) {
+    // the barrier runs produce every kind of trackside furniture, the grandstand wall its boards
+    for (const name of ['barrierWalls', 'tyreWalls', 'guardrails', 'railPosts-0', 'barrierBoards']) {
       expect(built.names.some((n) => n.startsWith(name.split('-')[0]!))).toBe(true)
+    }
+    // the structures (plan §3): the crossover bridge's slab, fascia and abutments, the underpass
+    // railings, the Leader Tower's lattice — built from the same tables (BARRIERS, UNDERPASSES)
+    for (const name of ['structures-bridge-slab', 'structures-bridge-fascia', 'structures-bridge-abutments', 'structures-bridge-furniture', 'structures-underpass-rails', 'leaderTowerLattice']) {
+      expect(built.names, `missing ${name}`).toContain(name)
     }
     // the white lines carry the screen-width attributes and cover the whole lap
     expect(built.lineAttrs).toContain('aAcross')

@@ -257,9 +257,6 @@ export const APEX_SPEED_TARGETS: { s: number; kmh: number; name: string }[] = [
   { s: 5298, kmh: 165, name: 'T18' },
 ]
 
-/** Corners whose exit kerbs carry yellow sausage kerbs behind the flat kerb. */
-export const SAUSAGE_KERB_CORNERS = ['T2', 'T6', 'Degner 1', 'Spoon', 'Chicane 1', 'Chicane 2']
-
 /** Where overtakes happen at Suzuka: braking zones (s of the braking point). */
 export const OVERTAKE_ZONES: { s: number; name: string }[] = [
   { s: 414, name: 'T1' },

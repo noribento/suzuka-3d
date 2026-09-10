@@ -94,8 +94,57 @@ export function repeatMetres<T extends THREE.Texture>(tex: T, metresPerTile: num
 
 /** Physical size (m) of one tile of a manifest texture (its `tile` field), or `fallback` when unknown. */
 export function tileMetres(reg: AssetRegistry | null, key: string, fallback: number): number {
-  const e = reg?.entry(key) as (ManifestAsset & { tile?: unknown }) | null | undefined
+  const e: ManifestAsset | null | undefined = reg?.entry(key)
   return typeof e?.tile === 'number' && e.tile > 0 ? e.tile : fallback
+}
+
+/** Width / height of a manifest texture's source image (its `aspect` field; 1 for square tiles), or `fallback` when unknown. */
+export function assetAspect(reg: AssetRegistry | null, key: string, fallback: number): number {
+  const e: ManifestAsset | null | undefined = reg?.entry(key)
+  if (!e) return fallback
+  return typeof e.aspect === 'number' && e.aspect > 0 ? e.aspect : 1
+}
+
+export interface CutoutFromAssetsOpts {
+  /** the procedural material (already in metre UVs) when the pack is off or any map is missing */
+  fallback: () => THREE.MeshStandardMaterial
+  /** the tier: alpha test vs alpha-to-coverage (cutoutParams) */
+  quality: Quality
+  /** metres per tile when the manifest entry carries no `tile` (fence003 does not: 2.0 by the photo's mesh pitch) */
+  tile: number
+  /** see PbrFromAssetsOpts.handBuiltUv */
+  handBuiltUv?: boolean
+  normalScale?: number
+  extra?: THREE.MeshStandardMaterialParameters
+}
+
+/**
+ * Alpha-cutout material from `tex/<asset>/diff`, `nor_gl` and `opacity` (wire mesh, foliage
+ * cards): all-or-nothing like pbrFromAssets, the opacity tile on `alphaMap`, DoubleSide, and the
+ * tier's cutoutParams. The geometry's UVs are expected in METRES: the three maps are cloned and
+ * given `1 / tile` repeat, so one texture tile covers `tile` metres (the manifest's `tile`, else
+ * `opts.tile`). `normalScale.y` is negated for hand-built UVs (see pbrFromAssets).
+ */
+export function cutoutFromAssets(reg: AssetRegistry | null, asset: string, opts: CutoutFromAssetsOpts): THREE.MeshStandardMaterial {
+  const map = reg?.texture(`tex/${asset}/diff`) ?? null
+  const normalMap = reg?.texture(`tex/${asset}/nor_gl`) ?? null
+  const alphaMap = reg?.texture(`tex/${asset}/opacity`) ?? null
+  if (!reg || !map || !normalMap || !alphaMap) return opts.fallback()
+  const tile = tileMetres(reg, `tex/${asset}/diff`, opts.tile)
+  const uv: readonly [number, number] = [1, 1]
+  const m = new THREE.MeshStandardMaterial({
+    map: repeatMetres(map.clone(), tile, uv),
+    normalMap: repeatMetres(normalMap.clone(), tile, uv),
+    alphaMap: repeatMetres(alphaMap.clone(), tile, uv),
+    side: THREE.DoubleSide,
+    roughness: 0.6,
+    metalness: 0.5,
+    ...cutoutParams(opts.quality),
+    ...opts.extra,
+  })
+  const k = opts.normalScale ?? 1
+  m.normalScale.set(k, opts.handBuiltUv ? -k : k)
+  return m
 }
 
 export interface GrassSurfaceOpts {
