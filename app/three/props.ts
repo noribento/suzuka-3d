@@ -8,8 +8,7 @@ import type { DecalQuad } from './ground-mesh'
 import { brakingRubberTexture, labelTexture } from './textures'
 import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
-import { OSM_BUILDINGS, OSM_PIT_BUILDING, type OsmFeature } from '~/data/suzuka-facilities'
-import { BUILDINGS, GROUND_AREAS } from '~/data/suzuka-facilities-spec'
+import { GROUND_AREAS } from '~/data/suzuka-facilities-spec'
 import { MARSHAL_POSTS, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
 import { osmWay } from './trackside'
 import { barrierLateralAt } from './barriers'
@@ -24,7 +23,8 @@ const _q = new THREE.Quaternion()
 /**
  * Trackside props: braking-distance boards, sector boards, marshal posts with their flags and
  * digital-flag panels, the rubbered-in braking zones, the TV camera masts and the overhead
- * power lines behind the circuit. The marshal huts go through the shared
+ * power lines behind the circuit. (The OSM buildings of the surroundings used to be massed here
+ * too; app/three/buildings.ts owns them since plan §2c.) The marshal huts go through the shared
  * `boxes` placer (the caller flushes it); `hutRoofMat` is the pit building's roof material, so
  * the hut roofs merge into the same mesh as the rest of that material.
  * Returns the flag-wave clock (also left on `group.userData.flagTime`), advanced per frame.
@@ -243,131 +243,9 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
   }
 
   buildPowerLines(ctx)
-  buildOsmBuildings(ctx)
   keepOutSecondaryPaving(ctx)
 
   return { flagTime }
-}
-
-// ---------------------------------------------------------------- OSM building massing
-
-/** eaves height (m) of an OSM building from its tags, else from its use and footprint area */
-function buildingHeight(f: OsmFeature, area: number): number {
-  const t = f.tags
-  const explicit = Number(t.height)
-  if (explicit > 0) return explicit
-  const levels = Number(t['building:levels'])
-  if (levels > 0) return levels * 3.2 + 0.6
-  const name = t.name ?? ''
-  const kind = t.building ?? 'yes'
-  if (kind === 'roof') return 4.0
-  if (kind === 'industrial' || kind === 'warehouse') return area > 3000 ? 12 : 9
-  // the hotel wings (ノース館 / ウエスト館 / イースト館 / サウス館) are 4–5 storeys, the main building more
-  if (name.includes('ホテル')) return 19
-  if (name.endsWith('館')) return 14.5
-  if (name.includes('コースター')) return 16
-  if (area < 60) return 3.2
-  if (area < 300) return 4.5
-  if (area < 1500) return 7
-  if (area < 5000) return 10
-  return 12
-}
-
-/**
- * Every OSM building on the modelled terrain that no other builder owns (the pit building, the
- * spec'd buildings and the paddock box are the pit complex's): the Motopia park and its hotel
- * behind the final corner, the works and warehouses behind the Esses and Turn 3, the west-area
- * huts and gates. Flat massing — walls from the footprint, a level roof at the eaves height above
- * the footprint's highest ground — in three material groups (park / works / canopies).
- */
-function buildOsmBuildings(ctx: EnvBuildContext) {
-  const { track, terrain, ground, group, keepOut } = ctx
-  const cx = track.center.x, cz = track.center.z
-  const inside = (x: number, z: number) => Math.abs(x - cx) < 1600 && Math.abs(z - cz) < 1200
-  const owned = new Set<number>([OSM_PIT_BUILDING.id, ...BUILDINGS.map((b) => b.osmWay).filter((id): id is number => id !== null)])
-  const inPaddock = (f: OsmFeature) => {
-    const [s, lat] = f.centroid
-    return lat < -57 && lat > -135 && (s > 5530 || s < 260) && !f.fold
-  }
-  const groups: Record<'park' | 'works' | 'canopy', { walls: THREE.BufferGeometry[]; roofs: THREE.BufferGeometry[] }> = {
-    park: { walls: [], roofs: [] },
-    works: { walls: [], roofs: [] },
-    canopy: { walls: [], roofs: [] },
-  }
-  const k = track.enScale
-  const v = new THREE.Vector3()
-  let count = 0
-  for (const f of OSM_BUILDINGS) {
-    if (!f.closed || f.en.length < 3 || owned.has(f.id) || inPaddock(f)) continue
-    // centroid and ground range of the footprint
-    let ce = 0, cn = 0
-    for (const [e, n] of f.en) {
-      ce += e / f.en.length
-      cn += n / f.en.length
-    }
-    track.enToWorld(ce, cn, v)
-    if (!inside(v.x, v.z)) continue
-    // buildings right beside the road were never modelled as boxes here: 6 m clearance of the verge
-    const near = ground.plan.project(v.x, v.z)
-    if (near.d < track.halfWidthAt(near.s) + 6) continue
-    let area = 0
-    let gMin = Infinity, gMax = -Infinity, rMax = 0
-    for (let i = 0; i < f.en.length; i++) {
-      const [e0, n0] = f.en[i]!, [e1, n1] = f.en[(i + 1) % f.en.length]!
-      area += (e0 * n1 - e1 * n0) / 2
-      track.enToWorld(e0, n0, v)
-      const g = ground.standY(v.x, v.z)
-      if (g < gMin) gMin = g
-      if (g > gMax) gMax = g
-      rMax = Math.max(rMax, Math.hypot(e0 - ce, n0 - cn) * k)
-    }
-    area = Math.abs(area)
-    if (area < 12) continue
-    const kind = f.tags.building ?? 'yes'
-    const eaves = buildingHeight(f, area)
-    const base = gMin - 0.4
-    const height = eaves + Math.min(6, gMax - gMin) + 0.4
-    const shape = new THREE.Shape(f.en.map(([e, n]) => new THREE.Vector2(e, n)))
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false })
-    // local EN (x = e, y = n, z = up) → world (x = e·k, y = z + base, z = −n·k)
-    geo.applyMatrix4(new THREE.Matrix4().set(k, 0, 0, 0, 0, 0, 1, base, 0, -k, 0, 0, 0, 0, 0, 1))
-    // ExtrudeGeometry's UVs are in shape units (metres): scale to a 4 m tile
-    const uv = geo.attributes.uv as THREE.BufferAttribute
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 4, uv.getY(i) / 4)
-    const bucket = kind === 'roof' ? groups.canopy : kind === 'industrial' || kind === 'warehouse' ? groups.works : groups.park
-    for (const g of geo.groups) {
-      const part = new THREE.BufferGeometry()
-      for (const name of ['position', 'normal', 'uv']) {
-        const a = geo.getAttribute(name) as THREE.BufferAttribute
-        part.setAttribute(name, new THREE.BufferAttribute((a.array as Float32Array).slice(g.start * a.itemSize, (g.start + g.count) * a.itemSize), a.itemSize))
-      }
-      ;(g.materialIndex === 0 ? bucket.roofs : bucket.walls).push(part)
-    }
-    geo.dispose()
-    track.enToWorld(ce, cn, v)
-    keepOut.push({ x: v.x, z: v.z, r: rMax + 6 })
-    count++
-  }
-  const mats = {
-    park: [new THREE.MeshStandardMaterial({ color: 0xece6d8, roughness: 0.8 }), new THREE.MeshStandardMaterial({ color: 0x9d9a94, roughness: 0.9 })],
-    works: [new THREE.MeshStandardMaterial({ color: 0xc9d0d6, roughness: 0.6, metalness: 0.15 }), new THREE.MeshStandardMaterial({ color: 0x8b9298, roughness: 0.7, metalness: 0.2 })],
-    canopy: [new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.8 }), new THREE.MeshStandardMaterial({ color: 0xb8b4ac, roughness: 0.8 })],
-  }
-  for (const key of ['park', 'works', 'canopy'] as const) {
-    const g = groups[key]
-    for (const [geos, mat, name] of [[g.walls, mats[key][0]!, 'Walls'], [g.roofs, mats[key][1]!, 'Roofs']] as const) {
-      if (!geos.length) continue
-      const merged = mergeGeometries(geos, false)
-      for (const x of geos) x.dispose()
-      if (!merged) continue
-      const mesh = new THREE.Mesh(merged, mat)
-      mesh.name = `osm${key[0]!.toUpperCase()}${key.slice(1)}${name}`
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      group.add(mesh)
-    }
-  }
-  if (import.meta.dev) console.info(`[props] ${count} OSM buildings massed`)
 }
 
 // ---------------------------------------------------------------- secondary paving
