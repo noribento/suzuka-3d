@@ -98,8 +98,8 @@ export const BUILDING = {
   eavesByArea: [[60, 3.2], [300, 4.5], [1500, 7], [5000, 10], [Infinity, 12]] as [number, number][],
   /** the tree keep-out disc around a footprint: its radius plus this (m) */
   keepOutMargin: 6,
-  /** houses: eaves overhang, roof pitch (rise / run), the along ÷ across ratio under which the hip becomes a pyramid, window band count by eaves height */
-  house: { eaves: 0.5, pitch: 0.4, pyramidRatio: 1.15, twoBandsFrom: 5, minRidge: 0.8 },
+  /** houses: eaves overhang, roof pitch (rise / run), the along ÷ across ratio under which the hip becomes a pyramid, window bands over the wall, the shortest ridge that is not a pyramid */
+  house: { eaves: 0.5, pitch: 0.4, pyramidRatio: 1.15, bands: 2, minRidge: 0.8 },
   /** kawara tints (multiplied over the tile layer) */
   kawara: { darkGrey: '#3f4246', brown: '#5a4030', blueGrey: '#4a5868' },
   /** the works / warehouses / shops: parapet height, its inset, the roof area from which rooftop units appear (detail level) and how many per m² */
@@ -136,7 +136,7 @@ export const BUILDING = {
  */
 export const MOTOPIA = {
   coaster: {
-    layerH: 4, baseH: 3, hump: 3, humpPeriod: 60, stationH: 2, stationEase: 30, sampleM: 2, smoothM: 14,
+    layerH: 4, baseH: 3, hump: 3, humpPeriod: 60, stationH: 2, stationEase: 30, sampleM: 3, smoothM: 15,
     deckW: 2.2, rail: 0.14, railGauge: 1.1, supportPitch: 8, supportBar: 0.22,
     cars: 4, carL: 2.6, carW: 1.5, carH: 1.1,
     colours: { deck: '#7d8084', rail: '#c0221a', support: '#d6d8da', car: ['#d8341f', '#e8b823', '#d8341f', '#2f6fbf'], seat: '#2a2c30' },

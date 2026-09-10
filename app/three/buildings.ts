@@ -26,8 +26,8 @@ import { cached, canvas, makeTexture, mulberry, paint, scaled } from './textures
  *  - canopy (building=roof, the main gate 466005760 included) — columns every ≤ 6 m and a
  *    0.3 m slab, no walls; the main gate carries a plain-type fascia board on its road-facing
  *    edge (the edge farthest from the circuit).
- *  - ride — pastel walls by id hash, flat roof.  school / temple / generic — plaster, flat or
- *    hipped.
+ *  - ride — pastel walls by id hash, flat roof.  school / temple / generic — plaster, flat
+ *    (temple hipped). Only the dwellings and the hotel wings take the window-band layer.
  * Heights come from the tags (`height`, or `building:levels` × 3.2 + 0.6) else from the
  * heuristic that used to live in props.ts (use, name, footprint area). NO bottom cap; the base
  * is `gMin − 0.4` where gMin is the lowest `ground.standY` over the footprint, and the eaves
@@ -193,13 +193,15 @@ function facadeAtlas(): FacadeAtlas {
       tex.needsUpdate = true
       return { array: tex, plain: [] }
     }
-    // the fallback: the painters' canvases as ordinary textures, rows bottom-up like the array (flipY off)
-    const plain = [0, 1, 2, 3].map((l) => {
+    // the fallback: the painters' canvases as ordinary textures, rows bottom-up like the array
+    // (flipY off). Each is cached under its own key so textures.ts's registry finds it for
+    // `markAllDirty` / `disposeAll` (that walk is one level deep and would miss an array).
+    const plain = [0, 1, 2, 3].map((l) => cached(`buildings/facadePlain${l}@${w}`, () => {
       const t = makeTexture(canvases[l]!, { srgb: true })
       t.flipY = false
       t.needsUpdate = true
       return t
-    })
+    }))
     return { array: null, plain }
   })
 }
@@ -426,6 +428,8 @@ function eavesHeight(b: SurBuilding, kind: SurBuildingKind): number {
 
 const PARAPET_KINDS = new Set<SurBuildingKind>(['industrial', 'warehouse', 'retail', 'commercial'])
 const HIP_KINDS = new Set<SurBuildingKind>(['house', 'temple'])
+/** OSM way of メインゲート — the one canopy that carries a fascia board (plan §2c) */
+const MAIN_GATE_WAY = 466005760
 
 /**
  * Every SUR_BUILDINGS footprint that no circuit builder owns: the pit building, the stands'
@@ -554,7 +558,7 @@ interface Massed {
  * One building into `mass` (and its ornaments into `detail`). Returns the numbers the offline
  * check reads (base, ground range) — the base is gMin − baseDrop by construction.
  */
-function massBuilding(ctx: EnvBuildContext, p: Planned, mass: Acc, detail: Acc | null, fascia: { at: (p: Planned) => void } | null): Massed {
+function massBuilding(ctx: EnvBuildContext, p: Planned, mass: Acc, detail: Acc | null, fascia: ((p: Planned, slabTop: number) => void) | null): Massed {
   const { ground } = ctx
   const rng = mulberry(p.seed)
   const ring = p.ring
@@ -583,10 +587,12 @@ function massBuilding(ctx: EnvBuildContext, p: Planned, mass: Acc, detail: Acc |
   }
   const wc = wallColour()
   const storeys = Math.max(1, Math.round((eavesY - gMin) / BUILDING.storey))
+  // only the dwellings and the hotel wings get the window-band layer; school / temple / generic
+  // are plaster, the works ribbed metal (plan §2c)
   const wallLayer: FacadeLayer = PARAPET_KINDS.has(kind) ? FACADE_LAYER.ribbed
-    : kind === 'temple' || kind === 'ride' || kind === 'canopy' ? FACADE_LAYER.plaster
-    : FACADE_LAYER.window
-  const bandH = kind === 'house' ? (p.eaves >= BUILDING.house.twoBandsFrom ? (eavesY - gMin) / 2 : eavesY - gMin)
+    : kind === 'house' || kind === 'hotel' ? FACADE_LAYER.window
+    : FACADE_LAYER.plaster
+  const bandH = kind === 'house' ? (eavesY - gMin) / BUILDING.house.bands
     : kind === 'hotel' ? BUILDING.hotel.band
     : (eavesY - gMin) / storeys
   const wallTop = PARAPET_KINDS.has(kind) ? eavesY + BUILDING.industrial.parapet : eavesY
@@ -624,12 +630,12 @@ function massBuilding(ctx: EnvBuildContext, p: Planned, mass: Acc, detail: Acc |
         mass.box(x, z, 1, 0, side, side, y0, slabBot, col, FACADE_LAYER.plaster)
       }
     }
-    const slab = _c.set(BUILDING.walls.canopy).clone()
+    const slab = _c.set(BUILDING.walls.canopy[0]).clone()
     const uvW = (x: number, z: number): [number, number] => [x / 4, z / 4]
     mass.cap(ring, slabTop, true, slab, FACADE_LAYER.whiteMetal, uvW)
     mass.cap(ring, slabBot, false, slab, FACADE_LAYER.plaster, uvW)
     walls(slabBot, slabTop, ring, normals, slab, FACADE_LAYER.plaster, false)
-    fascia?.at(p)
+    fascia?.(p, slabTop)
     return { id: p.b.id, kind, base, gMin, gMax, top: slabTop, cx: p.cx, cz: p.cz, rMax: p.rMax }
   }
 
@@ -668,6 +674,10 @@ function massBuilding(ctx: EnvBuildContext, p: Planned, mass: Acc, detail: Acc |
       const uvs = [[-hc / T[0], 0], [hc / T[0], 0], [0, Math.hypot(ha - rh, rise) / T[1]]]
       mass.face(pts, uvs, rc, FACADE_LAYER.kawara, [0, 1, 0])
     }
+    // the soffit: the overhang has no walls under it, and the mass has no bottom cap, so without
+    // this the roof reads as a hole from below (2 triangles per house)
+    mass.face([P(-ha, -hc, y0), P(ha, -hc, y0), P(ha, hc, y0), P(-ha, hc, y0)],
+      [[0, 0], [(2 * ha) / T[0], 0], [(2 * ha) / T[0], (2 * hc) / T[1]], [0, (2 * hc) / T[1]]], _c2.set('#cfc9bd'), FACADE_LAYER.plaster, [0, -1, 0])
     top = y1
     // sill bars under the window bands (detail level)
     if (detail && wallLayer === FACADE_LAYER.window) sills(detail, ring, normals, gMin, eavesY, bandH)
@@ -1098,8 +1108,6 @@ export function buildBuildings(ctx: EnvBuildContext): BuildingsStats {
     list.push(p)
   }
   stats.cells = byKey.size
-  const gate = ctx.track.enScale
-  void gate
   for (const [key, here] of byKey) {
     const cell = here[0]!.cell
     stats.jobs++
@@ -1109,11 +1117,10 @@ export function buildBuildings(ctx: EnvBuildContext): BuildingsStats {
       const root = new THREE.Group()
       root.name = `buildings-${key}`
       const massed: Massed[] = []
-      const fascia = {
-        at: (p: Planned) => {
-          if (p.b.id !== 466005760) return
-          root.add(fasciaBoard(ctx, p))
-        },
+      const extra: THREE.Mesh[] = []
+      const fascia = (p: Planned, slabTop: number) => {
+        if (p.b.id !== MAIN_GATE_WAY) return
+        extra.push(fasciaBoard(ctx, p, slabTop))
       }
       for (const p of here) {
         const m = massBuilding(ctx, p, mass, detail, fascia)
@@ -1125,7 +1132,7 @@ export function buildBuildings(ctx: EnvBuildContext): BuildingsStats {
       if (!massMeshes.length) return null
       const massGroup = new THREE.Group()
       massGroup.name = `buildingsMass-${key}`
-      massGroup.add(...massMeshes)
+      massGroup.add(...massMeshes, ...extra)
       root.add(massGroup)
       farField.register({ kind: 'buildings', name: `buildings-${key}`, cell, levels: [{ object: massGroup, range: Infinity }] })
       if (detail) {
@@ -1177,7 +1184,7 @@ export function buildBuildings(ctx: EnvBuildContext): BuildingsStats {
 }
 
 /** the main gate's fascia board on its road-facing edge (the long edge farthest from the circuit), hung from the slab's front */
-function fasciaBoard(ctx: EnvBuildContext, p: Planned): THREE.Mesh {
+function fasciaBoard(ctx: EnvBuildContext, p: Planned, slabTop: number): THREE.Mesh {
   const { ground } = ctx
   const ring = p.ring
   const n = ring.length
@@ -1194,15 +1201,12 @@ function fasciaBoard(ctx: EnvBuildContext, p: Planned): THREE.Mesh {
   const a = ring[best]!, b = ring[(best + 1) % n]!
   const nn = edgeNormals(ring)[best]!
   const len = Math.hypot(b[0] - a[0], b[1] - a[1])
-  let gMin = Infinity
-  for (const [x, z] of ring) gMin = Math.min(gMin, ground.standY(x, z))
-  const top = gMin + p.eaves + Math.min(BUILDING.maxGroundRise, 0)
   const h = BUILDING.canopy.fascia.h
   const geo = new THREE.PlaneGeometry(len * 0.92, h)
   const mat = new THREE.MeshStandardMaterial({ map: fasciaTexture(), roughness: 0.55, metalness: 0.05 })
   const mesh = new THREE.Mesh(geo, mat)
   const mx = (a[0] + b[0]) / 2 + nn[0] * 0.12, mz = (a[1] + b[1]) / 2 + nn[1] * 0.12
-  mesh.position.set(mx, top - h / 2 + 0.02, mz)
+  mesh.position.set(mx, slabTop - h / 2 + 0.02, mz)
   mesh.rotation.y = Math.atan2(nn[0], nn[1])
   mesh.name = 'buildingsFascia'
   mesh.castShadow = false
