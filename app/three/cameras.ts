@@ -46,9 +46,11 @@ const _up = new THREE.Vector3(0, 1, 0)
  * how far past the circuit's bounding box the pivot may be flown (in track spans).
  */
 const MOVE_RATE = 0.5
-const MOVE_MARGIN = 1.5
+// 1.0 span: the pivot stays inside the coarse terrain ring (±3.0 × ±2.6 km), where there is
+// ground to look at; the e2e WASD hold moves > 50 m well inside that
+const MOVE_MARGIN = 1.0
 
-/** Per-mode near plane (metres); far stays at 20 km (the sky and the cloud dome are inside). */
+/** Per-mode near plane (metres); far stays at 40 km (the DEM_FAR skyline reaches ±35 km; the sky and the cloud dome are inside). */
 const NEAR: Record<CameraMode, number> = { overview: 8, heli: 2, chase: 0.5, onboard: 0.2, tv: 0.5, director: 0.5 }
 
 function sectionShort(s: number): string {
@@ -80,7 +82,7 @@ export class CameraRig {
   private readonly moveVel = new THREE.Vector3()
 
   constructor(private track: Track, domElement: HTMLElement) {
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.5, 20000)
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.5, 40000)
     this.controls = new OrbitControls(this.camera, domElement)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.08

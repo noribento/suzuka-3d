@@ -249,8 +249,9 @@ const SanitizeCopyShader = {
 }
 
 /**
- * Is the sun actually visible, or behind the pit building / a grandstand roof / the tree
- * ring? A 1×1 RGBA8 target (the one format every WebGL2 implementation can read back) holding
+ * Is the sun actually visible, or behind the pit building / a grandstand roof / the far ridge?
+ * (The DEM_FAR skyline of terrain-far.ts writes depth, so on 29 March the sun sets into the
+ * Suzuka range at azimuth ≈ 274° instead of into a flat horizon.) A 1×1 RGBA8 target (the one format every WebGL2 implementation can read back) holding
  * the fraction of taps around the sun's NDC that see sky:
  *   - reversed-Z path: 5×5 taps of the resolved depth within ±SUN_PROBE_HALF_ANGLE_DEG, a tap
  *     counts when the depth is still the clear value (far = 0);

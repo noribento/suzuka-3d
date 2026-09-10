@@ -59,7 +59,13 @@ export interface Quality {
   smoke: number
   skidQuads: number
   trees: number
+  /** height-grid cells of the terrain rectangle (3400 × 2600 m); both counts must be multiples of 4 (the ring's K) */
   terrain: [number, number]
+  /**
+   * cells of the coarse terrain ring beyond the rectangle on every side, at 4 × the grid spacing
+   * (terrain-far.ts): 25 × 53 m ≈ 1.3 km on the high tier, 19 × 71 m ≈ 1.35 km on the low
+   */
+  terrainRingCells: number
   textureScale: number
   /** anisotropy budget for everything except the ground surfaces */
   anisotropy: number
@@ -73,7 +79,14 @@ export interface Quality {
   clouds: boolean
   /** lens flare (horizontal streak + ghosts) drawn by the grade pass around a visible sun — needs `post`; the veil is always on there */
   flare: boolean
-  ring: boolean
+  /** the DEM_FAR skyline mesh (`terrainFar`, ±35 km) behind the ring (terrain-far.ts) */
+  ridge: boolean
+  /**
+   * cell size of the skyline mesh, metres — a multiple of DEM_FAR's 500 m step. 500 keeps every
+   * node (≈ 20k nodes / 40k triangles over ±35 km); 1000 takes every other one for the software
+   * rasteriser, where the ridge is a few hundred pixels of vertex-coloured fill either way.
+   */
+  ridgeCellM: number
   /** HDR post chain (bloom, grade) */
   post: boolean
   gtao: boolean
@@ -97,6 +110,18 @@ export interface Quality {
   seatInstances: boolean
   /** resolution class of the external textures picked from the manifest */
   textureRes: '2k' | '1k'
+  /**
+   * Land-cover mask resolution (landcover.ts), texels per side of the two square RGBA8 pairs:
+   * [0] the inner terrain rectangle (3400 × 2600 m → 3.3 m texels at 1024), [1] the outer ring
+   * rectangle. VRAM ≈ 4 × res² × 1.33 bytes per pair; the masks are built on the CPU at start-up.
+   */
+  coverRes: [number, number]
+  /**
+   * Sample the land-cover detail tile (forest litter / paddy stubble / asphalt grain / solar rows)
+   * in the grass shader: four extra texture fetches per fragment, which a fill-bound software
+   * rasteriser cannot afford — off there, the classes are flat colours under the macro variation.
+   */
+  coverDetail: boolean
   /** the far field (farfield.ts): everything outside the fences that only stands on the ground */
   farField: FarFieldQuality
 }
@@ -155,13 +180,15 @@ export const QUALITY: Record<QualityTier, Quality> = {
     skidQuads: 4000,
     trees: 3000,
     terrain: [256, 192],
+    terrainRingCells: 25,
     textureScale: 1,
     anisotropy: 16,
     anisotropyGround: 16,
     fence: true,
     clouds: true,
     flare: true,
-    ring: true,
+    ridge: true,
+    ridgeCellM: 500,
     post: true,
     gtao: true,
     dof: true,
@@ -172,6 +199,8 @@ export const QUALITY: Record<QualityTier, Quality> = {
     grass: 60000,
     seatInstances: true,
     textureRes: '2k',
+    coverRes: [1024, 512],
+    coverDetail: true,
     farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 40, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200 },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
@@ -197,6 +226,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     skidQuads: 1500,
     trees: 800,
     terrain: [192, 144],
+    terrainRingCells: 19,
     textureScale: 0.5,
     anisotropy: 2,
     // the software rasteriser loops per tap, but the road is a small fraction of its fill and it
@@ -205,7 +235,8 @@ export const QUALITY: Record<QualityTier, Quality> = {
     fence: false,
     clouds: false,
     flare: false,
-    ring: true,
+    ridge: true,
+    ridgeCellM: 1000,
     post: false,
     gtao: false,
     dof: false,
@@ -216,6 +247,8 @@ export const QUALITY: Record<QualityTier, Quality> = {
     grass: 0,
     seatInstances: false,
     textureRes: '1k',
+    coverRes: [512, 256],
+    coverDetail: false,
     // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
     farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400 },

@@ -10,7 +10,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxi typecheck",
-    "check": "nuxi typecheck && node scripts/textures-lint.mjs && node scripts/assets/import-misc.mjs --check && node scripts/facilities-check.mjs --strict && node scripts/audit/scene-cost.mjs --tier high && node scripts/audit/scene-cost.mjs --tier low && node scripts/audit/surface-check.mjs --strict --tier high && node scripts/audit/surface-check.mjs --strict --tier low",
+    "check": "nuxi typecheck && node scripts/textures-lint.mjs && node scripts/assets/import-misc.mjs --check && node scripts/facilities-check.mjs --strict && node scripts/facilities/dem-profile.mjs --verify && node scripts/audit/scene-cost.mjs --tier high && node scripts/audit/scene-cost.mjs --tier low && node scripts/audit/surface-check.mjs --strict --tier high && node scripts/audit/surface-check.mjs --strict --tier low",
     "perf": "node scripts/perf-probe.mjs --label ${LABEL:-probe} && node scripts/perf-gate.mjs --latest --strict",
     "perf:gate": "node scripts/perf-gate.mjs --latest --strict",
     "test:e2e": "playwright test",

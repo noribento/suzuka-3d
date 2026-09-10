@@ -773,14 +773,14 @@ async function verify() {
  * DEM, so the fade end is where the relief has to meet real ground.
  */
 async function reliefReport() {
-  const codec = await import('../../app/data/dem-codec.ts')
-  const dem = await import('../../app/data/suzuka-dem.ts')
-  const vals = codec.decodeDem(dem.DEM_INNER)
-  const demProj = (x, z) => codec.demSample(dem.DEM_INNER, vals, ...toEN(x, z)) - dem.DEM_DATUM_ASL
   // app-runtime's transpile hook (parameter properties) + its DOM stubs; stands.ts imports the
   // texture generators at module scope
   const rt = await import('../audit/app-runtime.mjs')
   const stands = await import(path.join(rt.ROOT, 'app/three/stands.ts'))
+  // the field Terrain.heightAt uses beyond the road blend (bicubic DEM_INNER, water beds), so the
+  // table measures the join the terrain actually makes; the relief's outer fades land on it
+  const { demFieldFor } = await import(path.join(rt.ROOT, 'app/three/dem.ts'))
+  const demProj = (x, z) => demFieldFor(track).height(x, z)
   const { STANDS } = await import('../../app/data/suzuka-facilities-spec.ts')
   const { BASINS } = await import('../../app/data/suzuka-barriers-spec.ts')
   const { osmFeature } = await import('../../app/data/suzuka-facilities.ts')
