@@ -65,12 +65,15 @@ let audioFailed = false
 let setupMs = 0
 // dev-only per-section frame timings (ms, exponential average and running max), read by scripts/perf-probe.mjs
 const PERF = import.meta.dev
-const perf = { sim: 0, place: 0, fx: 0, cam: 0, audio: 0, render: 0, labels: 0, hud: 0 }
-const perfMax = { sim: 0, place: 0, fx: 0, cam: 0, audio: 0, render: 0, labels: 0, hud: 0 }
-function mark(section: keyof typeof perf, t0: number) {
-  const ms = performance.now() - t0
+// ('far' is the far field's per-cell LOD inside env.update; 'cam' excludes it)
+const perf = { sim: 0, place: 0, fx: 0, cam: 0, far: 0, audio: 0, render: 0, labels: 0, hud: 0 }
+const perfMax = { sim: 0, place: 0, fx: 0, cam: 0, far: 0, audio: 0, render: 0, labels: 0, hud: 0 }
+function markMs(section: keyof typeof perf, ms: number) {
   perf[section] += (ms - perf[section]) * 0.05
   if (ms > perfMax[section]) perfMax[section] = ms
+}
+function mark(section: keyof typeof perf, t0: number) {
+  markMs(section, performance.now() - t0)
 }
 const timer = new THREE.Timer()
 let lastOvertakeBanner = 0
@@ -314,6 +317,9 @@ async function setup() {
   store.ready = true
   store.loadProgress = 1
   setupMs = performance.now() - t0
+  // the far field is built after the loading screen, in wall-clock ticks: each job's root is
+  // added under env.group (already frozen) and gets the same material setup and matrix freeze
+  env.farField.start((o) => { ctx!.setupMaterials(o); freezeStatic(o) })
   if (import.meta.dev) assertGroundRegistered(ctx.scene, env.terrain)
   if (import.meta.dev) {
     // debug hook for the e2e suite and the probe scripts (getters keep restart / audio creation live)
@@ -327,6 +333,12 @@ async function setup() {
       RaceAudio,
       get setupMs() { return setupMs },
       get settleMs() { return env?.terrain.settleMs ?? 0 },
+      /** wall-clock ms per builder: the synchronous ones by name, the deferred far-field jobs as `far/<job>` */
+      get buildMs() {
+        const out: Record<string, number> = { ...(env?.buildMs ?? {}) }
+        if (env) for (const [k, v] of Object.entries(env.farField.stats().buildMs)) out[`far/${k}`] = v
+        return out
+      },
       steerTune: STEER,
       resCtl,
       textureBytes,
@@ -703,7 +715,7 @@ function loop() {
     labelVisible[i] = showLabels && inFront && (!farOut || car.position <= 3 || i === sel) ? 1 : 0
   }
   env.update(simDt, rig.camera.position)
-  if (PERF) { mark('cam', t0); t0 = performance.now() }
+  if (PERF) { const far = env.farField.updateMs; markMs('far', far); markMs('cam', performance.now() - t0 - far); t0 = performance.now() }
 
   // audio: created on the first user gesture (a click that landed before setup() still counts —
   // the browser's user activation is sticky); voices follow the nearest cars
@@ -1201,6 +1213,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onFirstGesture)
   window.removeEventListener('pointermove', onPointerMove)
   resizeObserver?.disconnect()
+  env?.farField.stop()
   rig?.dispose()
   sparks?.dispose()
   smoke?.dispose()

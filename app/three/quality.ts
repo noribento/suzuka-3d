@@ -97,6 +97,39 @@ export interface Quality {
   seatInstances: boolean
   /** resolution class of the external textures picked from the manifest */
   textureRes: '2k' | '1k'
+  /** the far field (farfield.ts): everything outside the fences that only stands on the ground */
+  farField: FarFieldQuality
+}
+
+/**
+ * Budgets of the far field. Every number a far-field builder scales with the tier lives here;
+ * the builders never test the tier themselves.
+ */
+export interface FarFieldQuality {
+  /** multiplies every level range (and the per-cell skip): 1 = the ranges as registered */
+  lodScale: number
+  /** near-field 3D trees (GLB / detailed geometry) drawn around the camera, 0 = none */
+  nearTrees: number
+  /** hero trees (individually placed, full geometry) per 250 m cell, 0 = none */
+  heroPerCell: number
+  /** mid-range instanced trees (cards / low-poly) over the whole forest */
+  midTrees: number
+  /** the merged canopy mass behind the mid-range trees */
+  canopy: boolean
+  /** buildings inside this distance get their detail level (facades, roofs); 0 = mass only */
+  buildingsDetailM: number
+  /** parked cars across the car parks */
+  parkedCars: number
+  /** baked car impostors between the 3D body range and `rangeFar` (procedural cards otherwise) */
+  carImpostors: boolean
+  /** light poles along the roads and car parks */
+  lightPoles: number
+  /** far-field meshes cast shadows */
+  shadows: boolean
+  /** wall-clock budget of one deferred-build tick (ms), a `setTimeout(0)` loop after loading */
+  tickMs: number
+  /** the far field's outer range: beyond this nothing but the mass levels is drawn (metres) */
+  rangeFar: number
 }
 
 export const QUALITY: Record<QualityTier, Quality> = {
@@ -139,6 +172,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     grass: 60000,
     seatInstances: true,
     textureRes: '2k',
+    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 40, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200 },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -182,6 +216,9 @@ export const QUALITY: Record<QualityTier, Quality> = {
     grass: 0,
     seatInstances: false,
     textureRes: '1k',
+    // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
+    // tens of seconds, not minutes, for the e2e's pending === 0 wait
+    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400 },
   },
 }
 

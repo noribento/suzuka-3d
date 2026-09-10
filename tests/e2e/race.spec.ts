@@ -69,6 +69,43 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(issues.errors).toEqual([])
   })
 
+  test('the far field is registered, drained after loading and culled per cell', async ({ page }) => {
+    const issues = await openRace(page)
+    const far = await page.evaluate(() => {
+      const d = (window as any).__suzuka
+      const ff = d.env.farField
+      const stats = ff ? ff.stats() : null
+      return {
+        exists: !!ff,
+        pending: ff ? ff.pending : -1,
+        stats,
+        inGroup: !!d.env.group.children.find((o: any) => o.name === 'farField'),
+        buildMs: d.buildMs,
+      }
+    })
+    expect(far.exists).toBe(true)
+    expect(far.pending).toBe(0)
+    // the documented stats shape (plan §0c); the counts grow as the builders land (C1–C4)
+    expect(far.stats).not.toBeNull()
+    expect(typeof far.stats!.entries).toBe('number')
+    expect(far.stats!.entries).toBeGreaterThanOrEqual(0)
+    expect(far.stats!.visible).toBeLessThanOrEqual(far.stats!.entries)
+    expect(typeof far.stats!.byKind).toBe('object')
+    expect(typeof far.stats!.cells).toBe('number')
+    expect(typeof far.stats!.visibleTriangles).toBe('number')
+    expect(typeof far.stats!.buildMs).toBe('object')
+    expect(far.stats!.failed).toBe(0)
+    expect(far.inGroup).toBe(true)
+    // the synchronous builders report their wall-clock too
+    for (const k of ['plan', 'meshes', 'settle', 'stands', 'trees', 'commit']) expect(typeof far.buildMs[k]).toBe('number')
+    // the deferred content stands on the ground and never changes who owns it: R1 still holds in the overview
+    await page.keyboard.press('1')
+    await expect(page.getByRole('button', { name: 'OVERVIEW', exact: true })).toHaveClass(/on/)
+    const census = await page.evaluate(() => (window as any).__suzuka.groundCensus())
+    expect(census.mismatch, JSON.stringify(census.worst)).toBe(0)
+    expect(issues.errors, issues.errors.join('\n')).toEqual([])
+  })
+
   test('runs the start sequence and the race gets under way', async ({ page }) => {
     const issues = await openRace(page)
     await startRace(page)

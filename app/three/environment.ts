@@ -17,6 +17,7 @@ import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
 import { buildLanes } from './lanes'
 import { buildFerrisWheel, buildTrees } from './vegetation'
+import { FarField } from './farfield'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
 export { cameraSide } from './props'
@@ -268,6 +269,14 @@ export class Terrain {
     this.skirt.position.y = this.minHeight() - 0.5
     this.skirt.updateMatrix()
     this.refresh()
+  }
+
+  /**
+   * The height grid's geometry (origin, spacing, node counts, extent) — read-only, no heights.
+   * The far field lays its 250 m cells over this rectangle.
+   */
+  grid(): { x0: number; z0: number; dx: number; dz: number; nx: number; nz: number; w: number; d: number } {
+    return { x0: this.x0, z0: this.z0, dx: this.dx, dz: this.dz, nx: this.NX, nz: this.NZ, w: this.dx * this.NX, d: this.dz * this.NZ }
   }
 
   /** Index (0..15) of the 4×4 terrain chunk containing world (x, z) — the tree bucket key. */
@@ -739,6 +748,17 @@ export interface EnvBuildContext {
   standZones: StandZone[]
   /** world-space discs (x, z, radius) the trees stay out of — filled by the builders that place buildings and paving */
   keepOut: { x: number; z: number; r: number }[]
+  /**
+   * World-space polygons (ring + XZ bounding box [minX, minZ, maxX, maxZ]) the forest stays out
+   * of — the building footprints, car parks and solar farms of the far field. Empty until those
+   * builders exist (plan §2); their deferred jobs run before the forest stage.
+   */
+  keepOutPolys: { ring: [number, number][]; box: [number, number, number, number] }[]
+  /**
+   * The far-field registry and deferred build queue. Deferred jobs must not use `boxes` (it is
+   * flushed before they run) and must not touch the terrain grid or the ground faces.
+   */
+  farField: FarField
 }
 
 export interface Environment {
@@ -751,7 +771,11 @@ export interface Environment {
   /** the drawn ground: one mesh per owner kind */
   groundMeshes: BuiltGround
   ferrisWheel: THREE.Group | null
-  /** per frame; `cameraPos` drives the crowd density LOD and yaw */
+  /** the far-field registry; the viewport starts its deferred drain after `store.ready` */
+  farField: FarField
+  /** wall-clock ms per synchronous builder (also `group.userData.buildMs`); the deferred jobs report through `farField.stats().buildMs` */
+  buildMs: Record<string, number>
+  /** per frame; `cameraPos` drives the crowd density LOD and yaw, and the far field's per-cell LOD */
   update: (dt: number, cameraPos?: THREE.Vector3) => void
 }
 
@@ -764,49 +788,75 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // one height per vertex) → registered and the grid settled under them → wired into `ground`.
   // All of it before anything stands on the ground, so every object and decal below reads the
   // DRAWN faces over the SETTLED terrain (the three-phase build: draw, settle, place).
-  const tPlan = performance.now()
+  // wall-clock per builder, surfaced as `Environment.buildMs` / `window.__suzuka.buildMs`
+  const buildMs: Record<string, number> = {}
+  let tLast = performance.now()
+  const lap = (name: string) => {
+    const now = performance.now()
+    buildMs[name] = now - tLast
+    tLast = now
+  }
   const plan = buildGroundPlan(track)
   const ground = makeGround(field, plan)
-  const tMesh = performance.now()
+  lap('plan')
   const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets))
   group.add(groundMeshes.group)
   for (const face of groundMeshes.faces) terrain.addGroundFace(face)
+  lap('meshes')
   terrain.settle()
   settleGround(ground, groundMeshes, (x, z) => terrain.meshHeightAt(x, z))
-  if (import.meta.dev) console.info(`[ground] plan ${(tMesh - tPlan).toFixed(0)} ms (${plan.stations.length} stations), meshes ${groundMeshes.stats.buildMs.toFixed(0)} ms (${groundMeshes.stats.triangles} triangles, ${groundMeshes.faces.length} faces)`)
+  lap('settle')
+  if (import.meta.dev) console.info(`[ground] plan ${buildMs.plan!.toFixed(0)} ms (${plan.stations.length} stations), meshes ${groundMeshes.stats.buildMs.toFixed(0)} ms (${groundMeshes.stats.triangles} triangles, ${groundMeshes.faces.length} faces)`)
   // only the trees draw from this generator (the crowd seeds its own)
   const rng = new Rng(seed)
 
   // one placer shared by the stands, the pit complex and the props, so their single-material
   // boxes merge per material across all of them
   const boxes = new BoxPlacer(track, ground, group)
+  // the far field: its cells tile the terrain rectangle; its group is under `group` so the
+  // viewport's freezeStatic / setupMaterials cover what is registered synchronously, and the
+  // deferred jobs are attached one by one as they run
+  const farField = new FarField(terrain.grid(), quality)
+  group.add(farField.group)
   const ctx: EnvBuildContext = {
     track, terrain, ground, group, quality, assets, boxes, rng,
     standZones: STANDS.map((d) => ({ from: d.sRange[0], to: d.sRange[1], side: d.side, lateralBack: lateralBackMax(d.lateralBack) })),
     keepOut: [],
+    keepOutPolys: [],
+    farField,
   }
 
   // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
   const stands = buildStands(ctx)
+  lap('stands')
   // --- spectators: instanced billboards per seat, in 60 m bays ---------------------------------
   const crowd = buildCrowd(track, stands.seats, quality, assets, 11)
   for (const o of crowd.objects) group.add(o)
+  lap('crowd')
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)
+  lap('pit')
   // --- the two-wheel chicanes / slip roads, in the lap's own frame ---------------------------
   group.add(buildLanes(track, ground))
+  lap('lanes')
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
   const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
   // every single-material box placed above, merged per material
   boxes.flush()
+  lap('props')
 
   // --- Ferris wheel (the Suzuka landmark behind the final-corner stands) ------------------------
   const ferrisWheel = buildFerrisWheel(ctx)
+  lap('ferris')
 
-  // --- trees -------------------------------------------------------------------------------
+  // --- trees (synchronous until plan §2a moves them into the far field's 'forest' stage) --------
   buildTrees(ctx, ferrisWheel)
+  lap('trees')
   // every cut is in (the faces' settle, the stand decks' clampUnder): upload the grid once
   terrain.commit()
+  lap('commit')
+  group.userData.buildMs = buildMs
+  if (import.meta.dev) console.info(`[env] build: ${Object.entries(buildMs).map(([k, v]) => `${k} ${v.toFixed(0)} ms`).join(', ')}; ${farField.pending} far-field jobs deferred`)
 
   const wheel = ferrisWheel.getObjectByName('wheel')
   const update = (dt: number, cameraPos?: THREE.Vector3) => {
@@ -819,8 +869,9 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     if (cameraPos) {
       stands.update(cameraPos)
       crowd.update(cameraPos)
+      farField.update(cameraPos)
     }
   }
 
-  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, update }
+  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, buildMs, update }
 }
