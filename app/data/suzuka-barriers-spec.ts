@@ -37,6 +37,10 @@ export interface BarrierRun {
   minGap?: number
   /** debris fence above the top of the barrier (m); 0 / undefined = none */
   fence?: number
+  /** tint of that fence's mesh (sRGB hex); the bridge parapets carry a dark-green mesh, the rest is bare galvanised wire */
+  fenceColour?: string
+  /** advertising boards on the track face (concrete runs only, A11): the grandstand front wall */
+  boards?: boolean
   unverified?: string[]
   note?: string
 }
@@ -45,7 +49,7 @@ const P = (pts: [number, number][]) => pts
 
 export const BARRIERS: BarrierRun[] = [
   // ---- left of the lap, driving order from the start line ---------------------------------
-  { id: 'gs-front', kind: 'concrete', side: 1, sRange: [5546, 362], fence: 2.6, source: { osm: [471430732, 471430724, 471430725, 471430720, 471430723, 471430721, 469591632] }, note: 'grandstand / VIP / A1 front wall, boards on the track face, debris fence on top' },
+  { id: 'gs-front', kind: 'concrete', side: 1, sRange: [5546, 362], fence: 2.6, boards: true, source: { osm: [471430732, 471430724, 471430725, 471430720, 471430723, 471430721, 469591632] }, note: 'grandstand / VIP / A1 front wall, boards on the track face, debris fence on top' },
   { id: 'a-stand-front', kind: 'concrete', side: 1, sRange: [362, 446], fence: 2.6, source: { osm: [470125557], samples: P([[380, 15.5], [420, 17.0], [440, 17.5]]) } },
   { id: 't1-outside', kind: 'concrete', side: 1, sRange: [446, 470], fence: 2.6, source: { osm: [469261663] } },
   { id: 't1-t2-outside-tyres', kind: 'tyre', side: 1, sRange: [470, 640], fence: 2.6, source: { osm: [469261663, 469261665, 469591634] }, note: 'white belt-faced tyre wall behind the T1/T2 asphalt run-off, B stands behind' },
@@ -71,8 +75,10 @@ export const BARRIERS: BarrierRun[] = [
   { id: 'spoon-exit-inside', kind: 'concrete', side: 1, sRange: [3797, 3911], source: { osm: [183953793] }, note: 'between the track and the West Course pit-exit road' },
   { id: 'west-straight-left', kind: 'guardrail', side: 1, sRange: [3911, 4270], source: { osm: [184419761] } },
   { id: 'bridge-approach-left', kind: 'guardrail', side: 1, sRange: [4270, 4585], source: { samples: P([[4270, 9.0], [4290, 9.5], [4350, 9.5], [4420, 9.5], [4500, 9.0], [4560, 8.5], [4585, 8.0]]) }, unverified: ['aerial only'] },
-  { id: 'bridge-parapet-left', kind: 'concrete', side: 1, sRange: [4585, 4740], source: { samples: P([[4585, 8.0], [4665, 8.0], [4740, 8.0]]) }, note: 'parapet of the crossover deck and its approaches' },
-  { id: '130r-inside-verge', kind: 'guardrail', side: 1, sRange: [4740, 4830], source: { osm: [471532691] } },
+  { id: 'bridge-parapet-left', kind: 'concrete', side: 1, sRange: [4585, 4740], fence: 2.6, fenceColour: '#2d5a3c', source: { samples: P([[4585, 8.0], [4665, 8.0], [4740, 8.0]]) }, note: 'parapet of the crossover deck and its approaches; the multi-level-crossing photo shows a dark-green mesh on it' },
+  // the G stand's debris fence continues along the inside of 130R on the verge rail: without it
+  // the stand's front is screened for only 43 % of its length (facilities-check A10)
+  { id: '130r-inside-verge', kind: 'guardrail', side: 1, sRange: [4740, 4830], fence: 2.6, source: { osm: [471532691] }, unverified: ['debris fence on the verge rail in front of G: the 2026 photos show the mesh continuing along the inside of 130R; height and extent estimated'] },
   { id: '130r-inside-wall', kind: 'concrete', side: 1, sRange: [4830, 4905], fence: 2.6, source: { osm: [468377693] } },
   { id: 'p-front-tyres', kind: 'tyre', side: 1, sRange: [4905, 5160], fence: 2.6, source: { osm: [467219902] } },
   // OSM 470173101 is ONE 160 m wall along the foot of the Q2 / Q1 bank, world (183,-164) to
@@ -116,7 +122,7 @@ export const BARRIERS: BarrierRun[] = [
   { id: 'west-pit-wall', kind: 'concrete', side: -1, sRange: [4203, 4315], source: { samples: P([[4203, -15.0], [4210, -9.5], [4245, -11.5], [4285, -13.4], [4300, -12.0], [4315, -9.0]]) }, unverified: ['pit wall between the track and the West Course pit lane, aerial only'] },
   { id: 'west-straight-trap-wall', kind: 'concrete', side: -1, sRange: [4324, 4521], fence: 2.6, source: { samples: P([[4324, -9.0], [4335, -14.6], [4353, -22.4], [4387, -19.4], [4440, -20.5], [4503, -22.5], [4515, -16.3], [4521, -9.2]]) }, note: 'O stand (2026) behind', unverified: ['aerial gravel outer edge'] },
   { id: 'bridge-approach-right', kind: 'guardrail', side: -1, sRange: [4521, 4585], source: { samples: P([[4521, -9.2], [4530, -8.0], [4560, -7.5], [4585, -7.5]]) }, unverified: ['aerial only'] },
-  { id: 'bridge-parapet-right', kind: 'concrete', side: -1, sRange: [4585, 4740], source: { samples: P([[4585, -7.5], [4665, -7.5], [4740, -7.5]]) } },
+  { id: 'bridge-parapet-right', kind: 'concrete', side: -1, sRange: [4585, 4740], fence: 2.6, fenceColour: '#2d5a3c', source: { samples: P([[4585, -7.5], [4665, -7.5], [4740, -7.5]]) }, note: 'dark-green mesh like the left parapet (photo)' },
   { id: '130r-outside-verge', kind: 'guardrail', side: -1, sRange: [4740, 4772], source: { samples: P([[4740, -8.0], [4772, -29.0]]) }, unverified: ['transition from the deck parapet to the 130R tyre walls'] },
   { id: '130r-outside-tyres', kind: 'tyre', side: -1, sRange: [4772, 4990], source: { osm: [467386927, 467386917] } },
   { id: '130r-exit-pocket-tyres', kind: 'tyre', side: -1, sRange: [4990, 5124], source: { osm: [467219910] }, note: 'the tyre wall behind the exit gravel pocket' },
@@ -313,6 +319,47 @@ export const MARSHAL_POSTS: MarshalPostDef[] = [
 
 /** TV camera masts whose default (outside of the nearest corner, hw + 9) lands in a run-off. */
 export const TV_MAST_OVERRIDES: Record<number, number> = { 1960: 12, 3650: -40, 4350: -24 }
+
+// ---------------------------------------------------------------- signs
+
+/**
+ * drs — the FIA DRS boards (detection line / activation zone); fireStation / pitExit — the white
+ * boards at the pit-exit end of the pit wall (West-straight photo); pitExitLight — the signal head
+ * at the pit-exit line (EMISSIVE.pitExitLight); speed80 — the pit-lane limit ring, painted as a
+ * cell of the pit-wall boards by pit-complex.ts (not free-standing: the ring stands ON the wall).
+ * There are no corner-number boards at Suzuka.
+ */
+export type SignKind = 'drs' | 'fireStation' | 'pitExit' | 'pitExitLight' | 'speed80'
+
+export interface SignDef {
+  id: string
+  kind: SignKind
+  s: number
+  /** signed lateral (m); 'cameraSide' = the outside of the nearest corner, hw + 3.2 (props.ts cameraSide) */
+  lateral: number | 'cameraSide'
+  /** which face carries the graphic: towards −s (the approaching cars), +s, or across the track (±lateral) */
+  facing: '-s' | '+s' | '+lat' | '-lat'
+  /** bottom of the board above the ground (m) */
+  height: number
+  /** board size (m); the DRS boards are square, the pit-exit boards landscape */
+  width: number
+  boardHeight: number
+  /** drawn by pit-complex.ts on the pit-wall boards instead of standing free */
+  mount?: 'pitWallBoard'
+  unverified?: string[]
+  note?: string
+}
+
+export const SIGNS: SignDef[] = [
+  // the detection line sits where both verges are paved (the chicane's two aprons), so the board
+  // stands behind the right-hand guardrail on the grass, clear of the tarmac (A11)
+  { id: 'drs-detection', kind: 'drs', s: 5150, lateral: -27, facing: '-s', height: 1.5, width: 1.2, boardHeight: 1.2, note: 'DRS detection line (CIRCUIT.drs.detection); behind chicane-approach-right-b, outside the right apron (its edge is −24 at s 5148)', unverified: ['lateral: the board is not resolvable in the aerial; placed on the first unpaved ground beside the line'] },
+  { id: 'drs-zone', kind: 'drs', s: 5590, lateral: 'cameraSide', facing: '-s', height: 1.5, width: 1.2, boardHeight: 1.2, note: 'DRS activation (CIRCUIT.drs.start)' },
+  { id: 'fire-station', kind: 'fireStation', s: 160, lateral: -20.6, facing: '+lat', height: 2.0, width: 2.4, boardHeight: 0.6, note: 'white board with red letters beside the pit-exit lane (West-straight photo)', unverified: ['s ±10 (the photo is a long lens down the straight)'] },
+  { id: 'pit-exit', kind: 'pitExit', s: 126, lateral: -20.6, facing: '-s', height: 2.0, width: 1.6, boardHeight: 0.5, unverified: ['position ±5'] },
+  { id: 'pit-exit-light', kind: 'pitExitLight', s: 128, lateral: -21.5, facing: '-s', height: 3.0, width: 0.35, boardHeight: 0.9, note: 'at the pit-exit line (LINES pit exit line, s 128), outside the lane' },
+  { id: 'pit-lane-80', kind: 'speed80', s: 5570, lateral: -9.4, facing: '-lat', height: 1.05, width: 0.5, boardHeight: 0.5, mount: 'pitWallBoard', note: 'the 80 km/h ring on the pit-lane face of the pit wall at the limit line (CIRCUIT.pit.limitStartS)' },
+]
 
 // ---------------------------------------------------------------- basins
 

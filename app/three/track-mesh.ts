@@ -1,15 +1,14 @@
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { CIRCUIT } from '~/data/suzuka'
 import { PAINTED_APRONS, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import { APRON_TILE_M, APRON_UV, apronPaintTexture, boardTexture, concreteMaps } from './textures'
-import { GROUND_OBJECTS, LAYER, markDecal, markObject, STRIP_DROP, type Ground } from './ground'
+import { APRON_TILE_M, APRON_UV, apronPaintTexture, labelTexture } from './textures'
+import { GROUND_OBJECTS, LAYER, markDecal, markObject, type Ground } from './ground'
 import type { DecalQuad } from './ground-mesh'
 import { kerbWidthTapered } from './ground-plan'
-import { pbr } from './materials'
+import { latticeGeometry } from './lattice'
 
 type Fn = (s: number) => number
 
@@ -143,22 +142,22 @@ export interface TrackMeshes {
 /**
  * What stands on or beside the racing surface that is NOT ground: the sausage kerbs (objects on
  * the drawn kerb, GROUND_OBJECTS.sausage), the painted aprons and green strips (decals on the
- * drawn ground), the crossover bridge's slab, walls, rails and piers, the pit wall with its
- * boards, the DRS markings (decals) and the start gantry.
+ * drawn ground), the DRS markings (decals) and the start gantry. The crossover bridge is
+ * structures.ts, the pit wall pit-complex.ts, the barrier boards barriers.ts.
  *
  * The ground itself — the road, the kerbs, the run-off bands, the gravel, the pit lane and its
  * apron, the paved areas — is the partition of ground-plan.ts drawn by ground-mesh.ts. Nothing
  * here draws an opaque horizontal surface at ground level; the audit (surface-check G8) fails
  * on one that is not a registered ground face, a marked object or a marked decal.
+ *
+ * `braces`: draw the X braces of the gantry's lattice legs (the tier's `fence` flag today).
  */
-export function buildTrackMeshes(track: Track, ground: Ground): TrackMeshes {
+export function buildTrackMeshes(track: Track, ground: Ground, braces = true): TrackMeshes {
   const group = new THREE.Group()
   /** local half-width — the road narrows to ~10.5 m at the Degners and widens to 15 m on the pit straight */
   const hwAt: Fn = (s) => track.halfWidthAt(s)
   const hw = track.halfWidth
   const L = track.length
-  const cross = track.crossing
-  const pit = CIRCUIT.pit
   // --- sausage kerbs from the KERBS table: yellow blocks behind the exit kerb ---------------------
   // objects standing on the drawn kerb face: base `sink` into it, crown `crown` above (rule R8)
   const sausageSpots: { s: number; side: 1 | -1 }[] = []
@@ -260,59 +259,9 @@ export function buildTrackMeshes(track: Track, ground: Ground): TrackMeshes {
     }
   }
 
-  // --- crossover bridge -------------------------------------------------------
-  // The deck's shoulder strips are ground (the `deckShoulder` owner of the plan); what is built
-  // here is the slab under the road, the deck walls, the embankment walls down to the ground, the
-  // guard rails and the piers beside the lower track.
-  const concrete = pbr(concreteMaps(), { roughness: 0.95, side: THREE.DoubleSide }, 0.6)
-  const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide })
-  const span = 19
-  const approach = 160
-  const concreteGeos: THREE.BufferGeometry[] = []
-  concreteGeos.push(ribbonGeometry(track, cross.sOver - span, cross.sOver + span, (s) => hwAt(s) + 1.2, (s) => -hwAt(s) - 1.2, () => -1.3, () => -1.3, 3, 10))
-  concreteGeos.push(wallGeometry(track, cross.sOver - span, cross.sOver + span, (s) => hwAt(s) + 1.2, () => -1.3, () => 0.0, 3))
-  concreteGeos.push(wallGeometry(track, cross.sOver - span, cross.sOver + span, (s) => -hwAt(s) - 1.2, () => -1.3, () => 0.0, 3))
-  // embankments (walls down to the ground) either side of the span
-  for (const [a, b] of [[cross.sOver - approach, cross.sOver - span], [cross.sOver + span, cross.sOver + approach]] as const) {
-    for (const side of [1, -1] as const) {
-      const lat: Fn = (s) => side * (hwAt(s) + 1.2)
-      const bottom: Fn = (s) => Math.min(-0.05, ground.standAt(s, lat(s)) - 0.4)
-      concreteGeos.push(wallGeometry(track, a, b, lat, bottom, () => 0, 4))
-    }
-  }
-  // guard rails along the whole elevated section
-  const railGeos: THREE.BufferGeometry[] = []
-  for (const side of [1, -1] as const) {
-    railGeos.push(wallGeometry(track, cross.sOver - approach, cross.sOver + approach, (s) => side * (hwAt(s) + 1.1), () => 0, () => 1.0, 4))
-  }
-  group.add(new THREE.Mesh(mergeGeometries(railGeos, false)!, rail))
-  // piers beside the lower track
-  const pierGeo = new THREE.CylinderGeometry(1.4, 1.6, 1, 12)
-  const hwUnder = hwAt(cross.sUnder)
-  for (const lat of [hwUnder + 5, -hwUnder - 5]) {
-    track.pointAt(cross.sUnder, lat, _p)
-    const top = cross.yOver - 1.3
-    const bottom = ground.standY(_p.x, _p.z) - 1
-    const g = pierGeo.clone()
-    g.scale(1, top - bottom, 1)
-    g.translate(_p.x, (top + bottom) / 2, _p.z)
-    concreteGeos.push(g)
-  }
-
-  // --- pit wall between track and pit lane, with advertising boards facing the track ------------
-  // (the pit lane and the garage apron are ground: the `pitLane` / `pitApron` owners of the plan)
-  const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide })
-  const boardGeos: THREE.BufferGeometry[] = []
-  boardGeos.push(wallGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.wallOffset, () => STRIP_DROP, () => 1.2, 4, 64))
-  concreteGeos.push(ribbonGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.wallOffset + 0.3, () => pit.wallOffset - 0.3, () => 1.2, () => 1.2, 4, 10))
-  concreteGeos.push(wallGeometry(track, pit.limitStartS - 40, pit.limitEndS, () => pit.wallOffset - 0.3, () => STRIP_DROP, () => 1.2, 4, 4))
-  // outside barrier along the main straight and into T1 (stands on the verge)
-  boardGeos.push(wallGeometry(track, 5480, 470, () => hw + 8, (s) => ground.standAt(s, hw + 8), (s) => ground.standAt(s, hw + 8) + 1.1, 4, 64))
-  group.add(new THREE.Mesh(mergeGeometries(boardGeos, false)!, boardMat))
-  const concreteMesh = new THREE.Mesh(mergeGeometries(concreteGeos, false)!, concrete)
-  concreteMesh.name = 'concrete'
-  concreteMesh.castShadow = true
-  group.add(concreteMesh)
+  // The crossover bridge (slab, fascia, girders, abutments, the lower road's service road) is
+  // structures.ts; the pit wall and its boards are pit-complex.ts; the grandstand front wall's
+  // boards are barriers.ts (`boards` on the gs-front run). Nothing of those is duplicated here.
 
   // grid slots, the start line and every other painted marking are built by lines.ts
   // DRS detection / activation markings: decals on the drawn road, LAYER.road.drs up
@@ -337,23 +286,34 @@ export function buildTrackMeshes(track: Track, ground: Ground): TrackMeshes {
   }
 
   // --- start gantry with the five light clusters ------------------------------------
-  const steel = new THREE.MeshStandardMaterial({ color: 0x3c3f46, roughness: 0.45, metalness: 0.8 })
+  // The Frontstretch photo: two black triangular-section lattice legs, a white fascia beam
+  // with 'SUZUKA CIRCUIT' in a plain face towards the grid, the light clusters under it.
+  const steel = new THREE.MeshStandardMaterial({ color: 0x1e2024, roughness: 0.5, metalness: 0.7 })
   const gantry = new THREE.Group()
-  const postGeo = new THREE.BoxGeometry(0.5, 9, 0.5)
-  const beamGeo = new THREE.BoxGeometry(2 * hw + 6, 0.6, 0.6)
+  gantry.name = 'startGantry'
   const gs = 3
   const pose = track.headingAt(gs)
   track.pointAt(gs, 0, _p)
   gantry.position.copy(_p)
   gantry.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(pose.tz, 0, -pose.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(pose.tx, 0, pose.tz)))
+  // legs: 9 m lattice columns of 0.45 m half-width standing on the drawn ground beside the wall;
+  // the braces go with the fences on the low tier
+  const legGeo = latticeGeometry({ height: 9.4, baseHalf: 0.45, topHalf: 0.45, panel: 1.5, leg: 0.09, ring: 0.06, brace: 0.05, braces: braces })
   for (const x of [hw + 2.5, -hw - 2.5]) {
-    const post = new THREE.Mesh(postGeo, steel)
-    post.position.set(x, 4.5, 0)
-    post.castShadow = true
-    gantry.add(post)
+    const leg = new THREE.Mesh(legGeo, steel)
+    leg.position.set(x, ground.standAt(gs, x), 0)
+    leg.castShadow = true
+    gantry.add(leg)
   }
-  const beam = new THREE.Mesh(beamGeo, steel)
-  beam.position.set(0, 8.7, 0)
+  // the fascia: a white box 2hw + 6 long, its −s face (towards the grid) carrying the name
+  const fasciaW = 2 * hw + 6
+  const fasciaGeo = new THREE.BoxGeometry(fasciaW, 1.1, 0.45)
+  const blank = new THREE.MeshStandardMaterial({ color: 0xf4f4f1, roughness: 0.55 })
+  const fasciaText = new THREE.MeshStandardMaterial({ map: labelTexture('SUZUKA CIRCUIT', '#f4f4f1', '#1d1f22', 2048, 128, 96), roughness: 0.55 })
+  // BoxGeometry material groups: +x, −x, +y, −y, +z, −z — the −z face looks back down the grid
+  const beam = new THREE.Mesh(fasciaGeo, [blank, blank, blank, blank, blank, fasciaText])
+  beam.position.set(0, 8.85, 0)
+  beam.castShadow = true
   gantry.add(beam)
   const startLampMaterials: THREE.MeshStandardMaterial[] = []
   const lampGeo = new THREE.SphereGeometry(0.28, 10, 8)

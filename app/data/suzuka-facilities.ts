@@ -11,6 +11,7 @@
  * derived from OpenStreetMap data © OpenStreetMap contributors, ODbL 1.0".
  *
  * Extract: Overpass API, OSM base timestamp 2026-09-05T05:11:04Z
+ * additions: 2026-09-10 ways 34096664, 34096665, 175231859, 183309812, 411291884, 467219905 (role 'road', --add-ways)
  * Query:
  *   [out:json][timeout:180];
  *   (
@@ -45,7 +46,7 @@
 
 export type OsmRole =
   | 'stand' | 'pit_building' | 'leader_tower' | 'ferris_wheel' | 'building' | 'attraction' | 'man_made'
-  | 'named' | 'raceway' | 'sand' | 'grass' | 'basin' | 'water' | 'tyre_barrier' | 'wall' | 'fence' | 'barrier'
+  | 'named' | 'raceway' | 'road' | 'sand' | 'grass' | 'basin' | 'water' | 'tyre_barrier' | 'wall' | 'fence' | 'barrier'
 
 export interface OsmFeature {
   /** OSM way id (node id for the few named point features) */
@@ -338,6 +339,12 @@ export const OSM_FEATURES: OsmFeature[] = [
   { id: 411295350, role: 'raceway', side: 0, s: [4154, 4372.2], lateral: [-17.1, 1.3], centroid: [4263.9, -8], dmin: 0.9, closed: false, tags: {name: 'West Circuit Pit Lane', highway: 'raceway', surface: 'asphalt', sport: 'motor'}, en: [[-706.9,116.6],[-692.8,106.8],[-679.3,95.6],[-667.6,85.7],[-659.5,80.7],[-647.6,75.6],[-587.7,51.8],[-584.1,50.6],[-578.9,49.7],[-537.9,46.5],[-530.4,45.7],[-524.9,44.8],[-503.5,39]] },
   { id: 411295351, role: 'raceway', side: -1, s: [3642.9, 3688.8], lateral: [-1.8, -1.3], centroid: [3664.6, -0.9], dmin: 1.3, closed: false, tags: {name: 'スプーンカーブ', 'name:en': 'Spoon Curve', highway: 'raceway', surface: 'asphalt', sport: 'motor'}, en: [[-903.1,422.3],[-916.1,421],[-930.8,418.2],[-948.5,413.6]] },
   { id: 411296898, role: 'raceway', side: 0, s: [5129.2, 1783.8], lateral: [-36.6, 2.5], centroid: [5131.9, -39.4], dmin: 0.1, closed: false, tags: {highway: 'raceway', surface: 'asphalt', sport: 'motor'}, en: [[160.3,131.7],[163.9,133.8],[166.1,134.7],[168.2,135.2],[170.7,135.4],[172.6,135.3],[174.4,135],[176,134.3],[177.4,133.4],[178.5,132.1],[179.8,130.2],[199.1,87.1],[205.5,72.7],[207.3,67.5],[207.9,63.5],[207.6,60],[206.4,56.5],[204.8,53.5],[202,50.9],[198.6,48.9],[184.9,43.4]] },
+  { id: 34096664, role: 'road', side: 0, s: [1779.3, 1790.2], lateral: [-37.8, 17], centroid: [1785, -10.4], dmin: 17, closed: false, tags: {name: '三行庄野線', 'name:en': 'Route Miyuki-Shouno', highway: 'secondary', tunnel: 'yes', layer: '-1', surface: 'paved'}, en: [[195.2,29.7],[164,76]] },
+  { id: 34096665, role: 'road', side: 1, s: [5128.7, 5391.4], lateral: [15.1, 247.6], centroid: [5293.4, 75.3], dmin: 15.1, closed: false, tags: {name: '三行庄野線', 'name:en': 'Route Miyuki-Shouno', highway: 'secondary', surface: 'paved'}, en: [[152.6,141.7],[153.3,154.8],[155.8,170.2],[163.5,189.8],[172.2,201],[182.2,208.3],[198.4,215.2],[232.4,221.2],[296.3,228.1],[315.1,230.9],[333.8,235.6],[344.5,240.9],[352.8,246],[370.2,262],[430.7,333.6],[483,388.6]] },
+  { id: 175231859, role: 'road', side: 0, s: [119, 119.1], lateral: [-25.9, 28.5], centroid: [119.1, 1.3], dmin: 25.9, closed: false, tags: {highway: 'service', tunnel: 'yes', layer: '-1'}, en: [[779.7,-211.1],[737.9,-245.7]] },
+  { id: 183309812, role: 'road', side: -1, s: [5098.2, 1790.2], lateral: [-37.8, -8.3], centroid: [5101.9, -28], dmin: 8.3, closed: false, tags: {name: '三行庄野線', 'name:en': 'Route Miyuki-Shouno', highway: 'secondary', surface: 'paved'}, en: [[164,76],[159.6,84.6],[156.3,92.5],[153,112.8]] },
+  { id: 411291884, role: 'road', side: 0, s: [5111.8, 5128.7], lateral: [-8.3, 15.1], centroid: [5120.6, 3.7], dmin: 4.7, closed: false, tags: {name: '三行庄野線', 'name:en': 'Route Miyuki-Shouno', highway: 'secondary', tunnel: 'yes', layer: '-1', surface: 'paved'}, en: [[153,112.8],[151.8,128.2],[152.6,141.7]] },
+  { id: 467219905, role: 'road', side: 1, s: [5131.4, 5146.8], lateral: [26.6, 34.4], centroid: [5139.1, 30.4], dmin: 26.6, closed: false, tags: {highway: 'service', bridge: 'yes', layer: '1'}, en: [[143.9,159.1],[162,161.8]] },
   { id: 467152471, role: 'sand', side: -1, s: [5207.1, 1757.3], lateral: [-52.6, -5.3], centroid: [1707, -27.7], dmin: 5.3, closed: true, tags: {natural: 'sand'}, en: [[209.8,71.6],[213.5,65.6],[216.4,62.2],[221,59.6],[224,59.1],[231.5,59.5],[246.8,59.6],[261.2,59.5],[277.4,57.2],[291.8,54.3],[298.5,52.8],[303.4,53.5],[308.4,56.4],[311.3,61.7],[311,68.4],[307.6,79.6],[305,89.5],[303.9,100.4],[304,104.8],[292.8,107.2],[291,103.5],[286.9,101.2],[281.5,99.9],[273.2,98.7],[263.9,97.8],[257.7,97.3],[255.9,99.1],[254.6,101.2],[251,98],[245.4,96.9],[236.1,96.2],[228.5,95.2],[222,93.9],[214.9,91.8],[211.5,90.6],[203.2,85.6]] },
   { id: 467219911, role: 'sand', side: -1, s: [5229.1, 5322.2], lateral: [-29.8, -5.5], centroid: [5276.4, -15.8], dmin: 5.5, closed: true, tags: {natural: 'sand'}, en: [[252.8,114.8],[264.7,116.4],[279.5,119.8],[293.4,124.7],[309,131.2],[309.8,134.9],[314.4,142.7],[317.2,146.7],[320.7,150.7],[328.9,157.9],[316.7,158.3],[313.8,158],[306.6,156],[298.4,152.3],[288.7,146.8],[281.3,141.9],[272.4,135.1],[264.4,128.3],[254.8,120.7]] },
   { id: 467386916, role: 'sand', side: -1, s: [4744.1, 4972.4], lateral: [-41.4, -10.4], centroid: [4836.2, -17.4], dmin: 10.4, closed: true, tags: {natural: 'sand'}, en: [[-152.3,-90],[-133.3,-95.7],[-113.3,-101.7],[-97.8,-105.6],[-87.6,-106.5],[-77.6,-104.6],[-64.2,-98.3],[-49.2,-90],[-39.5,-82.4],[-30.4,-75],[4.7,-39.3],[37,-8.1],[40.8,-4.4],[55.7,13.8],[29.7,-5.5],[-1.1,-29.4],[-32.3,-54.3],[-51.4,-69.2],[-57.9,-74],[-65.9,-78.6],[-76.1,-83.3],[-88.7,-88.5],[-103.2,-91.3],[-121.4,-93.3],[-141.9,-92.2]] },
@@ -584,5 +591,6 @@ export const OSM_TYRE_BARRIERS = byRole('tyre_barrier')
 export const OSM_WALLS = byRole('wall')
 export const OSM_FENCES = byRole('fence')
 export const OSM_RACEWAY = byRole('raceway')
+export const OSM_ROADS = byRole('road')
 export const OSM_FERRIS_WHEEL = byId.get(184107083)!
 export const OSM_LEADER_TOWER = byId.get(469636517)!

@@ -12,6 +12,8 @@ import { OSM_BUILDINGS, OSM_PIT_BUILDING, type OsmFeature } from '~/data/suzuka-
 import { BUILDINGS, GROUND_AREAS } from '~/data/suzuka-facilities-spec'
 import { MARSHAL_POSTS, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
 import { osmWay } from './trackside'
+import { barrierLateralAt } from './barriers'
+import { barGeometry, latticeParts } from './lattice'
 
 type Fn = (s: number) => number
 
@@ -93,9 +95,10 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       }
     })
     // marshal posts at the huts the aerial shows (MARSHAL_POSTS), each with a flag pole, a green
-    // flag and the EM Motorsport LED digital-flag panel (2018) a few metres before it. They used
-    // to be dropped every 330 m alternating sides, which stood them in gravel traps, inside the C
-    // terrace and on the racing line's verge (2026-09 audit).
+    // flag and ONE head-height LED digital-flag panel (EM Motorsport, 2018) a few metres before
+    // it, on a grey pole at the fence line — the light-panel photo shows a single panel bracketed
+    // off the fence post, no mast. They used to be dropped every 330 m alternating sides, which
+    // stood them in gravel traps, inside the C terrace and on the racing line's verge (2026-09 audit).
     const flagPanels: THREE.Matrix4[] = []
     const hutMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7 })
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1f8a3f, roughness: 0.7 })
@@ -121,9 +124,12 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       m.setPosition(_p.x, _p.y + 3.2, _p.z)
       flag.applyMatrix4(m)
       flagGeos.push(flag)
-      // the panel faces the cars from a post between the hut and the road
+      // the panel faces the cars from a 0.08 m pole 0.3 m on the track side of the barrier line
+      // (the fence line), so it stands clear of the wall top and in front of the mesh; where no
+      // run is tabled there it stays between the hut and the road
       const panelS = s - 3.2
-      const panelLat = lat - side * 1.2
+      const fenceLat = barrierLateralAt(track, panelS, side)
+      const panelLat = fenceLat !== null ? fenceLat - side * 0.3 : lat - side * 1.2
       const pm = new THREE.Matrix4()
       orient(panelS, panelLat, 2.05, pm)
       flagPanels.push(pm)
@@ -415,34 +421,10 @@ function buildPowerLines(ctx: EnvBuildContext) {
   const inside = (x: number, z: number) => Math.abs(x - cx) < 1650 && Math.abs(z - cz) < 1250
 
   const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
-  const parts: THREE.BufferGeometry[] = []
-  const bar = (a: THREE.Vector3, b: THREE.Vector3, w: number) => {
-    const d = b.clone().sub(a)
-    const len = d.length()
-    const g = new THREE.BoxGeometry(w, len, w)
-    g.translate(0, len / 2, 0)
-    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), d.normalize()))
-    g.translate(a.x, a.y, a.z)
-    parts.push(g)
-  }
+  // the body is the shared lattice (lattice.ts); the cross-arms and insulators are the pylon's own
+  const parts: THREE.BufferGeometry[] = latticeParts({ height: H, baseHalf, topHalf, panel: 6, leg: 0.28, ring: 0.12, brace: 0.1, braces: true })
+  const bar = (a: THREE.Vector3, b: THREE.Vector3, w: number) => parts.push(barGeometry(a, b, w))
   const halfAt = (y: number) => baseHalf + (topHalf - baseHalf) * (y / H)
-  const rings = [0, 6, 12, 18, 24, 30, 36, H]
-  for (let i = 0; i < rings.length - 1; i++) {
-    const y0 = rings[i]!, y1 = rings[i + 1]!
-    const h0 = halfAt(y0), h1 = halfAt(y1)
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) bar(V(sx * h0, y0, sz * h0), V(sx * h1, y1, sz * h1), 0.28)
-    // ring at the top of the panel and an X brace on each of the four faces
-    bar(V(-h1, y1, -h1), V(h1, y1, -h1), 0.12)
-    bar(V(h1, y1, -h1), V(h1, y1, h1), 0.12)
-    bar(V(h1, y1, h1), V(-h1, y1, h1), 0.12)
-    bar(V(-h1, y1, h1), V(-h1, y1, -h1), 0.12)
-    for (const f of [-1, 1]) {
-      bar(V(-h0, y0, f * h0), V(h1, y1, f * h1), 0.1)
-      bar(V(h0, y0, f * h0), V(-h1, y1, f * h1), 0.1)
-      bar(V(f * h0, y0, -h0), V(f * h1, y1, h1), 0.1)
-      bar(V(f * h0, y0, h0), V(f * h1, y1, -h1), 0.1)
-    }
-  }
   for (const a of arms) {
     bar(V(-a.len, a.y, 0), V(a.len, a.y, 0), 0.22)
     bar(V(-a.len, a.y + 1.2, 0), V(-halfAt(a.y + 1.2), a.y + 1.2, 0), 0.1)

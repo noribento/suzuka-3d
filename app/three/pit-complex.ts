@@ -10,6 +10,7 @@ import type { EnvBuildContext } from './environment'
 import { LAYER, markDecal } from './ground'
 import { profileRibbonGeometry, ribbonGeometry } from './track-mesh'
 import { bucketedInstancedMeshes } from './instancing'
+import { latticeGeometry } from './lattice'
 import { cutoutParams, pbrFromAssets } from './materials'
 import { EMISSIVE, emissiveScale } from './emissive'
 
@@ -22,9 +23,10 @@ import { EMISSIVE, emissiveScale } from './emissive'
  * - the two rounded / chamfered end caps and the rear service spur are prisms over the OSM
  *   vertices, also placed per vertex on the track surface so they meet the swept body;
  * - the white streamlined control-tower pod on the final-corner roof, the podium recess on the
- *   2F terrace, the three roof screens, the Leader Tower at the pit exit, the pit wall with its
- *   panels and the team prat perches, the helipad and the paddock behind (OSM buildings, prefab
- *   rows, transporters, tents, flags, car park) and the two water bodies.
+ *   2F terrace, the seven trackside screens (three on the roof, four on posts), the Leader Tower
+ *   at the pit exit, the pit wall with its panels and the team prat perches, and the paddock
+ *   behind (OSM buildings, prefab rows, transporters, tents, flags, car park). The helipad, the
+ *   paddock aprons and the two retention basins are GROUND_AREAS rows drawn by ground-mesh.ts.
  *
  * Everything static and single-material is merged; repeated pieces (terrace seats, railing
  * posts, parking lines) are instanced per 60 m bay so the follow cameras can cull them. Shadow
@@ -114,7 +116,7 @@ function flip(geo: THREE.BufferGeometry): THREE.BufferGeometry {
 }
 
 /** A track-frame placement (X = left / +lateral, Y = up, Z = forward) at (s, lateral, y above the road). */
-function frameAt(track: Track, s: number, lateral: number, y: number, out: THREE.Matrix4): THREE.Matrix4 {
+export function frameAt(track: Track, s: number, lateral: number, y: number, out: THREE.Matrix4): THREE.Matrix4 {
   const h = track.headingAt(s)
   track.pointAt(s, lateral, _p, y)
   _m.makeBasis(new THREE.Vector3(h.tz, 0, -h.tx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(h.tx, 0, h.tz))
@@ -156,7 +158,7 @@ function sweep(track: Track, pts: Pt[], s0: number, s1: number, tile = 2, step =
  * laid out along −s to read correctly. `tileU` metres per texture repeat along the wall, the
  * height is one repeat (v 0..1).
  */
-function texturedWall(track: Track, s0: number, s1: number, lat: number, y0: number, y1: number, tileU: number, facing: 1 | -1, step = 4): THREE.BufferGeometry {
+export function texturedWall(track: Track, s0: number, s1: number, lat: number, y0: number, y1: number, tileU: number, facing: 1 | -1, step = 4): THREE.BufferGeometry {
   const len = forwardDelta(s0, s1, track.length)
   const segs = Math.max(1, Math.ceil(len / step))
   const pos: number[] = []
@@ -194,7 +196,7 @@ function sectionPlate(track: Track, s: number, pts: Pt[], forward: boolean): THR
 }
 
 /** Square-section tube (railing) along the track at a constant lateral / height above the road. */
-function tube(track: Track, s0: number, s1: number, lat: number, y: number, r: number, step = 4): THREE.BufferGeometry {
+export function tube(track: Track, s0: number, s1: number, lat: number, y: number, r: number, step = 4): THREE.BufferGeometry {
   const pts: Pt[] = [[lat - r, y - r], [lat - r, y + r], [lat + r, y + r], [lat + r, y - r], [lat - r, y - r]]
   return profileRibbonGeometry(track, s0, s1, pts.map(([l, h]) => [K(l), K(h)] as [Fn, Fn]), step, 4)
 }
@@ -522,8 +524,27 @@ function towerTexture(k: number, first: number): THREE.Texture {
   return tex(c, THREE.ClampToEdgeWrapping)
 }
 
-/** Pit-wall boards: 8 panels of 8 m in Suzuka's white / black / red rhythm, chequered circuit-name panel included. */
-function wallPanelTexture(k: number): THREE.Texture {
+/** The pit-lane speed-limit ring (SIGNS kind 'speed80'): red ring, black figures, on white. */
+function speedRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = COLOURS.circuitRed.lit
+  ctx.lineWidth = r * 0.22
+  ctx.beginPath()
+  ctx.arc(x, y, r * 0.86, 0, Math.PI * 2)
+  ctx.stroke()
+  label(ctx, '80', x, y, r * 1.05, '#141414', 900, 'center', r * 1.3)
+}
+
+/**
+ * Pit-wall boards: 8 panels of 8 m in Suzuka's white / black / red rhythm, chequered circuit-name
+ * panel included. The pit-lane face (`laneFace`) carries the 80 km/h limit ring on the sixth
+ * panel — the SIGNS row 'pit-lane-80' (mount 'pitWallBoard'): the ring stands ON the wall, it is
+ * not a free-standing sign — so it recurs every 64 m along the lane like the real ones.
+ */
+function wallPanelTexture(k: number, laneFace = false): THREE.Texture {
   const w = 2048, h = 128
   const { c, ctx } = canvas(w, h, k)
   const slot = w / 8
@@ -537,11 +558,29 @@ function wallPanelTexture(k: number): THREE.Texture {
       chequer(ctx, x + 10, 12, 60, h - 24, 15)
       chequer(ctx, x + slot - 70, 12, 60, h - 24, 15)
     }
-    label(ctx, PANEL_TEXTS[i]!, x + slot / 2, h / 2, 60, fg, 900, 'center', i === 0 ? slot - 170 : slot - 40)
+    if (laneFace && i === 5) {
+      ctx.fillStyle = '#fbfbf9'
+      ctx.fillRect(x, 0, slot, h)
+      speedRing(ctx, x + slot / 2, h / 2, h * 0.44)
+    } else label(ctx, PANEL_TEXTS[i]!, x + slot / 2, h / 2, 60, fg, 900, 'center', i === 0 ? slot - 170 : slot - 40)
     ctx.fillStyle = 'rgba(0,0,0,0.3)'
     ctx.fillRect(x, 0, 3, h)
   }
   return tex(c)
+}
+
+/** The Leader Tower's track-face board: 'SUZUKA CIRCUIT' in a plain face, reading top to bottom (Frontstretch photo). */
+function verticalTextTexture(k: number): THREE.Texture {
+  const w = 128, h = 1024
+  const { c, ctx } = canvas(w, h, k)
+  ctx.fillStyle = '#141518'
+  ctx.fillRect(0, 0, w, h)
+  ctx.save()
+  ctx.translate(w / 2, h / 2)
+  ctx.rotate(Math.PI / 2)
+  label(ctx, 'SUZUKA CIRCUIT', 0, 0, 78, '#f4f4f1', 700, 'center', h - 120)
+  ctx.restore()
+  return tex(c, THREE.ClampToEdgeWrapping)
 }
 
 /** Paddock face of the building, one 28.33 m × 15.15 m bay per repeat: white cladding, window bands, a service door. */
@@ -1015,21 +1054,33 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     for (let d = BOX / 2; d < stripLen; d += BOX) if (signedDelta(podS0, S0 + d, L) > 0.5) boxes.place(S0 + d, DECK_EDGE + 0.5, 0.25, 0.25, ROOF_SOFFIT - F3, railMat, F3, true, false)
   }
 
-  // --- roof screens (the three permanent big screens; the centre one shows both ways) ---------------------
+  // --- the screens: three on the pit-building roof, four trackside on posts (SCREENS.mount) -------
+  // One material and one merged face mesh for all seven, whichever way they are mounted.
   {
     const screenMat = boardMat(screenTexture(k), 0.9)
     const faces: THREE.BufferGeometry[] = []
     for (const sc of SCREENS) {
-      if (!sc.id.startsWith('pit_')) continue
-      const base = sc.base - ROOF // frame height above the roof slab
-      for (const ds of [-sc.width / 2 + 0.3, sc.width / 2 - 0.3]) for (const dl of [-0.4, 0.4]) boxes.place(sc.s + ds, sc.lateral + dl, 0.3, 0.3, base, darkMat, ROOF, true, false)
-      boxes.place(sc.s, sc.lateral, sc.width, 1.2, sc.height, darkMat, sc.base, true)
+      /** height of the panel's bottom above the road plane at (s, lateral) */
+      let bottom: number
+      if (sc.mount === 'roof') {
+        bottom = sc.base
+        const frame = sc.base - ROOF // frame height above the roof slab
+        for (const ds of [-sc.width / 2 + 0.3, sc.width / 2 - 0.3]) for (const dl of [-0.4, 0.4]) boxes.place(sc.s + ds, sc.lateral + dl, 0.3, 0.3, frame, darkMat, ROOF, true, false)
+        boxes.place(sc.s, sc.lateral, sc.width, 1.2, sc.height, darkMat, sc.base, true)
+      } else {
+        // two square legs standing on the DRAWN ground (the H / P visions are on relief hills),
+        // a beam under the panel: the West-straight photo's type
+        bottom = ground.standAt(sc.s, sc.lateral) + sc.base
+        for (const ds of [-sc.width / 2 + 0.6, sc.width / 2 - 0.6]) boxes.place(sc.s + ds, sc.lateral, 0.4, 0.4, sc.base, darkMat, 0, false, true)
+        boxes.place(sc.s, sc.lateral, sc.width - 1.0, 0.5, 0.4, darkMat, sc.base - 0.4, false, false)
+        boxes.place(sc.s, sc.lateral, sc.width, 1.2, sc.height, darkMat, sc.base, false, true)
+      }
       const front = new THREE.PlaneGeometry(sc.width - 0.4, sc.height - 0.4).rotateY(Math.PI / 2)
-      front.applyMatrix4(frameAt(track, sc.s, sc.lateral + 0.62, sc.base + sc.height / 2, new THREE.Matrix4()))
+      front.applyMatrix4(frameAt(track, sc.s, sc.lateral + 0.62, bottom + sc.height / 2, new THREE.Matrix4()))
       faces.push(front)
-      if (sc.doubleSided) {
+      if (sc.faces === 2) {
         const rear = new THREE.PlaneGeometry(sc.width - 0.4, sc.height - 0.4).rotateY(-Math.PI / 2)
-        rear.applyMatrix4(frameAt(track, sc.s, sc.lateral - 0.62, sc.base + sc.height / 2, new THREE.Matrix4()))
+        rear.applyMatrix4(frameAt(track, sc.s, sc.lateral - 0.62, bottom + sc.height / 2, new THREE.Matrix4()))
         faces.push(rear)
       }
     }
@@ -1037,20 +1088,29 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
   }
 
   // --- Leader Tower at the pit exit ---------------------------------------------------------------
+  // The black lattice tower of the Frontstretch photo: two square lattice columns side by side
+  // over the 3.6 × 1.9 m OSM footprint, a vertical 'SUZUKA CIRCUIT' board on the track face,
+  // the LED timing board on top. (There is no second S/F tower: this is it.)
   {
     const t = LEADER_TOWER
     const [along, across] = t.footprint
     const gy = ground.standAt(t.s, t.lateral)
     const boardBottom = t.height - t.boardHeight
-    // open steel column: four corner posts and rungs every 1.5 m, then the board box on top
-    for (const ds of [-along / 2 + 0.15, along / 2 - 0.15]) for (const dl of [-across / 2 + 0.15, across / 2 - 0.15]) boxes.place(t.s + ds, t.lateral + dl, 0.3, 0.3, boardBottom - gy, darkMat, gy, true)
-    for (let y = gy + 1.5; y < boardBottom - 0.5; y += 1.5) {
-      boxes.place(t.s, t.lateral - across / 2 + 0.15, along - 0.6, 0.12, 0.12, darkMat, y, true, false)
-      boxes.place(t.s, t.lateral + across / 2 - 0.15, along - 0.6, 0.12, 0.12, darkMat, y, true, false)
-      for (const ds of [-along / 2 + 0.15, along / 2 - 0.15]) boxes.place(t.s + ds, t.lateral, 0.12, across - 0.6, 0.12, darkMat, y, true, false)
-    }
+    const half = across / 2 - 0.07
+    // the X braces cost 8 bars per 1.5 m panel; the low tier leaves them out with the fences
+    const column = latticeGeometry({ height: boardBottom - gy, baseHalf: half, topHalf: half, panel: 1.5, leg: 0.14, ring: 0.07, brace: 0.06, braces: quality.fence })
+    const columns: THREE.BufferGeometry[] = []
+    for (const ds of [-(along / 2 - half), along / 2 - half]) columns.push(column.clone().applyMatrix4(frameAt(track, t.s + ds, t.lateral, gy, new THREE.Matrix4())))
+    column.dispose()
+    add(columns, darkMat, 'leaderTowerLattice', true)
     boxes.place(t.s, t.lateral, t.boardWidth + 0.4, 1.3, t.boardHeight, darkMat, boardBottom, true)
     boxes.place(t.s, t.lateral, t.boardWidth + 0.6, 1.5, 0.3, darkMat, t.height, true, false)
+    // the vertical name board on the track face, from 1.5 m up to just under the LED board
+    const nameH = boardBottom - gy - 3.0
+    const name = new THREE.Mesh(new THREE.PlaneGeometry(1.0, nameH).rotateY(Math.PI / 2), boardMat(verticalTextTexture(k)))
+    name.applyMatrix4(frameAt(track, t.s, t.lateral + half + 0.05, gy + 1.5 + nameH / 2, new THREE.Matrix4()))
+    name.name = 'leaderTowerName'
+    group.add(name)
     // positions 1–10 towards the grandstand, 11–20 towards the pit lane
     const front = new THREE.Mesh(new THREE.PlaneGeometry(t.boardWidth, t.boardHeight - 0.4).rotateY(Math.PI / 2), boardMat(towerTexture(k, 1), 1.1))
     front.applyMatrix4(frameAt(track, t.s, t.lateral + 0.66, boardBottom + t.boardHeight / 2, new THREE.Matrix4()))
@@ -1070,8 +1130,9 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     concrete.push(profileRibbonGeometry(track, w0, w1, [[K(lat - half), K(0)], [K(lat - half), K(h)], [K(lat - half), K(h)], [K(lat + half), K(h)], [K(lat + half), K(h)], [K(lat + half), K(0)]], 4, concreteTile, [0, h / concreteTile, h / concreteTile, (h + 2 * half) / concreteTile, (h + 2 * half) / concreteTile, (2 * h + 2 * half) / concreteTile]))
     const panelMat = new THREE.MeshStandardMaterial({ map: wallPanelTexture(k), roughness: 0.5 })
     const bh = 0.5
-    const boardsGeo = [texturedWall(track, w0, w1, lat + half, h, h + bh, 64, 1), texturedWall(track, w0, w1, lat - half, h, h + bh, 64, -1)]
-    add(boardsGeo, panelMat, 'pitWallBoards', false)
+    add([texturedWall(track, w0, w1, lat + half, h, h + bh, 64, 1)], panelMat, 'pitWallBoards', false)
+    // the pit-lane face carries the 80 km/h ring (SIGNS 'pit-lane-80')
+    add([texturedWall(track, w0, w1, lat - half, h, h + bh, 64, -1)], new THREE.MeshStandardMaterial({ map: wallPanelTexture(k, true), roughness: 0.5 }), 'pitWallBoardsLane', false)
     rails.push(ribbonGeometry(track, w0, w1, K(lat + half), K(lat - half), K(h + bh), K(h + bh), 4, 8))
     // debris fence on the grid side over the pit-stop zone: posts every 4 m and a wire mesh
     // (alpha-tested so it thins out with distance the way real mesh does)

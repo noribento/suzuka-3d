@@ -74,6 +74,13 @@ export const EMISSIVE = {
    * Luminance ≈ 0.8 — a visible glow that stays well below the bloom threshold on purpose.
    */
   digitalFlag: { color: 0x27d17a, intensity: 1.6 },
+  /**
+   * Pit-exit signal at the end of the pit wall (green = exit open). Luminance ≈ 2.3: a clearly
+   * lit lens, deliberately under the bloom threshold like the digital flags — it is a signal
+   * head seen from 50 m, not a lamp. Listed in sun-model-check's sub-threshold set, never among
+   * the emitters.
+   */
+  pitExitLight: { color: 0x22d05a, intensity: 5 },
   /** titanium sparks off the plank: linear rgb per unit of "heat", heat drawn in [heatMin, heatMax] */
   spark: { rgb: [10, 3.8, 0.8] as const, heatMin: 0.75, heatMax: 1.4 },
   /**

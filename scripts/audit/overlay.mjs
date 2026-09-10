@@ -60,6 +60,13 @@ const at = (s, lat) => {
 }
 const f1 = (v) => v.toFixed(1)
 const hwAt = (s) => track.halfWidthAt(s)
+/** props.ts cameraSide: the outside of the nearest corner (re-stated here — the guard reads data, not builders) */
+const propsCameraSide = (s) => {
+  let k = 0
+  for (let d = -40; d <= 40; d += 10) k += track.kappaAt(s + d)
+  if (Math.abs(k) < 1e-4) return 1
+  return k > 0 ? -1 : 1
+}
 
 const svg = []
 const line = (pts, stroke, w, dash, opacity = 1) => {
@@ -103,6 +110,8 @@ for (const f of osm.OSM_FEATURES) {
     case 'fence': f.closed ? poly(pts, '#00cc44', 1) : line(pts, '#00cc44', 1); break
     case 'barrier': f.closed ? poly(pts, '#00cc44', 1, '4,3') : line(pts, '#00cc44', 1, '4,3'); break
     case 'raceway': if (f.tags.name === 'Pit Lane') line(pts, '#00e5ff', 2, '10,4'); else if (f.dmin > 3) (f.closed ? poly : line)(pts, '#8899aa', 1.2, '5,3'); break
+    // the roads under / over the lap (UNDERPASSES): tunnels dashed, the service bridge solid
+    case 'road': line(pts, '#ffa040', 1.8, f.tags.tunnel ? '6,3' : null); text(pts[0], `road ${f.id}${f.tags.tunnel ? ' tunnel' : f.tags.bridge ? ' bridge' : ''}`, '#ffa040', 9); break
     case 'building': if (f.dmin < 130) poly(pts, '#556677', 0.8); break
     default: break
   }
@@ -197,7 +206,26 @@ for (const m of bar.MARSHAL_POSTS) {
 }
 for (const sc of spec.SCREENS) {
   const p = at(sc.s, sc.lateral)
-  svg.push(`<rect x="${f1(p[0] - 5)}" y="${f1(p[1] - 3)}" width="10" height="6" fill="#ffe100" stroke="#000" stroke-width="0.5"/>`)
+  svg.push(`<rect x="${f1(p[0] - 5)}" y="${f1(p[1] - 3)}" width="10" height="6" fill="${sc.mount === 'roof' ? '#ffe100' : '#ffb000'}" stroke="#000" stroke-width="0.5"/>`)
+  text([p[0] + 6, p[1] + 3], `screen ${sc.id}`, '#ffe100', 9)
+}
+// signs (SIGNS): magenta diamonds; the pit-wall-mounted 80 ring is a small circle
+for (const sg of bar.SIGNS) {
+  const lat = sg.lateral === 'cameraSide' ? propsCameraSide(sg.s) * (hwAt(sg.s) + 3.2) : sg.lateral
+  const p = at(sg.s, lat)
+  if (sg.mount === 'pitWallBoard') svg.push(`<circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="3" fill="none" stroke="#ff40ff" stroke-width="1.2"/>`)
+  else svg.push(`<polygon points="${f1(p[0])},${f1(p[1] - 4)} ${f1(p[0] + 4)},${f1(p[1])} ${f1(p[0])},${f1(p[1] + 4)} ${f1(p[0] - 4)},${f1(p[1])}" fill="#ff40ff" stroke="#000" stroke-width="0.5"/>`)
+  text([p[0] + 5, p[1] + 3], sg.id, '#ff40ff', 9)
+}
+// underpasses (UNDERPASSES): the row's name at its way's centroid
+for (const u of spec.UNDERPASSES) {
+  const f = osm.osmFeature(u.osmWay)
+  if (!f) continue
+  let ce = 0, cn = 0
+  for (const [e, n] of f.en) { ce += e / f.en.length; cn += n / f.en.length }
+  const p = px(ce * meta.k, -cn * meta.k)
+  svg.push(`<rect x="${f1(p[0] - 3)}" y="${f1(p[1] - 3)}" width="6" height="6" fill="#ffa040" stroke="#000" stroke-width="0.5"/>`)
+  text([p[0] + 5, p[1] - 4], u.name, '#ffa040', 9)
 }
 const fw = px(spec.FERRIS_WHEEL.en[0] * meta.k, -spec.FERRIS_WHEEL.en[1] * meta.k)
 svg.push(`<circle cx="${f1(fw[0])}" cy="${f1(fw[1])}" r="${24 / meta.mPerPx}" fill="none" stroke="#ffe100" stroke-width="1.5"/>`)
