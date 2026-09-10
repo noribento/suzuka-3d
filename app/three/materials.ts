@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { SEASON, SEASON_GRASS } from '~/data/suzuka-facilities-spec'
 import type { AssetRegistry, ManifestAsset } from './assets'
+import { COVER_COLOURS, COVER_DETAIL_M, coverDetailTile, type CoverLayer } from './landcover'
 import type { Quality } from './quality'
 import { ASPHALT_DETAIL_M, ASPHALT_TILE_M, ASPHALT_WIDTH_M, GREENUP_TILE_M, asphaltDetailMaps, grassMaps, greenUpMask, macroMap, type MaterialMaps } from './textures'
 
@@ -104,6 +105,11 @@ export interface GrassSurfaceOpts {
   macroPeriodM: readonly [number, number]
   /** how far a fully green patch pulls the albedo towards the season's olive (0–1) */
   greenUp?: number
+  /**
+   * The land-cover masks (landcover.ts): forest / paddies / roads / car parks / water / solar /
+   * settlements splatted over the grass from world xz. null / undefined = plain grass.
+   */
+  cover?: CoverLayer | null
 }
 
 /**
@@ -126,7 +132,8 @@ export function addGrassSurface(mat: THREE.MeshStandardMaterial, opts: GrassSurf
   // sRGB hex → linear working colour, which is the space diffuseColor is in after map decoding
   const olive = new THREE.Color(pal.patch)
   const greenUp = opts.greenUp ?? (SEASON === 'spring' ? 0.5 : 0.3)
-  mat.onBeforeCompile = (shader) => {
+  const cover = opts.cover ?? null
+  mat.onBeforeCompile = (shader, renderer) => {
     const rep = mat.map?.repeat ?? new THREE.Vector2(1, 1)
     shader.uniforms.uMacro = { value: macroMap() }
     shader.uniforms.uMacroScale = { value: new THREE.Vector2(opts.uvMetres[0] / (rep.x * opts.macroPeriodM[0]), opts.uvMetres[1] / (rep.y * opts.macroPeriodM[1])) }
@@ -151,8 +158,138 @@ export function addGrassSurface(mat: THREE.MeshStandardMaterial, opts: GrassSurf
         diffuseColor.rgb = mix(diffuseColor.rgb, olive, greenUp);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
+    if (cover) {
+      addCoverSplat(shader, cover)
+      // macro + green-up + the 2 masks + the tile, on top of the material's own maps, the envMap and the cascades
+      checkSamplerBudget(shader, renderer, 4 + (cover.detail ? 1 : 0), 'grass+cover')
+    }
   }
-  mat.customProgramCacheKey = () => 'macro|grass'
+  mat.customProgramCacheKey = () => (cover ? `macro|grass|cover${cover.detail ? '|detail' : ''}` : 'macro|grass')
+}
+
+/** the class colours as linear working colours, in the shader's index order (built once) */
+let coverPalette: THREE.Color[] | null = null
+function coverColours(): THREE.Color[] {
+  coverPalette ??= (['forest', 'farmland', 'paved', 'parking', 'water', 'solar', 'settle', 'edge', 'bund'] as const).map((k) => new THREE.Color(COVER_COLOURS[k]))
+  return coverPalette
+}
+
+/**
+ * The land-cover splat on top of a grass program (plan §1e). Runs after addGrassSurface's own
+ * patch, so `macro` and the green-up line it anchors on are in place.
+ *
+ * Vertex: the world xz of the fragment (`vCoverPos`), computed from `transformed` after
+ * begin_vertex (instanceMatrix applied when instanced, then modelMatrix), so the masks are
+ * sampled in the same frame on the terrain chunks, the ring and the partition's grass faces —
+ * a class edge crosses the partition boundary without a seam.
+ *
+ * Fragment: the material's one mask pair (CoverLayer — the inner rectangle's on the terrain and
+ * the ground faces, the ring's on the ring; the ring's masks cover the inner area too, so a
+ * fragment is never outside its own pair; ClampToEdge catches the last half texel). The classes
+ * are then mixed in precedence order (forest < farmland < settle < solar < parking <
+ * water < paved < the edge line), each class either a flat colour under the macro variation or,
+ * with COVER_DETAIL, the detail tile's channel at its own world period. The paddy bunds share
+ * the edge channel at half value with the road lines: a smoothstep window tells the two apart.
+ * Where the splat is a hard surface (paved, parking, water, glass) the grass tile's normal is
+ * faded to the geometry normal and the roughness set for that surface.
+ */
+function addCoverSplat(shader: THREE.WebGLProgramParametersWithUniforms, cover: CoverLayer) {
+  shader.uniforms.uCoverA = { value: cover.masks.a }
+  shader.uniforms.uCoverB = { value: cover.masks.b }
+  shader.uniforms.uCoverOrg = { value: cover.masks.origin }
+  shader.uniforms.uCoverInv = { value: cover.masks.invSize }
+  shader.uniforms.uCoverCol = { value: coverColours() }
+  if (cover.detail) {
+    shader.uniforms.uCoverTile = { value: coverDetailTile() }
+    shader.uniforms.uCoverPeriod = { value: new THREE.Vector4(1 / COVER_DETAIL_M.forest, 1 / COVER_DETAIL_M.farmland, 1 / COVER_DETAIL_M.paved, 1 / COVER_DETAIL_M.solar) }
+  }
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+      varying vec2 vCoverPos;`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      {
+        vec4 coverP = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          coverP = instanceMatrix * coverP;
+        #endif
+        vCoverPos = (modelMatrix * coverP).xz;
+      }`)
+  shader.fragmentShader = shader.fragmentShader
+    // the define goes into the source itself (not `defines`) so the program string alone decides
+    .replace('#include <common>', `#include <common>
+      ${cover.detail ? '#define COVER_DETAIL' : ''}
+      varying vec2 vCoverPos;
+      uniform sampler2D uCoverA;
+      uniform sampler2D uCoverB;
+      uniform vec2 uCoverOrg;
+      uniform vec2 uCoverInv;
+      uniform vec3 uCoverCol[9];
+      #ifdef COVER_DETAIL
+        uniform sampler2D uCoverTile;
+        uniform vec4 uCoverPeriod;
+      #endif`)
+    .replace('diffuseColor.rgb = mix(diffuseColor.rgb, olive, greenUp);', `diffuseColor.rgb = mix(diffuseColor.rgb, olive, greenUp);
+        // --- land cover (landcover.ts): a = forest, farmland, paved, parking; b = water, solar, settle, edge
+        vec2 cuv = (vCoverPos - uCoverOrg) * uCoverInv;
+        vec4 ca = texture2D(uCoverA, cuv);
+        vec4 cb = texture2D(uCoverB, cuv);
+        vec3 cForest = uCoverCol[0], cFarm = uCoverCol[1], cPaved = uCoverCol[2], cPark = uCoverCol[3];
+        vec3 cWater = uCoverCol[4], cSolar = uCoverCol[5], cSettle = uCoverCol[6], cLine = uCoverCol[7], cBund = uCoverCol[8];
+        float cPanel = 1.0;
+        #ifdef COVER_DETAIL
+          float dForest = texture2D(uCoverTile, vCoverPos * uCoverPeriod.x).r;
+          float dFarm = texture2D(uCoverTile, vCoverPos * uCoverPeriod.y).g;
+          float dGrain = texture2D(uCoverTile, vCoverPos * uCoverPeriod.z).b;
+          float dSolar = texture2D(uCoverTile, vCoverPos * uCoverPeriod.w).a;
+          cForest *= 0.55 + 0.9 * dForest;
+          cFarm *= 0.7 + 0.6 * dFarm;
+          cPaved *= 0.8 + 0.4 * dGrain;
+          cPark *= 0.8 + 0.4 * dGrain;
+          cPanel = smoothstep(0.2, 0.5, dSolar);
+          float cFrame = smoothstep(0.75, 0.95, dSolar);
+          // the gap between the rows is gravel; the frame is an aluminium glint on the glass
+          cSolar = mix(cPark * 1.15, mix(cSolar, vec3(0.45), cFrame * 0.6), cPanel);
+        #endif
+        // the edge channel: road lines at 1, paddy bunds at 1/2
+        float cLineW = smoothstep(0.6, 0.9, cb.a);
+        float cBundW = smoothstep(0.2, 0.55, cb.a) * (1.0 - cLineW);
+        cFarm = mix(cFarm, cBund, cBundW);
+        vec3 coverRgb = diffuseColor.rgb;
+        coverRgb = mix(coverRgb, cForest * macro, ca.r);
+        coverRgb = mix(coverRgb, cFarm * macro, ca.g);
+        coverRgb = mix(coverRgb, cSettle * macro, cb.b);
+        coverRgb = mix(coverRgb, cSolar, cb.g);
+        coverRgb = mix(coverRgb, cPark * macro, ca.a);
+        coverRgb = mix(coverRgb, cWater, cb.r);
+        coverRgb = mix(coverRgb, cPaved * macro, ca.b);
+        coverRgb = mix(coverRgb, cLine, cLineW * 0.35 * ca.b);
+        diffuseColor.rgb = coverRgb;
+        // the hard surfaces of the splat: flatten the grass normal, hold the roughness
+        float coverFlat = clamp(ca.b + ca.a + cb.r + cb.g * cPanel, 0.0, 1.0);`)
+    .replace('roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));', `roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));
+        roughnessFactor = mix(roughnessFactor, 0.85, clamp(ca.b + ca.a, 0.0, 1.0));
+        roughnessFactor = mix(roughnessFactor, 0.35, cb.g * cPanel);
+        roughnessFactor = mix(roughnessFactor, 0.6, cb.r);`)
+    .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      normal = normalize(mix(normal, nonPerturbedNormal, coverFlat));`)
+}
+
+/**
+ * Dev-only sampler budget check: a fragment program that binds more textures than the GPU has
+ * units fails to link, and the e2e suite (SwiftShader, low tier) never sees the high tier's
+ * program. Counts the material's own maps, the environment map, the shadow maps of every light
+ * and `own` extra samplers against `renderer.capabilities.maxTextures`; a warning, never an
+ * error (the build must not fail on a machine the check merely cannot read).
+ */
+export function checkSamplerBudget(shader: THREE.WebGLProgramParametersWithUniforms, renderer: THREE.WebGLRenderer | undefined, own: number, what: string) {
+  if (!import.meta.dev) return
+  const p = shader as unknown as Record<string, unknown>
+  const flags = ['map', 'normalMap', 'aoMap', 'roughnessMap', 'metalnessMap', 'envMap', 'lightMap', 'emissiveMap', 'bumpMap', 'alphaMap', 'displacementMap', 'specularMap']
+  let n = own
+  for (const f of flags) if (p[f]) n++
+  for (const f of ['numDirLightShadows', 'numSpotLightShadows', 'numPointLightShadows', 'numSpotLightMaps']) n += Number(p[f] ?? 0)
+  const max = renderer?.capabilities?.maxTextures
+  if (typeof max === 'number' && n > max) console.warn(`[materials] ${what}: ${n} samplers exceed the GPU's ${max} texture units — the program will not link`)
 }
 
 /**
@@ -162,7 +299,7 @@ export function addGrassSurface(mat: THREE.MeshStandardMaterial, opts: GrassSurf
  * textures are shared with other consumers, so the repeat that maps THIS geometry's uv onto the
  * tile goes on clones (same GPU upload, own sampler state).
  */
-export function grassSurfaceMaterial(reg: AssetRegistry | null, uvMetres: readonly [number, number], macroPeriodM: readonly [number, number], normalScale = 0.8): THREE.MeshStandardMaterial {
+export function grassSurfaceMaterial(reg: AssetRegistry | null, uvMetres: readonly [number, number], macroPeriodM: readonly [number, number], normalScale = 0.8, cover: CoverLayer | null = null): THREE.MeshStandardMaterial {
   const fallback = () => {
     const g = grassMaps(false)
     const m = new THREE.MeshStandardMaterial({ map: g.map, normalMap: g.normalMap, roughness: 1, metalness: 0 })
@@ -180,7 +317,7 @@ export function grassSurfaceMaterial(reg: AssetRegistry | null, uvMetres: readon
     // linear multiplier pulls it towards khaki (≈ ×0.90 / 0.91 / 0.83 in sRGB terms)
     m.color.setRGB(0.79, 0.81, 0.66)
   }
-  addGrassSurface(m, { uvMetres, macroPeriodM })
+  addGrassSurface(m, { uvMetres, macroPeriodM, cover })
   return m
 }
 

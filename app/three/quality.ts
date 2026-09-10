@@ -97,6 +97,18 @@ export interface Quality {
   seatInstances: boolean
   /** resolution class of the external textures picked from the manifest */
   textureRes: '2k' | '1k'
+  /**
+   * Land-cover mask resolution (landcover.ts), texels per side of the two square RGBA8 pairs:
+   * [0] the inner terrain rectangle (3400 × 2600 m → 3.3 m texels at 1024), [1] the outer ring
+   * rectangle. VRAM ≈ 4 × res² × 1.33 bytes per pair; the masks are built on the CPU at start-up.
+   */
+  coverRes: [number, number]
+  /**
+   * Sample the land-cover detail tile (forest litter / paddy stubble / asphalt grain / solar rows)
+   * in the grass shader: four extra texture fetches per fragment, which a fill-bound software
+   * rasteriser cannot afford — off there, the classes are flat colours under the macro variation.
+   */
+  coverDetail: boolean
   /** the far field (farfield.ts): everything outside the fences that only stands on the ground */
   farField: FarFieldQuality
 }
@@ -172,6 +184,8 @@ export const QUALITY: Record<QualityTier, Quality> = {
     grass: 60000,
     seatInstances: true,
     textureRes: '2k',
+    coverRes: [1024, 512],
+    coverDetail: true,
     farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 40, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200 },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
@@ -216,6 +230,8 @@ export const QUALITY: Record<QualityTier, Quality> = {
     grass: 0,
     seatInstances: false,
     textureRes: '1k',
+    coverRes: [512, 256],
+    coverDetail: false,
     // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
     farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400 },
