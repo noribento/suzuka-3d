@@ -1,10 +1,12 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CROWD_ATLAS, CROWD_CHEER_PAIRS, CROWD_FIGURES } from '~/data/crowd-atlas'
+import { CROWD_LAYOUT } from '~/data/impostor-atlas'
 import { STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { forwardDelta, type Track } from '~/sim/track'
 import type { AssetRegistry } from './assets'
+import { IMPOSTOR_ATTRIBUTES, impostorGeometry, impostorMaterial } from './impostor'
 import { cutoutParams } from './materials'
 import type { Quality } from './quality'
 import { spectatorAtlas } from './textures'
@@ -118,82 +120,17 @@ interface Impostor {
 }
 
 /**
- * The baked atlas (scripts/assets/bake-crowd-atlas.mjs, layout in ~/data/crowd-atlas.ts): one
- * row per figure, 8 yaw columns × 2 camera pitches. The shader billboards the quad towards the
- * camera, picks the column from the camera's bearing relative to the seat's facing and the
- * pitch band from its elevation, flips paired figures into their cheer pose now and then, and
- * tints shirt / pants / skin per spectator through the mask texture.
+ * The baked atlas (scripts/assets/bake-crowd-atlas.mjs, layout in ~/data/crowd-atlas.ts →
+ * CROWD_LAYOUT): one row per figure, 8 yaw columns × 2 camera pitches, drawn by the shared
+ * impostor shader (impostor.ts) with the crowd defaults — both pitch bands, the cheer flipbook,
+ * a 2 cm sway, and shirt / pants / skin tinted per spectator through the mask texture.
  */
 function bakedImpostor(diff: THREE.Texture, mask: THREE.Texture, time: { value: number }, camPos: { value: THREE.Vector3 }, cut: { alphaTest: number; alphaToCoverage: boolean }): Impostor {
-  const A = CROWD_ATLAS
-  // the widest figure (hands on hips, 0.92 m) fills less than half a 2 m cell: the quad covers the
-  // middle 60 % of the cell's width, which cuts the transparent overdraw by 40 %
-  const QUAD_W = 0.6
-  const geo = new THREE.PlaneGeometry(A.cellM * QUAD_W, A.cellM)
-  geo.translate(0, A.cellM / 2 - A.padM, 0)
-  const mat = new THREE.MeshStandardMaterial({ map: diff, alphaTest: cut.alphaTest, alphaToCoverage: cut.alphaToCoverage, roughness: 0.9, side: THREE.FrontSide })
-  mat.customProgramCacheKey = () => 'crowd|baked'
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = time
-    shader.uniforms.uCamPos = camPos
-    shader.uniforms.uMask = { value: mask }
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-        // (rest row, cheer row or -1, seat facing yaw, phase)
-        attribute vec4 aInfo;
-        // (shirt rgb, skin multiplier), pants rgb
-        attribute vec4 aTint0;
-        attribute vec3 aTint1;
-        uniform float uTime;
-        uniform vec3 uCamPos;
-        varying vec3 vShirt;
-        varying vec3 vPants;
-        varying float vSkin;
-        float bbYaw;`)
-      .replace('#include <uv_vertex>', `#include <uv_vertex>
-        vShirt = aTint0.rgb;
-        vSkin = aTint0.a;
-        vPants = aTint1;
-        vec3 iPos = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        vec3 toCam = uCamPos - iPos;
-        float dHor = max(length(toCam.xz), 1e-3);
-        bbYaw = atan(toCam.x, toCam.z);
-        // the bake put the camera at (sin yaw, cos yaw) in the figure's frame (yaw 0 = facing it)
-        float rel = bbYaw - aInfo.z;
-        float col = mod(floor(rel / (PI2 / ${A.yaws.toFixed(1)}) + 0.5), ${A.yaws.toFixed(1)});
-        // pitch band: 8° cameras below 20° elevation, 32° cameras above
-        if (atan(toCam.y, dHor) > 0.35) col += ${A.yaws.toFixed(1)};
-        float row = aInfo.x;
-        // a paired figure cheers for ≈ 1.7 s every ≈ 14 s, each on its own phase
-        float cyc = fract(uTime * 0.07 + aInfo.w * 3.0);
-        if (aInfo.y >= 0.0 && cyc < 0.12) row = aInfo.y;
-        vMapUv = vec2((col + ${((1 - QUAD_W) / 2).toFixed(2)} + ${QUAD_W.toFixed(2)} * uv.x) / ${A.cols.toFixed(1)}, (row + (1.0 - uv.y)) / ${A.rows.toFixed(1)});`)
-      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
-        // lit as a rounded shape facing the camera, a little upwards, not as a flat card
-        objectNormal = normalize(vec3(0.0, 0.55, 1.0));
-        { float cy = cos(bbYaw), sy = sin(bbYaw); objectNormal.xz = vec2(objectNormal.x * cy + objectNormal.z * sy, -objectNormal.x * sy + objectNormal.z * cy); }`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-        // gentle sway, then face the camera (yaw only: the pitch is in the atlas)
-        transformed.x += sin(uTime * 1.6 + aInfo.w * 40.0) * 0.02 * uv.y;
-        { float cy = cos(bbYaw), sy = sin(bbYaw); transformed.xz = vec2(transformed.x * cy + transformed.z * sy, -transformed.x * sy + transformed.z * cy); }`)
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-        uniform sampler2D uMask;
-        varying vec3 vShirt;
-        varying vec3 vPants;
-        varying float vSkin;`)
-      .replace('#include <map_fragment>', `
-        vec4 texel = texture2D(map, vMapUv);
-        vec3 mk = texture2D(uMask, vMapUv).rgb;
-        vec3 tint = mix(vec3(1.0), vShirt, mk.r);
-        tint = mix(tint, vPants, mk.g);
-        tint = mix(tint, vec3(vSkin), mk.b);
-        diffuseColor *= vec4(texel.rgb * tint, texel.a);`)
-  }
+  const mat = impostorMaterial({ map: diff, mask }, CROWD_LAYOUT, { pitchBands: 2, cheer: true, sway: 0.02, maskMode: 'crowd', cutout: cut, cacheKey: 'crowd|baked', time, camPos })
   return {
-    geo,
+    geo: impostorGeometry(CROWD_LAYOUT),
     mat,
-    attrs: [{ name: 'aInfo', size: 4 }, { name: 'aTint0', size: 4 }, { name: 'aTint1', size: 3 }],
+    attrs: [...IMPOSTOR_ATTRIBUTES],
     fill: (arrays, k, slot, look) => {
       const info = arrays[0]!, t0 = arrays[1]!, t1 = arrays[2]!
       info[k * 4] = look.row
