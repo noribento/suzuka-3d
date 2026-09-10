@@ -174,7 +174,7 @@ export interface TreeSite {
 /**
  * Where no tree may stand — the one rule the trackside scatter (`buildTrees`) and the forest's
  * stems (forest.ts) share: inside 44 m of the centreline, the pit / paddock band, the
- * grandstands' footprints (plus 26 m behind), 60 m around the Ferris wheel, and the keep-out
+ * grandstands' footprints (plus 26 m behind, 4 m for a spectator bank), 60 m around the Ferris wheel, and the keep-out
  * discs and polygons the building / paving builders leave in the context. `near` is the
  * candidate's projection (computed once by the caller, it is the expensive part).
  */
@@ -184,9 +184,9 @@ export function treeSiteBlocked(ctx: EnvBuildContext, x: number, z: number, near
     const s = near.s
     const inPitZone = s >= 5540 || s <= 90
     if (inPitZone && near.lateral > -125 && near.lateral < 80) return true
-    for (const { from, to, side, lateralBack } of ctx.standZones) {
+    for (const { from, to, side, lateralBack, pad } of ctx.standZones) {
       const inS = from < to ? s >= from - 15 && s <= to + 15 : s >= from - 15 || s <= to + 15
-      if (inS && Math.sign(near.lateral) === side && Math.abs(near.lateral) < lateralBack + 26) return true
+      if (inS && Math.sign(near.lateral) === side && Math.abs(near.lateral) < lateralBack + (pad ?? 26)) return true
     }
   }
   if (Math.hypot(x - wheel.x, z - wheel.z) < 60) return true
