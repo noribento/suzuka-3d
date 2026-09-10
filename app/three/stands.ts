@@ -1387,8 +1387,8 @@ function addV2Band(b: Build, runs: TierRun[]) {
   const bandFront = 47, bandBack = vB
   const bandFloor = 19.5, bandTop = roof.soffit - 0.1
   const upper = runs[runs.length - 1]!
-  // --- glazed band --------------------------------------------------------------------------
-  b.overhead.push({ v0: () => bandFront - 0.6, v1: () => bandBack, y: () => bandFloor - 0.5 })
+  // (the band's own AO band is pushed in `buildStand`, before the decks are swept: an overhead
+  // added here would shade nothing, because the decks under it are already built)
   const pier = tint(COLOURS.pierConcrete.mid, avg)
   const deckY = deckHeightOf(b, upper)
   for (let d = 1.75; d < len; d += 3.5) {
@@ -1415,10 +1415,25 @@ function addV2Band(b: Build, runs: TierRun[]) {
   for (const [y, h, rgb] of [[bandFloor + 0.1, 0.25, white], [bandFloor + 4.0, 0.7, blue], [bandTop - 0.25, 0.25, white]] as const) {
     b.furniture.push(wall(frame, u0, len, () => bandFront - 0.62, () => y, () => y + h, 4, -1, rgb, 1))
   }
-  // --- rear façade towards GP Square: white RC wall with stair openings ------------------------
+}
+
+/**
+ * V2's rear façade towards GP Square: the white RC wall with its stair openings. Drawn AFTER the
+ * roof slab, which is where `addMainRoofAndBand` drew it before the split — the merged `terrace`
+ * buffer then comes out vertex for vertex the same as it did (verified by diffing V2's meshes,
+ * their counts, boxes and attribute hashes, against the pre-split build).
+ */
+function addV2Rear(b: Build, runs: TierRun[]) {
+  const { frame, mats, def } = b
+  const roof = def.roof!
+  const avg = mats.concreteAvg
+  const [rs0, rs1] = roof.sRange ?? def.sRange
+  const u0 = rs0
+  const len = forwardDelta(rs0, rs1, b.ctx.track.length)
+  const upper = runs[runs.length - 1]!
   const facade = tint('#e2e1dc', avg)
   const dark = tint('#2a2c30', avg)
-  const vRear = bandBack + 0.3
+  const vRear = roof.lateral![1] + 0.3
   b.terrace.push(wall(frame, u0, len, () => vRear, (u) => frame.ground(u, vRear) - 1, () => upper.yTop(u0) + 0.4, 4, 1, facade, mats.concreteTex))
   for (let d = 12; d < len; d += 24) {
     const u = u0 + d
@@ -1701,6 +1716,9 @@ function buildStand(b: Build): TierRun[] {
     }
   }
   if (def.roof) roofOverhead(b, def.roof, runs)
+  // V2's other overhead: the glazed hospitality band behind the rows (addV2Band draws it, but the
+  // AO band has to be in place before the decks below are swept)
+  if (def.id === 'V2') b.overhead.push({ v0: () => 46.5, v1: () => def.roof!.lateral![1], y: () => 19.0 })
   for (const run of runs) {
     addDeck(b, run)
     const railColour = def.id === 'B1' ? COLOURS.railBlueB1.lit : COLOURS.railTurquoise.mid
@@ -1725,6 +1743,7 @@ function buildStand(b: Build): TierRun[] {
   b.deckUp = firstDeckFacesUp(b)
   if (def.id === 'V2') addV2Band(b, runs)
   if (def.roof) addRoof(b, def.roof, runs)
+  if (def.id === 'V2') addV2Rear(b, runs)
   addBackOfHouse(b, runs)
   if (def.enclosure) {
     const e = def.enclosure
@@ -2083,8 +2102,10 @@ interface ChordZone {
   /**
    * As TrackZone.profile; `g` is the DEM relative to the chord's own reference height at u.
    * `past` is how far beyond the near end of the chord the point lies, measured ALONG that end's
-   * tangent (0 inside the chord) — a profile that is extended past its end (`extend`) uses it to
-   * ramp its section onto whatever is on the other side of the gap.
+   * tangent and SIGNED by the end: 0 inside the chord, negative before u = 0, positive past
+   * u = len. A profile that is extended past its end (`extend`) uses it to ramp its section onto
+   * whatever is on the other side of the gap — and the sign is what keeps it from doing that in
+   * front of its first section as well.
    */
   profile: (u: number, v: number, g: number, past: number) => Relief | null
   box: [number, number, number, number]
@@ -2243,8 +2264,6 @@ function reliefZones(track: Track): ReliefZone[] {
   const E1 = by('E1')
   const e2Spec = E2 ? pathSpec(track, E2) : null
   const e1Spec = E1 ? pathSpec(track, E1) : null
-  /** how far past E-2's last section its profile still claims (the notch, along E-2's end tangent) */
-  const E_NOTCH = 8
   const eProfile = (local: StandDef, rake: number) => (u: number, v: number, g: number, sec?: { front: number; fh: number; lb: number; top: number }) => {
     const { front, fh, lb, top } = sec ?? chordSection(local, u)
     const plateau = top + 1.0
@@ -2273,6 +2292,33 @@ function reliefZones(track: Track): ReliefZone[] {
     const start1 = e2Spec.project(e1Spec.px[0]!, e1Spec.pz[0]!)
     const dv = start1.v
     const dy = e1Spec.yRef(0) - e2Spec.yRef(e2Spec.len)
+    /**
+     * How far past E-2's last section E-1's first one lies, in the ONE measure `facilityRelief`
+     * uses past a chord's end: the signed distance along that end's tangent. The two blocks are
+     * 13.2 m apart end to end, but 11.8 m of that is ACROSS the chord (E-1 starts further from
+     * the road — that is `dv`) and only 5.9 m along it.
+     *
+     * It is not one number, though. E-1's front edge leaves E-2's end tangent at an angle, so the
+     * distance at which E-1 takes over shrinks as one walks back from the road: 5.9 m at E-2's
+     * own front line, 2.9 m at 10 m behind E-1's. `notchAt(v)` is that line — the ramp has to
+     * finish exactly where E-1's zone starts at THAT v, or the two claims meet at different
+     * heights and their blend is a step (1.34 m measured with a constant 5.9 m ramp).
+     */
+    const eEnd = e2Spec.px.length - 1
+    const gapAlong = (e1Spec.px[0]! - e2Spec.px[eEnd]!) * e2Spec.tan1[0] + (e1Spec.pz[0]! - e2Spec.pz[eEnd]!) * e2Spec.tan1[1]
+    /** how much of E-1's own normal lies along E-2's end tangent (0 if the two chords are parallel) */
+    const skew = e1Spec.nx[0]! * e2Spec.tan1[0] + e1Spec.nz[0]! * e2Spec.tan1[1]
+    const notchAt = (v: number) => Math.max(0.5, gapAlong + (v - dv) * skew)
+    /**
+     * The widest the notch ever gets over the claimed v band (28 m out at the road end, half a
+     * metre 160 m behind it). `extend` is one number for the whole zone, so it has to be the
+     * widest — otherwise E-2's weight would start fading before E-1 takes over somewhere. What
+     * stops E-2 from then claiming 28 m into E-1 everywhere is the profile itself: past the
+     * handover at THIS v it returns null and E-1 has the ground alone. (Letting both claim to the
+     * widest distance and blending was measured: three ≈ 3 m jumps at s 1604–1612 in G5, because
+     * E-2's frozen section and E-1's own drift apart along E-1.)
+     */
+    const E_NOTCH = Math.max(notchAt(-60), notchAt(E_V_MAX), 0.5)
     const endSec = chordSection(l2, e2Spec.len)
     const nextSec = (() => {
       const s1 = chordSection(l1, 0)
@@ -2280,8 +2326,13 @@ function reliefZones(track: Track): ReliefZone[] {
     })()
     zones.push(chordZone(e2Spec, [20, 6], [-60, E_V_MAX], (u, v, g, past) => {
         if (past <= 0) return prof2(u, v, g)
-        // across the notch: E-2's own last section ramps onto E-1's first one
-        const t = Math.min(1, past / E_NOTCH)
+        // across the notch: E-2's own last section ramps onto E-1's first one and reaches it
+        // exactly where E-1's zone starts at this v — where the two claims are equal, so the
+        // handover is continuous. Past that line E-2 has nothing more to say: E-1's own zone
+        // starts there at full weight.
+        const hand = notchAt(v)
+        if (past > hand) return null
+        const t = past / hand
         const sec = {
           front: endSec.front + (nextSec.front - endSec.front) * t,
           fh: endSec.fh + (nextSec.fh - endSec.fh) * t,
@@ -2422,7 +2473,10 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const t = beyond <= 0 ? 0 : beyond / Math.max(1e-6, atStart ? zone.fade[0] : zone.fade[1])
       if (t >= 1) continue
       const yRef = c.yRef(uc)
-      const r = zone.profile(uc, v, demAt() - yRef, past)
+      // `past` reaches the profile SIGNED by which end it is off: negative before u = 0, positive
+      // past u = len, 0 inside. A profile that is extended over a gap (E-2's, across the notch)
+      // must not mistake the ground in front of its first section for the ground beyond its last.
+      const r = zone.profile(uc, v, demAt() - yRef, atStart ? -past : past)
       if (!r) continue
       let w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
       // ...and across the v band's two edges, over V_FADE metres inside them: cut hard, the E hill's

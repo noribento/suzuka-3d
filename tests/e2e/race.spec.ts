@@ -73,6 +73,55 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(built.stands).toContain('stand-E1')
     expect(built.stands).toContain('stand-E2')
     expect(built.stands).toContain('stand-C')
+    // A2 is two blocks (GSI z18, section 02): the pit-end one carries a blue canopy (A2R), the
+    // Turn-1 one is open — and the stair in the 13 m notch between E-2 and E-1
+    expect(built.stands).toContain('stand-A2')
+    expect(built.stands).toContain('stand-A2R')
+    expect(built.names).toContain('stand-E-notch-stair')
+    expect(issues.errors).toEqual([])
+  })
+
+  test('the spectator builders report their seats, roofs, path frames, banks and crowd budget', async ({ page }) => {
+    const issues = await openRace(page)
+    const st = await page.evaluate(() => {
+      const d = (window as any).__suzuka
+      const names: string[] = []
+      d.env.group.traverse((o: any) => { if (o.name) names.push(o.name) })
+      return { ...d.env.stats, names }
+    })
+    // --- seats ------------------------------------------------------------------------------
+    // Every stand's rows are laid on its real footprint and the two PUBLISHED capacities clamp
+    // what they cover (§4d: only sourced figures — C 13,698 and V1 + V2 12,588, from the 2026
+    // seat map). Nothing else is clamped, so the total is the generator's own count plus the
+    // lawn places, measured 83.7 k. (The plan's context expected ≈ 65 k; closing that gap needs
+    // per-stand published seat counts, which do not exist in the data yet.)
+    expect(st.seats.total).toBeGreaterThan(77_000)
+    expect(st.seats.total).toBeLessThan(90_000)
+    for (const cap of st.seats.capacity) expect(cap.kept, `${cap.stands.join('+')} over its published capacity`).toBeLessThanOrEqual(cap.seats)
+    expect(st.seats.byStand.C.kept).toBeGreaterThan(9_000)
+    expect(st.seats.byStand.V1.kept + st.seats.byStand.V2.kept).toBeLessThanOrEqual(12_588)
+    // --- roofs and path frames ----------------------------------------------------------------
+    for (const id of ['V2', 'A2R', 'G_130R']) expect(st.roofs, `${id} has no roof`).toContain(id)
+    for (const id of ['I', 'IJ', 'J', 'Q1', 'R']) expect(st.pathStands, `${id} is not built on its OSM front edge`).toContain(id)
+    // a path frame that runs the wrong way turns its deck into a ceiling — silent from the front
+    expect(Object.entries(st.deckUp).filter(([, up]) => !up).map(([id]) => id)).toEqual([])
+    // the canopies stand on posts that never cull (a roof over nothing is worse than the posts)
+    expect(st.names.some((n: string) => n.startsWith('roofPosts-A2R'))).toBe(true)
+    expect(st.names.some((n: string) => n.startsWith('roofPosts-G_130R'))).toBe(true)
+    // --- spectator banks ----------------------------------------------------------------------
+    expect(st.banks.bays).toBeGreaterThanOrEqual(6)
+    expect(st.banks.people).toBeGreaterThan(1_000)
+    expect(st.banks.seated).toBeGreaterThan(0)
+    expect(st.names.some((n: string) => n.startsWith('bankSheets-'))).toBe(true)
+    expect(st.names.some((n: string) => n.startsWith('bankTents-'))).toBe(true)
+    // --- the crowd's budget -------------------------------------------------------------------
+    // the occupancy draw comes first and the tier's budget is then spread over the occupied
+    // places by error diffusion: the count is deterministic, never over the budget and not far under
+    expect(st.crowd.impostors).toBeLessThanOrEqual(st.crowd.budget)
+    expect(st.crowd.impostors).toBeGreaterThanOrEqual(0.9 * st.crowd.budget)
+    expect(st.crowd.rate).toBeGreaterThan(0)
+    expect(st.crowd.bankBays).toBeGreaterThanOrEqual(6)
+    expect(st.crowd.bankPeople).toBeGreaterThan(0)
     expect(issues.errors).toEqual([])
   })
 

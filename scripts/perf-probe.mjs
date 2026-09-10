@@ -102,6 +102,21 @@ try {
           settleMs: dbg.settleMs,
           buildMs: dbg.buildMs ?? null,
           farField: dbg.env?.farField?.stats?.() ?? null,
+          // what the spectator builders measured (stands.ts / banks.ts / crowd.ts): the seat
+          // total and its capacity clamp, the roofs and path frames, the deck-normal check, the
+          // banks and the crowd's own budget / rate. The figure count is a GPU cost, so the row
+          // belongs beside the draw calls it explains.
+          env: dbg.env?.stats
+            ? {
+                seats: dbg.env.stats.seats.total,
+                capacity: dbg.env.stats.seats.capacity.map((c) => `${c.stands.join('+')} ${c.generated}→${c.kept}/${c.seats}`),
+                roofs: dbg.env.stats.roofs,
+                pathStands: dbg.env.stats.pathStands,
+                deckDown: Object.entries(dbg.env.stats.deckUp).filter(([, up]) => !up).map(([id]) => id),
+                banks: { people: dbg.env.stats.banks.people, seated: dbg.env.stats.banks.seated, sheets: dbg.env.stats.banks.sheets, tents: dbg.env.stats.banks.tents, bays: dbg.env.stats.banks.bays },
+                crowd: dbg.env.stats.crowd,
+              }
+            : null,
           perf,
           perfMax,
         }
@@ -129,6 +144,13 @@ for (const r of results) {
   )
 }
 for (const r of results) if (r.farField) console.log(`farField (${r.tierParam}/${r.modeKey}): ${JSON.stringify(r.farField)}`)
+for (const r of results) {
+  if (!r.env) continue
+  const e = r.env
+  console.log(`spectators (${r.tierParam}/${r.modeKey}): ${e.seats} seat slots [${e.capacity.join(', ')}], roofs ${e.roofs.join('/')}, path frames ${e.pathStands.join('/')}, decks facing down ${e.deckDown.length ? e.deckDown.join('/') : 'none'}`)
+  console.log(`  banks: ${e.banks.people} places (${e.banks.seated} seated), ${e.banks.sheets} sheets, ${e.banks.tents} tents, ${e.banks.bays} banks`)
+  console.log(`  crowd: ${e.crowd.impostors} of ${e.crowd.expected} occupied at rate ${e.crowd.rate.toFixed(3)} (budget ${e.crowd.budget}), ${e.crowd.near3d} near 3D, ${e.crowd.bays} bays (${e.crowd.bankBays} on banks, ${e.crowd.bankPeople} people), ${e.crowd.atlas} atlas`)
+}
 for (const r of results) if (r.errors.length) console.log(`errors (${r.tierParam}/${r.modeKey}):\n  ${r.errors.join('\n  ')}`)
 console.log(`load: ${results.map((r) => `${r.tierParam}=${r.loadMs} ms`).join(', ')}; setupMs: ${results.map((r) => fmt(r.setupMs)).join(', ')}; settleMs (terrain clamp): ${results.map((r) => fmt(r.settleMs)).join(', ')}`)
 

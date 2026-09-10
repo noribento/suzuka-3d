@@ -300,7 +300,9 @@ export const STANDS: StandDef[] = [
       { id: 'V2-5-20', rows: 16, tread: 0.894, riser: 0.45, seat: 'chair', colour: COLOURS.seatV2.mid, lateralFront: 45.36, frontHeight: 9.5 },
     ],
     aisles: { pitch: 11.8, width: 1.2 }, // 21 lettered blocks A–U [PDF]; vomitories in rows 10–13
-    roof: { lateral: [36, 59.3], sRange: [5574, 5760], soffit: 30, top: 32, overhang: 7.5, finPitch: 12 }, // 18 × 186 m (mejibo/Takenaka); heights UNVERIFIED
+    // 18 × 186 m (mejibo/Takenaka); heights UNVERIFIED. The RC slab is carried by the hospitality
+    // band behind the rows (`columns: 'none'`), not by posts — nothing stands on the V2 deck.
+    roof: { lateral: [36, 59.3], sRange: [5574, 5760], soffit: 30, top: 32, overhang: 7.5, finPitch: 12, style: 'slab', columns: 'none' },
     frontHeight: 8.2,
     platform: 'Same fill platform as V1; a two-storey glazed hospitality band (35 panorama rooms, lateral ≈+45..+59, columns top +18..+20, glass +20..+28, 3 m mullions) sits on the top row and carries the roof',
     permanent: true,
@@ -400,7 +402,11 @@ export const STANDS: StandDef[] = [
     platform: 'Open scaffold block behind the wall; taller toward Turn 1 (≤10 m); ends where the T1 gravel starts at s 434',
     permanent: false,
     fence: 'single',
-    unverified: ['block extent read off GSI z18 (section 02, ±3 m): the green benches run s 339–435 at lateral 28–41', 'rows', 'height'],
+    unverified: [
+      'block extent read off GSI z18 (section 02, ±3 m): the green benches read row by row from s 337 to s 430; row 1 is held out to 30 → 35 by the Turn-1 gravel band (RUNOFF_ZONES, to lateral 33 from s 400) rather than by the photo, which puts the seating at 28.8–39.5 and the structure with its front walkway at 26.5–40',
+      'rows',
+      'height',
+    ],
   },
   // ---- Turn 2 ---------------------------------------------------------------------------
   {
