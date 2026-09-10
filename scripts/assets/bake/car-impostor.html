@@ -1,0 +1,106 @@
+<!doctype html>
+<!--
+  Parked-car impostor bake page (driven by scripts/assets/bake-car-atlas.mjs).
+
+  Renders the six low-poly bodies of app/three/car-bodies.ts — the SAME module the runtime
+  instances inside 500 m, served transpiled by the bake script — from 8 yaws at one camera
+  elevation into 128 px cells of a 1024² canvas: one atlas row per body in CAR_BODIES order
+  (yaw 0 looks at the car's nose, and the yaw increases clockwise seen from above, which is the
+  convention app/three/impostor.ts reads with `rel = bbYaw − aInfo.z`). Two images come out of the
+  same geometry:
+    colour  — lit, RGBA; the paintwork baked white so the runtime multiplies its own tint in
+    mask    — unlit, R = the paintwork (what the tint applies to), black = glass, tyres, lamps
+  Every cell covers CELL_M × CELL_M metres with the tyres PAD_M above the bottom edge, so the one
+  fixed-size quad of `impostorGeometry` shows every body at true scale.
+-->
+<meta charset="utf-8">
+<style>body{margin:0;background:#000}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three'
+import { CAR_BODIES, CAR_DIMS, carBodyGeometry, patchCarVertexColour } from '/app/three/car-bodies.ts'
+
+const params = new URLSearchParams(location.search)
+const CELL = Number(params.get('cell') ?? 128)
+const CELL_M = Number(params.get('cellM') ?? 16)   // metres covered by one cell edge
+const PAD_M = Number(params.get('padM') ?? 0.15)   // tyres above the cell's bottom edge
+const YAWS = Number(params.get('yaws') ?? 8)
+const ELEV = Number(params.get('elev') ?? 14)      // camera pitch (deg, looking down)
+const SIZE_W = Number(params.get('w') ?? 1024)
+const SIZE_H = Number(params.get('h') ?? 1024)
+
+const canvas = document.getElementById('c')
+canvas.width = SIZE_W
+canvas.height = SIZE_H
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true, premultipliedAlpha: false })
+renderer.setPixelRatio(1)
+renderer.setClearColor(0x000000, 0)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.setScissorTest(true)
+
+// The same neutral studio as the crowd bake: bright enough that the white paintwork lands near
+// its own albedo (median ≈ 180/255, nothing clipped), because the runtime card is a
+// MeshStandardMaterial the scene lights AGAIN — a dim bake would come out black at 1 km.
+// metalness 0: with no environment map a metallic body would bake almost black.
+const scene = new THREE.Scene()
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.8))
+const key = new THREE.DirectionalLight(0xffffff, 1.1)
+scene.add(key)
+const cam = new THREE.OrthographicCamera(-CELL_M / 2, CELL_M / 2, CELL_M, 0, -60, 120)
+
+// one material per pass, shared by every row: the part mask lives in the geometry's RGBA colour
+const COLOUR_MAT = patchCarVertexColour(new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.55, metalness: 0 }), 'plain')
+const MASK_MAT = patchCarVertexColour(new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xffffff }), 'mask')
+
+function renderCell (col, row, yawDeg, pitchDeg) {
+  // the camera orbits the car at the given pitch and looks at the middle of the cell
+  const yaw = THREE.MathUtils.degToRad(yawDeg)
+  const pitch = THREE.MathUtils.degToRad(pitchDeg)
+  const d = 40
+  cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d + CELL_M / 2, Math.cos(yaw) * Math.cos(pitch) * d)
+  cam.up.set(0, 1, 0)
+  cam.lookAt(0, CELL_M / 2, 0)
+  // frame: the cell spans CELL_M vertically and the look-at point is CELL_M/2 above the tyres, so
+  // in the camera's frame the ground sits (CELL_M/2)·cos(pitch) below centre — shift the window so
+  // it lands PAD_M above the bottom edge whatever the pitch (the same rule as bake/impostor.html)
+  cam.left = -CELL_M / 2
+  cam.right = CELL_M / 2
+  const groundOffset = (CELL_M / 2 - PAD_M) - (CELL_M / 2) * Math.cos(pitch)
+  cam.top = CELL_M / 2 + groundOffset
+  cam.bottom = -CELL_M / 2 + groundOffset
+  cam.updateProjectionMatrix()
+  key.position.copy(cam.position).add(new THREE.Vector3(-6, 14, 0))
+  key.target.position.set(0, CELL_M / 2, 0)
+  key.target.updateMatrixWorld()
+  const x = col * CELL
+  const y = SIZE_H - (row + 1) * CELL // GL rows count from the bottom, atlas rows from the top
+  renderer.setViewport(x, y, CELL, CELL)
+  renderer.setScissor(x, y, CELL, CELL)
+  renderer.render(scene, cam)
+}
+
+window.bakeCars = function (pass) {
+  // clear the WHOLE canvas between the two passes: with the scissor test on, `clear` would only
+  // wipe the last cell, and the rows this bake never draws would keep the colour pass
+  renderer.setScissorTest(false)
+  renderer.clear()
+  renderer.setScissorTest(true)
+  const layout = []
+  for (let row = 0; row < CAR_BODIES.length; row++) {
+    const kind = CAR_BODIES[row]
+    const geo = carBodyGeometry(kind)
+    const mesh = new THREE.Mesh(geo, pass === 'mask' ? MASK_MAT : COLOUR_MAT)
+    scene.add(mesh)
+    for (let k = 0; k < YAWS; k++) renderCell(k, row, (k / YAWS) * 360, ELEV)
+    scene.remove(mesh)
+    const d = CAR_DIMS[kind]
+    layout.push({ id: kind, row, length: d.l, width: d.w, height: d.h, tris: geo.attributes.position.count / 3 })
+  }
+  renderer.setScissorTest(false)
+  const dataUrl = canvas.toDataURL('image/png')
+  renderer.setScissorTest(true)
+  return { dataUrl, layout, cell: CELL, cellM: CELL_M, padM: PAD_M, yaws: YAWS, elevs: [ELEV], cols: YAWS, rows: SIZE_H / CELL, width: SIZE_W, height: SIZE_H }
+}
+window.bakeReady = true
+</script>

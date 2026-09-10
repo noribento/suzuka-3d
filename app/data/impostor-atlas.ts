@@ -1,7 +1,8 @@
 /**
  * Layouts of the baked impostor atlases the runtime shader in app/three/impostor.ts reads: the
- * spectators (mirrored from ~/data/crowd-atlas.ts, baked), and the trees and parked cars
- * (placeholders until scripts/assets/bake-crowd-atlas.mjs `--set trees|cars` bakes them in C2).
+ * spectators (mirrored from ~/data/crowd-atlas.ts, baked by scripts/assets/bake-crowd-atlas.mjs),
+ * the parked cars (baked by scripts/assets/bake-car-atlas.mjs) and the trees (placeholder until
+ * C2 bakes them).
  * Every layout describes the same thing: a grid of `cell` px cells, one ROW per subject (or
  * per subject × variant), `yaws` columns per elevation band (yaw 0 faces the camera, clockwise
  * seen from above), and where the second elevation band sits (`bandAxis`). A cell covers
@@ -91,10 +92,18 @@ export const TREE_LAYOUT: ImpostorLayout = {
 }
 
 /**
- * Parked cars and coaches (`tex/car_atlas`, baked in C2 from ~/three/car-bodies.ts): 8 yaws × 1
- * elevation, one row per body. The mask R channel marks the paintwork, tinted from aTint0 rgb
- * like an instanceColor; glass, tyres and lights stay as baked. Cell 16 m: a 12 m coach fits
- * with the quad at 80 % of the cell. Placeholder numbers — the bake writes the final ones.
+ * Parked cars and coaches (`tex/car_atlas`, baked by scripts/assets/bake-car-atlas.mjs from
+ * ~/three/car-bodies.ts): 8 yaws × 1 elevation (14°, the angle a 500–2200 m camera looks down a
+ * car park at), one row per body in `CAR_BODIES` order, rows 6–7 spare. The mask's R channel
+ * marks the paintwork, tinted from aTint0 rgb the way instanceColor tints the 3D body inside
+ * 500 m; glass, tyres and lamps stay as baked.
+ *
+ * ONE cellM for every row, not one per row: the shader and `impostorGeometry` read a single
+ * `cellM`, and a per-row cell would need a per-instance quad scale (and a per-row padM) in
+ * impostor.ts for the sake of one body. 16 m is the smallest cell that holds the 12 m coach at
+ * every yaw (its half diagonal is 6.13 m, so it spans 12.3 m at 45°, inside the 12.8 m the quad
+ * covers at quadW 0.8). A 4.7 m car is then only ≈ 38 px of a 128 px cell — still three times the
+ * 11 px it covers on a 1080p screen at the 500 m where the cards take over from the bodies.
  */
 export const CAR_LAYOUT: ImpostorLayout = {
   width: 1024,
@@ -109,5 +118,5 @@ export const CAR_LAYOUT: ImpostorLayout = {
   padM: 0.15,
   quadW: 0.8,
   modelScale: 1,
-  rowsMeta: { subjects: 6, variants: 1, note: 'baked in C2: minivan, kei wagon, SUV, hatchback, saloon, coach; rows 6–7 spare' },
+  rowsMeta: { subjects: 6, variants: 1, note: 'one row per body in CAR_BODIES order: minivan, kei wagon, SUV, hatchback, saloon, coach; rows 6–7 spare' },
 }

@@ -320,6 +320,17 @@ export const CREDITS: Credit[] = [
     attribution: 'This work is based on "Low poly stadium/sports arena seats" (https://sketchfab.com/3d-models/low-poly-stadiumsports-arena-seats-6bbe4c85d2a4489dbe5918831be5d886) by anDDDres (https://sketchfab.com/anDDDres) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc))',
   },
   {
+    kind: 'asset',
+    title: 'Parked-car impostor atlas — procedural low-poly bodies',
+    author: 'suzuka-3d',
+    url: 'https://github.com/noribento/suzuka-3d',
+    site: 'suzuka-3d (own bake)',
+    licence: 'CC0-1.0',
+    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    modified: true,
+    attribution: '"Parked-car impostor atlas — procedural low-poly bodies" by suzuka-3d (suzuka-3d (own bake), https://github.com/noribento/suzuka-3d), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)',
+  },
+  {
     kind: 'data',
     title: 'OpenStreetMap',
     author: 'OpenStreetMap contributors',
@@ -351,4 +362,4 @@ export const CREDITS: Credit[] = [
   },
 ]
 
-export const ASSETS_GENERATED = '2026-09-05T06:06:34.793Z'
+export const ASSETS_GENERATED = '2026-09-10T11:37:36.769Z'
