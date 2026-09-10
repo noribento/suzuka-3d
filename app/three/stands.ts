@@ -1,15 +1,16 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { alongAt, COLOURS, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandTier } from '~/data/suzuka-facilities-spec'
+import { alongAt, COLOURS, SEAT_CAPACITY, SEAT_PITCH, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandRoof, type StandTier } from '~/data/suzuka-facilities-spec'
 import { OSM_STANDS, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { BASINS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import type { EnvBuildContext, Terrain } from './environment'
+import type { EnvBuildContext } from './environment'
 import type { Ground } from './ground'
 import { bucketedInstancedMeshes } from './instancing'
 import { pbrFromAssets } from './materials'
 import { demFieldFor } from './dem'
-import { boardTexture, concreteMaps } from './textures'
+import { boardTexture, cached, canvas, concreteMaps, makeTexture, scaled as texSize } from './textures'
+import { buildBanks, type BankStats } from './banks'
 
 /**
  * Grandstands generated from the real footprints (OSM, ./suzuka-facilities.ts) and the
@@ -45,11 +46,32 @@ export interface SeatSlot {
   z: number
   /** yaw (atan2(x, z) of the facing direction) — the figures look towards the track */
   yaw: number
-  kind: SeatKind
+  /** 'lawn' = a place on a spectator bank (banks.ts), not a seat */
+  kind: SeatKind | 'lawn'
+}
+
+/** What the stand generator measured — `Environment.stats`, the e2e suite and the Node probes read it. */
+export interface StandsStats {
+  seats: {
+    /** slots handed to the crowd (lawn places included) */
+    total: number
+    /** per stand: the generator's own count and what survived the capacity clamp */
+    byStand: Record<string, { generated: number; kept: number }>
+    /** the SEAT_CAPACITY rows with the count they clamped */
+    capacity: { stands: string[]; seats: number; generated: number; kept: number }[]
+  }
+  /** stands that built a roof */
+  roofs: string[]
+  /** stands built along their OSM front edge (StandDef.path) */
+  pathStands: string[]
+  /** per stand: the first deck triangle faces up (a path frame on the wrong side folds the deck under) */
+  deckUp: Record<string, boolean>
+  banks: BankStats
 }
 
 export interface Stands {
   seats: SeatSlot[]
+  stats: StandsStats
   /** per frame: instanced seats / scaffold tubes of bays beyond their LOD distance stop drawing */
   update: (cameraPos: THREE.Vector3) => void
 }
@@ -92,8 +114,6 @@ const Y_UP = new THREE.Vector3(0, 1, 0)
 export const STAND_BAY = 60
 const SEAT_LOD = 260
 const TUBE_LOD = 420
-const CHAIR_PITCH = 0.507
-const BENCH_PITCH = 0.55
 /**
  * Bench planks read as pale sage green in every stand photo (off_c_08, off_b2_03, off_d_seat,
  * off_e_seat): the spec's tan / grey values are shaded-side measurements, so the lit albedo is
@@ -362,6 +382,9 @@ interface PathSpec {
   quatAt: (u: number, out: THREE.Quaternion) => THREE.Quaternion
   yaw: (u: number) => number
   box: [number, number, number, number]
+  /** unit tangents (xz) at u = 0 and u = len, both pointing towards increasing u */
+  tan0: [number, number]
+  tan1: [number, number]
 }
 
 const _pp = new THREE.Vector3()
@@ -400,6 +423,10 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
   // orient the chain with the lap: u must grow in driving order. Signed, not forward: a first
   // vertex a few centimetres before sRange[0] wraps to nearly a full lap and reverses the path.
   if (signedDelta(sAtWorld(front[0]!), sAtWorld(front[front.length - 1]!), L) < 0) front = front.reverse()
+  // ...then AGAINST it on a right-side stand: `sweep` faces up only while +v lies to the left of
+  // +u, and a right-side stand's rows lie to the right of the driving direction. u runs the
+  // other way there (pathLocalDef sorts the mapped breakpoints), the deck comes out facing up
+  if (def.side < 0) front = front.reverse()
   // resample the chain through a Catmull-Rom every 2 m
   const raw = front
   const sx: number[] = []
@@ -538,7 +565,20 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
     minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z)
   }
-  return { px, pz, nx, nz, us, len, frontV, backV, sOf, uOf, yRef, project, at, quatAt, yaw: yawAt, box: [minX, maxX, minZ, maxZ] }
+  // unit tangents at the two ends (u increasing), for the relief zones' end fades
+  const tanOf = (i: number, j: number): [number, number] => {
+    const tx = px[j]! - px[i]!, tz = pz[j]! - pz[i]!
+    const inv = 1 / (Math.hypot(tx, tz) || 1)
+    return [tx * inv, tz * inv]
+  }
+  const tan0 = tanOf(0, Math.min(m - 1, 1)), tan1 = tanOf(Math.max(0, m - 2), m - 1)
+  return { px, pz, nx, nz, us, len, frontV, backV, sOf, uOf, yRef, project, at, quatAt, yaw: yawAt, box: [minX, maxX, minZ, maxZ], tan0, tan1 }
+}
+
+/** The cached path frame of a stand (null when it has none) — for the relief probes. */
+export function standPathSpec(track: Track, id: string): PathSpec | null {
+  const def = STANDS.find((s) => s.id === id)
+  return def ? pathSpec(track, def) : null
 }
 
 function pathFrame(ground: Ground, spec: PathSpec): Frame {
@@ -569,8 +609,14 @@ function pathFrame(ground: Ground, spec: PathSpec): Frame {
  */
 function pathLocalDef(def: StandDef, spec: PathSpec): StandDef {
   const t = def.tiers[0]!.tread
+  // the mapped breakpoints must rise with u: on a right-side stand u runs against the lap
   const conv = (v: AlongTrack | undefined): AlongTrack | undefined =>
-    typeof v === 'number' || v === undefined ? v : v.map(([s, h]) => [spec.uOf(s), h] as [number, number])
+    typeof v === 'number' || v === undefined ? v : v.map(([s, h]) => [spec.uOf(s), h] as [number, number]).sort((a, b) => a[0] - b[0])
+  const range = (r: [number, number] | undefined): [number, number] | undefined => {
+    if (!r) return undefined
+    const a = spec.uOf(r[0]), b = spec.uOf(r[1])
+    return [Math.min(a, b), Math.max(a, b)]
+  }
   return {
     ...def,
     sRange: [0, spec.len],
@@ -580,11 +626,11 @@ function pathLocalDef(def: StandDef, spec: PathSpec): StandDef {
     frontHeight: conv(def.frontHeight)!,
     tiers: def.tiers.map((tier) => ({
       ...tier,
-      sRange: tier.sRange ? ([spec.uOf(tier.sRange[0]), spec.uOf(tier.sRange[1])] as [number, number]) : undefined,
+      sRange: range(tier.sRange),
       lateralFront: undefined,
       frontHeight: conv(tier.frontHeight),
     })),
-    roof: def.roof ? { ...def.roof, sRange: def.roof.sRange ? ([spec.uOf(def.roof.sRange[0]), spec.uOf(def.roof.sRange[1])] as [number, number]) : undefined } : undefined,
+    roof: def.roof ? { ...def.roof, sRange: range(def.roof.sRange), blocks: def.roof.blocks?.map((r) => range(r)!) } : undefined,
   }
 }
 
@@ -873,7 +919,7 @@ function addDeck(b: Build, run: TierRun) {
   const plankTop = lin(plankColour)
   const plankEdge = scaled(plankTop, 0.72)
   const seatColour = new THREE.Color(run.tier.colour)
-  const pitch = run.tier.seat === 'chair' ? CHAIR_PITCH : BENCH_PITCH
+  const pitch = SEAT_PITCH[run.tier.seat]
   const facingFlip = side < 0 ? new THREE.Quaternion().setFromAxisAngle(Y_UP, Math.PI) : null
   // along-track step: the treads are flat, so only the curvature matters — every stand sits on
   // the outside of its corner (radius ≥ 60 m), where a 4 m chord is out by 3 cm. The tier that
