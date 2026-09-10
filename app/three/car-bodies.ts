@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
 /**
  * Low-poly parked-car bodies (plan §2d): six silhouettes of 60–90 triangles each, built from
@@ -59,13 +58,6 @@ export const CAR_COLOURS: readonly { hex: string; weight: number; name: string }
   { hex: '#c9b47a', weight: 2, name: 'beige' },
   { hex: '#d8531e', weight: 1, name: 'orange' },
 ]
-
-/**
- * The coach's atlas row is baked with a cell this many times larger than the cars' (a 12 m coach
- * at 45° yaw needs ≈ 10.5 m of cell), and a coach's impostor instance carries the same uniform
- * scale in its matrix so the one quad size of `impostorGeometry` still shows it at true scale.
- */
-export const COACH_ROW_SCALE = 2.5
 
 const _c = new THREE.Color()
 
@@ -306,12 +298,6 @@ export function carBodyGeometry(kind: CarBody): THREE.BufferGeometry {
     cache.set(kind, g)
   }
   return g
-}
-
-/** every body merged (a debug helper for the bake page's contact sheet) */
-export function allCarBodies(): THREE.BufferGeometry {
-  const parts = CAR_BODIES.map((k, i) => carBodyGeometry(k).clone().translate(i * 4, 0, 0))
-  return mergeGeometries(parts, false)!
 }
 
 /**
