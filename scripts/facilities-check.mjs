@@ -685,6 +685,161 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   if (gapM) fail(`RUNOFF_ZONES leaves ${gapM} m of lap with no row (${gaps.map(([x, y]) => `${x}-${y}`).join(', ')}) — fillGaps invents a band there`, true)
 }
 
+// ---------------------------------------------------------------- 11. 周辺データ (surroundings + DEM)
+/**
+ * §11. The generated files outside the fence: app/data/suzuka-surroundings.ts (OSM, ODbL) and
+ * app/data/suzuka-dem.ts (国土地理院). Their headers must carry the attribution, every packed
+ * ring must decode to a simple polygon of sensible area inside SUR_RECT, buildings must not
+ * re-ship an id the facilities data already owns, polylines need ≥ 2 vertices and a width,
+ * and the two files together stay under 1 MB (plan §1d / §2f).
+ */
+{
+  const fs = await import('node:fs')
+  const surPath = new URL('../app/data/suzuka-surroundings.ts', import.meta.url)
+  const demPath = new URL('../app/data/suzuka-dem.ts', import.meta.url)
+  const headOf = (url) => fs.readFileSync(url, 'utf8').split('\n').slice(0, 20).join('\n')
+  const seg = (p1, q1, p2, q2) => {
+    const d = (q1.x - p1.x) * (q2.z - p2.z) - (q1.z - p1.z) * (q2.x - p2.x)
+    if (Math.abs(d) < 1e-12) return false
+    const t = ((p2.x - p1.x) * (q2.z - p2.z) - (p2.z - p1.z) * (q2.x - p2.x)) / d
+    const u = ((p2.x - p1.x) * (q1.z - p1.z) - (p2.z - p1.z) * (q1.x - p1.x)) / d
+    return t > 1e-9 && t < 1 - 1e-9 && u > 1e-9 && u < 1 - 1e-9
+  }
+  const RECT_TOL = 1 // m outside SUR_RECT a vertex may sit (0.1 m grid rounding)
+  const AREA_RANGE = [20, 600000] // m² for land use / buildings
+  const SITE_AREA_RANGE = [20, 4e6] // the circuit boundary itself is ≈ 1 km²
+
+  const surHead = headOf(surPath)
+  if (!surHead.includes('OpenStreetMap contributors') || !surHead.includes('ODbL')) fail('suzuka-surroundings.ts: header lacks the OpenStreetMap contributors / ODbL attribution in its first 20 lines')
+  const sur = await import('../app/data/suzuka-surroundings.ts')
+  const codec = await import('../app/data/en-codec.ts')
+  const [re0, rn0, re1, rn1] = sur.SUR_RECT
+  if (!(re1 - re0 > 6000 && rn1 - rn0 > 5000)) fail(`SUR_RECT ${sur.SUR_RECT.join(', ')} is not the DEM terrain rectangle (expected ≈ 6.6 × 5.8 km)`)
+
+  const polygonLayers = ['SUR_FOREST', 'SUR_FARMLAND', 'SUR_GRASS', 'SUR_SCRUB', 'SUR_BARE', 'SUR_WATER', 'SUR_PARKING', 'SUR_SOLAR', 'SUR_BUILDINGS']
+  const lineLayers = ['SUR_STREAMS', 'SUR_ROADS', 'SUR_RAIL']
+  const layerRows = []
+  let ringErrors = 0
+  const ringFail = (msg) => {
+    // the first few are reported verbatim, the rest counted — a broken file would otherwise print thousands of lines
+    if (ringErrors++ < 8) fail(msg)
+  }
+  const decode = (layer, f) => {
+    let pts
+    try {
+      pts = codec.enPairs(f)
+    } catch (e) {
+      ringFail(`${layer} ${f.id}: en does not decode (${e.message})`)
+      return null
+    }
+    if (pts.length !== f.n) ringFail(`${layer} ${f.id}: n ${f.n} but the stream decodes to ${pts.length} vertices`)
+    for (const [e, n] of pts) {
+      if (e < re0 - RECT_TOL || e > re1 + RECT_TOL || n < rn0 - RECT_TOL || n > rn1 + RECT_TOL) {
+        ringFail(`${layer} ${f.id}: vertex (${fmt(e)}, ${fmt(n)}) lies outside SUR_RECT`)
+        break
+      }
+    }
+    return pts
+  }
+  const checkRing = (layer, f, pts, range) => {
+    const n = pts.length
+    if (n < 3) {
+      ringFail(`${layer} ${f.id}: ${n} vertices is not a polygon`)
+      return
+    }
+    const ring = pts.map(([e, nn]) => ({ x: e, z: -nn }))
+    let crossings = 0
+    for (let i = 0; i < n && crossings === 0; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue
+        if (seg(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) {
+          crossings++
+          break
+        }
+      }
+    }
+    if (crossings) ringFail(`${layer} ${f.id}: ring self-intersects`)
+    let area = 0
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n]
+      area += a[0] * b[1] - b[0] * a[1]
+    }
+    area /= 2
+    if (area <= 0) ringFail(`${layer} ${f.id}: ring winds clockwise in EN — the generator should have reversed it`)
+    const abs = Math.abs(area)
+    if (abs < range[0] || abs > range[1]) ringFail(`${layer} ${f.id}: ${fmt(abs, 0)} m² is outside [${range[0]}, ${range[1]}]`)
+    if (f.area !== undefined && Math.abs(abs - f.area) > Math.max(2, abs * 0.01)) ringFail(`${layer} ${f.id}: stored area ${f.area} vs decoded ${fmt(abs, 0)} m²`)
+  }
+  for (const layer of polygonLayers) {
+    const list = sur[layer]
+    let verts = 0
+    for (const f of list) {
+      const pts = decode(layer, f)
+      if (!pts) continue
+      verts += pts.length
+      checkRing(layer, f, pts, AREA_RANGE)
+    }
+    layerRows.push({ layer, count: list.length, verts })
+  }
+  for (const layer of lineLayers) {
+    const list = sur[layer]
+    let verts = 0
+    for (const f of list) {
+      const pts = decode(layer, f)
+      if (!pts) continue
+      verts += pts.length
+      if (pts.length < 2) ringFail(`${layer} ${f.id}: ${pts.length} vertex polyline`)
+      if (!(f.width > 0)) ringFail(`${layer} ${f.id}: width ${f.width}`)
+    }
+    layerRows.push({ layer, count: list.length, verts })
+  }
+  {
+    let verts = 0
+    const roles = {}
+    for (const f of sur.SUR_SITES) {
+      roles[f.role] = (roles[f.role] ?? 0) + 1
+      const pts = decode('SUR_SITES', f)
+      if (!pts) continue
+      verts += pts.length
+      if (f.closed) checkRing('SUR_SITES', f, pts, SITE_AREA_RANGE)
+      else if (pts.length < 2) ringFail(`SUR_SITES ${f.id}: ${pts.length} vertex polyline`)
+    }
+    for (const [role, want] of [['circuit', 1], ['theme_park', 1], ['camp_site', 1], ['gate', 4], ['pool', 2], ['coaster_station', 1], ['coaster', 4]]) {
+      if ((roles[role] ?? 0) !== want) fail(`SUR_SITES: ${roles[role] ?? 0} × ${role}, expected ${want}`)
+    }
+    layerRows.push({ layer: 'SUR_SITES', count: sur.SUR_SITES.length, verts })
+  }
+  if (ringErrors > 8) fail(`suzuka-surroundings.ts: ${ringErrors - 8} further ring error(s) not listed`)
+
+  // ids the facilities data already owns must not come back as generic buildings
+  const owned = new Map()
+  owned.set(osm.OSM_PIT_BUILDING.id, 'OSM_PIT_BUILDING')
+  for (const [stand, ways] of Object.entries(osm.OSM_STAND_WAYS)) for (const w of ways) owned.set(w, `OSM_STAND_WAYS.${stand}`)
+  for (const b of spec.BUILDINGS) if (b.osmWay !== null) owned.set(b.osmWay, `BUILDINGS.${b.id}`)
+  const seenB = new Set()
+  for (const b of sur.SUR_BUILDINGS) {
+    if (owned.has(b.id)) fail(`SUR_BUILDINGS ${b.id} collides with ${owned.get(b.id)}`)
+    if (seenB.has(b.id)) fail(`SUR_BUILDINGS ${b.id} appears twice`)
+    seenB.add(b.id)
+  }
+
+  // the DEM file lands with the terrain work; until then only note its absence
+  let demBytes = 0
+  if (fs.existsSync(demPath)) {
+    if (!headOf(demPath).includes('国土地理院')) fail('suzuka-dem.ts: header lacks the 国土地理院 attribution in its first 20 lines')
+    demBytes = fs.statSync(demPath).size
+  } else console.log('\nsuzuka-dem.ts not present yet — DEM header / size not checked')
+  const surBytes = fs.statSync(surPath).size
+  const CAP = 1024 * 1024
+  if (surBytes + demBytes > CAP) fail(`suzuka-surroundings.ts (${surBytes}) + suzuka-dem.ts (${demBytes}) = ${surBytes + demBytes} bytes, over the ${CAP} byte cap`)
+
+  console.log('\nsurroundings')
+  console.log('layer          count  vertices')
+  for (const r of layerRows) console.log(`${r.layer.padEnd(14)} ${String(r.count).padStart(5)}  ${String(r.verts).padStart(8)}`)
+  console.log(`extract ${sur.SUR_EXTRACT_DATE}, SUR_RECT [${sur.SUR_RECT.join(', ')}]`)
+  console.log(`bytes: surroundings ${surBytes} + dem ${demBytes} = ${surBytes + demBytes} of ${CAP} (${((100 * (surBytes + demBytes)) / CAP).toFixed(1)} %)`)
+}
+
 // ---------------------------------------------------------------- summary
 console.log('\nstand      side s-range        row-1 lateral  clear   depth  rows struct    osm')
 for (const r of rows) console.log(`${r.id.padEnd(10)} ${String(r.side).padStart(2)}   ${r.s.padEnd(13)} ${r.front.padEnd(14)} ${r.clear.padStart(6)} ${r.depth.padStart(7)}  ${String(r.rows).padStart(3)}  ${r.struct.padEnd(9)} ${r.osm}`)
