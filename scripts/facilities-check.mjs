@@ -778,6 +778,181 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     console.log(`  ${st.id.padEnd(10)} ${(100 * cover).toFixed(0).padStart(3)} %${holeTxt}`)
     if (cover < FENCE_COVER) fail(`${st.id}: only ${(100 * cover).toFixed(0)} % of its front is screened by a fence-carrying BARRIERS run${holeTxt}`, soft)
   }
+  // A10b. A spectator bank is a stand without a structure: people sit on the grass at the bank's
+  // near edge, so that edge needs the same debris fence in front of it. A bank whose `unverified`
+  // already names the missing fence is a documented gap (warning); one that does not is an error —
+  // the fix is a BARRIERS run, never a quiet move of the bank.
+  console.log('\nA10b bank screening (same rule, near edge of each SPECTATOR_BANKS row)')
+  for (const bk of spec.SPECTATOR_BANKS ?? []) {
+    const [s0, s1] = bk.sRange
+    const len = arcLen(s0, s1)
+    let n = 0, ok = 0
+    const holes = []
+    for (let d = 0; d <= len; d += 2) {
+      const s = wrap(s0 + d)
+      const near = at(bk.lateral[0], s, bk.sRange)
+      track.pointAt(s, bk.side * track.halfWidthAt(s), v3, 0)
+      const q = { x: v3.x, z: v3.z }
+      track.pointAt(s, bk.side * near, v3, 0)
+      const p = { x: v3.x, z: v3.z }
+      let best = Infinity
+      for (const f of fences) {
+        if (f.side !== bk.side) continue
+        for (let i = 0; i < f.pts.length - 1 && best > 0; i++) best = Math.min(best, segSeg(q, p, f.pts[i], f.pts[i + 1]))
+      }
+      n++
+      if (best <= FENCE_NEAR) ok++
+      else holes.push(Math.round(s))
+    }
+    const cover = n ? ok / n : 1
+    const holeTxt = holes.length ? ` (unscreened at s ${holes[0]}…${holes[holes.length - 1]})` : ''
+    console.log(`  ${bk.id.padEnd(14)} ${(100 * cover).toFixed(0).padStart(3)} %${holeTxt}`)
+    if (cover < FENCE_COVER) {
+      const known = (bk.unverified ?? []).some((u) => /fence/.test(u))
+      fail(`${bk.id}: only ${(100 * cover).toFixed(0)} % of its near edge is behind a fence-carrying BARRIERS run${holeTxt}`, known)
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 14. roofs and published seat counts
+/**
+ * (b) Every `StandDef.roof`: its s range and its blocks lie inside the stand, the blocks do not
+ * overlap, a canopy that follows a tier names a tier that exists, and the soffit clears the top
+ * row it covers by 2.2 m (front height + Σ rows × riser + headroom). A roof that a spectator can
+ * stand up into is the one modelling error a screenshot never shows.
+ *
+ * (a) `SEAT_CAPACITY`: only sourced figures, every stand it names exists, and the table estimate
+ * (`estimateSeats`, rows × usable length ÷ pitch) is within 10 % under the published count —
+ * further under means the footprint or the row count is wrong, not the clamp. Soft: the estimate
+ * ignores the tapering ends. There is deliberately NO Σ gate over all the stands: the total seat
+ * count is a GPU budget (quality.crowd), not a fact about the circuit.
+ */
+{
+  console.log('\nroofs')
+  for (const st of spec.STANDS) {
+    const roof = st.roof
+    if (!roof) continue
+    const [rs0, rs1] = roof.sRange ?? st.sRange
+    if (!inArc(rs0, st.sRange) || !inArc(rs1, st.sRange)) fail(`${st.id}: roof sRange ${rs0}→${rs1} is outside the stand ${st.sRange[0]}→${st.sRange[1]}`)
+    const blocks = roof.blocks ?? [[rs0, rs1]]
+    for (const [b0, b1] of blocks) {
+      if (!inArc(b0, [rs0, rs1]) || !inArc(b1, [rs0, rs1])) fail(`${st.id}: roof block ${b0}→${b1} is outside the roof range ${rs0}→${rs1}`)
+      if (arcLen(b0, b1) < 1) fail(`${st.id}: roof block ${b0}→${b1} is shorter than a metre`)
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      for (let j = i + 1; j < blocks.length; j++) if (arcsOverlap(blocks[i], blocks[j])) fail(`${st.id}: roof blocks ${blocks[i].join('→')} and ${blocks[j].join('→')} overlap`)
+    }
+    if (!roof.lateral && !roof.tier) fail(`${st.id}: roof names neither a lateral band nor a tier`)
+    const tier = roof.tier ? st.tiers.find((t) => t.id === roof.tier) : st.tiers[st.tiers.length - 1]
+    if (roof.tier && !tier) fail(`${st.id}: roof covers tier "${roof.tier}", which the stand does not have`)
+    if (!tier) continue
+    /**
+     * Headroom under the roof at every 2 m of its own range, over the row-1 tread AND over the
+     * top row. A canopy `rise`s from its front edge to its back while the deck climbs at its own
+     * rake, so which end is tight depends on the two slopes — check both. The tier's platform
+     * height follows `resolveTiers`: its own `frontHeight` when it has one (G's two bars are
+     * parallel, not stacked), otherwise the tiers before it stack.
+     */
+    const platform = (t, s) => {
+      if (t.frontHeight !== undefined) return at(t.frontHeight, s, st.sRange)
+      let y = at(st.frontHeight, s, st.sRange)
+      for (const p of st.tiers) {
+        if (p.id === t.id) break
+        if (p.lateralFront === undefined && p.frontHeight === undefined) y += p.rows * p.riser
+      }
+      return y
+    }
+    let worst = Infinity, worstS = rs0, worstAt = 'row 1'
+    for (let d = 0; d <= arcLen(rs0, rs1); d += 2) {
+      const s = wrap(rs0 + d)
+      if (!blocks.some((b) => inArc(s, b))) continue
+      const y0 = platform(tier, s)
+      const yTop = y0 + tier.rows * tier.riser
+      for (const [clear, where] of [[roof.soffit - y0, 'row 1'], [roof.soffit + (roof.rise ?? 0) - yTop, 'the top row']]) {
+        if (clear < worst) { worst = clear; worstS = s; worstAt = where }
+      }
+    }
+    console.log(`  ${st.id.padEnd(10)} ${(roof.style ?? 'slab').padEnd(6)} ${(roof.columns ?? 'ground').padEnd(7)} soffit ${fmt(roof.soffit)} rise ${fmt(roof.rise ?? 0)}  least headroom ${fmt(worst)} m over ${worstAt} at s ${fmt(worstS, 0)}  ${blocks.length} block(s)`)
+    if (Number.isFinite(worst) && worst < 2.2 - 1e-9) fail(`${st.id}: the roof leaves only ${fmt(worst)} m over ${worstAt} at s ${fmt(worstS, 0)} (2.2 m needed)`)
+    if (roof.top <= roof.soffit) fail(`${st.id}: roof top ${roof.top} is not above its soffit ${roof.soffit}`)
+  }
+
+  console.log('\npublished seat counts (SEAT_CAPACITY)')
+  const seen = new Set()
+  for (const cap of spec.SEAT_CAPACITY ?? []) {
+    if (!cap.source || cap.source.length < 20) fail(`SEAT_CAPACITY ${cap.stands.join('+')}: no source — only sourced figures belong in this table`)
+    let est = 0
+    for (const id of cap.stands) {
+      const st = spec.standById(id)
+      if (!st) { fail(`SEAT_CAPACITY names stand "${id}", which does not exist`); continue }
+      if (seen.has(id)) fail(`SEAT_CAPACITY names stand "${id}" twice`)
+      seen.add(id)
+      est += spec.estimateSeats(st)
+    }
+    console.log(`  ${cap.stands.join('+').padEnd(10)} published ${String(cap.seats).padStart(6)}  table estimate ${String(est).padStart(6)}  (${(100 * est / cap.seats).toFixed(0)} %)`)
+    if (est < 0.9 * cap.seats) fail(`${cap.stands.join('+')}: the table estimate ${est} is under 0.9 × the published ${cap.seats} — the rows or the footprint are short, and the clamp cannot add seats`, true)
+  }
+  const estRows = spec.STANDS.map((st) => [st.id, spec.estimateSeats(st)]).filter(([, n]) => n > 0)
+  console.log(`  table estimate over all ${estRows.length} stands with rows: ${estRows.reduce((a, [, n]) => a + n, 0)} places (no Σ gate: the drawn figure count is quality.crowd's budget)`)
+}
+
+// ---------------------------------------------------------------- 15. spectator banks
+/**
+ * (d) `SPECTATOR_BANKS`: valid s range, a band that widens outwards, a near edge outside the
+ * run-off (hw + the widest asphalt / gravel of any RUNOFF_ZONES row that covers it), no s overlap
+ * with a stand on the same side (open intervals: a bank may start where a stand ends), a density
+ * a lawn can actually hold, and an `unverified` note — every one of these figures is read off an
+ * aerial.
+ */
+{
+  console.log('\nspectator banks')
+  const ids = new Set()
+  for (const bk of spec.SPECTATOR_BANKS ?? []) {
+    const [s0, s1] = bk.sRange
+    const len = arcLen(s0, s1)
+    if (ids.has(bk.id)) fail(`SPECTATOR_BANKS: duplicate id ${bk.id}`)
+    ids.add(bk.id)
+    if (s0 < 0 || s0 >= L || s1 < 0 || s1 >= L || len <= 0 || len > L / 4) fail(`${bk.id}: invalid sRange ${s0}→${s1}`)
+    if (!(bk.density > 0) || bk.density > 0.5) fail(`${bk.id}: density ${bk.density} is outside (0, 0.5] people/m²`)
+    if (!(bk.occupancy > 0) || bk.occupancy > 1) fail(`${bk.id}: occupancy ${bk.occupancy} is outside (0, 1]`)
+    if (bk.seated < 0 || bk.seated > 1) fail(`${bk.id}: seated ${bk.seated} is outside [0, 1]`)
+    if (!(bk.unverified ?? []).length) fail(`${bk.id}: no unverified note (every bank figure is read off an aerial)`)
+    let minNear = Infinity, minMargin = Infinity, marginS = s0, width = Infinity
+    for (let d = 0; d <= len; d += 2) {
+      const s = wrap(s0 + d)
+      const near = at(bk.lateral[0], s, bk.sRange)
+      const far = at(bk.lateral[1], s, bk.sRange)
+      if (far <= near) { fail(`${bk.id}: far edge ${fmt(far)} is not outside the near edge ${fmt(near)} at s ${fmt(s, 0)}`); break }
+      width = Math.min(width, far - near)
+      minNear = Math.min(minNear, near)
+      let outer = track.halfWidthAt(s)
+      for (const z of spec.RUNOFF_ZONES) {
+        if (!inArc(s, z.sRange)) continue
+        const band = bk.side === 1 ? z.left : z.right
+        outer = Math.max(outer, band.asphalt?.[1] ?? 0, band.gravel?.[1] ?? 0)
+      }
+      if (near - outer < minMargin) { minMargin = near - outer; marginS = s }
+    }
+    console.log(`  ${bk.id.padEnd(14)} side ${String(bk.side).padStart(2)}  s ${String(s0).padStart(4)}→${String(s1).padStart(4)} (${fmt(len, 0)} m)  near ${fmt(minNear)}  narrowest ${fmt(width)} m  run-off margin ${fmt(minMargin)} m  density ${bk.density}`)
+    if (minMargin < 0) fail(`${bk.id}: its near edge is ${fmt(-minMargin)} m inside the run-off / road at s ${fmt(marginS, 0)}`)
+    for (const st of spec.STANDS) {
+      if (st.side !== bk.side) continue
+      // open intervals: a bank that starts exactly where a stand ends does not overlap it
+      const [a0, a1] = st.sRange
+      if (arcLen(a0, s1) < arcLen(a0, a1) + len && arcLen(s0, a1) < arcLen(a0, a1) + len && s1 !== a0 && a1 !== s0 && arcsOverlap(st.sRange, bk.sRange)) {
+        // ...and only when the lateral bands meet as well
+        let hit = null
+        for (let d = 0; d <= len; d += 2) {
+          const s = wrap(s0 + d)
+          if (!inArc(s, st.sRange)) continue
+          const sf = Math.abs(at(st.lateralFront, s, st.sRange)), sb = Math.abs(at(st.lateralBack, s, st.sRange))
+          const bn = at(bk.lateral[0], s, bk.sRange), bf = at(bk.lateral[1], s, bk.sRange)
+          if (bn < sb && sf < bf) { hit = { s, st: [sf, sb], bk: [bn, bf] }; break }
+        }
+        if (hit) fail(`${bk.id} overlaps stand ${st.id} at s ${fmt(hit.s, 0)} (${fmt(hit.bk[0])}..${fmt(hit.bk[1])} vs ${fmt(hit.st[0])}..${fmt(hit.st[1])})`)
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------- 13. A11 — screens, signs and the tower stand where they can

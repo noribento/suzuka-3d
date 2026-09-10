@@ -56,17 +56,34 @@ export interface StandTier {
 }
 
 export interface StandRoof {
-  /** lateral band covered by the slab */
-  lateral: [number, number]
+  /**
+   * lateral band covered by the slab. A canopy that follows the rows it covers names the tier
+   * instead (`tier`): the band is then [row-1 front − overhang, structure back + 0.5] at every s,
+   * which is what a straight bar on a curving stretch of track needs (G's back bar drifts 8 m in
+   * lateral over its length)
+   */
+  lateral?: [number, number]
+  tier?: string
   /** s range when shorter than the stand */
   sRange?: [number, number]
-  /** soffit / top heights above the local track surface (m) */
+  /** several separate blocks along s (G: two canopies with a gap); each inside `sRange` */
+  blocks?: [number, number][]
+  /** soffit / top heights above the local track surface (m); a canopy's soffit is its front edge */
   soffit: number
   top: number
   /** forward cantilever beyond the supporting frame line (m) */
   overhang: number
   /** primary truss / fin pitch along s (m) */
   finPitch: number
+  /** 'slab' = the RC slab with white trusses (V2); 'canopy' = a thin steel deck on posts (default 'slab') */
+  style?: 'slab' | 'canopy'
+  /** what carries the roof: 'none' (a building band beneath: V2), 'deck' (posts on the rows), 'ground' (posts to the ground behind and in front) */
+  columns?: 'none' | 'deck' | 'ground'
+  columnPitch?: number
+  /** a canopy's rise from its front edge to its back (m) */
+  rise?: number
+  /** deck colour (sRGB hex); the V2 slab uses the measured COLOURS.roof* */
+  colour?: string
 }
 
 export interface StandDef {
@@ -283,7 +300,9 @@ export const STANDS: StandDef[] = [
       { id: 'V2-5-20', rows: 16, tread: 0.894, riser: 0.45, seat: 'chair', colour: COLOURS.seatV2.mid, lateralFront: 45.36, frontHeight: 9.5 },
     ],
     aisles: { pitch: 11.8, width: 1.2 }, // 21 lettered blocks A–U [PDF]; vomitories in rows 10–13
-    roof: { lateral: [36, 59.3], sRange: [5574, 5760], soffit: 30, top: 32, overhang: 7.5, finPitch: 12 }, // 18 × 186 m (mejibo/Takenaka); heights UNVERIFIED
+    // 18 × 186 m (mejibo/Takenaka); heights UNVERIFIED. The RC slab is carried by the hospitality
+    // band behind the rows (`columns: 'none'`), not by posts — nothing stands on the V2 deck.
+    roof: { lateral: [36, 59.3], sRange: [5574, 5760], soffit: 30, top: 32, overhang: 7.5, finPitch: 12, style: 'slab', columns: 'none' },
     frontHeight: 8.2,
     platform: 'Same fill platform as V1; a two-storey glazed hospitality band (35 panorama rooms, lateral ≈+45..+59, columns top +18..+20, glass +20..+28, 3 m mullions) sits on the top row and carries the roof',
     permanent: true,
@@ -342,22 +361,52 @@ export const STANDS: StandDef[] = [
     fence: 'single',
     unverified: ['position (not in OSM; from map.png)', 'lateral band', 'front height'],
   },
+  // A2 is TWO scaffold blocks, not one (GSI z18, .cache/audit/sections/02-t1-pit-exit-aerial.png):
+  // the pit-end one carries a blue steel canopy over its rows (a solid panelled deck, 4 m panel
+  // grid, no bench pitch through it), the Turn-1 one is open (its green benches read row by row
+  // at 0.8 m). Both were measured by sampling the mosaic in track coordinates: the blue runs
+  // s 260–306 at lateral 29.5–39, the green s 339–435 at lateral 28–41 (its front swings out
+  // with the road into Turn 1). The old single block (s 255–390, lateral 21–36) sat on neither.
+  {
+    id: 'A2R',
+    name: 'A2 メインストレートエンド（仮設・屋根付き）',
+    osmWays: [],
+    sRange: [260, 306],
+    side: 1,
+    lateralFront: 29.5,
+    lateralBack: 39.5,
+    structure: 'scaffold',
+    tiers: [{ id: 'A2R', rows: 12, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
+    aisles: { pitch: 9, width: 1.0 },
+    roof: { tier: 'A2R', soffit: 9.0, top: 9.2, overhang: 1.0, finPitch: 4.5, style: 'canopy', columns: 'ground', columnPitch: 4.5, rise: 1.4, colour: '#4f6a8a' },
+    frontHeight: 2.0,
+    platform: 'Scaffold behind the wall with a walkway in front; this pit-end block carries a blue steel canopy over every row',
+    permanent: false,
+    fence: 'single',
+    unverified: ['roof extent read off GSI z18 (section 02, ±3 m): the blue deck runs s 260–306 at lateral 29.5–39', 'rows', 'height', 'canopy soffit height'],
+  },
   {
     id: 'A2',
     name: 'A2 メインストレートエンド（仮設）',
     osmWays: [],
-    sRange: [255, 390],
+    sRange: [339, 434],
     side: 1,
-    lateralFront: 21,
-    lateralBack: 36,
+    // a straight-built block on the road curving into T1: its lateral grows towards the corner,
+    // and the T1 gravel band (RUNOFF_ZONES, to lateral 33 from s 400) sets how far out row 1 sits
+    lateralFront: [[339, 30], [400, 33.5], [434, 35]],
+    lateralBack: [[339, 43], [400, 46.5], [434, 48]],
     structure: 'scaffold',
     tiers: [{ id: 'A2', rows: 15, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
     aisles: { pitch: 9, width: 1.0 },
     frontHeight: 2.0,
-    platform: 'Scaffold behind the wall at +14..+19; taller toward Turn 1 (≤10 m); ends before the T1 gravel starts at s 434',
+    platform: 'Open scaffold block behind the wall; taller toward Turn 1 (≤10 m); ends where the T1 gravel starts at s 434',
     permanent: false,
     fence: 'single',
-    unverified: ['position (not in OSM; from map.png)', 'rows', 'height'],
+    unverified: [
+      'block extent read off GSI z18 (section 02, ±3 m): the green benches read row by row from s 337 to s 430; row 1 is held out to 30 → 35 by the Turn-1 gravel band (RUNOFF_ZONES, to lateral 33 from s 400) rather than by the photo, which puts the seating at 28.8–39.5 and the structure with its front walkway at 26.5–40',
+      'rows',
+      'height',
+    ],
   },
   // ---- Turn 2 ---------------------------------------------------------------------------
   {
@@ -602,6 +651,8 @@ export const STANDS: StandDef[] = [
     side: -1,
     lateralFront: [[2692, -38.5], [2703, -35.5], [2711, -30.5], [2723, -27], [2733, -26], [2738, -31.5]],
     lateralBack: [[2692, -48], [2713, -36], [2723, -33.5], [2738, -32.5]],
+    // the curved bench stand follows its OSM front edge (ring 14→26); rows concentric with it
+    path: { front: [14, 26], back: [0, 12] },
     structure: 'terrace',
     tiers: [{ id: 'I', rows: 8, ...TERRACE_BENCH }], // the curved OSM footprint is only 6–9 m deep → ≤ 8 rows at 0.8 m (plan said ≈14, UNVERIFIED)
     aisles: { pitch: 12, width: 1.2 },
@@ -619,6 +670,7 @@ export const STANDS: StandDef[] = [
     side: -1,
     lateralFront: [[2748, -28.5], [2803, -26.5]],
     lateralBack: [[2748, -39], [2803, -37]],
+    path: { front: [0, 1], back: [2, 3] },
     structure: 'scaffold',
     tiers: [{ id: 'IJ', rows: 10, ...SCAFFOLD_BENCH }],
     aisles: { pitch: 10, width: 1.0 },
@@ -636,6 +688,7 @@ export const STANDS: StandDef[] = [
     side: -1,
     lateralFront: [[2817, -29.5], [2832, -19], [2868, -18], [2899, -35.5]],
     lateralBack: [[2817, -29.5], [2830, -28.5], [2856, -31.5], [2880, -39.5], [2899, -37]],
+    path: { front: [7, 12], back: [0, 6] },
     structure: 'terrace',
     tiers: [{ id: 'J', rows: 10, ...TERRACE_BENCH }],
     aisles: { pitch: 12, width: 1.2 },
@@ -729,11 +782,15 @@ export const STANDS: StandDef[] = [
       { id: 'G-130R-2', rows: 10, ...TERRACE_BENCH, lateralFront: [[4747, 46], [4771, 48.5], [4811, 50], [4861, 47.5], [4896, 43]], frontHeight: 4.0 },
     ],
     aisles: { pitch: 14, width: 1.2 },
+    // Two blue steel canopies over the BACK bar (OSM 184102368, tier G-130R-2), with a 8 m stair
+    // gap between them. The bar is straight while 130R curves, so the band follows the tier's own
+    // rows rather than a fixed lateral pair (the tier's front drifts 46 → 50 → 43 over its length).
+    roof: { tier: 'G-130R-2', sRange: [4763, 4894], blocks: [[4763, 4817], [4825, 4894]], soffit: 9.6, top: 9.8, overhang: 1.2, finPitch: 4.5, style: 'canopy', columns: 'deck', columnPitch: 4.5, rise: 1.0, colour: '#4f6a8a' },
     frontHeight: 1.5,
-    platform: 'Two parallel bars on the inside (left) of 130R — the old code had this stand on the wrong side',
+    platform: 'Two parallel bars on the inside (left) of 130R — the old code had this stand on the wrong side; the back bar carries two blue canopies',
     permanent: true,
     fence: 'single',
-    unverified: ['rows', 'heights', 'which bar is temporary'],
+    unverified: ['rows', 'heights', 'which bar is temporary', 'roof extent read off GSI z18 (section 15, ±3 m): the two blue panelled decks lie over the BACK bar at s 4763–4817 and 4825–4894 (lateral 48–64 then 42–52 as the bar drifts), not over the front bar — the front bar\'s benches read white/silver row by row in the same crop, and the 2 × 22 m blocks at its 130R-entry end that the design review expected are not there'],
   },
   {
     id: 'P',
@@ -777,6 +834,7 @@ export const STANDS: StandDef[] = [
     side: 1,
     lateralFront: [[5288, 36.5], [5302, 30.5], [5342, 26.5]],
     lateralBack: [[5288, 42], [5304, 39.5], [5342, 37.5]],
+    path: { front: [4, 8], back: [0, 3] },
     structure: 'terrace',
     tiers: [{ id: 'Q1', rows: 11, ...TERRACE_BENCH }], // wedge-shaped footprint 5.5–11 m deep
     aisles: { pitch: 12, width: 1.2 },
@@ -794,6 +852,8 @@ export const STANDS: StandDef[] = [
     side: 1,
     lateralFront: [[5346, 29.5], [5354, 27.5], [5378, 31.5], [5410, 42], [5432, 41]],
     lateralBack: [[5346, 40], [5352, 51.5], [5374, 52.5], [5400, 59.5], [5432, 59]],
+    // the 65 m front edge bends 11° at its middle: R ≈ 50 m ≫ the 12.8 m seating depth
+    path: { front: [14, 20], back: [2, 11] },
     structure: 'terrace',
     tiers: [{ id: 'R', rows: 16, ...TERRACE_BENCH }],
     aisles: { pitch: 13, width: 1.2 },
@@ -824,24 +884,104 @@ export const STANDS: StandDef[] = [
     id: 'GRAN_VIEW',
     name: 'GRAN VIEW / R-BOX',
     osmWays: [],
-    sRange: [5350, 5430],
+    sRange: [5424, 5442],
     side: 1,
-    lateralFront: 60,
+    lateralFront: 60.5,
     lateralBack: 72,
     structure: 'frame',
     tiers: [],
     aisles: null,
-    frontHeight: 6,
-    platform: '2019 roofed box terrace (Course View Terrace) behind R — separate footprint, not in OSM',
-    enclosure: { floors: [6], glass: COLOURS.glassVip.mid, framePitch: 4, roofTop: 11 },
+    // the floor sits over R's back walkway (+6.3 at its S end)
+    frontHeight: 8,
+    platform: '2019 roofed box terrace (Course View Terrace) behind R\'s S end — separate footprint, not in OSM',
+    enclosure: { floors: [8], glass: COLOURS.glassVip.mid, framePitch: 4, roofTop: 13 },
     permanent: true,
     fence: 'none',
-    unverified: ['position (confirm on map.png / GSI)', 'size', 'height'],
+    unverified: ['position read off GSI z18 (section 17, ±3 m): the white-roofed box with the blue front strip behind R\'s S end, corners at s 5425 / 5441 and lateral 60.4 / 71.5', 'size', 'height'],
   },
 ]
 
 export function standById(id: string): StandDef | undefined {
   return STANDS.find((s) => s.id === id)
+}
+
+// ---------------------------------------------------------------- seat counts
+
+/** seat pitch along a row (m): stadium chairs (V1/V2/Q2 plan) and bench places */
+export const SEAT_PITCH: Record<SeatKind, number> = { chair: 0.507, bench: 0.55 }
+
+/**
+ * Published capacities with a source. Only sourced figures belong here: the generator's own
+ * count (rows × length ÷ pitch) is clamped to them by thinning the seat SLOTS the crowd sits on
+ * (per-row error diffusion; the chair furniture stays whole), and facilities-check warns when
+ * the table estimate falls under 0.9 × the figure. G_130R / D1_4 have estimates only
+ * (unverified) and stay unclamped.
+ */
+export interface SeatCapacity {
+  /** the stands the figure covers together (V1 + V2 are published as one grandstand) */
+  stands: string[]
+  seats: number
+  source: string
+}
+
+export const SEAT_CAPACITY: SeatCapacity[] = [
+  { stands: ['C'], seats: 13698, source: '2026 seat map PDF (grandstand_f1.pdf) measured 2026-09-05: 17 blocks × 30 rows, 13,698 seats' },
+  { stands: ['V1', 'V2'], seats: 12588, source: '2026 seat map PDF (f1_v1 / f1_v2) measured 2026-09-05: V1 22 blocks, V2 21 blocks, 12,588 seats' },
+]
+
+/**
+ * Table estimate of a stand's seats (rows × usable length ÷ pitch per tier, aisles removed) —
+ * what the generator produces before any clamp, within ≈ 3 % (the tapering ends).
+ */
+export function estimateSeats(def: StandDef): number {
+  const L = CIRCUIT.officialLength
+  const len = (r: [number, number]) => (((r[1] - r[0]) % L) + L) % L || L
+  let n = 0
+  for (const t of def.tiers) {
+    const span = len(t.sRange ?? def.sRange)
+    const aisles = def.aisles && span >= def.aisles.pitch * 1.5 ? (Math.max(1, Math.round(span / def.aisles.pitch)) - 1) * def.aisles.width : 0
+    n += t.rows * Math.floor((span - aisles) / SEAT_PITCH[t.seat])
+  }
+  return n
+}
+
+// ---------------------------------------------------------------- spectator banks (lawns)
+
+/**
+ * The grass banks people sit on with leisure sheets: the 逆バンクオアシス plateau behind D,
+ * the E hill past E-1, the lawns beside I / J and the West Area lawns at L / M / N (green on the
+ * 2026 seat map), the slope beyond S. Measured in (s, lateral) like the stands; `lateral` is the
+ * [near, far] band from the centreline on `side` (AlongTrack each, so a band can widen along s).
+ * `density` is people per m² before `occupancy`; `seated` the share sitting (the rest stand).
+ * Everything here is an estimate from the aerials and the seat map — see `unverified`.
+ */
+export interface BankDef {
+  id: string
+  name: string
+  side: Side
+  sRange: [number, number]
+  lateral: [AlongTrack, AlongTrack]
+  density: number
+  occupancy: number
+  seated: number
+  /** West Area lawns get pop-up tents (one per 40 people) */
+  west?: boolean
+  unverified: string[]
+}
+
+export const SPECTATOR_BANKS: BankDef[] = [
+  { id: 'BANK_OASIS', name: '逆バンクオアシスの芝', side: 1, sRange: [1255, 1385], lateral: [66, 96], density: 0.22, occupancy: 0.85, seated: 0.7, unverified: ['extent: the plateau behind the D temporary block (aerial, ±5 m)', 'density'] },
+  { id: 'BANK_E_HILL', name: 'E の丘（NIPPO 出口側）', side: 1, sRange: [1666, 1725], lateral: [22, 60], density: 0.2, occupancy: 0.8, seated: 0.65, unverified: ['extent: the hillside past E-1 down to the Dunlop stretch (aerial, ±5 m)', 'density', 'fence: dunlop-inside (s 1682–1824) carries no debris fence in BARRIERS; the bank\'s near edge past s 1682 is screened by nothing yet'] },
+  { id: 'BANK_I', name: 'ヘアピン外側の芝（I 席手前）', side: -1, sRange: [2630, 2691], lateral: [32, 46], density: 0.25, occupancy: 0.85, seated: 0.6, unverified: ['extent (aerial, ±5 m)', 'density'] },
+  { id: 'BANK_J', name: 'J 200R の芝（西エリア）', side: -1, sRange: [2810, 2900], lateral: [41, 58], density: 0.18, occupancy: 0.6, seated: 0.7, west: true, unverified: ['extent: the lawn behind the J stand (aerial, ±5 m)', 'density'] },
+  { id: 'BANK_L', name: 'L スプーン入口の芝（西エリア）', side: -1, sRange: [3460, 3595], lateral: [57, 74], density: 0.18, occupancy: 0.55, seated: 0.7, west: true, unverified: ['extent: the bank behind the L stand (aerial, ±5 m)', 'density'] },
+  { id: 'BANK_M', name: 'M スプーンの芝（西エリア）', side: -1, sRange: [3700, 3790], lateral: [69, 86], density: 0.16, occupancy: 0.6, seated: 0.7, west: true, unverified: ['extent: the slope behind the M scaffold (aerial, ±5 m)', 'density'] },
+  { id: 'BANK_N', name: 'N スプーン出口の芝（西エリア）', side: -1, sRange: [3796, 3860], lateral: [56, 72], density: 0.16, occupancy: 0.55, seated: 0.7, west: true, unverified: ['extent: the lawn behind the N stand (aerial, ±5 m)', 'density'] },
+  { id: 'BANK_S_BEYOND', name: 'S 席の先の芝（観覧車手前）', side: 1, sRange: [5503, 5560], lateral: [28, 56], density: 0.22, occupancy: 0.8, seated: 0.6, unverified: ['extent: the slope between the S stand and the Ferris wheel (aerial, ±5 m)', 'density'] },
+]
+
+export function bankById(id: string): BankDef | undefined {
+  return SPECTATOR_BANKS.find((b) => b.id === id)
 }
 
 // ---------------------------------------------------------------- buildings

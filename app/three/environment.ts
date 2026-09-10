@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { STANDS } from '~/data/suzuka-facilities-spec'
+import { SPECTATOR_BANKS, STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { ROLL_CAP, type Track } from '~/sim/track'
 import { makeGround, settleGround, type Ground } from './ground'
@@ -7,12 +7,12 @@ import { makeField, type GroundField } from './ground-field'
 import { buildGroundPlan, type GroundPlan } from './ground-plan'
 import { buildGroundMeshes, isGroundFace, type BuiltGround, type GroundFace } from './ground-mesh'
 import { groundMaterials } from './ground-materials'
-import { buildCrowd } from './crowd'
+import { buildCrowd, type Crowd } from './crowd'
 import { grassSurfaceMaterial } from './materials'
 import { QUALITY, type Quality } from './quality'
 import { BoxPlacer } from './boxes'
 import type { AssetRegistry } from './assets'
-import { buildStands, facilityRelief, lateralBackMax } from './stands'
+import { buildStands, facilityRelief, lateralBackMax, type StandsStats } from './stands'
 import { demFieldFor, type DemField } from './dem'
 import { buildLandCover, type CoverLayer, type CoverRect, type LandCover } from './landcover'
 import { buildTerrainFar, RIDGE_COLOURS, type TerrainFarStats } from './terrain-far'
@@ -896,6 +896,12 @@ export interface StandZone {
   side: 1 | -1
   /** outer edge of the stand, metres from the centreline */
   lateralBack: number
+  /**
+   * How far behind that edge the zone still keeps trees out (m). A stand needs the default 26 m
+   * (its concourse, stairs and kiosks); a spectator bank is a lawn people sit on with the trees
+   * that are already there right behind it, so its rows carry 4.
+   */
+  pad?: number
 }
 
 /**
@@ -952,6 +958,12 @@ export interface Environment {
   terrainFar: TerrainFarStats
   /** wall-clock ms per synchronous builder (also `group.userData.buildMs`); the deferred jobs report through `farField.stats().buildMs` */
   buildMs: Record<string, number>
+  /**
+   * What the spectator builders measured — seats and their capacity clamp, the stands that built
+   * a roof or a path frame, the deck-normal check, the banks, and the crowd's budget. Read by
+   * `window.__suzuka.env.stats`, the e2e suite and scripts/perf-probe.mjs.
+   */
+  stats: { seats: StandsStats['seats']; roofs: string[]; pathStands: string[]; deckUp: Record<string, boolean>; banks: StandsStats['banks']; crowd: Crowd['stats'] }
   /** per frame; `cameraPos` drives the crowd density LOD and yaw, and the far field's per-cell LOD */
   update: (dt: number, cameraPos?: THREE.Vector3) => void
 }
@@ -1012,7 +1024,11 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   group.add(farField.group)
   const ctx: EnvBuildContext = {
     track, terrain, ground, group, quality, assets, boxes, rng,
-    standZones: STANDS.map((d) => ({ from: d.sRange[0], to: d.sRange[1], side: d.side, lateralBack: lateralBackMax(d.lateralBack) })),
+    standZones: [
+      ...STANDS.map((d) => ({ from: d.sRange[0], to: d.sRange[1], side: d.side, lateralBack: lateralBackMax(d.lateralBack) })),
+      // the spectator banks (banks.ts) keep trees off the lawn people sit on, but only just
+      ...SPECTATOR_BANKS.map((b) => ({ from: b.sRange[0], to: b.sRange[1], side: b.side, lateralBack: lateralBackMax(b.lateral[1]), pad: 4 })),
+    ],
     keepOut: [],
     keepOutPolys: [],
     farField,
@@ -1075,5 +1091,6 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     }
   }
 
-  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, terrainFar, buildMs, update }
+  const stats = { ...stands.stats, crowd: crowd.stats }
+  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, terrainFar, buildMs, stats, update }
 }

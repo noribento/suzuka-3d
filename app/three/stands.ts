@@ -1,15 +1,16 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { alongAt, COLOURS, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandTier } from '~/data/suzuka-facilities-spec'
+import { alongAt, COLOURS, SEAT_CAPACITY, SEAT_PITCH, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandRoof, type StandTier } from '~/data/suzuka-facilities-spec'
 import { OSM_STANDS, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { BASINS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
-import type { EnvBuildContext, Terrain } from './environment'
+import type { EnvBuildContext } from './environment'
 import type { Ground } from './ground'
 import { bucketedInstancedMeshes } from './instancing'
 import { pbrFromAssets } from './materials'
 import { demFieldFor } from './dem'
-import { boardTexture, concreteMaps } from './textures'
+import { boardTexture, cached, canvas, concreteMaps, makeTexture, scaled as texSize } from './textures'
+import { buildBanks, type BankStats } from './banks'
 
 /**
  * Grandstands generated from the real footprints (OSM, ./suzuka-facilities.ts) and the
@@ -45,11 +46,32 @@ export interface SeatSlot {
   z: number
   /** yaw (atan2(x, z) of the facing direction) — the figures look towards the track */
   yaw: number
-  kind: SeatKind
+  /** 'lawn' = a place on a spectator bank (banks.ts), not a seat */
+  kind: SeatKind | 'lawn'
+}
+
+/** What the stand generator measured — `Environment.stats`, the e2e suite and the Node probes read it. */
+export interface StandsStats {
+  seats: {
+    /** slots handed to the crowd (lawn places included) */
+    total: number
+    /** per stand: the generator's own count and what survived the capacity clamp */
+    byStand: Record<string, { generated: number; kept: number }>
+    /** the SEAT_CAPACITY rows with the count they clamped */
+    capacity: { stands: string[]; seats: number; generated: number; kept: number }[]
+  }
+  /** stands that built a roof */
+  roofs: string[]
+  /** stands built along their OSM front edge (StandDef.path) */
+  pathStands: string[]
+  /** per stand: the first deck triangle faces up (a path frame on the wrong side folds the deck under) */
+  deckUp: Record<string, boolean>
+  banks: BankStats
 }
 
 export interface Stands {
   seats: SeatSlot[]
+  stats: StandsStats
   /** per frame: instanced seats / scaffold tubes of bays beyond their LOD distance stop drawing */
   update: (cameraPos: THREE.Vector3) => void
 }
@@ -92,8 +114,6 @@ const Y_UP = new THREE.Vector3(0, 1, 0)
 export const STAND_BAY = 60
 const SEAT_LOD = 260
 const TUBE_LOD = 420
-const CHAIR_PITCH = 0.507
-const BENCH_PITCH = 0.55
 /**
  * Bench planks read as pale sage green in every stand photo (off_c_08, off_b2_03, off_d_seat,
  * off_e_seat): the spec's tan / grey values are shaded-side measurements, so the lit albedo is
@@ -362,6 +382,9 @@ interface PathSpec {
   quatAt: (u: number, out: THREE.Quaternion) => THREE.Quaternion
   yaw: (u: number) => number
   box: [number, number, number, number]
+  /** unit tangents (xz) at u = 0 and u = len, both pointing towards increasing u */
+  tan0: [number, number]
+  tan1: [number, number]
 }
 
 const _pp = new THREE.Vector3()
@@ -400,6 +423,10 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
   // orient the chain with the lap: u must grow in driving order. Signed, not forward: a first
   // vertex a few centimetres before sRange[0] wraps to nearly a full lap and reverses the path.
   if (signedDelta(sAtWorld(front[0]!), sAtWorld(front[front.length - 1]!), L) < 0) front = front.reverse()
+  // ...then AGAINST it on a right-side stand: `sweep` faces up only while +v lies to the left of
+  // +u, and a right-side stand's rows lie to the right of the driving direction. u runs the
+  // other way there (pathLocalDef sorts the mapped breakpoints), the deck comes out facing up
+  if (def.side < 0) front = front.reverse()
   // resample the chain through a Catmull-Rom every 2 m
   const raw = front
   const sx: number[] = []
@@ -421,8 +448,8 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
   const us = new Float32Array(m)
   for (let i = 1; i < m; i++) us[i] = us[i - 1]! + Math.hypot(px[i]! - px[i - 1]!, pz[i]! - pz[i - 1]!)
   const len = us[m - 1]!
-  // inward normal: perpendicular to the tangent, pointing at the footprint's centroid
-  const centroid = pts.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / n)
+  // inward normal: perpendicular to the tangent, pointing at the BACK edge of the footprint
+  const backChain = ring(def.path!.back[0], def.path!.back[1])
   const nx = new Float32Array(m), nz = new Float32Array(m)
   for (let i = 0; i < m; i++) {
     const a = Math.max(0, i - 1), b = Math.min(m - 1, i + 1)
@@ -431,21 +458,10 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
     nx[i] = -tz * inv
     nz[i] = tx * inv
   }
-  // One side of the path is the seating; decide it once from the footprint's centroid at the
-  // sample nearest to it, then keep every normal on that side. Deciding per sample flips the
-  // normal wherever a long, thin footprint puts its centroid across the local tangent, which
-  // folds the rows back over the track.
-  {
-    let best = 0, bd = Infinity
-    for (let i = 0; i < m; i++) {
-      const d = Math.hypot(centroid.x - px[i]!, centroid.z - pz[i]!)
-      if (d < bd) { bd = d; best = i }
-    }
-    const flip = (centroid.x - px[best]!) * nx[best]! + (centroid.z - pz[best]!) * nz[best]! < 0
-    if (flip) for (let i = 0; i < m; i++) { nx[i] = -nx[i]!; nz[i] = -nz[i]! }
-    for (let i = 1; i < m; i++) {
-      if (nx[i]! * nx[i - 1]! + nz[i]! * nz[i - 1]! < 0) { nx[i] = -nx[i]!; nz[i] = -nz[i]! }
-    }
+  // Keep the normals on ONE side of the path first: deciding the side per sample flips the normal
+  // wherever a long, thin footprint bends, which folds the rows back over the track.
+  for (let i = 1; i < m; i++) {
+    if (nx[i]! * nx[i - 1]! + nz[i]! * nz[i - 1]! < 0) { nx[i] = -nx[i]!; nz[i] = -nz[i]! }
   }
   const idxOf = (u: number) => {
     const t = Math.min(len, Math.max(0, u))
@@ -485,6 +501,15 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
     }
     return { u: bu, v: bv, d: bd }
   }
+  // ...then point that side at the seating, by a VOTE of the declared back edge's own vertices.
+  // A single test point does not do: a mean, whether of the footprint or of the back chain alone,
+  // lands on the CONCAVE side of a curved terrace and so in front of its own front edge — I's
+  // banana on the outside of the hairpin measured that way and came out with no back at all.
+  {
+    let vote = 0
+    for (const q of backChain) vote += project(q.x, q.z).v
+    if (vote < 0) for (let i = 0; i < m; i++) { nx[i] = -nx[i]!; nz[i] = -nz[i]! }
+  }
   /** chain → (u, v) polyline, one value per u: the outermost for the back, the nearest for the front */
   const polyline = (chain: THREE.Vector3[], pick: 'min' | 'max'): [number, number][] => {
     const out: [number, number][] = []
@@ -501,7 +526,7 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
   const frontV = polyline(front, 'min')
   // the back chain includes the two end caps, whose vertices project in front of the path (v ≤ 0)
   // or onto its ends; only what is genuinely behind the front edge bounds the seating
-  const backV = polyline(ring(def.path!.back[0], def.path!.back[1]), 'max').filter(([, v]) => v > 2)
+  const backV = polyline(backChain, 'max').filter(([, v]) => v > 2)
   // s along the lap at u, from the road nearest the path (not a linear map: the front edge and the
   // road diverge through a bend)
   const sSamples = new Float32Array(m)
@@ -538,7 +563,20 @@ function buildPathSpec(track: Track, def: StandDef, feat: OsmFeature): PathSpec 
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
     minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z)
   }
-  return { px, pz, nx, nz, us, len, frontV, backV, sOf, uOf, yRef, project, at, quatAt, yaw: yawAt, box: [minX, maxX, minZ, maxZ] }
+  // unit tangents at the two ends (u increasing), for the relief zones' end fades
+  const tanOf = (i: number, j: number): [number, number] => {
+    const tx = px[j]! - px[i]!, tz = pz[j]! - pz[i]!
+    const inv = 1 / (Math.hypot(tx, tz) || 1)
+    return [tx * inv, tz * inv]
+  }
+  const tan0 = tanOf(0, Math.min(m - 1, 1)), tan1 = tanOf(Math.max(0, m - 2), m - 1)
+  return { px, pz, nx, nz, us, len, frontV, backV, sOf, uOf, yRef, project, at, quatAt, yaw: yawAt, box: [minX, maxX, minZ, maxZ], tan0, tan1 }
+}
+
+/** The cached path frame of a stand (null when it has none) — for the relief probes. */
+export function standPathSpec(track: Track, id: string): PathSpec | null {
+  const def = STANDS.find((s) => s.id === id)
+  return def ? pathSpec(track, def) : null
 }
 
 function pathFrame(ground: Ground, spec: PathSpec): Frame {
@@ -569,8 +607,14 @@ function pathFrame(ground: Ground, spec: PathSpec): Frame {
  */
 function pathLocalDef(def: StandDef, spec: PathSpec): StandDef {
   const t = def.tiers[0]!.tread
+  // the mapped breakpoints must rise with u: on a right-side stand u runs against the lap
   const conv = (v: AlongTrack | undefined): AlongTrack | undefined =>
-    typeof v === 'number' || v === undefined ? v : v.map(([s, h]) => [spec.uOf(s), h] as [number, number])
+    typeof v === 'number' || v === undefined ? v : v.map(([s, h]) => [spec.uOf(s), h] as [number, number]).sort((a, b) => a[0] - b[0])
+  const range = (r: [number, number] | undefined): [number, number] | undefined => {
+    if (!r) return undefined
+    const a = spec.uOf(r[0]), b = spec.uOf(r[1])
+    return [Math.min(a, b), Math.max(a, b)]
+  }
   return {
     ...def,
     sRange: [0, spec.len],
@@ -580,11 +624,11 @@ function pathLocalDef(def: StandDef, spec: PathSpec): StandDef {
     frontHeight: conv(def.frontHeight)!,
     tiers: def.tiers.map((tier) => ({
       ...tier,
-      sRange: tier.sRange ? ([spec.uOf(tier.sRange[0]), spec.uOf(tier.sRange[1])] as [number, number]) : undefined,
+      sRange: range(tier.sRange),
       lateralFront: undefined,
       frontHeight: conv(tier.frontHeight),
     })),
-    roof: def.roof ? { ...def.roof, sRange: def.roof.sRange ? ([spec.uOf(def.roof.sRange[0]), spec.uOf(def.roof.sRange[1])] as [number, number]) : undefined } : undefined,
+    roof: def.roof ? { ...def.roof, sRange: range(def.roof.sRange), blocks: def.roof.blocks?.map((r) => range(r)!) } : undefined,
   }
 }
 
@@ -624,6 +668,8 @@ interface Mats {
   glass: THREE.MeshStandardMaterial
   glassTex: number
   board: THREE.MeshStandardMaterial
+  /** the bilingual wayfinding atlas (one material for every board of every stand) */
+  wayfinding: THREE.MeshStandardMaterial
   kiosk: THREE.MeshStandardMaterial
 }
 
@@ -666,6 +712,7 @@ function makeMaterials(ctx: EnvBuildContext): Mats {
     glass,
     glassTex: 1 / 3,
     board: new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.5 }),
+    wayfinding: new THREE.MeshStandardMaterial({ map: wayfindingTexture(), roughness: 0.6, side: THREE.DoubleSide }),
     kiosk: new THREE.MeshStandardMaterial({ color: 0xd8d6d0, roughness: 0.7 }),
   }
 }
@@ -687,6 +734,8 @@ interface Build {
   furniture: THREE.BufferGeometry[]
   glass: THREE.BufferGeometry[]
   board: THREE.BufferGeometry[]
+  /** wayfinding boards (their own atlas material) */
+  signs: THREE.BufferGeometry[]
   corrugated: THREE.BufferGeometry[]
   seats: SeatSlot[]
   seatMatrices: THREE.Matrix4[]
@@ -694,10 +743,18 @@ interface Build {
   seatS: number[]
   tubeMatrices: THREE.Matrix4[]
   tubeS: number[]
+  /** canopy posts: their own LOD entry, with no distance cut (a roof must not float) */
+  postMatrices: THREE.Matrix4[]
+  postS: number[]
   /** deck vertices (world xyz) the terrain grid is sunk under */
   deckPts: number[]
-  /** overhead slabs for the vertex AO: lateral band and the slab's underside height at (u, v) */
-  overhead: { v0: number; v1: number; y: (u: number, v: number) => number }[]
+  /**
+   * Overhead slabs for the vertex AO: the lateral band at u (a canopy that follows a tier's rows
+   * drifts across a curving stand) and the slab's underside height at (u, v).
+   */
+  overhead: { v0: Fn; v1: Fn; y: (u: number, v: number) => number }[]
+  /** the first deck triangle faces up (see `firstDeckFacesUp`) */
+  deckUp: boolean
 }
 
 /** Resolved geometry of one tier along its own u range. */
@@ -722,7 +779,8 @@ function aoOf(b: Build): (u: number, v: number, y: number) => number {
   return (u, v, y) => {
     let f = 1
     for (const o of b.overhead) {
-      const lo = Math.min(o.v0, o.v1), hi = Math.max(o.v0, o.v1)
+      const a = o.v0(u), c = o.v1(u)
+      const lo = Math.min(a, c), hi = Math.max(a, c)
       if (v < lo || v > hi) continue
       const gap = o.y(u, v) - y
       if (gap <= 0) continue
@@ -873,7 +931,7 @@ function addDeck(b: Build, run: TierRun) {
   const plankTop = lin(plankColour)
   const plankEdge = scaled(plankTop, 0.72)
   const seatColour = new THREE.Color(run.tier.colour)
-  const pitch = run.tier.seat === 'chair' ? CHAIR_PITCH : BENCH_PITCH
+  const pitch = SEAT_PITCH[run.tier.seat]
   const facingFlip = side < 0 ? new THREE.Quaternion().setFromAxisAngle(Y_UP, Math.PI) : null
   // along-track step: the treads are flat, so only the curvature matters — every stand sits on
   // the outside of its corner (radius ≥ 60 m), where a 4 m chord is out by 3 cm. The tier that
@@ -1120,56 +1178,82 @@ function addEnclosure(b: Build, u0: number, len: number, vFront: Fn, vBack: Fn, 
 }
 
 /**
- * Main grandstand upper works over V2: the two-storey glazed hospitality band on piers behind
- * the V2 rows, and the 18 × 186 m roof slab (ribbed soffit, fascia, white triangular trusses on
- * top). Everything is swept along the track, so it tilts with the 2.8 % gradient like the real one.
+ * The lateral band a roof covers at u. A slab names the band outright (`lateral`); a canopy that
+ * follows the rows it shelters names the TIER instead, and the band is then the tier's own
+ * row-1 front (less the overhang) to just behind its structure — which is what a straight bar on
+ * a curving stretch needs (G's back bar drifts 46 → 50 → 43 m in lateral over its 160 m).
  */
-function addMainRoofAndBand(b: Build, runs: TierRun[]) {
-  const { frame, side, mats, def } = b
-  const roof = def.roof!
+function roofBand(b: Build, roof: StandRoof, runs: TierRun[]): { v0: Fn; v1: Fn } {
+  if (roof.lateral) {
+    const [a, c] = roof.lateral
+    return { v0: () => a, v1: () => c }
+  }
+  const run = runs.find((r) => r.tier.id === roof.tier) ?? runs[runs.length - 1]!
+  const t = run.tier.tread
+  return {
+    v0: (u) => run.lf(u) - b.side * (0.5 * t + roof.overhang),
+    v1: (u) => run.vBack(u) + b.side * 0.5,
+  }
+}
+
+/**
+ * The AO band of a roof — one place, so what `addRoof` draws and what the decks under it are
+ * shaded by can never disagree (they were two hand-kept copies before).
+ */
+function roofOverhead(b: Build, roof: StandRoof, runs: TierRun[]) {
+  const band = roofBand(b, roof, runs)
+  const rise = roof.rise ?? 0
+  b.overhead.push({
+    v0: band.v0,
+    v1: band.v1,
+    y: (u, v) => {
+      if (!rise) return roof.soffit
+      const a = band.v0(u), c = band.v1(u)
+      const t = Math.min(1, Math.max(0, (v - a) / (c - a || 1)))
+      return roof.soffit + rise * t
+    },
+  })
+}
+
+/** The tread height of a tier's deck at (u, v) — what a column standing on the rows lands on. */
+function deckHeightOf(b: Build, run: TierRun): (u: number, v: number) => number {
+  const t = run.tier.tread
+  return (u, v) => {
+    const d = (v - run.lf(u)) * b.side + 0.5 * t
+    return run.h0(u) + Math.min(run.rowsAt(u), Math.max(0, Math.floor(d / t))) * run.tier.riser
+  }
+}
+
+/**
+ * A stand's roof, in whichever of the two forms the data asks for.
+ *
+ * `style 'slab'` is the main grandstand's 18 × 186 m RC slab: ribbed soffit, fascia and the white
+ * triangular trusses on top, carried by the hospitality band beneath (`columns 'none'`).
+ * `style 'canopy'` is the thin steel deck of the temporary stands and of G's back bar: a plate
+ * that rises from its front edge to its back on posts, either to the ground (`'ground'`, the
+ * scaffold stands) or standing on the rows (`'deck'`). The posts are their own LOD entry with no
+ * distance cut — the scaffold tubes stop at 420 m, and a roof left floating over nothing is worse
+ * than the tubes it saves. `blocks` cuts the roof into separate lengths (G: two canopies with a
+ * stair gap between them).
+ */
+function addRoof(b: Build, roof: StandRoof, runs: TierRun[]) {
+  const L = b.ctx.track.length
+  const [rs0, rs1] = roof.sRange ?? b.def.sRange
+  const spans = (roof.blocks ?? [[rs0, rs1]]).map(([a, c]) => ({ u0: a, len: forwardDelta(a, c, L) || L }))
+  const band = roofBand(b, roof, runs)
+  for (const { u0, len } of spans) {
+    if (len < 1) continue
+    if ((roof.style ?? 'slab') === 'slab') addSlabRoof(b, roof, u0, len, band)
+    else addCanopyRoof(b, roof, runs, u0, len, band)
+  }
+}
+
+/** The V2 slab: flat top, ribbed soffit, fascias, end walls, white trusses and a ridge purlin. */
+function addSlabRoof(b: Build, roof: StandRoof, u0: number, len: number, band: { v0: Fn; v1: Fn }) {
+  const { frame, side, mats } = b
   const avg = mats.concreteAvg
-  const white = tint(COLOURS.mullionWhite.mid, avg)
-  const [rs0, rs1] = roof.sRange ?? def.sRange
-  const u0 = rs0
-  const len = forwardDelta(rs0, rs1, b.ctx.track.length)
-  const [vA, vB] = roof.lateral
-  const bandFront = 47, bandBack = vB
-  const bandFloor = 19.5, bandTop = roof.soffit - 0.1
-  const upper = runs[runs.length - 1]!
-  // --- glazed band --------------------------------------------------------------------------
-  b.overhead.push({ v0: bandFront - 0.6, v1: bandBack, y: () => bandFloor - 0.5 })
-  const pier = tint(COLOURS.pierConcrete.mid, avg)
-  const deckY = (u: number, v: number) => {
-    const d = (v - upper.lf(u)) * side + 0.5 * upper.tier.tread
-    return upper.h0(u) + Math.min(upper.rowsAt(u), Math.max(0, Math.floor(d / upper.tier.tread))) * upper.tier.riser
-  }
-  for (let d = 1.75; d < len; d += 3.5) {
-    const u = u0 + d
-    const yF = deckY(u, bandFront + 0.4)
-    b.terrace.push(box(frame, u, bandFront + 0.4, yF, 0.7, bandFloor - 0.5 - yF, 0.7, pier))
-    const g = frame.ground(u, bandBack - 0.5) - 0.5
-    b.terrace.push(box(frame, u, bandBack - 0.5, g, 0.7, bandFloor - 0.5 - g, 0.7, pier))
-    b.furniture.push(box(frame, u, bandFront + 0.02, bandFloor + 0.1, 0.14, bandTop - bandFloor - 0.1, 0.14, white))
-  }
-  // green signage strip between the front piers, floor soffit + fascia, glass front/back/ends
-  b.furniture.push(wall(frame, u0, len, () => bandFront + 0.1, () => bandFloor - 1.7, () => bandFloor - 0.6, 4, -1, lin(COLOURS.signageGreen.mid), 1))
-  const soffit: Edge[] = [{ v: () => bandBack, y: () => bandFloor - 0.5, tex: 12, rgb: scaled(white, 0.85) }, { v: () => bandFront - 0.6, y: () => bandFloor - 0.5, tex: 0, rgb: scaled(white, 0.85) }]
-  b.terrace.push(sweep(frame, u0, len, soffit, 4, mats.concreteTex))
-  b.terrace.push(wall(frame, u0, len, () => bandFront - 0.6, () => bandFloor - 0.5, () => bandFloor + 0.1, 4, -1, white, mats.concreteTex))
-  b.glass.push(wall(frame, u0, len, () => bandFront - 0.5, () => bandFloor + 0.1, () => bandTop, 3, -1, [1, 1, 1], mats.glassTex))
-  b.glass.push(wall(frame, u0, len, () => bandBack, () => bandFloor + 0.1, () => bandTop, 3, 1, [1, 1, 1], mats.glassTex))
-  for (const [u, facing] of [[u0, -1], [u0 + len, 1]] as const) {
-    const g = endWall(frame, u, [[bandFront - 0.6, bandFloor - 0.5], [bandBack, bandFloor - 0.5], [bandBack, bandTop], [bandFront - 0.6, bandTop]], facing, [1, 1, 1], mats.glassTex)
-    if (g) b.glass.push(g)
-  }
-  // horizontal mullions: sill, the pale blue band across the middle, head
-  const blue = lin('#9fd3e8')
-  for (const [y, h, rgb] of [[bandFloor + 0.1, 0.25, white], [bandFloor + 4.0, 0.7, blue], [bandTop - 0.25, 0.25, white]] as const) {
-    b.furniture.push(wall(frame, u0, len, () => bandFront - 0.62, () => y, () => y + h, 4, -1, rgb, 1))
-  }
-  // --- roof slab -----------------------------------------------------------------------------
-  b.overhead.push({ v0: vA, v1: vB, y: () => roof.soffit })
-  const topRgb = tint(COLOURS.roofTop.mid, avg)
+  const vA = band.v0(u0), vB = band.v1(u0)
+  const topRgb = tint(roof.colour ?? COLOURS.roofTop.mid, avg)
   const fascia = tint(COLOURS.roofFascia.mid, avg)
   const slabTop = roof.soffit + 1.5
   const top: Edge[] = [{ v: () => vA, y: () => slabTop, tex: 0, rgb: topRgb }, { v: () => vB, y: () => slabTop, tex: 24, rgb: topRgb }]
@@ -1217,10 +1301,139 @@ function addMainRoofAndBand(b: Build, runs: TierRun[]) {
     { v: () => vMid + 0.12, y: () => apex + 0.15, tex: 0.5, rgb: truss },
     { v: () => vMid + 0.12, y: () => apex - 0.1, tex: 0.75, rgb: truss },
   ], 6, 1))
-  // --- rear façade towards GP Square: white RC wall with stair openings ------------------------
+  void side
+}
+
+/**
+ * A steel canopy: a plate `top − soffit` thick that rises `rise` metres from its front edge to
+ * its back, on posts every `columnPitch`. Purlin fins under the plate every `finPitch` read as
+ * the ribbed underside every photo of a temporary roof shows.
+ */
+function addCanopyRoof(b: Build, roof: StandRoof, runs: TierRun[], u0: number, len: number, band: { v0: Fn; v1: Fn }) {
+  const { frame, side, mats } = b
+  const avg = mats.concreteAvg
+  const rise = roof.rise ?? 0
+  const thick = Math.max(0.12, roof.top - roof.soffit)
+  const deck = tint(roof.colour ?? '#4f6a8a', avg)
+  const under = scaled(deck, 0.62)
+  const edgeRgb = scaled(deck, 0.82)
+  const yUnder = (u: number, v: number) => {
+    const a = band.v0(u), c = band.v1(u)
+    const t = Math.min(1, Math.max(0, (v - a) / (c - a || 1)))
+    return roof.soffit + rise * t
+  }
+  const vF: Fn = (u) => band.v0(u)
+  const vB: Fn = (u) => band.v1(u)
+  const yF: Fn = (u) => yUnder(u, vF(u))
+  const yBk: Fn = (u) => yUnder(u, vB(u))
+  const top: Edge[] = [
+    { v: vF, y: (u) => yF(u) + thick, tex: 0, rgb: deck },
+    { v: vB, y: (u) => yBk(u) + thick, tex: 12, rgb: deck },
+  ]
+  const soffit: Edge[] = [{ v: vF, y: yF, tex: 0, rgb: under }, { v: vB, y: yBk, tex: 12, rgb: under }]
+  if (side < 0) top.reverse()
+  else soffit.reverse()
+  b.terrace.push(sweep(frame, u0, len, top, 4, mats.concreteTex))
+  b.terrace.push(sweep(frame, u0, len, soffit, 4, mats.concreteTex))
+  b.terrace.push(wall(frame, u0, len, vF, yF, (u) => yF(u) + thick, 4, side < 0 ? 1 : -1, edgeRgb, mats.concreteTex))
+  b.terrace.push(wall(frame, u0, len, vB, yBk, (u) => yBk(u) + thick, 4, side, edgeRgb, mats.concreteTex))
+  for (const [u, facing] of [[u0, -1], [u0 + len, 1]] as const) {
+    const g = endWall(frame, u, [[vF(u), yF(u)], [vB(u), yBk(u)], [vB(u), yBk(u) + thick], [vF(u), yF(u) + thick]], facing, edgeRgb, mats.concreteTex)
+    if (g) b.terrace.push(g)
+  }
+  // purlin fins under the plate
+  const fin = scaled(deck, 0.5)
+  for (let d = roof.finPitch / 2; d < len; d += roof.finPitch) {
+    const u = u0 + d
+    const a = new THREE.Vector3(), c = new THREE.Vector3()
+    const g = new THREE.BoxGeometry(0.16, 1, 0.16)
+    g.applyMatrix4(tubeMatrix(frame.at(u, vF(u), yF(u) - 0.1, a), frame.at(u, vB(u), yBk(u) - 0.1, c)))
+    b.furniture.push(withColor(g, fin))
+  }
+  // --- posts ------------------------------------------------------------------------------
+  const mode = roof.columns ?? 'ground'
+  if (mode === 'none') return
+  const run = runs.find((r) => r.tier.id === roof.tier) ?? runs[runs.length - 1]!
+  const deckY = deckHeightOf(b, run)
+  const pitch = roof.columnPitch ?? roof.finPitch
+  const a = new THREE.Vector3(), c = new THREE.Vector3()
+  for (let d = pitch / 2; d < len; d += pitch) {
+    const u = u0 + d
+    for (const v of [vF(u) + side * 0.35, vB(u) - side * 0.35]) {
+      const foot = mode === 'ground' ? frame.ground(u, v) - 0.3 : deckY(u, v)
+      const head = yUnder(u, v)
+      if (head - foot < 0.5) continue
+      b.postMatrices.push(tubeMatrix(frame.at(u, v, foot, a), frame.at(u, v, head, c)))
+      b.postS.push(frame.sAt(u))
+    }
+  }
+}
+
+/**
+ * Main grandstand upper works over V2: the two-storey glazed hospitality band on piers behind
+ * the V2 rows, and the white RC rear façade towards GP Square. The roof slab above it is
+ * `addRoof`'s (`style 'slab'`, `columns 'none'` — the band carries it).
+ * Everything is swept along the track, so it tilts with the 2.8 % gradient like the real one.
+ */
+function addV2Band(b: Build, runs: TierRun[]) {
+  const { frame, mats, def } = b
+  const roof = def.roof!
+  const avg = mats.concreteAvg
+  const white = tint(COLOURS.mullionWhite.mid, avg)
+  const [rs0, rs1] = roof.sRange ?? def.sRange
+  const u0 = rs0
+  const len = forwardDelta(rs0, rs1, b.ctx.track.length)
+  const vB = roof.lateral![1]
+  const bandFront = 47, bandBack = vB
+  const bandFloor = 19.5, bandTop = roof.soffit - 0.1
+  const upper = runs[runs.length - 1]!
+  // (the band's own AO band is pushed in `buildStand`, before the decks are swept: an overhead
+  // added here would shade nothing, because the decks under it are already built)
+  const pier = tint(COLOURS.pierConcrete.mid, avg)
+  const deckY = deckHeightOf(b, upper)
+  for (let d = 1.75; d < len; d += 3.5) {
+    const u = u0 + d
+    const yF = deckY(u, bandFront + 0.4)
+    b.terrace.push(box(frame, u, bandFront + 0.4, yF, 0.7, bandFloor - 0.5 - yF, 0.7, pier))
+    const g = frame.ground(u, bandBack - 0.5) - 0.5
+    b.terrace.push(box(frame, u, bandBack - 0.5, g, 0.7, bandFloor - 0.5 - g, 0.7, pier))
+    b.furniture.push(box(frame, u, bandFront + 0.02, bandFloor + 0.1, 0.14, bandTop - bandFloor - 0.1, 0.14, white))
+  }
+  // green signage strip between the front piers, floor soffit + fascia, glass front/back/ends
+  b.furniture.push(wall(frame, u0, len, () => bandFront + 0.1, () => bandFloor - 1.7, () => bandFloor - 0.6, 4, -1, lin(COLOURS.signageGreen.mid), 1))
+  const soffit: Edge[] = [{ v: () => bandBack, y: () => bandFloor - 0.5, tex: 12, rgb: scaled(white, 0.85) }, { v: () => bandFront - 0.6, y: () => bandFloor - 0.5, tex: 0, rgb: scaled(white, 0.85) }]
+  b.terrace.push(sweep(frame, u0, len, soffit, 4, mats.concreteTex))
+  b.terrace.push(wall(frame, u0, len, () => bandFront - 0.6, () => bandFloor - 0.5, () => bandFloor + 0.1, 4, -1, white, mats.concreteTex))
+  b.glass.push(wall(frame, u0, len, () => bandFront - 0.5, () => bandFloor + 0.1, () => bandTop, 3, -1, [1, 1, 1], mats.glassTex))
+  b.glass.push(wall(frame, u0, len, () => bandBack, () => bandFloor + 0.1, () => bandTop, 3, 1, [1, 1, 1], mats.glassTex))
+  for (const [u, facing] of [[u0, -1], [u0 + len, 1]] as const) {
+    const g = endWall(frame, u, [[bandFront - 0.6, bandFloor - 0.5], [bandBack, bandFloor - 0.5], [bandBack, bandTop], [bandFront - 0.6, bandTop]], facing, [1, 1, 1], mats.glassTex)
+    if (g) b.glass.push(g)
+  }
+  // horizontal mullions: sill, the pale blue band across the middle, head
+  const blue = lin('#9fd3e8')
+  for (const [y, h, rgb] of [[bandFloor + 0.1, 0.25, white], [bandFloor + 4.0, 0.7, blue], [bandTop - 0.25, 0.25, white]] as const) {
+    b.furniture.push(wall(frame, u0, len, () => bandFront - 0.62, () => y, () => y + h, 4, -1, rgb, 1))
+  }
+}
+
+/**
+ * V2's rear façade towards GP Square: the white RC wall with its stair openings. Drawn AFTER the
+ * roof slab, which is where `addMainRoofAndBand` drew it before the split — the merged `terrace`
+ * buffer then comes out vertex for vertex the same as it did (verified by diffing V2's meshes,
+ * their counts, boxes and attribute hashes, against the pre-split build).
+ */
+function addV2Rear(b: Build, runs: TierRun[]) {
+  const { frame, mats, def } = b
+  const roof = def.roof!
+  const avg = mats.concreteAvg
+  const [rs0, rs1] = roof.sRange ?? def.sRange
+  const u0 = rs0
+  const len = forwardDelta(rs0, rs1, b.ctx.track.length)
+  const upper = runs[runs.length - 1]!
   const facade = tint('#e2e1dc', avg)
   const dark = tint('#2a2c30', avg)
-  const vRear = bandBack + 0.3
+  const vRear = roof.lateral![1] + 0.3
   b.terrace.push(wall(frame, u0, len, () => vRear, (u) => frame.ground(u, vRear) - 1, () => upper.yTop(u0) + 0.4, 4, 1, facade, mats.concreteTex))
   for (let d = 12; d < len; d += 24) {
     const u = u0 + d
@@ -1303,12 +1516,189 @@ function addBKiosks(b: Build, run: TierRun) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// back of house: stair towers, gates, kiosks, vomitories and the wayfinding boards
+
+/**
+ * The generic bilingual wayfinding boards every Japanese circuit hangs on its concourses: white
+ * type on the signage green, Japanese over English. One atlas of `WAYFINDING.length` rows so the
+ * boards of every stand share one material.
+ *
+ * No logo, no wordmark, no sponsor: these are descriptive words only (scripts/textures-lint.mjs).
+ * The Japanese line is drawn only when the canvas can measure it — the Node probes run on a stub
+ * canvas and a browser without a CJK face would draw tofu, and either way the English line alone
+ * is a correct sign.
+ */
+const WAYFINDING: [string, string][] = [
+  ['総合案内', 'INFORMATION'],
+  ['トイレ', 'TOILET'],
+  ['出口', 'EXIT'],
+  ['入口', 'ENTRANCE'],
+  ['救護所', 'FIRST AID'],
+  ['売店', 'FOOD'],
+  ['西エリア', 'WEST AREA'],
+]
+
+function wayfindingTexture(): THREE.Texture {
+  const [w, rowH] = texSize(512, 128)
+  return cached(`wayfinding-${WAYFINDING.length}-${w}x${rowH}`, () => {
+    const { c, ctx } = canvas(w, rowH * WAYFINDING.length)
+    let cjk = false
+    try {
+      ctx.font = `${Math.round(rowH * 0.36)}px 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif`
+      const m = ctx.measureText(WAYFINDING[0]![0])
+      cjk = Number.isFinite(m.width) && m.width > 0
+    } catch {
+      cjk = false
+    }
+    WAYFINDING.forEach(([ja, en], i) => {
+      const y0 = i * rowH
+      ctx.fillStyle = '#12613f'
+      ctx.fillRect(0, y0, w, rowH)
+      ctx.fillStyle = '#f2f5f2'
+      ctx.fillRect(w * 0.02, y0 + rowH * 0.06, w * 0.96, rowH * 0.02)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#ffffff'
+      if (cjk) {
+        try {
+          ctx.font = `${Math.round(rowH * 0.38)}px 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif`
+          ctx.fillText(ja, w / 2, y0 + rowH * 0.36)
+        } catch {
+          // a canvas without a CJK face: the English line below carries the sign on its own
+        }
+      }
+      ctx.font = `600 ${Math.round(rowH * (cjk ? 0.26 : 0.4))}px 'Titillium Web', 'Segoe UI', Arial, sans-serif`
+      ctx.fillText(en, w / 2, y0 + rowH * (cjk ? 0.74 : 0.52))
+    })
+    return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
+  })
+}
+
+/** One 2.4 × 0.6 m board on two posts at (u, v), facing across the stand, showing WAYFINDING[row]. */
+function addSignBoard(b: Build, u: number, v: number, yFoot: number, row: number, facing: 1 | -1) {
+  const { frame } = b
+  const w = 2.4, h = 0.6, top = 2.9
+  const g = new THREE.PlaneGeometry(w, h)
+  g.rotateY(facing > 0 ? Math.PI / 2 : -Math.PI / 2)
+  const uv = g.attributes.uv as THREE.BufferAttribute
+  const n = WAYFINDING.length
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i), (n - 1 - row + uv.getY(i)) / n)
+  frame.at(u, v, yFoot + top - h / 2, _p)
+  frame.quat(u, _q)
+  g.applyMatrix4(_m.compose(_p, _q, _one))
+  b.signs.push(g)
+  const post = tint('#6f7276', b.mats.concreteAvg)
+  for (const dz of [-w / 2 + 0.15, w / 2 - 0.15]) {
+    b.furniture.push(box(frame, u + dz, v, yFoot, 0.09, top - h, 0.09, post))
+  }
+}
+
+/**
+ * What is behind a stand: the stair towers that reach its top walkway, an entrance gate, kiosks
+ * on the concourse, V2's vomitories and the bilingual wayfinding boards.
+ *
+ * The towers' tops are ABSOLUTE — the top walkway plus a 1.1 m parapet — and their feet are on
+ * `Ground.standY`, so a tower on the fill platform behind V2 is short and one at the foot of the
+ * C embankment is tall. A tower that would be half a metre or less is not drawn at all: the
+ * stand's own back wall already reaches the walkway there.
+ */
+function addBackOfHouse(b: Build, runs: TierRun[]) {
+  const { def, side, mats, frame } = b
+  if (!runs.length || def.enclosure) return
+  const avg = mats.concreteAvg
+  const wallRgb = tint('#9c9a95', avg)
+  const gateRgb = tint('#4d5257', avg)
+  const kioskRgb = tint('#d8d6d0', avg)
+  const back = runs[runs.length - 1]!
+  const len = back.len
+  const u0 = back.u0
+  // --- stair towers: both ends and every ≈ 90 m between them -------------------------------
+  const nT = Math.max(2, Math.round(len / 90) + 1)
+  for (let i = 0; i < nT; i++) {
+    const u = u0 + (len * i) / (nT - 1) + (i === 0 ? 2.5 : i === nT - 1 ? -2.5 : 0)
+    const v = back.vBack(u) + side * 2.6
+    const foot = standRel(b, u, v)
+    const height = back.yTop(u) + 1.1 - foot
+    if (height <= 0.5) continue
+    b.terrace.push(box(frame, u, v, foot, 4.4, height, 4.0, wallRgb, mats.concreteTex))
+    // the flight itself reads as a dark slot in the tower's outer face
+    b.terrace.push(box(frame, u, v + side * 2.15, foot, 0.35, Math.min(height, 2.4), 2.2, gateRgb, mats.concreteTex))
+  }
+  // --- entrance gate at the middle of the back, and the kiosks along the concourse ----------
+  const uMid = u0 + len / 2
+  {
+    const v = back.vBack(uMid) + side * 6.0
+    const foot = standRel(b, uMid, v)
+    b.terrace.push(box(frame, uMid, v, foot, 0.5, 3.2, 6.0, wallRgb, mats.concreteTex))
+    b.terrace.push(box(frame, uMid, v, foot + 3.2, 0.7, 0.5, 7.0, gateRgb, mats.concreteTex))
+    addSignBoard(b, uMid + 4.6, v, foot, 3, side > 0 ? -1 : 1)
+  }
+  if (def.id !== 'C' && def.id !== 'B1') {
+    let k = 0
+    for (let d = 18; d < len - 12; d += 46) {
+      const u = u0 + d
+      const v = back.vBack(u) + side * 7.5
+      const foot = standRel(b, u, v)
+      b.terrace.push(box(frame, u, v, foot, 3.0, 2.7, 6.0, kioskRgb, mats.concreteTex))
+      addSignBoard(b, u, back.vBack(u) + side * 3.6, standRel(b, u, back.vBack(u) + side * 3.6), (k % 2 === 0 ? 5 : 1), side > 0 ? -1 : 1)
+      k++
+    }
+  }
+  // --- wayfinding at the ends: the exits, and the West Area pointer on the west stands -------
+  const west = new Set(['J', 'L', 'M', 'N', 'O'])
+  for (const [i, u] of [[0, u0 + 6], [1, u0 + len - 6]] as const) {
+    const v = back.vBack(u) + side * 4.4
+    addSignBoard(b, u, v, standRel(b, u, v), i === 0 ? 2 : west.has(def.id) ? 6 : 0, side > 0 ? -1 : 1)
+  }
+  // --- V2's vomitories: the tunnels that bring the concourse out into rows 10–13 -------------
+  if (def.id === 'V2') {
+    const vom = runs.find((r) => r.tier.id === 'V2-5-20') ?? back
+    const t = vom.tier.tread
+    for (let d = 11.8 / 2; d < vom.len; d += 11.8 * 2) {
+      const u = vom.u0 + d
+      const v = vom.lf(u) + side * (6 * t)
+      b.terrace.push(box(frame, u, v, vom.h0(u) + 6 * vom.tier.riser, 4.4, 2.3, 2.4, gateRgb, mats.concreteTex))
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // stand assembly
 
 function newBuild(ctx: EnvBuildContext, def: StandDef, frame: Frame, mats: Mats): Build {
   const group = new THREE.Group()
   group.name = `stand-${def.id}`
-  return { def, frame, side: def.side, mats, ctx, group, terrace: [], furniture: [], glass: [], board: [], corrugated: [], seats: [], seatMatrices: [], seatColors: [], seatS: [], tubeMatrices: [], tubeS: [], deckPts: [], overhead: [] }
+  return { def, frame, side: def.side, mats, ctx, group, terrace: [], furniture: [], glass: [], board: [], signs: [], corrugated: [], seats: [], seatMatrices: [], seatColors: [], seatS: [], tubeMatrices: [], tubeS: [], postMatrices: [], postS: [], deckPts: [], overhead: [], deckUp: true }
+}
+
+/**
+ * Does the first deck triangle face up?
+ *
+ * `sweep` only orders its faces counter-clockwise while +v lies to the LEFT of +u, so a frame
+ * built the wrong way round (a path stand whose front edge runs against its rows) turns every
+ * deck inside out — the treads become a ceiling, lit from underneath, and the seats float over
+ * nothing. It is silent on a screenshot of a stand seen from the front, so it is checked here,
+ * on the geometry, for every stand; the dev build reports it (the e2e suite fails on a console
+ * error) and the Node probes read `Stands.stats.deckUp`.
+ */
+function firstDeckFacesUp(b: Build): boolean {
+  const g = b.terrace[0]
+  if (!g) return true
+  const pos = g.attributes.position as THREE.BufferAttribute
+  const idx = g.index
+  if (!idx || idx.count < 3 || pos.count < 3) return true
+  const a = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(0))
+  const c = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(1))
+  const d = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(2))
+  c.sub(a)
+  d.sub(a)
+  return c.cross(d).y > 0
+}
+
+/** What an object standing at (u, v) rests on, in the frame's own heights (`Ground.standY`). */
+function standRel(b: Build, u: number, v: number): number {
+  b.frame.at(u, v, 0, _p)
+  return b.ctx.ground.standY(_p.x, _p.z) - _p.y
 }
 
 function buildStand(b: Build): TierRun[] {
@@ -1322,15 +1712,13 @@ function buildStand(b: Build): TierRun[] {
     if (b2 && deck) {
       const lf = (u: number) => alongAt(b2.lateralFront, u, b2.sRange)
       const h0 = (u: number) => (deck.frontHeight !== undefined ? alongAt(deck.frontHeight, u, b2.sRange) : b2.frontHeight as number)
-      b.overhead.push({ v0: 60, v1: 82, y: (u, v) => h0(u) - 0.55 + Math.max(0, v - lf(u)) * (deck.riser / deck.tread) })
+      b.overhead.push({ v0: () => 60, v1: () => 82, y: (u, v) => h0(u) - 0.55 + Math.max(0, v - lf(u)) * (deck.riser / deck.tread) })
     }
   }
-  if (def.roof && def.id !== 'V2') b.overhead.push({ v0: def.roof.lateral[0], v1: def.roof.lateral[1], y: () => def.roof!.soffit })
-  if (def.id === 'V2') {
-    const roof = def.roof!
-    b.overhead.push({ v0: roof.lateral[0], v1: roof.lateral[1], y: () => roof.soffit })
-    b.overhead.push({ v0: 46.5, v1: roof.lateral[1], y: () => 19.0 })
-  }
+  if (def.roof) roofOverhead(b, def.roof, runs)
+  // V2's other overhead: the glazed hospitality band behind the rows (addV2Band draws it, but the
+  // AO band has to be in place before the decks below are swept)
+  if (def.id === 'V2') b.overhead.push({ v0: () => 46.5, v1: () => def.roof!.lateral![1], y: () => 19.0 })
   for (const run of runs) {
     addDeck(b, run)
     const railColour = def.id === 'B1' ? COLOURS.railBlueB1.lit : COLOURS.railTurquoise.mid
@@ -1351,7 +1739,12 @@ function buildStand(b: Build): TierRun[] {
     if (def.id === 'B2' && run.tier.id === 'B2-1/2') addBBoards(b, run)
     if (def.id === 'B1') addBKiosks(b, run)
   }
-  if (def.id === 'V2') addMainRoofAndBand(b, runs)
+  // the deck of the first tier decides whether this stand's frame is the right way round
+  b.deckUp = firstDeckFacesUp(b)
+  if (def.id === 'V2') addV2Band(b, runs)
+  if (def.roof) addRoof(b, def.roof, runs)
+  if (def.id === 'V2') addV2Rear(b, runs)
+  addBackOfHouse(b, runs)
   if (def.enclosure) {
     const e = def.enclosure
     const [s0, s1] = def.sRange
@@ -1367,7 +1760,7 @@ interface Lodded {
   range: number
 }
 
-function finishStand(b: Build, lod: Lodded[], seatGeo: THREE.BufferGeometry, tubeGeo: THREE.BufferGeometry): { tris: number; instances: number } {
+function finishStand(b: Build, lod: Lodded[], seatGeo: THREE.BufferGeometry, tubeGeo: THREE.BufferGeometry, postGeo: THREE.BufferGeometry): { tris: number; instances: number } {
   const { mats, group, def, ctx } = b
   let tris = 0
   const merge = (geos: THREE.BufferGeometry[], mat: THREE.Material, name: string, cast: boolean) => {
@@ -1386,6 +1779,7 @@ function finishStand(b: Build, lod: Lodded[], seatGeo: THREE.BufferGeometry, tub
   merge(b.furniture, mats.furniture, 'furniture', false)
   merge(b.glass, mats.glass, 'glass', true)
   merge(b.board, mats.board, 'boards', false)
+  merge(b.signs, mats.wayfinding, 'signs', false)
   merge(b.corrugated, mats.corrugated, 'backWall', true)
   let instances = 0
   const s0 = def.sRange[0]
@@ -1405,6 +1799,16 @@ function finishStand(b: Build, lod: Lodded[], seatGeo: THREE.BufferGeometry, tub
       lod.push({ inst, full: inst.count, centre: inst.boundingSphere!.center.clone(), range: TUBE_LOD })
       instances += inst.count
       tris += (inst.count * (tubeGeo.index ? tubeGeo.index.count : (tubeGeo.attributes.position as THREE.BufferAttribute).count)) / 3
+    }
+  }
+  if (b.postMatrices.length) {
+    // NO distance cut: the scaffold tubes may thin out at 420 m, but the canopy they carry is
+    // merged geometry that never does, and a roof standing on nothing is worse than the posts
+    for (const inst of bucketedInstancedMeshes(postGeo, mats.tube, b.postMatrices, null, (i) => bayOf(b.postS[i]!), { name: `roofPosts-${def.id}`, castShadow: true, receiveShadow: true })) {
+      group.add(inst)
+      lod.push({ inst, full: inst.count, centre: inst.boundingSphere!.center.clone(), range: Infinity })
+      instances += inst.count
+      tris += (inst.count * (postGeo.index ? postGeo.index.count : (postGeo.attributes.position as THREE.BufferAttribute).count)) / 3
     }
   }
   ctx.group.add(group)
@@ -1474,12 +1878,17 @@ export function buildStands(ctx: EnvBuildContext): Stands {
   const mats = makeMaterials(ctx)
   const seatGeo = seatPrototype()
   const tubeGeo = new THREE.CylinderGeometry(0.03, 0.03, 1, 5, 1, true)
+  const postGeo = new THREE.CylinderGeometry(0.075, 0.075, 1, 6, 1, false)
   const lod: Lodded[] = []
   const seats: SeatSlot[] = []
   const deckPts: number[] = []
   /** [stand id, from, to) into deckPts — for the dev probes */
   const deckRanges: [string, number, number][] = []
   const stats: string[] = []
+  const roofs: string[] = []
+  const pathStands: string[] = []
+  const deckUp: Record<string, boolean> = {}
+  const generated: Record<string, number> = {}
   let totalTris = 0, totalInst = 0
   for (const def of STANDS) {
     if (def.id === 'Q2') {
@@ -1492,9 +1901,11 @@ export function buildStands(ctx: EnvBuildContext): Stands {
         const b = newBuild(ctx, local, frame, mats)
         b.group.name = k === 1 ? `stand-${def.id}` : `stand-${def.id}-${k}`
         buildStand(b)
-        const r = finishStand(b, lod, seatGeo, tubeGeo)
+        const r = finishStand(b, lod, seatGeo, tubeGeo, postGeo)
         for (const s of b.seats) seats.push(s)
         for (const p of b.deckPts) deckPts.push(p)
+        deckUp[`${def.id}-${k}`] = b.deckUp
+        generated[def.id] = (generated[def.id] ?? 0) + b.seats.length
         stats.push(`${local.tiers[0]!.id}: ${Math.round(r.tris)} tris, ${r.instances} inst, ${b.seats.length} seats`)
         totalTris += r.tris
         totalInst += r.instances
@@ -1505,14 +1916,26 @@ export function buildStands(ctx: EnvBuildContext): Stands {
     const frame = spec ? pathFrame(ground, spec) : trackFrame(track, ground, def.sRange[0], def.sRange[1])
     const b = newBuild(ctx, spec ? pathLocalDef(def, spec) : def, frame, mats)
     buildStand(b)
-    const r = finishStand(b, lod, seatGeo, tubeGeo)
+    const r = finishStand(b, lod, seatGeo, tubeGeo, postGeo)
     for (const s of b.seats) seats.push(s)
     deckRanges.push([def.id, deckPts.length, deckPts.length + b.deckPts.length])
     for (const p of b.deckPts) deckPts.push(p)
+    if (spec) pathStands.push(def.id)
+    if (def.roof) roofs.push(def.id)
+    deckUp[def.id] = b.deckUp
+    generated[def.id] = b.seats.length
     stats.push(`${def.id}: ${Math.round(r.tris)} tris, ${r.instances} inst, ${b.seats.length} seats`)
     totalTris += r.tris
     totalInst += r.instances
   }
+  // --- the seat slots are clamped to the published capacities ------------------------------
+  const capacity = clampSeats(seats, generated)
+  // --- the grass banks: lawn places on the settled ground, plus their sheets and tents -------
+  const banks = buildBanks(ctx)
+  ctx.group.add(banks.group)
+  for (const s of banks.seats) seats.push(s)
+  // --- the stair in the notch between E-2 and E-1 -------------------------------------------
+  addNotchStair(ctx, mats)
   // the 13 m terrain grid is far coarser than the decks: sink it wherever it would show through
   const deckArr = Float32Array.from(deckPts)
   terrain.clampUnder(deckArr, 0.3, 4)
@@ -1523,13 +1946,115 @@ export function buildStands(ctx: EnvBuildContext): Stands {
     ctx.group.userData.deckRanges = deckRanges
     console.info(`[stands] ${STANDS.length} stands, ${Math.round(totalTris)} tris, ${totalInst} instances, ${seats.length} seats`)
   }
+  const upside = Object.entries(deckUp).filter(([, up]) => !up).map(([id]) => id)
+  if (import.meta.dev && upside.length) console.error(`[stands] the deck of ${upside.join(', ')} faces DOWN — the stand's frame runs the wrong way round (StandDef.path / buildPathSpec)`)
+  const kept: Record<string, number> = {}
+  for (const s of seats) kept[s.standId] = (kept[s.standId] ?? 0) + 1
+  const byStand: StandsStats['seats']['byStand'] = {}
+  for (const [id, n] of Object.entries(generated)) byStand[id] = { generated: n, kept: kept[id] ?? 0 }
+  const stats2: StandsStats = {
+    seats: { total: seats.length, byStand, capacity },
+    roofs,
+    pathStands,
+    deckUp,
+    banks: banks.stats,
+  }
   const update = (cameraPos: THREE.Vector3) => {
     for (const l of lod) {
       const n = cameraPos.distanceTo(l.centre) < l.range ? l.full : 0
       if (n !== l.inst.count) l.inst.count = n
     }
   }
-  return { seats, update }
+  return { seats, stats: stats2, update }
+}
+
+/**
+ * Thin the seat SLOTS of the stands whose capacity is published (SEAT_CAPACITY) down to that
+ * figure. The generator lays a place every `SEAT_PITCH` along every row of the real footprint,
+ * which overshoots the ticketed count by the aisles, the wheelchair bays and the blocks that are
+ * shorter than their row: C comes out ≈ 15 % over its 13,698. Thinning is per ROW by error
+ * diffusion, so what is dropped is spread evenly instead of emptying the back of the stand, and
+ * only the crowd's slots go — the chair furniture on the deck stays whole.
+ */
+function clampSeats(seats: SeatSlot[], generated: Record<string, number>): StandsStats['seats']['capacity'] {
+  const out: StandsStats['seats']['capacity'] = []
+  for (const cap of SEAT_CAPACITY) {
+    const ids = new Set(cap.stands)
+    const gen = cap.stands.reduce((n, id) => n + (generated[id] ?? 0), 0)
+    if (!gen) continue
+    if (gen <= cap.seats) {
+      out.push({ stands: cap.stands, seats: cap.seats, generated: gen, kept: gen })
+      continue
+    }
+    const rate = cap.seats / gen
+    /** error accumulator per row, so every row keeps the same share of its own places */
+    const acc = new Map<string, number>()
+    let kept = 0
+    for (let i = 0; i < seats.length; i++) {
+      const s = seats[i]!
+      if (!ids.has(s.standId)) continue
+      const key = `${s.standId}|${s.tierId}|${s.row}`
+      const a = (acc.get(key) ?? 0) + rate
+      if (a >= 1) {
+        acc.set(key, a - 1)
+        kept++
+      } else {
+        acc.set(key, a)
+        // marked for removal; the compaction below is one pass over the array
+        seats[i] = null as unknown as SeatSlot
+      }
+    }
+    let w = 0
+    for (let i = 0; i < seats.length; i++) if (seats[i]) seats[w++] = seats[i]!
+    seats.length = w
+    out.push({ stands: cap.stands, seats: cap.seats, generated: gen, kept })
+  }
+  return out
+}
+
+/**
+ * The stair in the 13 m notch between E-2 and E-1, which the relief now claims as one ramp
+ * (facilityRelief, E2's `extend`). Ten treads climbing the bank, each one standing on the ground
+ * it is actually over: the tread height comes from `Ground.standY` at that tread's own lateral,
+ * so the flight follows the relief instead of cutting through it.
+ */
+function addNotchStair(ctx: EnvBuildContext, mats: Mats) {
+  const { track, ground } = ctx
+  const spec = standPathSpec(track, 'E2')
+  const def = STANDS.find((d) => d.id === 'E2')
+  if (!spec || !def) return
+  const local = pathLocalDef(def, spec)
+  const frame = pathFrame(ground, spec)
+  const t = def.tiers[0]!.tread
+  const lf = alongAt(local.lateralFront, spec.len, local.sRange)
+  const { depth } = stackAt(local, lf, alongAt(local.lateralBack, spec.len, local.sRange))
+  const v0 = lf - 0.5 * t
+  const treads = 10
+  const step = (depth + 1.0) / treads
+  const rgb = tint('#a5a39f', mats.concreteAvg)
+  const geos: THREE.BufferGeometry[] = []
+  // the flight sits in the gap, 2 m past E-2's last section, 4 m wide across the notch
+  const u = spec.len + 2.0
+  /** the drawn ground under this tread, in the chord frame's own heights */
+  const treadY = (v: number) => {
+    frame.at(u, v, 0, _p)
+    return ground.standY(_p.x, _p.z) - _p.y
+  }
+  let prev = treadY(v0)
+  for (let k = 0; k < treads; k++) {
+    const y = treadY(v0 + (k + 0.5) * step)
+    const rise = Math.max(0.12, y - prev)
+    geos.push(box(frame, u, v0 + (k + 0.5) * step, y - rise, 4.0, rise + 0.12, step, rgb, mats.concreteTex))
+    prev = y
+  }
+  const merged = mergeGeometries(geos, false)
+  for (const g of geos) g.dispose()
+  if (!merged) return
+  const mesh = new THREE.Mesh(merged, mats.terrace)
+  mesh.name = 'stand-E-notch-stair'
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  ctx.group.add(mesh)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1574,11 +2099,26 @@ interface ChordZone {
   fade: [number, number]
   /** v band the profile can claim */
   vRange: [number, number]
-  /** as TrackZone.profile; `g` is the DEM relative to the chord's own reference height at u */
-  profile: (u: number, v: number, g: number) => Relief | null
+  /**
+   * As TrackZone.profile; `g` is the DEM relative to the chord's own reference height at u.
+   * `past` is how far beyond the near end of the chord the point lies, measured ALONG that end's
+   * tangent and SIGNED by the end: 0 inside the chord, negative before u = 0, positive past
+   * u = len. A profile that is extended past its end (`extend`) uses it to ramp its section onto
+   * whatever is on the other side of the gap — and the sign is what keeps it from doing that in
+   * front of its first section as well.
+   */
+  profile: (u: number, v: number, g: number, past: number) => Relief | null
   box: [number, number, number, number]
   /** the end fades (before u = 0, after u = len) that also take the claim's height onto the DEM: a zone's outer ends, not the ones that face another block */
   land?: [boolean, boolean]
+  /**
+   * How far past each end the profile still claims at FULL weight before its fade starts (m).
+   * This is how the gap between two neighbouring blocks becomes ONE claim: E-2's profile runs
+   * on across the 13.2 m stair notch and lands exactly on E-1's first section, and E-1's own
+   * before-fade is 0, so nothing else claims in there. Two zones each claiming the notch at
+   * nearly full weight is what put the 5.6 m step in it (G5, 2026-09 audit).
+   */
+  extend?: [number, number]
 }
 
 /** A zone bounded by a world polygon (the retention basins): the ground inside is a sunken floor. */
@@ -1598,11 +2138,11 @@ type ReliefZone = TrackZone | ChordZone | PolyZone
 
 /** a chord zone's claim fades to nothing over this many metres inside each edge of its v band */
 const V_FADE = 8
-function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile'], land?: [boolean, boolean]): ChordZone {
-  // the path's own bounding box, grown by the fades and the v band it claims
-  const pad = Math.max(fade[0], fade[1]) + Math.max(Math.abs(vRange[0]), Math.abs(vRange[1]))
+function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile'], land?: [boolean, boolean], extend?: [number, number]): ChordZone {
+  // the path's own bounding box, grown by the fades, the extensions and the v band it claims
+  const pad = Math.max(fade[0] + (extend?.[0] ?? 0), fade[1] + (extend?.[1] ?? 0)) + Math.max(Math.abs(vRange[0]), Math.abs(vRange[1]))
   const b = chord.box
-  return { kind: 'chord', chord, fade, vRange, profile, box: [b[0] - pad, b[1] + pad, b[2] - pad, b[3] + pad], land }
+  return { kind: 'chord', chord, fade, vRange, profile, box: [b[0] - pad, b[1] + pad, b[2] - pad, b[3] + pad], land, extend }
 }
 
 /** how far to the left of the centreline a track zone can reach (the widest fade: E, lb + 70) */
@@ -1710,53 +2250,99 @@ function reliefZones(track: Track): ReliefZone[] {
   // ≈ +8 at the NIPPO end. The bank in front rises at the deck's own rake, so bank and rows are
   // one plane with no bend at row 1 (a bend there makes the coarse terrain grid overshoot the
   // deck and leaves a metres-tall retaining wall once the grid is clamped back under it). The
-  // plateau is cut as well: the real hill behind E (the DEM) stands above it in places. The 6 m
-  // stair gap between the blocks is bridged by the fades.
+  // plateau is cut as well: the real hill behind E (the DEM) stands above it in places.
+  //
+  // The 13.2 m stair notch between the two blocks is ONE claim, E-2's: its profile runs on past
+  // its own last section (`extend`) and ramps linearly onto E-1's first section — E-1's front,
+  // platform, back and top, brought into E-2's frame — while E-1's before-fade is 0 so it claims
+  // nothing in there. Two zones bridging the notch with their fades is what the audit measured
+  // as a 5.6 m step: both were at nearly full weight and the best-of rule switched hard between
+  // them. (Section values are in each chord's OWN v and its own reference height, so the ramp
+  // carries both offsets: E-1's start projects at v +11.8 in E-2's frame and its road is 1.07 m
+  // higher there.)
   const E2 = by('E2')
-  const e2Spec = E2 ? pathSpec(track, E2) : null
-  if (E2 && e2Spec) {
-    const local = pathLocalDef(E2, e2Spec)
-    const tier = E2.tiers[0]!
-    const rake = tier.riser / tier.tread
-    zones.push(chordZone(e2Spec, [20, 6], [-60, E_V_MAX], (u, v, g) => {
-        const { front, fh, lb, top } = chordSection(local, u)
-        const plateau = top + 1.0
-        const a0 = front - fh / rake
-        if (v < a0) return null
-        if (v < front) return under(ramp(v, a0, 0, front, fh))
-        if (v < lb) return under(ramp(v, front, fh, lb, top))
-        if (v < lb + 10) return under(top)
-        if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
-        if (v < lb + 40) return cut(plateau)
-        // the plateau's back slope lands on the real hillside (the DEM, 10–16 m under it before),
-        // inside the band's own fade
-        const vEnd = Math.min(lb + 70, E_V_MAX - V_FADE)
-        if (v < vEnd) return [ramp(v, lb + 40, plateau, vEnd, g), 1 - (v - lb - 40) / (vEnd - lb - 40), true]
-        return null
-    }, [true, false]))
-  }
   const E1 = by('E1')
+  const e2Spec = E2 ? pathSpec(track, E2) : null
   const e1Spec = E1 ? pathSpec(track, E1) : null
-  if (E1 && e1Spec) {
-    const local = pathLocalDef(E1, e1Spec)
-    const tier = E1.tiers[0]!
-    const rake = tier.riser / tier.tread
-    zones.push(chordZone(e1Spec, [6, 30], [-40, E_V_MAX], (u, v, g) => {
-        const { front, fh, lb, top } = chordSection(local, u)
-        const plateau = top + 1.0
-        const a0 = front - fh / rake
-        if (v < a0) return null
-        if (v < front) return under(ramp(v, a0, 0, front, fh))
-        if (v < lb) return under(ramp(v, front, fh, lb, top))
-        if (v < lb + 10) return under(top)
-        if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
-        if (v < lb + 40) return cut(plateau)
-        // the plateau's back slope lands on the real hillside (the DEM, 10–16 m under it before),
-        // inside the band's own fade
-        const vEnd = Math.min(lb + 70, E_V_MAX - V_FADE)
-        if (v < vEnd) return [ramp(v, lb + 40, plateau, vEnd, g), 1 - (v - lb - 40) / (vEnd - lb - 40), true]
-        return null
-    }, [false, true]))
+  const eProfile = (local: StandDef, rake: number) => (u: number, v: number, g: number, sec?: { front: number; fh: number; lb: number; top: number }) => {
+    const { front, fh, lb, top } = sec ?? chordSection(local, u)
+    const plateau = top + 1.0
+    const a0 = front - fh / rake
+    if (v < a0) return null
+    if (v < front) return under(ramp(v, a0, 0, front, fh))
+    if (v < lb) return under(ramp(v, front, fh, lb, top))
+    if (v < lb + 10) return under(top)
+    if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
+    if (v < lb + 40) return cut(plateau)
+    // the plateau's back slope lands on the real hillside (the DEM, 10–16 m under it before),
+    // inside the band's own fade
+    const vEnd = Math.min(lb + 70, E_V_MAX - V_FADE)
+    if (v < vEnd) return [ramp(v, lb + 40, plateau, vEnd, g), 1 - (v - lb - 40) / (vEnd - lb - 40), true] as Relief
+    return null
+  }
+  if (E2 && e2Spec && E1 && e1Spec) {
+    const l2 = pathLocalDef(E2, e2Spec)
+    const l1 = pathLocalDef(E1, e1Spec)
+    const rake2 = E2.tiers[0]!.riser / E2.tiers[0]!.tread
+    const rake1 = E1.tiers[0]!.riser / E1.tiers[0]!.tread
+    const prof2 = eProfile(l2, rake2)
+    const prof1 = eProfile(l1, rake1)
+    // E-1's first section, expressed in E-2's frame: its v origin sits `dv` behind E-2's, and its
+    // road is `dy` above E-2's at the notch
+    const start1 = e2Spec.project(e1Spec.px[0]!, e1Spec.pz[0]!)
+    const dv = start1.v
+    const dy = e1Spec.yRef(0) - e2Spec.yRef(e2Spec.len)
+    /**
+     * How far past E-2's last section E-1's first one lies, in the ONE measure `facilityRelief`
+     * uses past a chord's end: the signed distance along that end's tangent. The two blocks are
+     * 13.2 m apart end to end, but 11.8 m of that is ACROSS the chord (E-1 starts further from
+     * the road — that is `dv`) and only 5.9 m along it.
+     *
+     * It is not one number, though. E-1's front edge leaves E-2's end tangent at an angle, so the
+     * distance at which E-1 takes over shrinks as one walks back from the road: 5.9 m at E-2's
+     * own front line, 2.9 m at 10 m behind E-1's. `notchAt(v)` is that line — the ramp has to
+     * finish exactly where E-1's zone starts at THAT v, or the two claims meet at different
+     * heights and their blend is a step (1.34 m measured with a constant 5.9 m ramp).
+     */
+    const eEnd = e2Spec.px.length - 1
+    const gapAlong = (e1Spec.px[0]! - e2Spec.px[eEnd]!) * e2Spec.tan1[0] + (e1Spec.pz[0]! - e2Spec.pz[eEnd]!) * e2Spec.tan1[1]
+    /** how much of E-1's own normal lies along E-2's end tangent (0 if the two chords are parallel) */
+    const skew = e1Spec.nx[0]! * e2Spec.tan1[0] + e1Spec.nz[0]! * e2Spec.tan1[1]
+    const notchAt = (v: number) => Math.max(0.5, gapAlong + (v - dv) * skew)
+    /**
+     * The widest the notch ever gets over the claimed v band (28 m out at the road end, half a
+     * metre 160 m behind it). `extend` is one number for the whole zone, so it has to be the
+     * widest — otherwise E-2's weight would start fading before E-1 takes over somewhere. What
+     * stops E-2 from then claiming 28 m into E-1 everywhere is the profile itself: past the
+     * handover at THIS v it returns null and E-1 has the ground alone. (Letting both claim to the
+     * widest distance and blending was measured: three ≈ 3 m jumps at s 1604–1612 in G5, because
+     * E-2's frozen section and E-1's own drift apart along E-1.)
+     */
+    const E_NOTCH = Math.max(notchAt(-60), notchAt(E_V_MAX), 0.5)
+    const endSec = chordSection(l2, e2Spec.len)
+    const nextSec = (() => {
+      const s1 = chordSection(l1, 0)
+      return { front: s1.front + dv, fh: s1.fh + dy, lb: s1.lb + dv, top: s1.top + dy }
+    })()
+    zones.push(chordZone(e2Spec, [20, 6], [-60, E_V_MAX], (u, v, g, past) => {
+        if (past <= 0) return prof2(u, v, g)
+        // across the notch: E-2's own last section ramps onto E-1's first one and reaches it
+        // exactly where E-1's zone starts at this v — where the two claims are equal, so the
+        // handover is continuous. Past that line E-2 has nothing more to say: E-1's own zone
+        // starts there at full weight.
+        const hand = notchAt(v)
+        if (past > hand) return null
+        const t = past / hand
+        const sec = {
+          front: endSec.front + (nextSec.front - endSec.front) * t,
+          fh: endSec.fh + (nextSec.fh - endSec.fh) * t,
+          lb: endSec.lb + (nextSec.lb - endSec.lb) * t,
+          top: endSec.top + (nextSec.top - endSec.top) * t,
+        }
+        return prof2(u, v, g, sec)
+    }, [true, false], [0, E_NOTCH]))
+    // E-1 claims nothing before its own first section: the notch is E-2's
+    zones.push(chordZone(e1Spec, [0, 30], [-40, E_V_MAX], (u, v, g) => prof1(u, v, g), [false, true]))
   }
   // retention basins: a sunken floor with a bank, so the dry-basin meshes in pit-complex.ts have
   // ground to sit in (a flat sheet at grade read as a lake — 2026-09 audit S01-04 / S02-05)
@@ -1868,18 +2454,29 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const u = pr.u, v = pr.v
       if (v < zone.vRange[0] || v > zone.vRange[1]) continue
       const uc = Math.min(c.len, Math.max(0, u))
-      // project() clamps to the path's ends, so the fade is measured from the projected point.
-      // The radial measure is deliberate: E1's and E2's chords curve, a point 100 m behind them
-      // projects onto an END of either chord, and this measure keeps both claims nearly whole
-      // across the 16 m between the chords' ends (the stair gap); an along-tangent measure was
-      // tried and left a notch there. It also means the fade — not the lateral ramp — is what
-      // ends the claim far behind the hill, which is why the OUTER end fades land on the DEM
+      // project() clamps to the path's ends, so the end gap is measured from the projected point,
+      // ALONG that end's tangent (signed): the radial measure this replaced counted the distance
+      // BEHIND the chord as distance past its end, so a point 40 m behind E-2's last section was
+      // 40 m into its fade while E-1 claimed the same point almost whole — the two nearly-whole
+      // claims and the hard best-of switch between them are what left the 5.6 m step in the notch.
+      // The along-tangent measure alone makes a notch of its own (nothing claims the gap), which
+      // is why the gap is now ONE claim: `extend` carries E-2's profile across it (see ChordZone).
       const atStart = pr.u <= 0.01
-      const endGap = atStart ? Math.hypot(x - c.px[0]!, z - c.pz[0]!) - Math.abs(v) : pr.u >= c.len - 0.01 ? Math.hypot(x - c.px[c.px.length - 1]!, z - c.pz[c.pz.length - 1]!) - Math.abs(v) : 0
-      const t = endGap <= 0 ? 0 : endGap / Math.max(1e-6, atStart ? zone.fade[0] : zone.fade[1])
+      const endGap = atStart
+        ? -((x - c.px[0]!) * c.tan0[0] + (z - c.pz[0]!) * c.tan0[1])
+        : pr.u >= c.len - 0.01
+          ? (x - c.px[c.px.length - 1]!) * c.tan1[0] + (z - c.pz[c.pz.length - 1]!) * c.tan1[1]
+          : 0
+      const ext = endGap <= 0 ? 0 : (atStart ? zone.extend?.[0] : zone.extend?.[1]) ?? 0
+      const past = Math.max(0, endGap)
+      const beyond = past - ext
+      const t = beyond <= 0 ? 0 : beyond / Math.max(1e-6, atStart ? zone.fade[0] : zone.fade[1])
       if (t >= 1) continue
       const yRef = c.yRef(uc)
-      const r = zone.profile(uc, v, demAt() - yRef)
+      // `past` reaches the profile SIGNED by which end it is off: negative before u = 0, positive
+      // past u = len, 0 inside. A profile that is extended over a gap (E-2's, across the notch)
+      // must not mistake the ground in front of its first section for the ground beyond its last.
+      const r = zone.profile(uc, v, demAt() - yRef, atStart ? -past : past)
       if (!r) continue
       let w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
       // ...and across the v band's two edges, over V_FADE metres inside them: cut hard, the E hill's
@@ -1887,14 +2484,24 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const vIn = Math.min(v - zone.vRange[0], zone.vRange[1] - v)
       if (vIn < V_FADE) { const q = vIn / V_FADE; w *= q * q * (3 - 2 * q) }
       const rank = r[3] ?? 1
-      const d2 = v * v + endGap * endGap
-      if (out && (rank > outRank || (rank === outRank && d2 >= outD2))) continue
+      const d2 = v * v + past * past
       let h = yRef + r[0]
       // through an end fade the claim's HEIGHT goes to the real ground as well as its weight: a
       // cap (C's toe road) only ever rises onto it, so it ends on the hillside instead of cutting
       // a step; a zone's outer end (`land`) always does, so the E hill's plateau runs out onto
       // the DEM instead of standing 10–16 m over it where the weight reaches zero
       if (t > 0 && (r[2] === 'cap' ? demAt() > h : zone.land?.[atStart ? 0 : 1])) h += (demAt() - h) * t * t * (3 - 2 * t)
+      if (out && rank === outRank && r[2] === out[2]) {
+        // two claims of the same rank and the same mode: BLEND them by weight, always. Taking the
+        // nearer one made the ground jump wherever which zone is nearer changes, and a
+        // full-weight special case put the jump back at the edge of the special case
+        const wSum: number = w + out[1]
+        const hOut: number = out[0], wOut: number = out[1]
+        out = [wSum > 1e-6 ? (h * w + hOut * wOut) / wSum : h, Math.max(w, wOut), r[2]]
+        outD2 = Math.min(d2, outD2)
+        continue
+      }
+      if (out && (rank > outRank || (rank === outRank && d2 >= outD2))) continue
       out = [h, w, r[2]]
       outRank = rank
       outD2 = d2
@@ -1960,6 +2567,15 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       if (r[2] === 'cap' && demAt() > h) h += (demAt() - h) * t * t * (3 - 2 * t)
     }
     const rank = r[3] ?? 1
+    if (out && rank === outRank && r[2] === out[2]) {
+      // same rank, same mode → blend (see the chord branch): the D tiers and the two E blocks
+      // meet along a line, and picking the nearer of two live claims steps across it
+      const wSum: number = w + out[1]
+      const hOut: number = out[0], wOut: number = out[1]
+      out = [wSum > 1e-6 ? (h * w + hOut * wOut) / wSum : h, Math.max(w, wOut), r[2]]
+      outD2 = Math.min(best, outD2)
+      continue
+    }
     if (out && (rank > outRank || (rank === outRank && best >= outD2))) continue
     out = [h, w, r[2]]
     outRank = rank
