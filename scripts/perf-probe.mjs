@@ -10,7 +10,10 @@
  *   node scripts/perf-probe.mjs --tiers 1 --modes 4,5 --frames 120 --label after-C04
  *
  * Prints a markdown table and writes .perf/<label>-<timestamp>.json (outside Playwright's
- * test-results/, which the e2e suite wipes on every run).
+ * test-results/, which the e2e suite wipes on every run). Sampling starts only after the far
+ * field has drained (`__suzuka.env.farField.pending === 0`); every row carries min/max/mean/p90
+ * of calls and triangles, `buildMs` (per builder) and `farField` (`stats()`), which
+ * scripts/perf-gate.mjs compares against scripts/perf-budgets.json (`pnpm perf` runs both).
  */
 import { chromium } from 'playwright'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -49,6 +52,9 @@ try {
     await page.locator('.loading').waitFor({ state: 'hidden', timeout: 180_000 })
     await page.locator('.tower .row').nth(21).waitFor({ timeout: 60_000 })
     const loadMs = Date.now() - t0
+    // the far field (plan §0c) is built after loading in time slices; sample only once it has
+    // drained so the walk measures the finished scene (a build without a far field passes at once)
+    await page.waitForFunction(() => { const d = window.__suzuka; return !!d && (!d.env?.farField || d.env.farField.pending === 0) }, null, { timeout: 120_000 })
     await page.getByRole('button', { name: '8×', exact: true }).click()
     // wait for the race to be under way (the start sequence runs at most 4× real time) so the
     // samples measure a moving field, not the grid; then let the first corners spread the cars out
@@ -73,7 +79,11 @@ try {
           }
           requestAnimationFrame(tick)
         })
-        const stat = (a) => ({ min: Math.min(...a), max: Math.max(...a), mean: Math.round(a.reduce((x, y) => x + y, 0) / a.length) })
+        const stat = (a) => {
+          const sorted = [...a].sort((x, y) => x - y)
+          const p90 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.9) - 1)]
+          return { min: sorted[0], max: sorted[sorted.length - 1], mean: Math.round(a.reduce((x, y) => x + y, 0) / a.length), p90 }
+        }
         const info = dbg.ctx.renderer.info
         const perf = dbg.perf ? { ...dbg.perf } : null
         const perfMax = dbg.perfMax ? { ...dbg.perfMax } : null
@@ -90,6 +100,8 @@ try {
           fps: dbg.store ? dbg.store.fps : undefined,
           setupMs: dbg.setupMs,
           settleMs: dbg.settleMs,
+          buildMs: dbg.buildMs ?? null,
+          farField: dbg.env?.farField?.stats?.() ?? null,
           perf,
           perfMax,
         }
@@ -104,7 +116,7 @@ try {
 
 const fmt = (v) => (v === undefined || v === null ? '-' : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : String(v))
 const perfKeys = ['sim', 'place', 'fx', 'cam', 'audio', 'render', 'labels', 'hud']
-console.log(`| tier | mode | calls (min/mean/max) | triangles (mean) | programs | tex | DPR | depth | ${perfKeys.map((k) => `${k} ms`).join(' | ')} |`)
+console.log(`| tier | mode | calls (min/mean/p90/max) | triangles (mean/p90) | programs | tex | DPR | depth | ${perfKeys.map((k) => `${k} ms`).join(' | ')} |`)
 console.log(`| --- | --- | --- | --- | --- | --- | --- | --- | ${perfKeys.map(() => '---').join(' | ')} |`)
 for (const r of results) {
   if (!r.calls) {
@@ -113,9 +125,10 @@ for (const r of results) {
   }
   const perf = r.perf ?? {}
   console.log(
-    `| ${r.tier} | ${r.mode} | ${r.calls.min}/${r.calls.mean}/${r.calls.max} | ${r.triangles.mean} | ${r.programs} | ${r.textures} | ${fmt(r.pixelRatio)} | ${r.depthMode} | ${perfKeys.map((k) => fmt(perf[k])).join(' | ')} |`,
+    `| ${r.tier} | ${r.mode} | ${r.calls.min}/${r.calls.mean}/${r.calls.p90}/${r.calls.max} | ${r.triangles.mean}/${r.triangles.p90} | ${r.programs} | ${r.textures} | ${fmt(r.pixelRatio)} | ${r.depthMode} | ${perfKeys.map((k) => fmt(perf[k])).join(' | ')} |`,
   )
 }
+for (const r of results) if (r.farField) console.log(`farField (${r.tierParam}/${r.modeKey}): ${JSON.stringify(r.farField)}`)
 for (const r of results) if (r.errors.length) console.log(`errors (${r.tierParam}/${r.modeKey}):\n  ${r.errors.join('\n  ')}`)
 console.log(`load: ${results.map((r) => `${r.tierParam}=${r.loadMs} ms`).join(', ')}; setupMs: ${results.map((r) => fmt(r.setupMs)).join(', ')}; settleMs (terrain clamp): ${results.map((r) => fmt(r.settleMs)).join(', ')}`)
 
