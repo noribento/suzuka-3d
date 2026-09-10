@@ -359,44 +359,48 @@ export const STANDS: StandDef[] = [
     fence: 'single',
     unverified: ['position (not in OSM; from map.png)', 'lateral band', 'front height'],
   },
-  // A2 is two scaffold blocks (GSI z18, .cache/audit/sections/02-t1-pit-exit): the ROOFED one
-  // at the pit end (a blue-grey steel canopy, s 259–312) and the open one towards Turn 1
-  // (s 340–435, set back from the wall behind a walkway; it ends where the T1 gravel starts)
+  // A2 is TWO scaffold blocks, not one (GSI z18, .cache/audit/sections/02-t1-pit-exit-aerial.png):
+  // the pit-end one carries a blue steel canopy over its rows (a solid panelled deck, 4 m panel
+  // grid, no bench pitch through it), the Turn-1 one is open (its green benches read row by row
+  // at 0.8 m). Both were measured by sampling the mosaic in track coordinates: the blue runs
+  // s 260–306 at lateral 29.5–39, the green s 339–435 at lateral 28–41 (its front swings out
+  // with the road into Turn 1). The old single block (s 255–390, lateral 21–36) sat on neither.
   {
     id: 'A2R',
     name: 'A2 メインストレートエンド（仮設・屋根付き）',
     osmWays: [],
-    sRange: [259, 312],
+    sRange: [260, 306],
     side: 1,
     lateralFront: 29.5,
-    lateralBack: 42,
+    lateralBack: 39.5,
     structure: 'scaffold',
-    tiers: [{ id: 'A2R', rows: 15, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
+    tiers: [{ id: 'A2R', rows: 12, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
     aisles: { pitch: 9, width: 1.0 },
-    roof: { tier: 'A2R', soffit: 10.4, top: 10.6, overhang: 1.0, finPitch: 4.5, style: 'canopy', columns: 'ground', columnPitch: 4.5, rise: 1.2, colour: '#4f6a8a' },
+    roof: { tier: 'A2R', soffit: 9.0, top: 9.2, overhang: 1.0, finPitch: 4.5, style: 'canopy', columns: 'ground', columnPitch: 4.5, rise: 1.4, colour: '#4f6a8a' },
     frontHeight: 2.0,
-    platform: 'Scaffold behind the wall at +15..+17 with a walkway in front; the pit-end block carries a blue-grey steel canopy',
+    platform: 'Scaffold behind the wall with a walkway in front; this pit-end block carries a blue steel canopy over every row',
     permanent: false,
     fence: 'single',
-    unverified: ['position: roof extent read off GSI z18 (section 02, ±3 m) — s 259–312, lateral 29–41', 'rows', 'height', 'canopy soffit height'],
+    unverified: ['roof extent read off GSI z18 (section 02, ±3 m): the blue deck runs s 260–306 at lateral 29.5–39', 'rows', 'height', 'canopy soffit height'],
   },
   {
     id: 'A2',
     name: 'A2 メインストレートエンド（仮設）',
     osmWays: [],
-    sRange: [340, 432],
+    sRange: [339, 434],
     side: 1,
-    // a straight block on the road curving into T1: its lateral grows towards the corner
-    lateralFront: [[340, 30], [400, 33.5], [432, 35]],
-    lateralBack: [[340, 43], [400, 46.5], [432, 48]],
+    // a straight-built block on the road curving into T1: its lateral grows towards the corner,
+    // and the T1 gravel band (RUNOFF_ZONES, to lateral 33 from s 400) sets how far out row 1 sits
+    lateralFront: [[339, 30], [400, 33.5], [434, 35]],
+    lateralBack: [[339, 43], [400, 46.5], [434, 48]],
     structure: 'scaffold',
     tiers: [{ id: 'A2', rows: 15, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
     aisles: { pitch: 9, width: 1.0 },
     frontHeight: 2.0,
-    platform: 'Open scaffold block behind the wall at +15..+17; taller toward Turn 1 (≤10 m); ends where the T1 gravel starts at s 434',
+    platform: 'Open scaffold block behind the wall; taller toward Turn 1 (≤10 m); ends where the T1 gravel starts at s 434',
     permanent: false,
     fence: 'single',
-    unverified: ['position: block extent read off GSI z18 (section 02, ±3 m) — s 340–435, lateral 30–47', 'rows', 'height'],
+    unverified: ['block extent read off GSI z18 (section 02, ±3 m): the green benches run s 339–435 at lateral 28–41', 'rows', 'height'],
   },
   // ---- Turn 2 ---------------------------------------------------------------------------
   {
@@ -772,14 +776,15 @@ export const STANDS: StandDef[] = [
       { id: 'G-130R-2', rows: 10, ...TERRACE_BENCH, lateralFront: [[4747, 46], [4771, 48.5], [4811, 50], [4861, 47.5], [4896, 43]], frontHeight: 4.0 },
     ],
     aisles: { pitch: 14, width: 1.2 },
-    // two blue steel canopies over the BACK bar (OSM 184102368, tier G-130R-2): the bar is
-    // straight while 130R curves, so the band follows the tier's rows rather than a fixed lateral
-    roof: { tier: 'G-130R-2', sRange: [4763, 4898], blocks: [[4763, 4818], [4826, 4898]], soffit: 10.6, top: 10.8, overhang: 1.0, finPitch: 4.5, style: 'canopy', columns: 'deck', columnPitch: 4.5, rise: 1.0, colour: '#4f6a8a' },
+    // Two blue steel canopies over the BACK bar (OSM 184102368, tier G-130R-2), with a 8 m stair
+    // gap between them. The bar is straight while 130R curves, so the band follows the tier's own
+    // rows rather than a fixed lateral pair (the tier's front drifts 46 → 50 → 43 over its length).
+    roof: { tier: 'G-130R-2', sRange: [4763, 4894], blocks: [[4763, 4817], [4825, 4894]], soffit: 9.6, top: 9.8, overhang: 1.2, finPitch: 4.5, style: 'canopy', columns: 'deck', columnPitch: 4.5, rise: 1.0, colour: '#4f6a8a' },
     frontHeight: 1.5,
     platform: 'Two parallel bars on the inside (left) of 130R — the old code had this stand on the wrong side; the back bar carries two blue canopies',
     permanent: true,
     fence: 'single',
-    unverified: ['rows', 'heights', 'which bar is temporary', 'roof extent read off GSI z18 (section 15, ±3 m): two blue blocks over the back bar at s 4763–4818 and 4826–4898 (lateral 50–62 → 44–52 as the bar drifts); the 2 × 22 m blocks at the front bar\'s 130R-entry end that the design review expected are not in the aerial'],
+    unverified: ['rows', 'heights', 'which bar is temporary', 'roof extent read off GSI z18 (section 15, ±3 m): the two blue panelled decks lie over the BACK bar at s 4763–4817 and 4825–4894 (lateral 48–64 then 42–52 as the bar drifts), not over the front bar — the front bar\'s benches read white/silver row by row in the same crop, and the 2 × 22 m blocks at its 130R-entry end that the design review expected are not there'],
   },
   {
     id: 'P',
@@ -873,10 +878,10 @@ export const STANDS: StandDef[] = [
     id: 'GRAN_VIEW',
     name: 'GRAN VIEW / R-BOX',
     osmWays: [],
-    sRange: [5422, 5444],
+    sRange: [5424, 5442],
     side: 1,
-    lateralFront: 61,
-    lateralBack: 75,
+    lateralFront: 60.5,
+    lateralBack: 72,
     structure: 'frame',
     tiers: [],
     aisles: null,
@@ -886,7 +891,7 @@ export const STANDS: StandDef[] = [
     enclosure: { floors: [8], glass: COLOURS.glassVip.mid, framePitch: 4, roofTop: 13 },
     permanent: true,
     fence: 'none',
-    unverified: ['position read off GSI z18 (section 17, ±3 m): the white-roofed block behind R\'s S end at s 5423–5444, lateral 56–76, set at 61–75 to clear R\'s rear wall', 'size', 'height'],
+    unverified: ['position read off GSI z18 (section 17, ±3 m): the white-roofed box with the blue front strip behind R\'s S end, corners at s 5425 / 5441 and lateral 60.4 / 71.5', 'size', 'height'],
   },
 ]
 

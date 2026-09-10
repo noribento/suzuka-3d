@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CROWD_ATLAS, CROWD_CHEER_PAIRS, CROWD_FIGURES } from '~/data/crowd-atlas'
 import { CROWD_LAYOUT } from '~/data/impostor-atlas'
-import { STANDS } from '~/data/suzuka-facilities-spec'
+import { SPECTATOR_BANKS, STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { forwardDelta, type Track } from '~/sim/track'
 import type { AssetRegistry } from './assets'
@@ -23,7 +23,22 @@ export interface Crowd {
   time: { value: number }
   /** per frame: soft density LOD (back rows thin out between 280 and 380 m) and the camera uniform */
   update: (cameraPos: THREE.Vector3) => void
-  stats: { impostors: number; near3d: number; atlas: 'baked' | 'procedural' }
+  stats: {
+    /** instances actually built (never over `quality.crowd`) */
+    impostors: number
+    near3d: number
+    atlas: 'baked' | 'procedural'
+    /** `quality.crowd` */
+    budget: number
+    /** share of the occupied places that got a figure (1 when the budget is not binding) */
+    rate: number
+    /** places that drew "occupied" — what `rate` was computed from */
+    expected: number
+    bays: number
+    /** of those bays, the ones on a spectator bank, and the lawn places in them */
+    bankBays: number
+    bankPeople: number
+  }
 }
 
 /** race-day occupancy of the stands; the west-area lawns and small stands stay thinner */
@@ -31,6 +46,8 @@ const OCCUPANCY = 0.95
 const OCCUPANCY_BY_STAND: Record<string, number> = { L: 0.55, M: 0.6, N: 0.55, O: 0.7, J: 0.6, IJ: 0.6, H: 0.75 }
 /** inside this distance a bay draws its 3D figures (high tier), beyond it impostors only */
 const NEAR_LOD = 55
+/** how far a seated figure from the baked (on-a-seat) atlas drops when its place is a lawn */
+const LAWN_SINK = 0.40
 /** the density ramp reaches zero at 380 m; beyond 420 m the bay is not visited at all */
 const FAR_CUT = 420
 const RAMP_END = 380
@@ -80,11 +97,18 @@ interface Look {
   skin: number
   scale: number
   phase: number
+  /**
+   * How far to drop this figure below the place it was given (m). The baked atlas was rendered
+   * from people sitting ON A SEAT, hips ≈ 0.4 m up; on a grass bank there is no seat, so a seated
+   * lawn figure sinks by that much. Only the baked atlas: the procedural one has standing poses
+   * in every cell, and sinking those buries their feet.
+   */
+  sink: number
 }
 
 const cheerOf = new Map<number, number>(CROWD_CHEER_PAIRS)
 
-function lookFor(rng: Rng, standId: string): Look {
+function lookFor(rng: Rng, standId: string, lawn: boolean, baked: boolean): Look {
   // most people sit; of the standing ones half are the rest pose that flips to a wave
   const seated = rng.next() < 0.72
   let fig: number
@@ -103,6 +127,7 @@ function lookFor(rng: Rng, standId: string): Look {
     skin: pick(rng, SKINS),
     scale: 0.93 + rng.next() * 0.13,
     phase: rng.next(),
+    sink: baked && seated && lawn ? LAWN_SINK : 0,
   }
 }
 
@@ -295,6 +320,8 @@ export function buildCrowd(track: Track, seats: SeatSlot[], quality: Quality, as
   // --- bays: stand × 60 m along the stand, rows front to back inside each ---------------------
   const standStart = new Map<string, number>()
   for (const d of STANDS) standStart.set(d.id, d.sRange[0])
+  for (const b of SPECTATOR_BANKS) standStart.set(b.id, b.sRange[0])
+  const bankIds = new Set(SPECTATOR_BANKS.map((b) => b.id))
   const bays = new Map<string, SeatSlot[]>()
   for (const slot of seats) {
     const s0 = standStart.get(slot.standId) ?? 0
@@ -304,8 +331,6 @@ export function buildCrowd(track: Track, seats: SeatSlot[], quality: Quality, as
     if (!list) bays.set(key, (list = []))
     list.push(slot)
   }
-  // the budget: every n-th seat of every row, so the density is even across the circuit
-  const stride = Math.max(1, Math.round((seats.length * OCCUPANCY) / Math.max(1, quality.crowd)))
 
   /** an impostor mesh for `people`, matrices relative to `centre` */
   const impostorMesh = (people: { slot: SeatSlot; look: Look }[], centre: THREE.Vector3): THREE.InstancedMesh => {
@@ -314,7 +339,7 @@ export function buildCrowd(track: Track, seats: SeatSlot[], quality: Quality, as
     const arrays = imp.attrs.map((a) => new Float32Array(n * a.size))
     for (let k = 0; k < n; k++) {
       const { slot, look } = people[k]!
-      _p.set(slot.x - centre.x, slot.y + 0.02 - centre.y, slot.z - centre.z)
+      _p.set(slot.x - centre.x, slot.y + 0.02 - look.sink - centre.y, slot.z - centre.z)
       // the procedural card's face (+Z) looks along the seat's facing, towards the track
       if (imp.rotateInstances) _q.setFromAxisAngle(Y_UP, slot.yaw)
       else _q.identity()
@@ -347,7 +372,7 @@ export function buildCrowd(track: Track, seats: SeatSlot[], quality: Quality, as
       const t0 = new Float32Array(n * 4), t1 = new Float32Array(n * 3)
       for (let k = 0; k < n; k++) {
         const { slot, look } = list[k]!
-        _p.set(slot.x - centre.x, slot.y + 0.02 - centre.y, slot.z - centre.z)
+        _p.set(slot.x - centre.x, slot.y + 0.02 - look.sink - centre.y, slot.z - centre.z)
         _q.setFromAxisAngle(Y_UP, slot.yaw)
         _s.setScalar(look.scale)
         inst.setMatrixAt(k, _m.compose(_p, _q, _s))
@@ -367,24 +392,55 @@ export function buildCrowd(track: Track, seats: SeatSlot[], quality: Quality, as
     return out
   }
 
-  const out: THREE.Object3D[] = []
-  const ramped: { lod: THREE.LOD; inst: THREE.InstancedMesh; full: number }[] = []
-  let impostors = 0, near3d = 0
+  // --- who is here, then who gets a figure ----------------------------------------------------
+  // The occupancy draw comes FIRST and is independent of the budget: which places are taken is a
+  // property of the race day, not of the GPU. Only then is the tier's instance budget spread over
+  // the occupied places, by error diffusion inside each bay, so the count is deterministic and
+  // never over `quality.crowd` (the old uniform stride over the raw slots put the two together
+  // and could overshoot the budget by the share of empty seats it happened to skip).
+  const occupied = new Map<string, { slot: SeatSlot; look: Look }[]>()
+  let expected = 0
   for (const [key, list] of bays) {
     const standId = key.slice(0, key.indexOf('|'))
-    const occupancy = OCCUPANCY_BY_STAND[standId] ?? OCCUPANCY
+    // a lawn place already IS an occupied place: banks.ts drew each bank's own occupancy when it
+    // laid the blobs out, so drawing it again here would thin them twice
+    const occupancy = bankIds.has(standId) ? 1 : OCCUPANCY_BY_STAND[standId] ?? OCCUPANCY
     list.sort((a, b) => a.row - b.row || a.s - b.s)
+    const here: { slot: SeatSlot; look: Look }[] = []
+    for (const slot of list) {
+      if (occupancy < 1 && rng.next() > occupancy) continue // empty seat
+      here.push({ slot, look: lookFor(rng, standId, slot.kind === 'lawn', baked) })
+    }
+    if (here.length) {
+      occupied.set(key, here)
+      expected += here.length
+    }
+  }
+  const rate = Math.min(1, quality.crowd / Math.max(1, expected))
+
+  const out: THREE.Object3D[] = []
+  const ramped: { lod: THREE.LOD; inst: THREE.InstancedMesh; full: number }[] = []
+  let impostors = 0, near3d = 0, bankBays = 0, bankPeople = 0
+  for (const [key, here] of occupied) {
+    const standId = key.slice(0, key.indexOf('|'))
     const people: { slot: SeatSlot; look: Look }[] = []
     const centre = new THREE.Vector3()
-    for (let i = 0; i < list.length; i += stride) {
-      const slot = list[i]!
-      if (rng.next() > occupancy) continue // empty seat
-      const look = lookFor(rng, standId)
-      people.push({ slot, look })
-      centre.add(_p.set(slot.x, slot.y, slot.z))
+    // error diffusion over the bay's own places: every bay keeps the same share of its people,
+    // spread evenly through the rows rather than truncated off the back
+    let acc = 0
+    for (const p of here) {
+      acc += rate
+      if (acc < 1) continue
+      acc -= 1
+      people.push(p)
+      centre.add(_p.set(p.slot.x, p.slot.y, p.slot.z))
     }
     if (!people.length) continue
     centre.multiplyScalar(1 / people.length)
+    if (bankIds.has(standId)) {
+      bankBays++
+      bankPeople += people.length
+    }
     const lod = new THREE.LOD()
     lod.position.copy(centre)
     const far = impostorMesh(people, centre)
@@ -416,6 +472,11 @@ export function buildCrowd(track: Track, seats: SeatSlot[], quality: Quality, as
       if (n !== b.inst.count) b.inst.count = n
     }
   }
-  if (import.meta.dev) console.info(`[crowd] ${impostors} impostors (${baked ? 'baked atlas' : 'procedural atlas'}), ${near3d} near-field figures, stride ${stride}, ${bays.size} bays`)
-  return { objects: out, time, update, stats: { impostors, near3d, atlas: baked ? 'baked' : 'procedural' } }
+  if (import.meta.dev) console.info(`[crowd] ${impostors} impostors of ${expected} occupied places (${baked ? 'baked atlas' : 'procedural atlas'}), rate ${rate.toFixed(3)}, ${near3d} near-field figures, ${bays.size} bays (${bankBays} on banks)`)
+  return {
+    objects: out,
+    time,
+    update,
+    stats: { impostors, near3d, atlas: baked ? 'baked' : 'procedural', budget: quality.crowd, rate, expected, bays: bays.size, bankBays, bankPeople },
+  }
 }
