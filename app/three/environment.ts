@@ -17,6 +17,9 @@ import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
 import { buildLanes } from './lanes'
 import { buildFerrisWheel, buildTrees } from './vegetation'
+import { buildStructures } from './structures'
+import { buildForest } from './forest'
+import { buildSurroundings } from './surroundings'
 import { FarField } from './farfield'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
@@ -841,13 +844,21 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   lap('lanes')
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
   const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
+  lap('props')
+  // --- crossover bridge, underpass parapets, screens, signs, lamps (plan §3) -------------------
+  const structures = buildStructures(ctx, { buildingRoofMat })
+  lap('structures')
   // every single-material box placed above, merged per material
   boxes.flush()
-  lap('props')
 
   // --- Ferris wheel (the Suzuka landmark behind the final-corner stands) ------------------------
   const ferrisWheel = buildFerrisWheel(ctx)
   lap('ferris')
+  // --- far field: buildings / car parks / solar / poles / fence, then the woods (deferred jobs) --
+  buildSurroundings(ctx)
+  lap('surroundings')
+  buildForest(ctx)
+  lap('forest')
 
   // --- trees (synchronous until plan §2a moves them into the far field's 'forest' stage) --------
   buildTrees(ctx, ferrisWheel)
@@ -869,6 +880,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     if (cameraPos) {
       stands.update(cameraPos)
       crowd.update(cameraPos)
+      structures.update(cameraPos)
       farField.update(cameraPos)
     }
   }

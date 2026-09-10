@@ -52,14 +52,14 @@ export function setTextureScale(k: number) {
  * uv (`u = x / w`); anything indexing raw pixels has to scale those coordinates too — see
  * gravelMaps, which scales its pebble radii and count with the resolution.
  */
-function scaled(w: number, h: number): [number, number] {
+export function scaled(w: number, h: number): [number, number] {
   return [Math.max(4, Math.round(w * textureScale)), Math.max(4, Math.round(h * textureScale))]
 }
 
 // ---------------------------------------------------------------------------------------------
 // noise
 
-function mulberry(seed: number): () => number {
+export function mulberry(seed: number): () => number {
   let s = seed >>> 0
   return () => {
     let t = (s += 0x6d2b79f5)
@@ -117,7 +117,7 @@ class Noise2 {
 // ---------------------------------------------------------------------------------------------
 // canvas helpers
 
-function canvas(w: number, h: number): { c: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+export function canvas(w: number, h: number): { c: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
@@ -129,7 +129,7 @@ function clamp255(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : v | 0
 }
 
-function makeTexture(c: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: [number, number]; wrap?: THREE.Wrapping; nearest?: boolean; aniso?: number } = {}): THREE.Texture {
+export function makeTexture(c: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: [number, number]; wrap?: THREE.Wrapping; nearest?: boolean; aniso?: number } = {}): THREE.Texture {
   const tex = new THREE.CanvasTexture(c)
   const wrap = opts.wrap ?? THREE.RepeatWrapping
   tex.wrapS = wrap
@@ -148,7 +148,7 @@ function makeTexture(c: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: [num
 }
 
 /** Fill a canvas from a per-pixel colour callback. */
-function paint(w: number, h: number, fn: (x: number, y: number, out: Float32Array) => void): HTMLCanvasElement {
+export function paint(w: number, h: number, fn: (x: number, y: number, out: Float32Array) => void): HTMLCanvasElement {
   const { c, ctx } = canvas(w, h)
   const img = ctx.createImageData(w, h)
   const d = img.data
@@ -176,7 +176,7 @@ function paint(w: number, h: number, fn: (x: number, y: number, out: Float32Arra
  * be divided by the metres each texel covers on that axis, or the same height field reads as a
  * corrugation along the coarse axis. See asphaltMaps.
  */
-function normalMapFrom(height: Float32Array, w: number, h: number, sx: number, sy = sx, aniso?: number): THREE.Texture {
+export function normalMapFrom(height: Float32Array, w: number, h: number, sx: number, sy = sx, aniso?: number): THREE.Texture {
   const c = paint(w, h, (x, y, out) => {
     const l = height[y * w + ((x - 1 + w) % w)]!
     const r = height[y * w + ((x + 1) % w)]!
@@ -194,7 +194,7 @@ function normalMapFrom(height: Float32Array, w: number, h: number, sx: number, s
   return makeTexture(c, { srgb: false, aniso })
 }
 
-function grayMap(values: Float32Array, w: number, h: number, aniso?: number): THREE.Texture {
+export function grayMap(values: Float32Array, w: number, h: number, aniso?: number): THREE.Texture {
   const c = paint(w, h, (x, y, out) => {
     const v = values[y * w + x]! * 255
     out[0] = v
@@ -206,7 +206,7 @@ function grayMap(values: Float32Array, w: number, h: number, aniso?: number): TH
 
 const cache = new Map<string, unknown>()
 
-function cached<T>(key: string, make: () => T): T {
+export function cached<T>(key: string, make: () => T): T {
   let t = cache.get(key) as T | undefined
   if (t === undefined) {
     t = make()
@@ -245,16 +245,16 @@ export function disposeAll() {
   cache.clear()
 }
 
-function hexToRgb(hex: string): [number, number, number] {
+export function hexToRgb(hex: string): [number, number, number] {
   const c = new THREE.Color(hex)
   return [c.r * 255, c.g * 255, c.b * 255]
 }
 
-function lerp(a: number, b: number, t: number): number {
+export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
-function smooth(t: number): number {
+export function smooth(t: number): number {
   t = t < 0 ? 0 : t > 1 ? 1 : t
   return t * t * (3 - 2 * t)
 }
