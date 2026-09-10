@@ -13,6 +13,7 @@ import { QUALITY, type Quality } from './quality'
 import { BoxPlacer } from './boxes'
 import type { AssetRegistry } from './assets'
 import { buildStands, facilityRelief, lateralBackMax } from './stands'
+import { demFieldFor, type DemField } from './dem'
 import { buildPitComplex } from './pit-complex'
 import { buildTracksideProps } from './props'
 import { buildLanes } from './lanes'
@@ -24,8 +25,6 @@ import { FarField } from './farfield'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
 export { cameraSide } from './props'
-
-const _p = new THREE.Vector3()
 
 function smoothstep(t: number): number {
   t = t < 0 ? 0 : t > 1 ? 1 : t
@@ -49,6 +48,19 @@ const ROAD_R = 140
 // the crease did (the asphalt band's median deviation went 2.7 → 9.3 mm).
 /** Decay of the cross-fade towards the nearest road, metres: e^-5 for a road 30 m further away. */
 const ROAD_FALLOFF = 6
+/**
+ * Where the road-plane IDW gives way to the real DEM (plan §1b): the blend weight is
+ * smoothstep((near − DEM_BLEND[0]) / (DEM_BLEND[1] − DEM_BLEND[0])), 0 inside DEM_BLEND[0] of
+ * the nearest centreline sample and 1 at ROAD_R. The inner edge is beyond surface-check's G5
+ * reach (it samples the field out to hw 7.5 + 34 = 41.5 m), so the DEM never enters the road
+ * verge and the partition's allowances move only where the ground really curves (P6s). The
+ * plan's first choice was 45 m; at 45 the paddock apron behind the pit building took the DEM's
+ * curvature at 50 % weight 90 m out and its G3 went 0.2 → 4.3 %, the "kind explodes" case the
+ * plan answers by widening to 60 before raising the row.
+ */
+const DEM_BLEND: readonly [number, number] = [60, ROAD_R]
+/** the coarse ring outside the height grid is meshed at K × the grid's spacing (terrain-far.ts) */
+const RING_K = 4
 
 /**
  * A registered ground face (`Terrain.addGroundFace`).
@@ -73,11 +85,41 @@ interface GroundSheet {
   name: string
 }
 
-/** Terrain that hugs the track elevation and rolls into wooded hills further out. */
+/**
+ * The coarse height grid that continues the terrain rectangle outward (plan §1c): K × the inner
+ * spacing, `cellsX` / `cellsZ` cells beyond the rectangle on every side, and the nodes INSIDE the
+ * rectangle too (they coincide with every K-th inner node, whose boundary run is snapped linear
+ * so the two meshes share their edge without T-junctions). Heights are the far field with the
+ * facility relief applied — the same numbers `heightAt` gives out there. Read-only: computed at
+ * construction (before the settle cuts, which never reach the boundary; the nodes inside the
+ * rectangle are the analytic heights and are not meshed), meshed by terrain-far.ts, sampled by
+ * `meshHeightAt` outside the rectangle.
+ */
+export interface TerrainRing {
+  k: number
+  cellsX: number
+  cellsZ: number
+  /** node spacing (K × the inner grid's) */
+  dx: number
+  dz: number
+  /** world position of node (0, 0) — cellsX / cellsZ cells outside the inner rectangle */
+  x0: number
+  z0: number
+  /** node counts per axis (cells + 1) */
+  nx: number
+  nz: number
+  /** row-major `heights[j * nx + i]` */
+  heights: Float32Array
+}
+
+/** Terrain that hugs the track elevation and follows the real DEM (dem.ts) further out. */
 export class Terrain {
   /** Terrain chunks (a 4×4 grid so follow cameras can frustum-cull the far side). */
   readonly group: THREE.Group
-  private coarse: { x: number; z: number; y: number }[] = []
+  /** the real height field the far term and the ring come from */
+  private readonly dem: DemField
+  /** the coarse ring around the height grid (see TerrainRing) */
+  readonly ring: TerrainRing
   /**
    * The flat paddock / grandstand apron along the main straight.
    *
@@ -111,13 +153,12 @@ export class Terrain {
   private nearI = -1
 
   /** the asset pack (null / empty on the low tier); the track meshes read it from here */
-  constructor(private track: Track, grid: [number, number] = [256, 192], readonly assets: AssetRegistry | null = null) {
+  constructor(private track: Track, grid: [number, number] = [256, 192], readonly assets: AssetRegistry | null = null, ringCells = 25) {
     this.NX = grid[0]
     this.NZ = grid[1]
-    for (let s = 0; s < track.length; s += 90) {
-      track.pointAt(s, 0, _p)
-      this.coarse.push({ x: _p.x, z: _p.z, y: _p.y })
-    }
+    // the boundary snap and the ring need every K-th node to be a real node of both grids
+    if (this.NX % RING_K !== 0 || this.NZ % RING_K !== 0) throw new Error(`Terrain: grid ${this.NX} × ${this.NZ} must be a multiple of ${RING_K} (quality.ts terrain)`)
+    this.dem = demFieldFor(track)
     const w = 3400, d = 2600
     const cx = track.center.x, cz = track.center.z
     // sample one height grid, then cut it into chunks that share edge vertices (and normals
@@ -135,6 +176,8 @@ export class Terrain {
       this.fillToe[i] = track.hw[i]! + 6
     }
     for (let j = 0; j < gz; j++) for (let i = 0; i < gx; i++) this.heights[j * gx + i] = this.heightAt(this.x0 + i * this.dx, this.z0 + j * this.dz)
+    this.snapBoundary()
+    this.ring = this.buildRing(ringCells)
     // terrain uv = xz / 9; withered_grass at its 2 m tile on the high tier, the procedural SEASON
     // tile otherwise, one macro period every 250 m either way (materials.ts grassSurfaceMaterial)
     const mat = grassSurfaceMaterial(assets, [9, 9], [250, 250], 0.7)
@@ -174,29 +217,78 @@ export class Terrain {
         this.chunks.push(mesh)
       }
     }
-    // a flat skirt far beyond the height grid: the overview camera looks past the terrain
-    // rectangle, and without ground there the Sky shader's below-horizon colours show through
-    const minH = this.minHeight()
-    const skirtSize = 40000
+    // a flat skirt far beyond the ring and the skyline: the overview camera looks past them, and
+    // without ground there the Sky shader's below-horizon colours show through. It sits 1 m under
+    // the lowest land node of DEM_FAR (the sea is lower still, but it is drawn by the skyline mesh)
+    const skirtSize = 100000
     const skirtGeo = new THREE.PlaneGeometry(skirtSize, skirtSize, 1, 1)
     const skirtUv = skirtGeo.attributes.uv as THREE.BufferAttribute
     for (let i = 0; i < skirtUv.count; i++) skirtUv.setXY(i, (skirtUv.getX(i) * skirtSize) / 9, (skirtUv.getY(i) * skirtSize) / 9)
     const skirt = new THREE.Mesh(skirtGeo, mat)
     skirt.rotation.x = -Math.PI / 2
-    skirt.position.set(cx, minH - 0.5, cz)
+    skirt.position.set(cx, this.dem.farLandMin - 1, cz)
     skirt.receiveShadow = false
     skirt.name = 'terrainSkirt'
     skirt.updateMatrix()
     skirt.matrixAutoUpdate = false
     this.group.add(skirt)
-    this.skirt = skirt
   }
 
-  private readonly skirt: THREE.Mesh
-  private minHeight(): number {
-    let minH = Infinity
-    for (let i = 0; i < this.heights.length; i++) if (this.heights[i]! < minH) minH = this.heights[i]!
-    return minH
+  /**
+   * Make the height grid's outermost run of nodes piecewise linear between every K-th node, so
+   * the coarse ring (K × the spacing) shares the boundary exactly: every ring node on the
+   * boundary IS an inner node, and between two of them both meshes interpolate linearly.
+   */
+  private snapBoundary() {
+    const gx = this.NX + 1, gz = this.NZ + 1
+    const H = this.heights
+    const snapRun = (at: (t: number) => number, count: number) => {
+      for (let a = 0; a + RING_K <= count - 1; a += RING_K) {
+        const h0 = H[at(a)]!, h1 = H[at(a + RING_K)]!
+        for (let s = 1; s < RING_K; s++) H[at(a + s)] = h0 + ((h1 - h0) * s) / RING_K
+      }
+    }
+    snapRun((i) => i, gx)
+    snapRun((i) => this.NZ * gx + i, gx)
+    snapRun((j) => j * gx, gz)
+    snapRun((j) => j * gx + this.NX, gz)
+  }
+
+  /**
+   * Sample the coarse ring (see TerrainRing): `cells` cells beyond the rectangle on every side at
+   * K × the inner spacing, every node from `heightAt` (the far field plus the facility relief).
+   * The nodes inside the rectangle coincide with every K-th inner node; the dev build measures
+   * the difference and prints it.
+   */
+  private buildRing(cells: number): TerrainRing {
+    const k = RING_K
+    const dx = this.dx * k, dz = this.dz * k
+    const nx = this.NX / k + 2 * cells + 1, nz = this.NZ / k + 2 * cells + 1
+    const x0 = this.x0 - cells * dx, z0 = this.z0 - cells * dz
+    const heights = new Float32Array(nx * nz)
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) heights[j * nx + i] = this.heightAt(x0 + i * dx, z0 + j * dz)
+    if (import.meta.dev) {
+      const gx = this.NX + 1
+      let worst = 0
+      for (let j = 0; j <= this.NZ / k; j++) {
+        for (let i = 0; i <= this.NX / k; i++) {
+          const dh = Math.abs(heights[(j + cells) * nx + i + cells]! - this.heights[j * k * gx + i * k]!)
+          if (dh > worst) worst = dh
+        }
+      }
+      console.info(`[terrain] ring ${nx} × ${nz} nodes at ${dx.toFixed(1)} × ${dz.toFixed(1)} m, inner-node max |Δ| ${worst.toExponential(2)} m`)
+    }
+    return { k, cellsX: cells, cellsZ: cells, dx, dz, x0, z0, nx, nz, heights }
+  }
+
+  /** The real height field beyond the road blend (dem.ts): the ring, the skyline and the water read this. */
+  farField(x: number, z: number): number {
+    return this.dem.height(x, z)
+  }
+
+  /** The DEM field itself, for the far-field builders that need its water beds or extent. */
+  get demField(): DemField {
+    return this.dem
   }
 
   // --- registered ground sheets ----------------------------------------------------------------
@@ -262,15 +354,12 @@ export class Terrain {
   private committed = false
   /**
    * First upload of the vertex data, once every cut is in (the faces' settle, the decks'
-   * clampUnder); the skirt goes back under the (now lower) grid. A later clampUnder re-uploads
-   * only the chunks it touches.
+   * clampUnder). A later clampUnder re-uploads only the chunks it touches. The skirt stays where
+   * the constructor put it (under the lowest land of DEM_FAR; no cut reaches that deep).
    */
   commit() {
     if (this.committed) return
     this.committed = true
-    // the cuts only ever lower, so the skirt's pre-cut minimum can now be above the grid
-    this.skirt.position.y = this.minHeight() - 0.5
-    this.skirt.updateMatrix()
     this.refresh()
   }
 
@@ -320,18 +409,38 @@ export class Terrain {
     }
   }
 
-  /** Height of the rendered terrain mesh at (x, z) — the analytic surface sampled on the grid. */
+  /**
+   * Height of the rendered terrain mesh at (x, z) — the analytic surface sampled on the grid,
+   * and outside the rectangle the coarse ring (bilinear on its cells, which is what terrain-far.ts
+   * draws), clamped at the ring's outer edge.
+   */
   meshHeightAt(x: number, z: number): number {
     const gx = this.NX + 1
     const H = this.heights
     const fu = (x - this.x0) / this.dx
     const fv = (z - this.z0) / this.dz
+    if (fu < 0 || fv < 0 || fu > this.NX || fv > this.NZ) return this.ringHeightAt(x, z)
     const i = Math.min(this.NX - 1, Math.max(0, Math.floor(fu)))
     const j = Math.min(this.NZ - 1, Math.max(0, Math.floor(fv)))
     const u = Math.min(1, Math.max(0, fu - i)), v = Math.min(1, Math.max(0, fv - j))
     const a = j * gx + i, b = a + 1, c = a + gx, e = c + 1
     if (u + v <= 1) return H[a]! + u * (H[b]! - H[a]!) + v * (H[c]! - H[a]!)
     return H[e]! + (1 - u) * (H[c]! - H[e]!) + (1 - v) * (H[b]! - H[e]!)
+  }
+
+  /** Bilinear height on the coarse ring, clamped to its outer edge. */
+  private ringHeightAt(x: number, z: number): number {
+    const r = this.ring
+    const cx = r.nx - 1, cz = r.nz - 1
+    const fu = Math.min(cx, Math.max(0, (x - r.x0) / r.dx))
+    const fv = Math.min(cz, Math.max(0, (z - r.z0) / r.dz))
+    const i = Math.min(cx - 1, Math.floor(fu)), j = Math.min(cz - 1, Math.floor(fv))
+    const u = fu - i, v = fv - j
+    const k = j * r.nx + i
+    const H = r.heights
+    const a = H[k]! * (1 - u) + H[k + 1]! * u
+    const b = H[k + r.nx]! * (1 - u) + H[k + r.nx + 1]! * u
+    return a * (1 - v) + b * v
   }
 
   /**
@@ -522,21 +631,6 @@ export class Terrain {
     if (dirty.size && this.committed) this.refresh(dirty)
   }
 
-  private base(x: number, z: number): number {
-    let num = 0, den = 0
-    for (const c of this.coarse) {
-      const dx = c.x - x, dz = c.z - z
-      const w = 1 / (dx * dx + dz * dz + 900)
-      num += c.y * w
-      den += w
-    }
-    return num / den
-  }
-
-  private hills(x: number, z: number): number {
-    return 9 * Math.sin(x * 0.0113 + 1.3) * Math.cos(z * 0.0091 - 0.4) + 5 * Math.sin(x * 0.027 - z * 0.019) + 3 * Math.cos(z * 0.041 + x * 0.008)
-  }
-
   /** Distance to the nearest centreline sample within `maxR` (returns maxR if none). */
   distanceToTrack(x: number, z: number, maxR: number): { d: number; i: number; lateral: number; s: number } {
     let best = maxR * maxR
@@ -565,11 +659,6 @@ export class Terrain {
       this.sToe[k] = this.fillToe[i]!
       this.sN = k + 1
     }
-    if (d2 < this.nearD2) { this.nearD2 = d2; this.nearI = i }
-  }
-
-  /** Gather callback for the far field: the nearest sample only. */
-  private readonly gatherFar = (i: number, d2: number) => {
     if (d2 < this.nearD2) { this.nearD2 = d2; this.nearI = i }
   }
 
@@ -617,9 +706,10 @@ export class Terrain {
    * split). Every sample also caps the ground at its own road level plus a FILL_SLOPE embankment
    * measured with the EUCLIDEAN distance — the old cap used a far stretch's lateral and cut
    * 8-10 m cliffs at the hairpin exit — so a lower road (the crossover, 200R under the back
-   * straight) is never buried and the upper one stands on a bank. Further out it rolls into the
-   * hills. Measured on the built track: 5 cm steps over 30 mm along the verge went from 6,874 to
-   * 21, all but 6 of them facility relief edges (stands.ts), and the call costs 11 µs, not 27.
+   * straight) is never buried and the upper one stands on a bank. From DEM_BLEND[0] out the
+   * blend gives way to the real DEM (dem.ts), which is the whole field beyond ROAD_R. Measured
+   * on the built track: 5 cm steps over 30 mm along the verge went from 6,874 to 21, all but 6
+   * of them facility relief edges (stands.ts), and the call costs 11 µs, not 27.
    */
   heightAt(x: number, z: number): number {
     const t = this.track
@@ -630,11 +720,9 @@ export class Terrain {
     this.nearI = -1
     t.forEachSampleNear(x, z, ROAD_R, this.gatherNear)
     if (this.nearI < 0) {
-      // out of road range: the smoothed coarse elevation rolling into the hills
-      this.nearD2 = Infinity
-      t.forEachSampleNear(x, z, 360, this.gatherFar)
-      const d = this.nearI < 0 ? 360 : Math.sqrt(this.nearD2)
-      return this.base(x, z) + smoothstep((d - 90) / 260) * this.hills(x, z)
+      // out of road range: the real ground. The relief applies here too — RELIEF_REACH (170 m)
+      // is beyond ROAD_R, so the E hill's outer fade would otherwise step at the 140 m seam
+      return this.withRelief(x, z, this.farField(x, z))
     }
     const near = Math.sqrt(this.nearD2)
     // one pass: the road-plane blend, plus a lower bound of the embankment cap
@@ -653,9 +741,11 @@ export class Terrain {
       num += this.sPlane[k]! * w
       den += w
     }
-    const hillW = smoothstep((near - 90) / 260)
-    const w2 = smoothstep((near - ROAD_R) / 220)
-    const far = (num / den) * (1 - w2) + (w2 > 0 ? this.base(x, z) * w2 : 0) + (hillW > 0 ? this.hills(x, z) * hillW : 0)
+    // the road-plane IDW cross-fades into the DEM between DEM_BLEND[0] and ROAD_R (where the
+    // IDW's own fade has reached zero and the far branch takes over)
+    const wD = smoothstep((near - DEM_BLEND[0]) / (DEM_BLEND[1] - DEM_BLEND[0]))
+    const demH = wD > 0 || den <= 0 ? this.farField(x, z) : 0
+    const far = den > 0 ? (num / den) * (1 - wD) + demH * wD : demH
     // flat cut under and beside the nearest road, blending into the smoothed plane
     const p = this.projectNear(this.nearI, x, z)
     const hNear = p.py + t.rollLift(p.roll, p.lat) - ROAD_CUT
@@ -685,12 +775,19 @@ export class Terrain {
       }
       if (cap < h) h = cap
     }
-    // facility relief, after the caps so it wins: the hillside / embankment platforms the
-    // stands stand on (C's cut terrace, the D5 grass bank, the D plateau, the E hill, the level
-    // GP Square platform behind the main grandstand). Fill samples max() with the natural
-    // ground, faded at the plateau edges; cut samples (the deck band of a stand cut into a
-    // hill) replace it. Every ramp starts under a stand's retaining wall or beyond the run-off
-    const relief = facilityRelief(x, z, t)
+    return this.withRelief(x, z, h)
+  }
+
+  /**
+   * Facility relief, applied after the caps so it wins: the hillside / embankment platforms the
+   * stands stand on (C's cut terrace, the D5 grass bank, the D plateau, the E hill, the level
+   * GP Square platform behind the main grandstand). Fill samples max() with the natural
+   * ground, faded at the plateau edges; cut samples (the deck band of a stand cut into a
+   * hill) replace it. Every ramp starts under a stand's retaining wall or beyond the run-off,
+   * and the outer fades land on the DEM (stands.ts reads dem.ts for that).
+   */
+  private withRelief(x: number, z: number, h: number): number {
+    const relief = facilityRelief(x, z, this.track)
     if (relief) {
       const hr = relief[0]
       const mode = relief[2]
@@ -784,7 +881,7 @@ export interface Environment {
 
 export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Environment {
   const group = new THREE.Group()
-  const terrain = new Terrain(track, quality.terrain, assets)
+  const terrain = new Terrain(track, quality.terrain, assets, quality.terrainRingCells)
   group.add(terrain.group)
   const field: GroundField = makeField(track, terrain)
   // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,

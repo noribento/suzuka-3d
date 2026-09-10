@@ -8,6 +8,7 @@ import type { EnvBuildContext, Terrain } from './environment'
 import type { Ground } from './ground'
 import { bucketedInstancedMeshes } from './instancing'
 import { pbrFromAssets } from './materials'
+import { demFieldFor } from './dem'
 import { boardTexture, concreteMaps } from './textures'
 
 /**
@@ -1553,8 +1554,13 @@ interface TrackZone {
   /** the stand's own s range: outside it the claim fades out over `fade` metres (before, after) */
   core: [number, number]
   fade: [number, number]
-  /** relief at |lateral| a; null = no effect */
-  profile: (s: number, a: number) => Relief | null
+  /**
+   * relief at |lateral| a; null = no effect. `g` is the real ground (dem.ts) at the point,
+   * relative to the same reference the returned height is (the road at sample s): the outer
+   * fades ramp onto it so the claim ends ON the DEM (plan §1a, |relief − DEM| ≤ 1.5 m at every
+   * zero-weight edge)
+   */
+  profile: (s: number, a: number, g: number) => Relief | null
   /** centreline samples of [from, to] and their bounding box padded by the zone's reach (lazy) */
   samples?: Int32Array
   box?: [number, number, number, number]
@@ -1568,8 +1574,11 @@ interface ChordZone {
   fade: [number, number]
   /** v band the profile can claim */
   vRange: [number, number]
-  profile: (u: number, v: number) => Relief | null
+  /** as TrackZone.profile; `g` is the DEM relative to the chord's own reference height at u */
+  profile: (u: number, v: number, g: number) => Relief | null
   box: [number, number, number, number]
+  /** the end fades (before u = 0, after u = len) that also take the claim's height onto the DEM: a zone's outer ends, not the ones that face another block */
+  land?: [boolean, boolean]
 }
 
 /** A zone bounded by a world polygon (the retention basins): the ground inside is a sunken floor. */
@@ -1589,15 +1598,21 @@ type ReliefZone = TrackZone | ChordZone | PolyZone
 
 /** a chord zone's claim fades to nothing over this many metres inside each edge of its v band */
 const V_FADE = 8
-function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile']): ChordZone {
+function chordZone(chord: PathSpec, fade: [number, number], vRange: [number, number], profile: ChordZone['profile'], land?: [boolean, boolean]): ChordZone {
   // the path's own bounding box, grown by the fades and the v band it claims
   const pad = Math.max(fade[0], fade[1]) + Math.max(Math.abs(vRange[0]), Math.abs(vRange[1]))
   const b = chord.box
-  return { kind: 'chord', chord, fade, vRange, profile, box: [b[0] - pad, b[1] + pad, b[2] - pad, b[3] + pad] }
+  return { kind: 'chord', chord, fade, vRange, profile, box: [b[0] - pad, b[1] + pad, b[2] - pad, b[3] + pad], land }
 }
 
-/** how far to the left of the centreline a zone can reach (the widest fade: E, lb + 70) */
+/** how far to the left of the centreline a track zone can reach (the widest fade: E, lb + 70) */
 const RELIEF_REACH = 170
+/**
+ * v band of the E hill's chord zones: the plateau's back slope (lb + 40 … lb + 70, lb up to 77 m
+ * in E2's chord frame) has to land on the DEM INSIDE the band — a 120 m band cut it off at
+ * full height and V_FADE turned that into a 10–16 m step
+ */
+const E_V_MAX = 160
 
 function reliefZones(track: Track): ReliefZone[] {
   const L = track.length
@@ -1629,7 +1644,7 @@ function reliefZones(track: Track): ReliefZone[] {
   const cSpec = C ? pathSpec(track, C) : null
   if (C && cSpec) {
     const local = pathLocalDef(C, cSpec)
-    zones.push(chordZone(cSpec, [4, 40], [-30, 120], (u, v) => {
+    zones.push(chordZone(cSpec, [4, 40], [-30, 120], (u, v, g) => {
         const { front, fh, lb, top } = chordSection(local, u)
         // the 2009 service road at the toe, ≈ 1 m under row 1: the natural hill in front of the
         // Esses end stood above the toe and the 18 m terrain grid drew that mismatch as a
@@ -1643,13 +1658,14 @@ function reliefZones(track: Track): ReliefZone[] {
         if (v < lb + 12) return cut(top)
         // the hill behind the concourse is capped to a 40 % bank the grid can resolve (a fill
         // only raised lower ground, so at the Esses end the hill met the concourse as a cliff)
-        if (v < lb + 42) return cap(ramp(v, lb + 12, top, lb + 42, top + 12))
+        // ...and lands on (or above) the real ground, so the cap's own edge is never a step
+        if (v < lb + 42) return cap(ramp(v, lb + 12, top, lb + 42, Math.max(top + 12, g)))
         return null
     }))
   }
   const D5 = by('D5')
   if (D5) {
-    zones.push(zone(D5.sRange, [20, 12], (s, a) => {
+    zones.push(zone(D5.sRange, [20, 12], (s, a, g) => {
         const lf = alongAt(D5.lateralFront, s, D5.sRange) - 0.5
         const fh = alongAt(D5.frontHeight, s, D5.sRange) - 0.6
         const lb = lf + 16 * 0.95
@@ -1659,7 +1675,8 @@ function reliefZones(track: Track): ReliefZone[] {
         if (a < lf) return under(ramp(a, 22, 0, lf, fh))
         if (a < lb) return under(ramp(a, lf, fh, lb, top))
         if (a < lb + 8) return cut(top)
-        if (a < lb + 30) return fill(top, 1 - (a - lb - 8) / 22)
+        // the bank behind the crest runs down onto the real ground (7.2 m above it before)
+        if (a < lb + 30) return fill(ramp(a, lb + 8, top, lb + 30, g), 1 - (a - lb - 8) / 22)
         return null
     }))
   }
@@ -1670,7 +1687,7 @@ function reliefZones(track: Track): ReliefZone[] {
   if (D) {
     D.tiers.forEach((tier, k) => {
       const rows = tier.rows
-      zones.push(zone(tier.sRange ?? D.sRange, [k === 0 ? 12 : 0, k === D.tiers.length - 1 ? 15 : 0], (s, a) => {
+      zones.push(zone(tier.sRange ?? D.sRange, [k === 0 ? 12 : 0, k === D.tiers.length - 1 ? 15 : 0], (s, a, g) => {
           const lf = alongAt(D.lateralFront, s, D.sRange) - 0.5
           const fh = alongAt(D.frontHeight, s, D.sRange) - 0.6
           const lb = lf + rows * 0.95
@@ -1681,7 +1698,9 @@ function reliefZones(track: Track): ReliefZone[] {
           if (a < lb + 7) return cut(top + 0.5)
           if (a < lb + 12) return fill(ramp(a, lb + 7, top + 0.5, lb + 12, 10.0))
           if (a < lb + 24) return fill(ramp(a, lb + 12, 10.0, lb + 24, 13.4))
-          if (a < lb + 54) return fill(13.4, 1 - (a - lb - 24) / 30)
+          // the plateau's outer slope lands on the real ground: the DEM behind D falls from
+          // ≈ +5 to −6 m relative to the track along the stand, a constant fill left up to 19 m
+          if (a < lb + 54) return fill(ramp(a, lb + 24, 13.4, lb + 54, g), 1 - (a - lb - 24) / 30)
           return null
       }))
     })
@@ -1691,15 +1710,15 @@ function reliefZones(track: Track): ReliefZone[] {
   // ≈ +8 at the NIPPO end. The bank in front rises at the deck's own rake, so bank and rows are
   // one plane with no bend at row 1 (a bend there makes the coarse terrain grid overshoot the
   // deck and leaves a metres-tall retaining wall once the grid is clamped back under it). The
-  // plateau is cut as well: the procedural hills() behind E stand 2–3 m above it. The 6 m stair
-  // gap between the blocks is bridged by the fades.
+  // plateau is cut as well: the real hill behind E (the DEM) stands above it in places. The 6 m
+  // stair gap between the blocks is bridged by the fades.
   const E2 = by('E2')
   const e2Spec = E2 ? pathSpec(track, E2) : null
   if (E2 && e2Spec) {
     const local = pathLocalDef(E2, e2Spec)
     const tier = E2.tiers[0]!
     const rake = tier.riser / tier.tread
-    zones.push(chordZone(e2Spec, [20, 6], [-60, 120], (u, v) => {
+    zones.push(chordZone(e2Spec, [20, 6], [-60, E_V_MAX], (u, v, g) => {
         const { front, fh, lb, top } = chordSection(local, u)
         const plateau = top + 1.0
         const a0 = front - fh / rake
@@ -1709,9 +1728,12 @@ function reliefZones(track: Track): ReliefZone[] {
         if (v < lb + 10) return under(top)
         if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
         if (v < lb + 40) return cut(plateau)
-        if (v < lb + 70) return [plateau, 1 - (v - lb - 40) / 30, true]
+        // the plateau's back slope lands on the real hillside (the DEM, 10–16 m under it before),
+        // inside the band's own fade
+        const vEnd = Math.min(lb + 70, E_V_MAX - V_FADE)
+        if (v < vEnd) return [ramp(v, lb + 40, plateau, vEnd, g), 1 - (v - lb - 40) / (vEnd - lb - 40), true]
         return null
-    }))
+    }, [true, false]))
   }
   const E1 = by('E1')
   const e1Spec = E1 ? pathSpec(track, E1) : null
@@ -1719,7 +1741,7 @@ function reliefZones(track: Track): ReliefZone[] {
     const local = pathLocalDef(E1, e1Spec)
     const tier = E1.tiers[0]!
     const rake = tier.riser / tier.tread
-    zones.push(chordZone(e1Spec, [6, 30], [-40, 120], (u, v) => {
+    zones.push(chordZone(e1Spec, [6, 30], [-40, E_V_MAX], (u, v, g) => {
         const { front, fh, lb, top } = chordSection(local, u)
         const plateau = top + 1.0
         const a0 = front - fh / rake
@@ -1729,9 +1751,12 @@ function reliefZones(track: Track): ReliefZone[] {
         if (v < lb + 10) return under(top)
         if (v < lb + 16) return cut(ramp(v, lb + 10, top, lb + 16, plateau))
         if (v < lb + 40) return cut(plateau)
-        if (v < lb + 70) return [plateau, 1 - (v - lb - 40) / 30, true]
+        // the plateau's back slope lands on the real hillside (the DEM, 10–16 m under it before),
+        // inside the band's own fade
+        const vEnd = Math.min(lb + 70, E_V_MAX - V_FADE)
+        if (v < vEnd) return [ramp(v, lb + 40, plateau, vEnd, g), 1 - (v - lb - 40) / (vEnd - lb - 40), true]
         return null
-    }))
+    }, [false, true]))
   }
   // retention basins: a sunken floor with a bank, so the dry-basin meshes in pit-complex.ts have
   // ground to sit in (a flat sheet at grade read as a lake — 2026-09 audit S01-04 / S02-05)
@@ -1755,11 +1780,12 @@ function reliefZones(track: Track): ReliefZone[] {
   // main grandstand: the level fill platform behind V1 (GP Square) is ≈ 7.3 m above the track
   // (5 m fades along s: the A1 temporary stand starts 5 m past its end at track level, and cut
   // dead the platform's ends were 7 m walls in the height field)
-  zones.push(zone([5560, 70], [5, 5], (_s, a) => {
+  zones.push(zone([5560, 70], [5, 5], (_s, a, g) => {
       if (a < 30) return null
       if (a < 38) return fill(ramp(a, 30, 0, 38, 7.3))
       if (a < 110) return fill(7.3)
-      if (a < 140) return fill(7.3, 1 - (a - 110) / 30)
+      // the platform's back slope lands on the real ground (the car parks behind, 3–7 m lower)
+      if (a < 140) return fill(ramp(a, 110, 7.3, 140, g), 1 - (a - 110) / 30)
       return null
   }))
   return zones
@@ -1804,6 +1830,9 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
   if (!zones) zoneCache.set(track, (zones = reliefZones(track)))
   let out: Relief | null = null
   let outRank = 2, outD2 = Infinity
+  // the real ground at the point (dem.ts), read once and only when a zone's box admits the point
+  let demH = NaN
+  const demAt = () => (demH === demH ? demH : (demH = demFieldFor(track).height(x, z)))
   for (const zone of zones) {
     if (zone.kind === 'poly') {
       const box = zone.box
@@ -1839,11 +1868,18 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const u = pr.u, v = pr.v
       if (v < zone.vRange[0] || v > zone.vRange[1]) continue
       const uc = Math.min(c.len, Math.max(0, u))
-      // project() clamps to the path's ends, so the fade is measured from the projected point
-      const endGap = pr.u <= 0.01 ? Math.hypot(x - c.px[0]!, z - c.pz[0]!) - Math.abs(v) : pr.u >= c.len - 0.01 ? Math.hypot(x - c.px[c.px.length - 1]!, z - c.pz[c.pz.length - 1]!) - Math.abs(v) : 0
-      const t = endGap <= 0 ? 0 : endGap / Math.max(1e-6, pr.u <= 0.01 ? zone.fade[0] : zone.fade[1])
+      // project() clamps to the path's ends, so the fade is measured from the projected point.
+      // The radial measure is deliberate: E1's and E2's chords curve, a point 100 m behind them
+      // projects onto an END of either chord, and this measure keeps both claims nearly whole
+      // across the 16 m between the chords' ends (the stair gap); an along-tangent measure was
+      // tried and left a notch there. It also means the fade — not the lateral ramp — is what
+      // ends the claim far behind the hill, which is why the OUTER end fades land on the DEM
+      const atStart = pr.u <= 0.01
+      const endGap = atStart ? Math.hypot(x - c.px[0]!, z - c.pz[0]!) - Math.abs(v) : pr.u >= c.len - 0.01 ? Math.hypot(x - c.px[c.px.length - 1]!, z - c.pz[c.pz.length - 1]!) - Math.abs(v) : 0
+      const t = endGap <= 0 ? 0 : endGap / Math.max(1e-6, atStart ? zone.fade[0] : zone.fade[1])
       if (t >= 1) continue
-      const r = zone.profile(uc, v)
+      const yRef = c.yRef(uc)
+      const r = zone.profile(uc, v, demAt() - yRef)
       if (!r) continue
       let w = t > 0 ? r[1] * (1 - t * t * (3 - 2 * t)) : r[1]
       // ...and across the v band's two edges, over V_FADE metres inside them: cut hard, the E hill's
@@ -1853,7 +1889,13 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const rank = r[3] ?? 1
       const d2 = v * v + endGap * endGap
       if (out && (rank > outRank || (rank === outRank && d2 >= outD2))) continue
-      out = [c.yRef(uc) + r[0], w, r[2]]
+      let h = yRef + r[0]
+      // through an end fade the claim's HEIGHT goes to the real ground as well as its weight: a
+      // cap (C's toe road) only ever rises onto it, so it ends on the hillside instead of cutting
+      // a step; a zone's outer end (`land`) always does, so the E hill's plateau runs out onto
+      // the DEM instead of standing 10–16 m over it where the weight reaches zero
+      if (t > 0 && (r[2] === 'cap' ? demAt() > h : zone.land?.[atStart ? 0 : 1])) h += (demAt() - h) * t * t * (3 - 2 * t)
+      out = [h, w, r[2]]
       outRank = rank
       outD2 = d2
       continue
@@ -1891,7 +1933,7 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
     const lateral = dx * track.nx[bi]! + dz * track.nz[bi]!
     if (lateral <= 0) continue
     const sBi = bi * track.ds
-    const r = zone.profile(sBi, lateral)
+    const r = zone.profile(sBi, lateral, demAt() - track.py[bi]!)
     if (!r) continue
     // the profile is read at a SAMPLE: between two samples the relief would step every 2 m (a
     // sawtooth the faces chord by 40 mm), so it is blended with the neighbouring sample the point
@@ -1903,7 +1945,7 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
     let w = r[1]
     if (tt > 0 && forwardDelta(zone.from, bj * track.ds, L) <= forwardDelta(zone.from, zone.to, L)) {
       const dxj = x - track.px[bj]!, dzj = z - track.pz[bj]!
-      const rj = zone.profile(bj * track.ds, dxj * track.nx[bj]! + dzj * track.nz[bj]!)
+      const rj = zone.profile(bj * track.ds, dxj * track.nx[bj]! + dzj * track.nz[bj]!, demAt() - track.py[bj]!)
       if (rj && rj[2] === r[2]) { h += (track.py[bj]! + rj[0] - h) * tt; w += (rj[1] - w) * tt }
       else w *= 1 - tt
     }
@@ -1914,6 +1956,8 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       const t = before < after ? before / Math.max(1e-6, zone.fade[0]) : after / Math.max(1e-6, zone.fade[1])
       if (t >= 1) continue
       w *= 1 - t * t * (3 - 2 * t)
+      // as for the chord zones: a cap's end fade rises onto the real ground
+      if (r[2] === 'cap' && demAt() > h) h += (demAt() - h) * t * t * (3 - 2 * t)
     }
     const rank = r[3] ?? 1
     if (out && (rank > outRank || (rank === outRank && best >= outD2))) continue

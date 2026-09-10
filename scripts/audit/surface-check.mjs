@@ -58,8 +58,8 @@ const ALLOWED_IMPORTS = [
 ]
 
 // ================================================================ phases and allowances
-const PHASE = 'P6'
-const PHASES = ['P0', 'P1', 'P2', 'P3a', 'P3b', 'P4', 'P5', 'P6', 'P7']
+const PHASE = 'P6s'
+const PHASES = ['P0', 'P1', 'P2', 'P3a', 'P3b', 'P4', 'P5', 'P6', 'P6s', 'P7']
 const phaseIdx = (p) => PHASES.indexOf(p)
 
 /**
@@ -71,7 +71,9 @@ const WHY = {
   fieldCells:
     'field-frame faces on ground that curves — the DEM\'s own slopes, the crease where a fill cap meets the natural ground (a hard min, FILL_SLOPE 0.35), the basin banks, the GP Square ramp (7 m over 8 m) — are 2 m raster rows × fill columns and 1 m world triangles: their centroids chord the field by 40–230 mm and their planes tilt > 10° from it. Walls and terrace steps (slope > 45°) are already left out as cliffs. The fix is refining the raster where the field curves (1 m rows and fills there, +triangles), P7. Rounding the cap crease over ±2 m was tried in P6 and reverted (the fillet chorded worse)',
   reliefJoin:
-    'facilityRelief (stands.ts) still has joins without a blend: the E1 / E2 chord zones meet with an 11 m step (s 1581 L), the D / E tiers, and the pit-building paddock platform ends on the bisector with the NIPPO stretch as a 1.6 m step (G11 paddock). P6 gave the chord zones v-fades, the basins banks from the local ground and the sample zones along-s interpolation (G11 water 90 → 0, grass 48 → 0, G5 564 → 306); the joins are P7',
+    'facilityRelief (stands.ts) still has joins without a blend: the E1 / E2 chord zones meet with an 11 m step (s 1581 L), the D / E tiers, and the pit-building paddock platform ends on the bisector with the NIPPO stretch as a 1.6 m step (G11 paddock). P6 gave the chord zones v-fades, the basins banks from the local ground and the sample zones along-s interpolation (G11 water 90 → 0, grass 48 → 0, G5 564 → 306); P6s landed every zone\'s outer fade on the DEM (G11 paddock 1 → 0, G5 307), one D tier-1 row (s 1315, lateral > 80 falls between the samples of the 逆バンク bend) still ends its claim mid-ramp; the joins are P7',
+  demCurvature:
+    'P6s: the far term of Terrain.heightAt is the real DEM (dem.ts, bicubic on the 30 m grid) from DEM_BLEND [60, 140] m out, and the relief zones\' outer fades land on it. Where a face reaches that far — the paddock apron behind the pit building (lateral −90…−130, past the line where the nearest centreline stretch flips and the flat zone stops), the two ponds\' banks (basin caps from the local ground) — the 2 m raster rows chord the DEM\'s own curvature: measured with --suggest on both tiers, paddock 0.2 → 3.23 % (625 mm max at the flip line, which was 2.9 m tall before and is 1.6 m now), water 4.2 → 8.82 %, paddock.steep 2000 → 2001, water.steep 711 → 986. At DEM_BLEND[0] = 45 the paddock read 4.29 % and a parking-line decal sat 4.5 mm over its face, so the blend starts at 60. The remedy is the same P7 raster refinement',
   osmGap:
     'beside the lower road at the crossover (s 2352–2355 L, 30 m out) a few square metres between the OSM sand and grass polygons are nobody\'s ground beyond both roads\' rasters; the same class of gap inside Degner 2 was closed in P6 with a strip ring on the two polygons\' own edges (GROUND_AREAS デグナー2内側の帯) — this one wants the same look at the aerial, P7',
 }
@@ -83,14 +85,13 @@ const WHY = {
  */
 const ALLOWANCES = [
   // --- 2 m cells on curved ground (P7: refine where the field curves) ---------------------------
-  { guard: 'G3', key: "ground:asphaltArea", bound: 0.7, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:asphaltBand", bound: 0.65, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:grass", bound: 4.4, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:grassArea", bound: 1.25, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:gravelArea", bound: 7.5, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:gravelBand", bound: 1.55, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G3', key: "ground:paddock", bound: 0.55, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G3', key: "ground:water", bound: 6.7, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:paddock", bound: 3.4, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
+  { guard: 'G3', key: "ground:water", bound: 9.3, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
   { guard: 'G4', key: "ground:asphaltArea.steep", bound: 70, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:asphaltBand.steep", bound: 280, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:grass.steep", bound: 1400, why: WHY.fieldCells, until: 'P7' },
@@ -99,12 +100,11 @@ const ALLOWANCES = [
   { guard: 'G4', key: "ground:gravelBand.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:helipad.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:lane.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:paddock.steep", bound: 2000, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:paddock.steep", bound: 2110, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
   { guard: 'G4', key: "ground:turf.steep", bound: 8, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:water.steep", bound: 770, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G4', key: "ground:water.steep", bound: 1040, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
   // --- relief joins (P7: stands.ts) ---------------------------------------------------------------
   { guard: 'G5', key: "jumps", bound: 330, why: WHY.reliefJoin, until: 'P7' },
-  { guard: 'G11', key: "ground:paddock", bound: 1, why: WHY.reliefJoin, until: 'P7' },
   // --- an OSM gap at the crossover (P7: a strip ring) --------------------------------------------
   { guard: 'G1', key: "crossoverBare", bound: 12, why: WHY.osmGap, until: 'P7' },
 ]

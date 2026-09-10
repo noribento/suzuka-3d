@@ -59,7 +59,13 @@ export interface Quality {
   smoke: number
   skidQuads: number
   trees: number
+  /** height-grid cells of the terrain rectangle (3400 × 2600 m); both counts must be multiples of 4 (the ring's K) */
   terrain: [number, number]
+  /**
+   * cells of the coarse terrain ring beyond the rectangle on every side, at 4 × the grid spacing
+   * (terrain-far.ts): 25 × 53 m ≈ 1.3 km on the high tier, 19 × 71 m ≈ 1.35 km on the low
+   */
+  terrainRingCells: number
   textureScale: number
   /** anisotropy budget for everything except the ground surfaces */
   anisotropy: number
@@ -73,6 +79,9 @@ export interface Quality {
   clouds: boolean
   /** lens flare (horizontal streak + ghosts) drawn by the grade pass around a visible sun — needs `post`; the veil is always on there */
   flare: boolean
+  /** the DEM_FAR skyline mesh (`terrainFar`, ±35 km) behind the ring */
+  ridge: boolean
+  /** @deprecated the tree-line cylinder of sky-extras.ts, replaced by `ridge`; goes with the cylinder */
   ring: boolean
   /** HDR post chain (bloom, grade) */
   post: boolean
@@ -155,12 +164,14 @@ export const QUALITY: Record<QualityTier, Quality> = {
     skidQuads: 4000,
     trees: 3000,
     terrain: [256, 192],
+    terrainRingCells: 25,
     textureScale: 1,
     anisotropy: 16,
     anisotropyGround: 16,
     fence: true,
     clouds: true,
     flare: true,
+    ridge: true,
     ring: true,
     post: true,
     gtao: true,
@@ -197,6 +208,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     skidQuads: 1500,
     trees: 800,
     terrain: [192, 144],
+    terrainRingCells: 19,
     textureScale: 0.5,
     anisotropy: 2,
     // the software rasteriser loops per tap, but the road is a small fraction of its fill and it
@@ -205,6 +217,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     fence: false,
     clouds: false,
     flare: false,
+    ridge: true,
     ring: true,
     post: false,
     gtao: false,
