@@ -22,7 +22,11 @@
     "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only."
   ],
   "policy": {
-    "band": { "calls": 0.05, "triangles": 0.05, "setupMs": 0.5 },
+    "band": {
+      "calls": 0.05,
+      "triangles": 0.05,
+      "setupMs": 0.5
+    },
     "warnAt": 0.9
   },
   "tiers": {
@@ -31,28 +35,116 @@
       "loadMs": 30000,
       "programs": 60,
       "modes": {
-        "overview": { "triangles": 1900000, "calls": 520, "maxRatio": { "triangles": 1.6, "calls": 1.6 } },
-        "heli": { "triangles": 1150000, "calls": 480, "maxRatio": { "triangles": 2.16, "calls": 3.22 } },
-        "chase": { "triangles": 1300000, "calls": 500, "maxRatio": { "triangles": 1.78, "calls": 2.05 } },
-        "onboard": { "triangles": 1150000, "calls": 460, "maxRatio": { "triangles": 1.9, "calls": 2.27 } },
-        "tv": { "triangles": 1000000, "calls": 380, "maxRatio": { "triangles": 2.03, "calls": 2.53 } }
+        "overview": {
+          "triangles": 1900000,
+          "calls": 520,
+          "maxRatio": {
+            "triangles": 1.6,
+            "calls": 1.6
+          }
+        },
+        "heli": {
+          "triangles": 1150000,
+          "calls": 480,
+          "maxRatio": {
+            "triangles": 2.16,
+            "calls": 3.22
+          }
+        },
+        "chase": {
+          "triangles": 1300000,
+          "calls": 500,
+          "maxRatio": {
+            "triangles": 1.78,
+            "calls": 2.05
+          }
+        },
+        "onboard": {
+          "triangles": 1150000,
+          "calls": 460,
+          "maxRatio": {
+            "triangles": 1.9,
+            "calls": 2.27
+          }
+        },
+        "tv": {
+          "triangles": 1000000,
+          "calls": 380,
+          "maxRatio": {
+            "triangles": 2.03,
+            "calls": 2.53
+          }
+        }
       }
     },
     "high": {
       "setupMs": 110000,
       "programs": 92,
       "modes": {
-        "overview": { "triangles": 2900000, "calls": 620, "maxRatio": { "triangles": 2.01, "calls": 1.72 } },
-        "heli": { "triangles": 3800000, "calls": 1250, "maxRatio": { "triangles": 1.6, "calls": 1.6 } },
-        "chase": { "triangles": 3000000, "calls": 820, "maxRatio": { "triangles": 1.6, "calls": 1.6 } },
-        "onboard": { "triangles": 3000000, "calls": 800, "maxRatio": { "triangles": 1.64, "calls": 1.6 } },
-        "tv": { "triangles": 2700000, "calls": 700, "maxRatio": { "triangles": 1.83, "calls": 2.17 } }
+        "overview": {
+          "triangles": 2900000,
+          "calls": 620,
+          "maxRatio": {
+            "triangles": 2.01,
+            "calls": 1.72
+          }
+        },
+        "heli": {
+          "triangles": 3800000,
+          "calls": 1250,
+          "maxRatio": {
+            "triangles": 1.6,
+            "calls": 1.6
+          }
+        },
+        "chase": {
+          "triangles": 3000000,
+          "calls": 820,
+          "maxRatio": {
+            "triangles": 1.6,
+            "calls": 1.6
+          }
+        },
+        "onboard": {
+          "triangles": 3000000,
+          "calls": 800,
+          "maxRatio": {
+            "triangles": 1.64,
+            "calls": 1.6
+          }
+        },
+        "tv": {
+          "triangles": 2700000,
+          "calls": 700,
+          "maxRatio": {
+            "triangles": 1.83,
+            "calls": 2.17
+          }
+        }
       }
     }
   },
   "static": {
-    "highNoAssets": { "triangles": 4000000, "meshes": 400, "instancedMeshes": 260, "farFieldEntries": 400, "measured": false },
-    "lowNoAssets": { "triangles": 2000000, "meshes": 300, "instancedMeshes": 240, "farFieldEntries": 300, "measured": false }
+    "highNoAssets": {
+      "triangles": 3310400,
+      "meshes": 960,
+      "instancedMeshes": 616,
+      "farFieldEntries": 818,
+      "measured": true,
+      "measuredAt": "2026-09-11 scene-cost (Node, assets null), +10 %"
+    },
+    "lowNoAssets": {
+      "triangles": 1694500,
+      "meshes": 803,
+      "instancedMeshes": 547,
+      "farFieldEntries": 671,
+      "measured": true,
+      "measuredAt": "2026-09-11 scene-cost (Node, assets null), +10 %"
+    }
   },
-  "data": { "generatedBytes": 1048576, "measured": false }
+  "data": {
+    "generatedBytes": 1048576,
+    "measured": true,
+    "measuredAt": "2026-09-11: suzuka-dem.ts + suzuka-surroundings.ts = 991,024 B of the 1 MiB cap"
+  }
 }

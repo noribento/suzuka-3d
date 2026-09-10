@@ -199,6 +199,16 @@ app/
     terrain-far.ts             # 格子の外: 粗いリング `terrainRing-0..3`（継ぎ目の頂点・法線を共有）、DEM_FAR の山並み `terrainFar`（頂点色、フォグの傾斜パッチ）、水面 `water-far`
     landcover.ts               # 土地利用マスク（OSM の層を CPU スキャンラインで RGBA8 2 組に描く: 森・田・舗装・駐車場・水・太陽光・集落・縁線）と芝シェーダ用のディテールタイル
     farfield.ts                # 遠景の登録簿と遅延ビルド（250 m セルの LOD、ローディング後のタイムスライス）
+    far-geometry.ts            # 地形の三角形に沿ってポリゴンを切る（`cellClippedPolygon`）: 区画の面と 140 m 圏を避け、standY に貼り、外周からスカートを立てる
+    surroundings.ts            # 柵の外のビルダーの入口（'buildings' → 'dressing' の順に buildings / vehicles / outskirts を遅延登録）
+    forest.ts                  # 森（OSM の森ポリゴン）: 250 m セルの樹冠マス・森床・手続き幹・近景の GLB 幹の 3 段 LOD
+    buildings.ts               # 柵の外の建物: 種別ごとのマッシング（寄棟瓦・パラペット＋金属屋根・窓帯・キャノピー）、7 層の facade 配列テクスチャ、モートピアのコースターとプール、キャンプ場
+    vehicles.ts                # 駐車場の車: OSM の駐車場に枠を切り、車体 → インポスターカード → 俯瞰の点描の 3 段 LOD（車種と配色は car-bodies.ts）
+    car-bodies.ts              # 低ポリの車体 6 種（ミニバン・軽・SUV・ハッチ・セダン・バス、頂点色の部位マスク）— インポスターのベイクにも使う
+    outskirts.ts               # 郊外の設備: 太陽光アレイ、外周フェンス、照明柱、電柱と架線、県道のガードレール
+    structures.ts              # 立体交差の桁橋（スラブ・化粧板・鋼桁・橋台・翼壁・側道）、地下道の高欄、看板とピット出口信号
+    lattice.ts                 # 鉄骨ラティスのプロトタイプ（送電鉄塔・リーダータワー・スタートゲートリーで共用、低ティアはブレース無し）
+    impostor.ts                # インポスターの共通実装（アトラスのレイアウト・方位セル・マスク着色）— 観客と車で共用
     stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場・裏方・案内板）、パスフレーム、座席数クランプ、地形リリーフ
     pit-complex.ts             # ピットビル（勾配追従スイープ、ガレージ、表彰台、ポッド、ビジョン）、リーダータワー、ピットウォール、パドック、水面
     props.ts                   # 距離看板、マーシャルポスト＋デジタルフラッグ、TV カメラ塔、送電線、OSM 建物のマッシング、二輪・カート舗装
@@ -226,7 +236,7 @@ scripts/
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
   facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生
-  assets/                      # fetch / import-misc / bake-crowd-atlas / sources（アセットパイプライン）
+  assets/                      # fetch / import-misc / bake-crowd-atlas / bake-car-atlas / sources（アセットパイプライン）
   facilities/                  # build-facilities（Overpass → TS）、build-power、build-surroundings（柵の外の OSM → suzuka-surroundings.ts）、osm-common（Overpass 取得・EN 投影・DP・int16 デルタの共通部）、
                                #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
@@ -403,7 +413,10 @@ scripts/
 - 土地利用マスクの境界（森・田・舗装・集落）が区画の縁や地形チャンクとリングの継ぎ目で途切れないこと、ミップ／異方性でヘリからのちらつきが出ないこと（`?fx=1` で detail タイルも）
 - 山並み（`terrainFar`）の霞: 4 km から先のフォグの傾斜で 20 km の稜線にコントラストが残り、低い太陽で山に沈むこと（プローブが太陽を隠すこと）
 - 水面 `water-far` の反射（`scene.environment` の IBL とリップル法線）が濁った緑灰で、岸の 12 m の土手に対して平面が浮いて見えないこと
-- （後で）森の樹冠のマス（`farfield.ts` の canopy）と地形の z-fight
+- 森の樹冠のマス（`forest.ts` の `forest-<cell>`）と地形の z-fight、幹（900 m）・GLB 幹（260 m）へ切り替わるときの飛び、森床の落ち葉色
+- 建物のファサード（`app/three/buildings.ts` の `DataArrayTexture`）: 7 層の sRGB デコードとミップが正しく出ること、瓦・リブ金属・窓帯が層ごとに入れ替わらないこと。おかしければ `FACADE_ARRAY_TEXTURE = false` で 4 枚の通常マテリアルに落とせる
+- 駐車場の車（`vehicles.ts`）: 500 m でのカードへの切替、カードの向きと着色（`tex/car_atlas` のマスク）、俯瞰の点描が地面に埋まらないこと
+- A2R・130R G 席の青いキャノピーの影と支柱の接地、芝土手のレジャーシートの z-fight（standY +2 mm）、焼き込みアトラスの座り姿が芝の上で 0.40 m 沈んで見えること
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes
