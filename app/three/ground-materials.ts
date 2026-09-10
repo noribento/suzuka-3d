@@ -3,6 +3,7 @@ import { CIRCUIT } from '~/data/suzuka'
 import { SEASON } from '~/data/suzuka-facilities-spec'
 import type { AssetRegistry } from './assets'
 import { PLANAR_UV, type GroundMaterials } from './ground-mesh'
+import type { CoverLayer } from './landcover'
 import { addMacro, addRoadSurface, grassSurfaceMaterial, pbr, pbrFromAssets, repeatMetres, tileMetres } from './materials'
 import { ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, asphaltMaps, concreteMaps, gravelMaps, helipadTexture, kerbMaps, paddockAsphaltTexture, turfMaps } from './textures'
 
@@ -13,8 +14,13 @@ import { ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, asphaltMaps, concre
  * road-relative (u across in ASPHALT_WIDTH_M units or 0..1, v = s / tile), the field kinds are
  * world-planar with the metres per uv unit in PLANAR_UV. A material's macro / detail periods are
  * therefore stated in the same units here, and a change to PLANAR_UV must be mirrored.
+ *
+ * `cover` (landcover.ts, the INNER layer — `landCover.layer('inner')`) goes to the grass
+ * materials so the verge and the grass islands carry the same land-cover splat as the terrain:
+ * the partition's edge is then invisible in the mask (R1 is unaffected — an owner is still
+ * decided by the face, not by the pixels on it).
  */
-export function groundMaterials(assets: AssetRegistry | null): GroundMaterials {
+export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer | null = null): GroundMaterials {
   // --- the racing surface: lined asphalt, one macro period across the road and every 300 m along
   const road = pbr(asphaltMaps(true), {}, 1)
   addRoadSurface(road, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
@@ -66,7 +72,7 @@ export function groundMaterials(assets: AssetRegistry | null): GroundMaterials {
   // the grass verge and the grass islands share the terrain's tile scale and macro period, so
   // the three phase-lock instead of showing a seam at the extent
   const g = PLANAR_UV.grass!
-  const grass = grassSurfaceMaterial(assets, g, [250, 250], 0.8)
+  const grass = grassSurfaceMaterial(assets, g, [250, 250], 0.8, cover)
 
   // the paddock aprons: flat grey asphalt with a macro period of 250 m (uv unit = 40 m)
   const pad = PLANAR_UV.paddock!
