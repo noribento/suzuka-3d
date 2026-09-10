@@ -81,7 +81,11 @@ function renderCell (col, row, yawDeg, pitchDeg) {
 }
 
 window.bakeCars = function (pass) {
+  // clear the WHOLE canvas between the two passes: with the scissor test on, `clear` would only
+  // wipe the last cell, and the rows this bake never draws would keep the colour pass
+  renderer.setScissorTest(false)
   renderer.clear()
+  renderer.setScissorTest(true)
   const layout = []
   for (let row = 0; row < CAR_BODIES.length; row++) {
     const kind = CAR_BODIES[row]

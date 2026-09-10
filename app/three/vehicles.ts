@@ -48,11 +48,11 @@ import { cutoutParams } from './materials'
  * The speckle is an UP-FACING OVERLAY, so it obeys the far-field overlay rule (≥ 140 m from the
  * centreline and `ground.builtY === null`) that far-geometry.ts's `cellClippedPolygon` enforces
  * for the forest: its quads are built only from bays that already passed the bay test, so it
- * inherits both conditions instead of testing them again. It is lifted `speckle.lift` over
- * `standY` — 2.5 × ground.ts's LAYER_MIN_STEP rather than the 2 mm of the plan sketch, because
- * the low tier draws with a logarithmic depth buffer, where `polygonOffset` is a no-op and the
- * geometric separation has to stand on its own. 2 cm is 0.05 px at the 275 m from which the
- * speckle is ever shown.
+ * inherits both conditions instead of testing them again. It clears the ground it covers by
+ * `speckle.lift` (`stripY`) — 2.5 × ground.ts's LAYER_MIN_STEP rather than the 2 mm of the plan
+ * sketch, because the low tier draws with a logarithmic depth buffer, where `polygonOffset` is a
+ * no-op and the geometric separation has to stand on its own. 2 cm is 0.05 px at the 275 m from
+ * which the speckle is ever shown.
  *
  * Every lot's ring is pushed to `ctx.keepOutPolys` in the 'buildings' stage, before the forest.
  * All materials are created inside the jobs (the registry's attach hook sets them up).
@@ -92,7 +92,7 @@ export const CAR_PARK = {
   verge: { lotIds: [184529074] as readonly number[], spacing: 7, offset: 3.2, occupancy: 0.4, max: 14 },
   /** LOD: the 3D bodies' range and count ramp (m, × lodScale); the cards use Quality.farField.rangeFar */
   lod: { bodies: 500, ramp: 100 },
-  /** the overview speckle: bays per quad along a row, lift over standY (m), the asphalt tone empty bays mix in (linear grey) */
+  /** the overview speckle: bays per quad along a row, clearance over the ground under it (m, `stripY`), the asphalt tone empty bays mix in (linear grey) */
   speckle: { baysPerQuad: 4, lift: 0.02, asphalt: 0.07 },
 } as const
 
@@ -371,6 +371,42 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
   /** world point of the lot frame (`a` along the principal axis, `c` across it) */
   const world = (lot: Lot, a: number, c: number): XZ => [lot.cx + a * lot.ax - c * lot.az, lot.cz + a * lot.az + c * lot.ax]
 
+  /**
+   * The four corner heights of a speckle strip: `standY` at the corners, then the whole strip
+   * raised until nothing of the ground it covers pokes through it.
+   *
+   * A strip is up to 10 × 5 m of two triangles, and the bay rule only keeps the ground flat
+   * over ONE bay (2.5 × 5 m) — over a run of four the surface bends, and a plane through the
+   * corners then cuts into it. Measured before this correction: 3.5 % of the sampled strip
+   * interior had ground standing above the strip, the worst by 11 cm, which from the overview
+   * is exactly the hole in the speckle the strip exists to fill. So the interior is sampled on
+   * a 5 × 5 grid against the surface that will actually be drawn — the two triangles always
+   * split the corner rectangle on its 0–2 diagonal (`buildCell` only chooses the winding) — and
+   * the largest shortfall is added to all four corners. The strip keeps the ground's tilt and
+   * lands `speckle.lift` above the highest point under it.
+   */
+  const stripY = (p: readonly [XZ, XZ, XZ, XZ]): [number, number, number, number] => {
+    const y0 = ground.standY(p[0][0], p[0][1]), y1 = ground.standY(p[1][0], p[1][1])
+    const y2 = ground.standY(p[2][0], p[2][1]), y3 = ground.standY(p[3][0], p[3][1])
+    // (u, v) run 0 → 1 from corner 0 towards corner 1 and corner 3; below the diagonal the
+    // triangle is (0, 1, 2), above it (0, 2, 3)
+    const at = (u: number, v: number) => (v <= u ? y0 + (y1 - y0) * u + (y2 - y1) * v : y0 + (y2 - y3) * u + (y3 - y0) * v)
+    const N = 4
+    let rise = 0
+    for (let i = 0; i <= N; i++) {
+      for (let k = 0; k <= N; k++) {
+        const u = i / N, v = k / N
+        if ((u === 0 || u === 1) && (v === 0 || v === 1)) continue
+        const x = p[0][0] + (p[1][0] - p[0][0]) * u + (p[3][0] - p[0][0]) * v
+        const z = p[0][1] + (p[1][1] - p[0][1]) * u + (p[3][1] - p[0][1]) * v
+        const need = ground.standY(x, z) - at(u, v)
+        if (need > rise) rise = need
+      }
+    }
+    const lift = rise + CAR_PARK.speckle.lift
+    return [y0 + lift, y1 + lift, y2 + lift, y3 + lift]
+  }
+
   // --- one planning job per lot -----------------------------------------------------------------
   function planLot(lot: Lot) {
     // 60 of the 111 lots are outside the terrain rectangle, where there is no height field at all
@@ -431,7 +467,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
         for (const r of best.why) stats.rejected[r]++
         for (const bay of best.bays) {
           if (hash2(bay.i, 7, lot.seed) > lot.occupancy) continue
-          // nose to the aisle (the +c side), with the usual yaw jitter
+          // nose first, away from the aisle on the +c side (yawAlong + π/2 is −c), jittered
           const yaw = yawAlong + Math.PI / 2 + (hash2(bay.i, 8, lot.seed) - 0.5) * 2 * jit
           addCar({ x: bay.x, z: bay.z, y: bay.y + CAR_PARK.lift, yaw, body: 'coach', colour: pickCarColour(0.05, hash2(bay.i, 9, lot.seed), new THREE.Color()) })
           stats.coaches++
@@ -451,8 +487,10 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
         if (cb1 > lot.c1 + 1e-6) continue
         stats.rows++
         const row = rowIndex++
-        // the nose points away from the aisle
-        const noseIn = side === 0 ? yawAlong - Math.PI / 2 : yawAlong + Math.PI / 2
+        // yaw θ points the nose at (sin θ, cos θ); +c is (−az, ax), which is yawAlong − π/2.
+        // The aisle is on the +c side of the near row and the −c side of the far one, so this is
+        // the nose-first yaw — the `noseOut` share below turns round and reverses in instead.
+        const noseFirst = side === 0 ? yawAlong + Math.PI / 2 : yawAlong - Math.PI / 2
         // the speckle: runs of consecutive KEPT bays, `baysPerQuad` of them per quad
         let runStart = -1, runBays = 0
         let runR = 0, runG = 0, runB = 0, runCars = 0
@@ -463,8 +501,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
             _asphalt.setRGB(CAR_PARK.speckle.asphalt, CAR_PARK.speckle.asphalt, CAR_PARK.speckle.asphalt)
             _c.lerp(_asphalt, 1 - runCars / runBays)
             const p: [XZ, XZ, XZ, XZ] = [world(lot, a0, cb0), world(lot, a1, cb0), world(lot, a1, cb1), world(lot, a0, cb1)]
-            const y = p.map(([x, z]) => ground.standY(x, z) + CAR_PARK.speckle.lift) as [number, number, number, number]
-            addQuad({ p, y, colour: _c.clone() })
+            addQuad({ p, y: stripY(p), colour: _c.clone() })
           }
           runStart = -1
           runBays = 0
@@ -485,7 +522,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
             const h1 = hash2(j, row + 1000, lot.seed), h2 = hash2(j, row + 2000, lot.seed), h3 = hash2(j, row + 3000, lot.seed)
             const h4 = hash2(j, row + 4000, lot.seed), h5 = hash2(j, row + 5000, lot.seed), h6 = hash2(j, row + 6000, lot.seed)
             const colour = pickCarColour(h2, h3, new THREE.Color())
-            const yaw = noseIn + (h4 < CAR_PARK.noseOut ? Math.PI : 0) + (h5 - 0.5) * 2 * jit
+            const yaw = noseFirst + (h4 < CAR_PARK.noseOut ? Math.PI : 0) + (h5 - 0.5) * 2 * jit
             const pj = CAR_PARK.posJitter
             const [px, pz] = world(lot, a + (h6 - 0.5) * 2 * pj, c + (h5 - 0.5) * 2 * pj)
             addCar({ x: px, z: pz, y: r + CAR_PARK.lift, yaw, body: pickCarBody(h1), colour })
