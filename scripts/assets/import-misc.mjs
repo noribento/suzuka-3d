@@ -20,8 +20,10 @@
  *   - `pixels: true` → WebP (lossless at ≤ 512²) instead of KTX2: the runtime needs the pixels
  *     (drawImage / getImageData into a DataArrayTexture), which a GPU-compressed file cannot give.
  * Models (`packModel`, one pipeline, every stage opt-in per source — see sources.mjs "Map roles"):
- *   prepare (`dropNodes` / `keepNodes` / `overrideImages`) → gltf-transform prune → resize
- *   (`maxTex`, default 1K) → retouch (`retouch` / `dropParts` / `keepBox`, retouch-glb.mjs) → `texEncode`
+ *   prepare (`dropNodes` / `keepNodes` / `overrideImages`) → gltf-transform prune → `metalrough`
+ *   (gltf-transform: KHR_materials_pbrSpecularGlossiness → metallic-roughness, before the resize
+ *   so the rewritten textures start from the full-size source) → resize (`maxTex`, default 1K)
+ *   → retouch (`retouch` / `dropParts` / `keepBox`, retouch-glb.mjs) → `texEncode`
  *   (gltf-transform uastc for normal + alpha-tested textures, etc1s for the rest, KTX2 inside the
  *   GLB via KHR_texture_basisu) → `gltfpack -cc -kn -km [-si R -sa]` (EXT_meshopt_compression +
  *   quantisation, node and material names kept — the runtime classifies bark / leaf by material
@@ -413,14 +415,30 @@ async function packModel (input, outName, src = {}, srcDir = dirname(input)) {
   const work = ensureDir(join(WORK, 'models', outName))
   const modifications = ['meshopt compression (gltfpack -cc)']
   let cur = input
-  if (src.dropNodes || src.keepNodes || src.overrideImages) {
+  // A retouch selects images by name, and a Sketchfab scene.gltf names its images only through
+  // their uri — which gltf-transform drops on its first rewrite (the resize). So a source that
+  // retouches also starts from a GLB with the uri-derived names written in (readModel derives
+  // them, writeGlb keeps them, gltf-transform preserves a name it was given).
+  if (src.dropNodes || src.keepNodes || src.overrideImages || src.retouch) {
     const model = readModel(cur)
     modifications.push(...prepareModel(model, src, srcDir))
     const prepared = join(work, 'prepared.glb')
     writeGlb(prepared, model)
-    const pruned = join(work, 'pruned.glb')
-    npx(GLTF_TRANSFORM, ['prune', prepared, pruned])
-    cur = pruned
+    cur = prepared
+    if (src.dropNodes || src.keepNodes || src.overrideImages) {
+      const pruned = join(work, 'pruned.glb')
+      npx(GLTF_TRANSFORM, ['prune', prepared, pruned])
+      cur = pruned
+    }
+  }
+  if (src.metalrough) {
+    // Spec/gloss → metal/rough before the resize: the conversion rewrites the specGloss texture
+    // into metallicRoughness (+ KHR_materials_specular) and is best fed the full-size source.
+    // three's GLTFLoader no longer reads KHR_materials_pbrSpecularGlossiness at all.
+    const converted = join(work, 'metalrough.glb')
+    npx(GLTF_TRANSFORM, ['metalrough', cur, converted])
+    cur = converted
+    modifications.push('spec/gloss material converted to metal/rough (gltf-transform metalrough)')
   }
   const dims = await textureDims(cur)
   if (dims.some(d => Math.max(d.width, d.height) > maxTex)) {
@@ -835,6 +853,10 @@ function check () {
       }
     }
   }
+  // Trademark policy (CLAUDE.md): a vehicle body is a photo of a real car, so its maker emblems,
+  // model scripts and plates must have been blurred / filled at import — no vehicle source
+  // may ship without a `retouch` (the rectangles come from `retouch-glb.mjs --dump`).
+  for (const s of SOURCES) if (s.kind === 'model' && s.key.startsWith('model/vehicles/') && !(s.retouch?.length)) warn(`${s.key}: vehicle model without \`retouch\` (badges / plates must be blurred before import)`)
   if (bytes > BUDGET_BYTES) warn(`public/assets is ${fmtMB(bytes)} > budget ${fmtMB(BUDGET_BYTES)}`)
   if (vram > BUDGET_VRAM) warn(`estimated RGBA8 VRAM ${fmtMB(vram)} > budget ${fmtMB(BUDGET_VRAM)}`)
   for (const f of BASIS_FILES) {

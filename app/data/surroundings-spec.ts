@@ -382,6 +382,26 @@ export const HOUSE_DRESS = {
   shutter: { w: 3.2, h: 2.6, pitch: 8, max: 4 },
 } as const
 
+/**
+ * The solar farms' detail level (app/three/outskirts.ts `solarDetail-<cell>`, R フェーズ Phase 5,
+ * `Quality.farField.solarDetail`): what stands under and around the static panel rows inside
+ * `range` (m, × lodScale). Racks: a front and a back post (square, `post` m) every `postPitch` m
+ * along a row and two rails (`rail` m) under the panel's edges, galvanised. An inverter hut
+ * (`hut` = w × d × h, m, concrete walls, a galvanised roof) on every farm polygon of at least
+ * `hutMinArea` m², in the gap between two rows nearest the inset centroid. A chain-link fence
+ * (`fence`: height, post pitch, inset from the OSM edge, m) around every farm, posts + top rail,
+ * the mesh panel with `Quality.fence`.
+ */
+export const SOLAR_DETAIL = {
+  range: 600,
+  postPitch: 6,
+  post: 0.1,
+  rail: 0.06,
+  hutMinArea: 2000,
+  hut: [3, 2, 2.4] as readonly [number, number, number],
+  fence: { h: 1.8, pitch: 4, inset: 0.8 },
+} as const
+
 // TODO(plan §2d): car-body colour mix from the 2026 car-park photo (white pearl 38 / black 24 /
 // silver 20 / dark red 6 / blue 5 / other 7 %) and the body-type mix.
 export const CAR_COLOURS: { hex: string; weight: number }[] = []

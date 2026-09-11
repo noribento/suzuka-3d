@@ -2,12 +2,12 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { SUR_BUILDINGS, SUR_PARKING, SUR_ROADS, SUR_SITES, SUR_SOLAR } from '~/data/suzuka-surroundings'
 import { worldRing, type SurFeatureBase } from '~/data/en-codec'
-import { ROAD_FURNITURE } from '~/data/surroundings-spec'
+import { ROAD_FURNITURE, SOLAR_DETAIL } from '~/data/surroundings-spec'
 import type { EnvBuildContext } from './environment'
-import { inBBox, pointInRing, principalAxis, ringBBox, ringFromFlat, type GridShape, type XZ } from './far-geometry'
+import { inBBox, pointInRing, principalAxis, ringArea, ringBBox, ringFromFlat, type GridShape, type XZ } from './far-geometry'
 import { TriSink, inGrid, nearestArc, outsideGrid, pathLength, resample, siteOk, type Sample, type SiteRule } from './far-lines'
 import { FENCE_TILE_M } from './barriers'
-import { cutoutFromAssets, cutoutParams } from './materials'
+import { cutoutFromAssets, cutoutParams, pbrFromAssets, tileMetres } from './materials'
 import { modelPrototype } from './model-proto'
 import { cached, chainLinkTexture, makeTexture, mulberry, paint, scaled } from './textures'
 import { offsetAt, roadNetwork, walk } from './road-section'
@@ -40,9 +40,18 @@ import { offsetAt, roadNetwork, walk } from './road-section'
  *    along world X at a 5.5 m pitch (a global phase, so neighbouring farms align the way the
  *    aerial shows), scanline-intersected with the OSM polygon, inset, cut at 30 m, each segment
  *    one 3.3 m deep, 8 cm thick box tilted 15° facing south (front edge 0.8 m over the ground,
- *    read at the front edge) with the panel texture on top (navy cells, silver frame; one
- *    module = 1.0 × 1.65 m). The rings are pushed into `ctx.keepOutPolys` synchronously, so
- *    the forest's stems and the trackside scatter stay out of the farms.
+ *    read at the front edge) with the panel face on top — SolarPanel003 through
+ *    `pbrFromAssets` (the uv is metres), the painted module texture (navy cells, silver frame;
+ *    one module = 1.0 × 1.65 m) without the pack. The rings are pushed into `ctx.keepOutPolys`
+ *    synchronously, so the forest's stems and the trackside scatter stay out of the farms.
+ *    `solarDetail-<cell>` (kind 'solar', SOLAR_DETAIL.range, `Quality.farField.solarDetail`)
+ *    is the near level over the same cells, ONE Group entry per cell: the racks (a front and a
+ *    back post every 6 m under each segment, two rails under the panel's edges, galvanised),
+ *    an inverter hut on every farm of ≥ 2,000 m² (concrete box, galvanised roof slab, in the
+ *    row gap nearest the polygon's centroid) and a chain-link fence 0.8 m inside every farm's
+ *    OSM edge (instanced posts every 4 m, a top rail, the mesh panel with `Quality.fence`).
+ *    None of it casts a shadow (posts, rails and mesh are under a shadow texel; the hut's would
+ *    be the one worth having, but one rule per entry keeps the shadow pass free of 26 draws).
  *  - FENCE `fence-<cell>` (kind 'fence', range `OUTSKIRTS.fence.range`): the circuit boundary
  *    775428456 (171 vertices, 7,467 m) resampled at 3 m — instanced 60 mm posts, a 50 mm top
  *    rail (three faces) and, with `Quality.fence`, 2.4 m mesh panels (fence003 through
@@ -155,8 +164,8 @@ export const OUTSKIRTS = {
 } as const
 
 export interface OutskirtsStats {
-  /** solar farms: polygons planned, rows and segments planned (before the ground rule), cells */
-  solar: { polygons: number; rows: number; segments: number; cells: number }
+  /** solar farms: polygons planned, rows and segments planned (before the ground rule), cells; the detail level's cells, huts and fence posts planned (0 without `solarDetail`) */
+  solar: { polygons: number; rows: number; segments: number; cells: number; detailCells: number; huts: number; fencePosts: number }
   /** perimeter fence: posts planned, cells */
   fence: { posts: number; cells: number }
   /** light-pole candidates (car parks / service roads) and the tier's budget */
@@ -189,6 +198,57 @@ function push<T>(map: Map<number, T[]>, key: number, item: T) {
   let list = map.get(key)
   if (!list) map.set(key, (list = []))
   list.push(item)
+}
+
+/**
+ * The ring moved `d` inward (mitred corners, the mitre capped at ≈ 3 × d for acute vertices);
+ * the ring itself when it is too narrow to hold the inset. The outward side is read from the
+ * ring's winding, so either orientation works.
+ */
+function insetRingXZ(ring: readonly XZ[], d: number): XZ[] {
+  const n = ring.length
+  let area = 0
+  for (let i = 0; i < n; i++) {
+    const p = ring[i]!, q = ring[(i + 1) % n]!
+    area += p[0] * q[1] - q[0] * p[1]
+  }
+  const sgn = area > 0 ? 1 : -1
+  const normals: [number, number][] = []
+  for (let i = 0; i < n; i++) {
+    const p = ring[i]!, q = ring[(i + 1) % n]!
+    const ex = q[0] - p[0], ez = q[1] - p[1]
+    const len = Math.hypot(ex, ez) || 1
+    normals.push([(sgn * ez) / len, (-sgn * ex) / len])
+  }
+  const [x0, z0, x1, z1] = ringBBox(ring)
+  if (Math.min(x1 - x0, z1 - z0) < d * 3) return ring.slice()
+  const out: XZ[] = []
+  for (let i = 0; i < n; i++) {
+    const n0 = normals[(i + n - 1) % n]!, n1 = normals[i]!
+    let mx = n0[0] + n1[0], mz = n0[1] + n1[1]
+    const ml = Math.hypot(mx, mz)
+    if (ml < 1e-6) { mx = n1[0]; mz = n1[1] } else { mx /= ml; mz /= ml }
+    const cosHalf = Math.max(0.34, Math.sqrt(Math.max(0, (1 + (n0[0] * n1[0] + n0[1] * n1[1])) / 2)))
+    const len = d / cosHalf
+    out.push([ring[i]![0] - mx * len, ring[i]![1] - mz * len])
+  }
+  return out
+}
+
+/**
+ * An axis-aligned box (x0..x1 × y0..y1 × z0..z1) into a TriSink, faces named by the axis they
+ * look along dropped through `skip` ('-y' the underside, '+y' the top, …); uv = metres along
+ * each face for a tiled material. 2 triangles per kept face.
+ */
+function boxFaces(sink: TriSink, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, skip: readonly string[] = []) {
+  const uv = (a: number, b: number): [number, number][] => [[0, 0], [a, 0], [a, b], [0, b]]
+  const w = x1 - x0, h = y1 - y0, d = z1 - z0
+  if (!skip.includes('-y')) sink.quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], uv(w, d))
+  if (!skip.includes('+y')) sink.quad([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], [0, 1, 0], uv(w, d))
+  if (!skip.includes('+z')) sink.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], uv(w, h))
+  if (!skip.includes('-z')) sink.quad([x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], [0, 0, -1], uv(w, h))
+  if (!skip.includes('-x')) sink.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], uv(d, h))
+  if (!skip.includes('+x')) sink.quad([x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [1, 0, 0], uv(d, h))
 }
 
 /** rotation about Y that maps local +x onto the world direction (dx, dz) */
@@ -238,7 +298,36 @@ function solarPanelTexture(): THREE.Texture {
   })
 }
 
+/**
+ * The panel face: SolarPanel003 (diff / nor_gl / arm, `tile` m per tile from the manifest) on
+ * the segments' metre uv — the maps are cloned so their repeat (1 / tile) stays this material's
+ * own — or the painted module texture when the pack (or any of its maps) is absent. The painted
+ * fallback keeps its own repeat (one module = moduleW × moduleD m).
+ */
+function solarMaterial(ctx: EnvBuildContext): THREE.MeshStandardMaterial {
+  const fallback = () => new THREE.MeshStandardMaterial({ map: solarPanelTexture(), roughness: 0.25, metalness: 0.6 })
+  const reg = ctx.assets
+  if (!reg) return fallback()
+  const m = pbrFromAssets(reg, 'solarpanel003', { fallback, normalScale: 0.5, extra: { envMapIntensity: 1 } })
+  if (!m.aoMap) return m // the fallback came back (no arm map)
+  const tile = tileMetres(reg, 'tex/solarpanel003/diff', 2.6)
+  const own = <T extends THREE.Texture>(t: T): T => {
+    const c = t.clone() as T
+    c.repeat.set(1 / tile, 1 / tile)
+    c.needsUpdate = true
+    return c
+  }
+  if (m.map) m.map = own(m.map)
+  if (m.normalMap) m.normalMap = own(m.normalMap)
+  const arm = own(m.aoMap)
+  m.aoMap = arm
+  m.roughnessMap = arm
+  m.metalnessMap = arm
+  return m
+}
+
 interface Materials {
+  /** the panel face: SolarPanel003 from the pack (metre uv, one tile = `tile` m), else the painted module */
   solar: THREE.MeshStandardMaterial
   galvanised: THREE.MeshStandardMaterial
   fencePanel: THREE.MeshStandardMaterial
@@ -255,7 +344,7 @@ interface Materials {
 
 function makeMaterials(ctx: EnvBuildContext): Materials {
   const q = ctx.quality
-  const solar = new THREE.MeshStandardMaterial({ map: solarPanelTexture(), roughness: 0.25, metalness: 0.6 })
+  const solar = solarMaterial(ctx)
   const galvanised = new THREE.MeshStandardMaterial({ color: 0x9a9ea2, roughness: 0.5, metalness: 0.7 })
   const fencePanel = cutoutFromAssets(ctx.assets, 'fence003', {
     quality: q,
@@ -441,12 +530,22 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
 
   // ===========================================================================================
   // 1. solar farms
-  const S = OUTSKIRTS.solar
+  const S = OUTSKIRTS.solar, SD = SOLAR_DETAIL
   interface SolarSeg { x0: number; x1: number; z: number; lo: number; id: number }
   const solarByCell = new Map<number, SolarSeg[]>()
+  /** the segments the panel jobs built, with the front-edge heights at x0 / x1: the detail jobs stand the racks on the same numbers */
+  const solarBuilt = new Map<SolarSeg, { yF0: number; yF1: number }>()
   let solarPolys = 0, solarRows = 0, solarSegs = 0
-  const cosT = Math.cos(S.tilt), sinT = Math.sin(S.tilt)
+  const cosT = Math.cos(S.tilt), sinT = Math.sin(S.tilt), tanT = sinT / cosT
   const depthXZ = S.depth * cosT, rise = S.depth * sinT
+  const detail = q.farField.solarDetail
+  /** the inverter huts: one per large farm, at the row gap nearest the centroid; the fence samples per farm */
+  interface Hut { x: number; z: number; lo: number; id: number }
+  const hutByCell = new Map<number, Hut[]>()
+  const fenceRings: { samples: Sample[]; lo: number }[] = []
+  /** global fence sample index → (ring, index) and its cell */
+  const solarFenceByCell = new Map<number, [number, number][]>()
+  let solarFencePosts = 0, huts = 0
   for (const f of SUR_SOLAR) {
     const ring = polyline(worldRing(f, enScale))
     if (ring.length < 3) continue
@@ -455,6 +554,45 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     ctx.keepOutPolys.push({ ring, box })
     if (box[2] <= grid.x0 || box[0] >= grid.x0 + grid.w || box[3] <= grid.z0 || box[1] >= grid.z0 + grid.d) continue
     solarPolys++
+    if (detail) {
+      // the fence: the ring inset from the OSM edge, resampled at the post pitch (closed)
+      const inner = insetRingXZ(ring, SD.fence.inset)
+      const samples = resample(inner, SD.fence.pitch, true)
+      if (samples.length >= 3) {
+        const r = fenceRings.length
+        fenceRings.push({ samples, lo: f.dmin - SD.fence.inset })
+        samples.forEach((sm, i) => {
+          if (!inGrid(grid, sm.x, sm.z)) return
+          push(solarFenceByCell, farField.cellOf(sm.x, sm.z), [r, i])
+          solarFencePosts++
+        })
+      }
+      // the hut: the area-weighted centroid, its z snapped to the middle of the nearest gap
+      // between two rows (the rows take 3.19 m of the 5.5 m pitch; a 2 m hut fits the rest),
+      // kept only when the whole footprint lies inside the ring and the grid
+      if (ringArea(ring) >= SD.hutMinArea) {
+        let cx = 0, cz = 0, a2 = 0
+        for (let i = 0, n = ring.length; i < n; i++) {
+          const p = ring[i]!, qv = ring[(i + 1) % n]!
+          const cr = p[0] * qv[1] - qv[0] * p[1]
+          cx += (p[0] + qv[0]) * cr
+          cz += (p[1] + qv[1]) * cr
+          a2 += cr
+        }
+        if (Math.abs(a2) > 1e-6) {
+          cx /= 3 * a2
+          cz /= 3 * a2
+          const gap = S.pitch - depthXZ
+          const hz = Math.round((cz - gap / 2) / S.pitch) * S.pitch + gap / 2
+          const [hw, hd] = [SD.hut[0] / 2 + 0.3, SD.hut[1] / 2 + 0.2]
+          const corners: XZ[] = [[cx - hw, hz - hd], [cx + hw, hz - hd], [cx + hw, hz + hd], [cx - hw, hz + hd]]
+          if (corners.every(([x, z]) => inGrid(grid, x, z) && inBBox(x, z, box) && pointInRing(x, z, ring))) {
+            push(hutByCell, farField.cellOf(cx, hz), { x: cx, z: hz, lo: f.dmin - nearestVertex(cx, hz, ring) - hw, id: f.id })
+            huts++
+          }
+        }
+      }
+    }
     // rows: the panel's front edge (south, +z) lies on the scanline, the back edge depthXZ north of it
     const k0 = Math.ceil((box[1] + S.inset + depthXZ) / S.pitch), k1 = Math.floor((box[3] - S.inset) / S.pitch)
     for (let k = k0; k <= k1; k++) {
@@ -512,6 +650,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         const yF0 = Math.max(ground.standY(s.x0, zf), ground.standY(s.x0, zb) - rise) + S.front
         const yF1 = Math.max(ground.standY(s.x1, zf), ground.standY(s.x1, zb) - rise) + S.front
         const yB0 = yF0 + rise, yB1 = yF1 + rise
+        solarBuilt.set(s, { yF0, yF1 })
         const FL = [s.x0, yF0, zf], FR = [s.x1, yF1, zf], BR = [s.x1, yB1, zb], BL = [s.x0, yB0, zb]
         const down = (p: number[]) => [p[0]! - N[0] * S.thick, p[1]! - N[1] * S.thick, p[2]! - N[2] * S.thick]
         const fl = down(FL), fr = down(FR), br = down(BR), bl = down(BL)
@@ -538,6 +677,150 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
       farField.register({ kind: 'solar', name: `solar-${cell}`, cell, levels: [{ object: mesh, range: Infinity, static: true }] })
       return mesh
     })
+  }
+
+  // the detail level: queued after the panel jobs (same stage, FIFO), so a cell's racks read
+  // the heights its panels were built on; one Group entry per cell holding the racks, the hut
+  // and the fence, none casting shadows
+  const detailCells = new Set<number>([...solarByCell.keys(), ...hutByCell.keys(), ...solarFenceByCell.keys()])
+  /** site of fence sample (ring, i), memoised across the cells' jobs (a rail spans two cells at a boundary) */
+  const solarFenceSite = new Map<number, number | null>()
+  const solarFenceY = (r: number, i: number): number | null => {
+    const key = r * 1_000_000 + i
+    let y = solarFenceSite.get(key)
+    if (y !== undefined) return y
+    const ring = fenceRings[r]!
+    const sm = ring.samples[i]!
+    y = inGrid(grid, sm.x, sm.z) && siteOk(rule, sm.x, sm.z, ring.lo, MIN_D) ? ground.standY(sm.x, sm.z) : null
+    solarFenceSite.set(key, y)
+    return y
+  }
+  if (detail) {
+    for (const cell of [...detailCells].sort((a, b) => a - b)) {
+      jobs++
+      farField.defer('dressing', `solarDetail-${cell}`, 5, () => {
+        const m = mats()
+        const steel = new TriSink()
+        const concrete = new TriSink()
+        const panel = new TriSink()
+        let racks = 0, hutsBuilt = 0
+        // racks: a front and a back post every postPitch along the segment (feet 0.2 m in the
+        // ground, tops at the rail), the rails under the panel's front and back edges
+        const half = SD.post / 2, inset = 0.15, R = SD.rail
+        for (const s of solarByCell.get(cell) ?? []) {
+          const b = solarBuilt.get(s)
+          if (!b) continue
+          const zf = s.z - inset, zb = s.z - depthXZ + inset
+          const len = s.x1 - s.x0
+          const yF = (x: number) => b.yF0 + ((b.yF1 - b.yF0) * (x - s.x0)) / len
+          // the panel's underside at the inset front / back edge: the top face climbs
+          // `tan(tilt)` per metre of inset from the front edge (falls from the back one), and the
+          // underside is the thickness below it along the normal
+          const under = (x: number, back: boolean) => yF(x) - S.thick * cosT + (back ? rise - inset * tanT : inset * tanT)
+          const n = Math.max(1, Math.round(len / SD.postPitch))
+          for (let i = 0; i < n; i++) {
+            const x = s.x0 + ((i + 0.5) * len) / n
+            for (const back of [false, true]) {
+              const z = back ? zb : zf
+              const top = under(x, back) - R
+              const foot = ground.standY(x, z) - 0.2
+              if (top <= foot) continue
+              boxFaces(steel, x - half, x + half, foot, top, z - half, z + half, ['-y', '+y'])
+            }
+          }
+          for (const back of [false, true]) {
+            const z = back ? zb : zf
+            const y0 = under(s.x0, back), y1 = under(s.x1, back)
+            // the rail follows the row's fall: two quads per face would be exact, one box at the mean is 8 mm off over 30 m
+            const y = (y0 + y1) / 2
+            boxFaces(steel, s.x0, s.x1, y - R, y, z - R / 2, z + R / 2, ['+y'])
+          }
+          racks++
+        }
+        // the inverter hut: floor at the highest ground under it (no corner buried), walls
+        // 0.3 m into the ground, a roof slab overhanging 0.2 m
+        for (const h of hutByCell.get(cell) ?? []) {
+          const [w, d, hh] = SD.hut
+          const corners: XZ[] = [[h.x - w / 2, h.z - d / 2], [h.x + w / 2, h.z - d / 2], [h.x + w / 2, h.z + d / 2], [h.x - w / 2, h.z + d / 2]]
+          if (!corners.every(([x, z]) => siteOk(rule, x, z, h.lo, MIN_D))) continue
+          let y = -Infinity
+          for (const [x, z] of corners) y = Math.max(y, ground.standY(x, z))
+          boxFaces(concrete, h.x - w / 2, h.x + w / 2, y - 0.3, y + hh, h.z - d / 2, h.z + d / 2, ['-y', '+y'])
+          boxFaces(steel, h.x - w / 2 - 0.2, h.x + w / 2 + 0.2, y + hh, y + hh + 0.1, h.z - d / 2 - 0.2, h.z + d / 2 + 0.2)
+          hutsBuilt++
+        }
+        // the fence: posts, the top rail, the mesh (as the perimeter fence, at SOLAR_DETAIL's height)
+        const matrices: THREE.Matrix4[] = []
+        const H = SD.fence.h, FR = OUTSKIRTS.fence.rail, bury = OUTSKIRTS.fence.bury
+        let panels = 0
+        for (const [r, i] of solarFenceByCell.get(cell) ?? []) {
+          const y = solarFenceY(r, i)
+          if (y === null) continue
+          const ring = fenceRings[r]!
+          const sm = ring.samples[i]!
+          _p.set(sm.x, y - bury + (H + bury) / 2, sm.z)
+          _q.identity()
+          matrices.push(new THREE.Matrix4().compose(_p, _q, _s.set(OUTSKIRTS.fence.post, H + bury, OUTSKIRTS.fence.post)))
+          const j = (i + 1) % ring.samples.length
+          const yj = solarFenceY(r, j)
+          if (yj === null) continue
+          const nx = ring.samples[j]!
+          const ex = nx.x - sm.x, ez = nx.z - sm.z
+          const len = Math.hypot(ex, ez) || 1
+          const px = (ez / len) * (FR / 2), pz = (-ex / len) * (FR / 2)
+          const a0 = [sm.x - px, y + H, sm.z - pz], a1 = [sm.x + px, y + H, sm.z + pz]
+          const b0 = [nx.x - px, yj + H, nx.z - pz], b1 = [nx.x + px, yj + H, nx.z + pz]
+          const uv = [[0, 0], [1, 0], [1, 1], [0, 1]]
+          steel.quad(a0, b0, b1, a1, [0, 1, 0], uv)
+          steel.quad(a0, b0, [b0[0]!, yj + H - FR, b0[2]!], [a0[0]!, y + H - FR, a0[2]!], [-px, 0, -pz], uv)
+          steel.quad(a1, b1, [b1[0]!, yj + H - FR, b1[2]!], [a1[0]!, y + H - FR, a1[2]!], [px, 0, pz], uv)
+          if (q.fence) {
+            const pb = OUTSKIRTS.fence.panelBottom
+            panel.quad([sm.x, y + pb, sm.z], [nx.x, yj + pb, nx.z], [nx.x, yj + H, nx.z], [sm.x, y + H, sm.z], [px, 0, pz], [[sm.t, pb], [sm.t + len, pb], [sm.t + len, H], [sm.t, H]])
+            panels++
+          }
+        }
+        const root = new THREE.Group()
+        root.name = `solarDetail-${cell}`
+        const steelGeo = steel.build()
+        if (steelGeo) {
+          const mesh = new THREE.Mesh(steelGeo, m.galvanised)
+          mesh.name = `solarRacks-${cell}`
+          mesh.castShadow = false
+          mesh.receiveShadow = true
+          root.add(mesh)
+        }
+        const concreteGeo = concrete.build()
+        if (concreteGeo) {
+          const mesh = new THREE.Mesh(concreteGeo, m.concretePole)
+          mesh.name = `solarHuts-${cell}`
+          mesh.castShadow = false
+          mesh.receiveShadow = true
+          root.add(mesh)
+        }
+        if (matrices.length) {
+          const inst = new THREE.InstancedMesh(m.postGeo, m.galvanised, matrices.length)
+          matrices.forEach((mat, k) => inst.setMatrixAt(k, mat))
+          inst.instanceMatrix.needsUpdate = true
+          inst.castShadow = false
+          inst.frustumCulled = true
+          inst.computeBoundingSphere()
+          inst.name = `solarFencePosts-${cell}`
+          root.add(inst)
+        }
+        const panelGeo = panel.build()
+        if (panelGeo) {
+          const mesh = new THREE.Mesh(panelGeo, m.fencePanel)
+          mesh.name = `solarFencePanel-${cell}`
+          mesh.castShadow = false
+          root.add(mesh)
+        }
+        if (!root.children.length) return null
+        root.userData.outskirts = { family: 'solarDetail', racks, huts: hutsBuilt, posts: matrices.length, panels }
+        farField.register({ kind: 'solar', name: `solarDetail-${cell}`, cell, levels: [{ object: root, range: SD.range }] })
+        return root
+      })
+    }
   }
 
   // ===========================================================================================
@@ -808,13 +1091,13 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   }
 
   const stats: OutskirtsStats = {
-    solar: { polygons: solarPolys, rows: solarRows, segments: solarSegs, cells: solarByCell.size },
+    solar: { polygons: solarPolys, rows: solarRows, segments: solarSegs, cells: solarByCell.size, detailCells: detail ? detailCells.size : 0, huts, fencePosts: solarFencePosts },
     fence: { posts: fencePosts, cells: fenceByCell.size },
     lightPoles: { candidates: lightCandidates.length, budget: lightBudget },
     utility: { poles: uPoles.length, cells: plan.byCell.size, heroDrop: !!ctx.assets?.model('model/road/jp_denchu') },
     jobs,
   }
-  if (import.meta.dev) console.info(`[outskirts] solar ${solarPolys} farms / ${solarSegs} segments in ${solarByCell.size} cells, fence ${fencePosts} posts in ${fenceByCell.size} cells, ${lightCandidates.length} light-pole sites for ${lightBudget}, ${uPoles.length} utility poles in ${plan.byCell.size} cells; ${jobs} jobs`)
+  if (import.meta.dev) console.info(`[outskirts] solar ${solarPolys} farms / ${solarSegs} segments in ${solarByCell.size} cells (detail: ${detail ? detailCells.size : 0} cells, ${huts} huts, ${solarFencePosts} fence posts), fence ${fencePosts} posts in ${fenceByCell.size} cells, ${lightCandidates.length} light-pole sites for ${lightBudget}, ${uPoles.length} utility poles in ${plan.byCell.size} cells; ${jobs} jobs`)
   return stats
 }
 

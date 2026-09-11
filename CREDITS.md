@@ -24,6 +24,8 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plastic013a/arm`, `tex/plastic013a/diff`, `tex/plastic013a/nor_gl`
 - "Roofing Tiles 015 A" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=RoofingTiles015A), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/roofingtiles015a/arm`, `tex/roofingtiles015a/diff`, `tex/roofingtiles015a/nor_gl`
+- "Solar Panel 003" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=SolarPanel003), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/solarpanel003/arm`, `tex/solarpanel003/diff`, `tex/solarpanel003/nor_gl`
 
 ### Eclair Assets (itch.io)
 
@@ -68,14 +70,20 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 ### Sketchfab
 
+- This work is based on "1990 Toyota Hiace (H100)" (https://sketchfab.com/3d-models/1990-toyota-hiace-h100-1764351001194f66b85c495dd8ce2d71) by ImperialBlue (https://sketchfab.com/ImperialBlue3D) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), trademarks retouched (4 rectangles blurred / filled), textures GPU-compressed to KTX2 (1 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/vehicles/van_h100`
 - This work is based on "bamboo" (https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59) by evolveduk (https://sketchfab.com/evolveduk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bamboo`
 - This work is based on "Bleacher" (https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b) by JanStano (https://sketchfab.com/JanStano) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px)
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/seats/bleacher`
 - This work is based on "Bush models pack (gameready, LODs)" (https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 17 mesh nodes dropped (drop /Billboard|Ground|Man ref/), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bush_pack`
+- This work is based on "Daihatsu Move Conte (Low Poly)" (https://sketchfab.com/3d-models/daihatsu-move-conte-low-poly-eff914331c194de0abe20a33d2c3a2c3) by NNXST (https://sketchfab.com/NNXST) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, trademarks retouched (7 rectangles blurred / filled), textures GPU-compressed to KTX2 (2 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/vehicles/kei_wagon`
 - This work is based on "Grey Japanease Apartment" (https://sketchfab.com/3d-models/grey-japanease-apartment-8589efeb25284d709934497e02a25421) by Kasuga𓅂 (https://sketchfab.com/kasuga) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 7 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/buildings/jp_apartment_grey`
+- This work is based on "Isuzu Erga Mio bus" (https://sketchfab.com/3d-models/isuzu-erga-mio-bus-050e8acd0bbc4da0902a8a874ef10fca) by own.guest (https://sketchfab.com/own.guest) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px, trademarks retouched (24 rectangles blurred / filled), textures GPU-compressed to KTX2 (1 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/vehicles/bus_mid`
 - This work is based on "Japanese Cherry Tree (low-Poly)" (https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209) by Sereib (https://sketchfab.com/Sereib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (6 uastc, 1 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/cherry_low`
 - This work is based on "Japanese Cherry Tree (medium-Poly)" (https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c) by Sereib (https://sketchfab.com/Sereib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (6 uastc, 1 etc1s))
@@ -98,11 +106,13 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/pine_pack`
 - This work is based on "Realistic Fir Trees Pack (LODS, gameready)" (https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 3 mesh nodes dropped (drop /LOD3|Billboard/), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (3 uastc, 2 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/fir_pack`
+- This work is based on "Suzuki Carry kei truck low poly" (https://sketchfab.com/3d-models/suzuki-carry-kei-truck-low-poly-6bc99e709e9748da98cc9ac676684510) by bean(alwayshasbean) (https://sketchfab.com/alwayshasbean) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), spec/gloss material converted to metal/rough (gltf-transform metalrough), textures resized to ≤ 512 px, trademarks retouched (3 rectangles blurred / filled), textures GPU-compressed to KTX2 (3 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/vehicles/kei_truck`
 
-### suzuka-3d (own bake)
+### suzuka-3d (own bake) + Sketchfab
 
-- "Parked-car impostor atlas — procedural low-poly bodies" by suzuka-3d (suzuka-3d (own bake), https://github.com/noribento/suzuka-3d), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/car_atlas/diff`, `tex/car_atlas/mask`, `tex/tree_atlas/diff`, `tex/tree_atlas/mask`
+- "Parked-car impostor atlas — procedural low-poly bodies and the four CC-BY vehicle GLBs" by suzuka-3d, bean(alwayshasbean), NNXST, ImperialBlue, own.guest (suzuka-3d (own bake) + Sketchfab, https://github.com/noribento/suzuka-3d), Creative Commons Attribution 4.0 — modified (resized / repacked / GPU-compressed)
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `tex/car_atlas/diff`, `tex/car_atlas/mask`, `tex/tree_atlas/diff`, `tex/tree_atlas/mask`
 
 ## Data
 
@@ -117,4 +127,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-11T17:23:23.787Z · 106 files · 56.29 MB
+Generated 2026-09-11T19:06:16.408Z · 113 files · 57.35 MB

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-11T17:23:23.787Z",
+  "generated": "2026-09-11T19:06:16.408Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -2121,6 +2121,153 @@
         "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
       ]
     },
+    "model/vehicles/bus_mid": {
+      "kind": "model",
+      "path": "/assets/models/vehicles_bus_mid.ccbc23c4.glb",
+      "format": "glb",
+      "bytes": 106428,
+      "role": "model",
+      "textures": [
+        {
+          "width": 1024,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Isuzu Erga Mio bus",
+        "pageUrl": "https://sketchfab.com/3d-models/isuzu-erga-mio-bus-050e8acd0bbc4da0902a8a874ef10fca",
+        "licence": "CC-BY-4.0",
+        "author": "own.guest",
+        "authorUrl": "https://sketchfab.com/own.guest",
+        "url": "https://sketchfab.com/3d-models/isuzu-erga-mio-bus-050e8acd0bbc4da0902a8a874ef10fca",
+        "sha256Source": "15da25b55286aafc04f2d59f1c1cc9fbbf3dfa7bb93efed7e99960dcc5e8e55e",
+        "miscPath": "vehicles/isuzu_erga_mio_bus.zip",
+        "licenceEvidence": "isuzu_erga_mio_bus.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 1024 px",
+        "trademarks retouched (24 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (1 etc1s)"
+      ]
+    },
+    "model/vehicles/kei_truck": {
+      "kind": "model",
+      "path": "/assets/models/vehicles_kei_truck.e037f923.glb",
+      "format": "glb",
+      "bytes": 85984,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Suzuki Carry kei truck low poly",
+        "pageUrl": "https://sketchfab.com/3d-models/suzuki-carry-kei-truck-low-poly-6bc99e709e9748da98cc9ac676684510",
+        "licence": "CC-BY-4.0",
+        "author": "bean(alwayshasbean)",
+        "authorUrl": "https://sketchfab.com/alwayshasbean",
+        "url": "https://sketchfab.com/3d-models/suzuki-carry-kei-truck-low-poly-6bc99e709e9748da98cc9ac676684510",
+        "sha256Source": "8e2bd4f7db38c927dd4076c8f0b6948d499f02638344984f58439d7de9b2a3dc",
+        "miscPath": "vehicles/suzuki_carry_kei_truck_low_poly.zip",
+        "licenceEvidence": "suzuki_carry_kei_truck_low_poly.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "spec/gloss material converted to metal/rough (gltf-transform metalrough)",
+        "textures resized to ≤ 512 px",
+        "trademarks retouched (3 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (3 etc1s)"
+      ]
+    },
+    "model/vehicles/kei_wagon": {
+      "kind": "model",
+      "path": "/assets/models/vehicles_kei_wagon.6c697d77.glb",
+      "format": "glb",
+      "bytes": 41532,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Daihatsu Move Conte (Low Poly)",
+        "pageUrl": "https://sketchfab.com/3d-models/daihatsu-move-conte-low-poly-eff914331c194de0abe20a33d2c3a2c3",
+        "licence": "CC-BY-4.0",
+        "author": "NNXST",
+        "authorUrl": "https://sketchfab.com/NNXST",
+        "url": "https://sketchfab.com/3d-models/daihatsu-move-conte-low-poly-eff914331c194de0abe20a33d2c3a2c3",
+        "sha256Source": "82435f3765f9e896d4d99b9b1298453296c631d6deca4be205dbdf475720c2fa",
+        "miscPath": "vehicles/daihatsu_move_conte_low_poly.zip",
+        "licenceEvidence": "daihatsu_move_conte_low_poly.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "trademarks retouched (7 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (2 etc1s)"
+      ]
+    },
+    "model/vehicles/van_h100": {
+      "kind": "model",
+      "path": "/assets/models/vehicles_van_h100.fa292215.glb",
+      "format": "glb",
+      "bytes": 76748,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "1990 Toyota Hiace (H100)",
+        "pageUrl": "https://sketchfab.com/3d-models/1990-toyota-hiace-h100-1764351001194f66b85c495dd8ce2d71",
+        "licence": "CC-BY-4.0",
+        "author": "ImperialBlue",
+        "authorUrl": "https://sketchfab.com/ImperialBlue3D",
+        "url": "https://sketchfab.com/3d-models/1990-toyota-hiace-h100-1764351001194f66b85c495dd8ce2d71",
+        "sha256Source": "6351ab4f47ec83c22bc585baa75a5667243cec45318fd1d6638e04106d9f329d",
+        "miscPath": "vehicles/1990_toyota_hiace_h100.zip",
+        "licenceEvidence": "1990_toyota_hiace_h100.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "trademarks retouched (4 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (1 etc1s)"
+      ]
+    },
     "tex/asphalt_04/arm": {
       "kind": "texture",
       "path": "/assets/tex/asphalt_04_arm.2b952193.ktx2",
@@ -2249,41 +2396,41 @@
     },
     "tex/car_atlas/diff": {
       "kind": "texture",
-      "path": "/assets/tex/car_atlas_diff.5ebc4ea6.ktx2",
+      "path": "/assets/tex/car_atlas_diff.c021dc00.ktx2",
       "format": "ktx2",
-      "bytes": 27642,
+      "bytes": 37009,
       "width": 1024,
       "height": 1024,
       "colorSpace": "srgb",
       "role": "diff",
       "source": {
-        "site": "suzuka-3d (own bake)",
-        "name": "Parked-car impostor atlas — procedural low-poly bodies",
+        "site": "suzuka-3d (own bake) + Sketchfab",
+        "name": "Parked-car impostor atlas — procedural low-poly bodies and the four CC-BY vehicle GLBs",
         "pageUrl": "https://github.com/noribento/suzuka-3d",
         "url": "bake://car-atlas/diff",
-        "licence": "CC0-1.0",
-        "author": "suzuka-3d",
-        "sha256Source": "db392b06a2025aa2aab1e200b2166a17e11aef7c41041d1e931f3595f6da8a89"
+        "licence": "CC-BY-4.0",
+        "author": "suzuka-3d, bean(alwayshasbean), NNXST, ImperialBlue, own.guest",
+        "sha256Source": "7eca491b39609fbec6f653c42f7b81b8be229f7c9696c7e5ed95935de44b5247"
       },
       "modified": true
     },
     "tex/car_atlas/mask": {
       "kind": "texture",
-      "path": "/assets/tex/car_atlas_mask.ee963da8.ktx2",
+      "path": "/assets/tex/car_atlas_mask.d03a00bc.ktx2",
       "format": "ktx2",
-      "bytes": 10936,
+      "bytes": 14518,
       "width": 1024,
       "height": 1024,
       "colorSpace": "linear",
       "role": "mask",
       "source": {
-        "site": "suzuka-3d (own bake)",
-        "name": "Parked-car impostor atlas — procedural low-poly bodies",
+        "site": "suzuka-3d (own bake) + Sketchfab",
+        "name": "Parked-car impostor atlas — procedural low-poly bodies and the four CC-BY vehicle GLBs",
         "pageUrl": "https://github.com/noribento/suzuka-3d",
         "url": "bake://car-atlas/mask",
-        "licence": "CC0-1.0",
-        "author": "suzuka-3d",
-        "sha256Source": "bc49618f86b23f65a33e2f5685777648eb3460ad332612187da926a6962a1108"
+        "licence": "CC-BY-4.0",
+        "author": "suzuka-3d, bean(alwayshasbean), NNXST, ImperialBlue, own.guest",
+        "sha256Source": "c6dd748820834d83b94acb1584667e3bab2a69a9f148c4f17c95d67037b904fe"
       },
       "modified": true
     },
@@ -3221,6 +3368,73 @@
       "modifications": [
         "resized / repacked (lossless WebP)"
       ]
+    },
+    "tex/solarpanel003/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/solarpanel003_arm.496940ad.ktx2",
+      "format": "ktx2",
+      "bytes": 141249,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.6,
+      "packed": {
+        "ao": false,
+        "metal": true
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Solar Panel 003",
+        "pageUrl": "https://ambientcg.com/view?id=SolarPanel003",
+        "url": "https://ambientcg.com/get?file=SolarPanel003_1K-JPG.zip#SolarPanel003_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "9691dbe84d7c44ef9a2c84a8a55bdeb87e6a59fa649ccc4f3d47121f00028b5c"
+      },
+      "modified": true
+    },
+    "tex/solarpanel003/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/solarpanel003_diff.68c8298b.ktx2",
+      "format": "ktx2",
+      "bytes": 184466,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.6,
+      "source": {
+        "site": "ambientCG",
+        "name": "Solar Panel 003",
+        "pageUrl": "https://ambientcg.com/view?id=SolarPanel003",
+        "url": "https://ambientcg.com/get?file=SolarPanel003_1K-JPG.zip#SolarPanel003_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "9691dbe84d7c44ef9a2c84a8a55bdeb87e6a59fa649ccc4f3d47121f00028b5c"
+      },
+      "modified": true
+    },
+    "tex/solarpanel003/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/solarpanel003_nor_gl.4f2624d0.ktx2",
+      "format": "ktx2",
+      "bytes": 464458,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.6,
+      "source": {
+        "site": "ambientCG",
+        "name": "Solar Panel 003",
+        "pageUrl": "https://ambientcg.com/view?id=SolarPanel003",
+        "url": "https://ambientcg.com/get?file=SolarPanel003_1K-JPG.zip#SolarPanel003_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "9691dbe84d7c44ef9a2c84a8a55bdeb87e6a59fa649ccc4f3d47121f00028b5c"
+      },
+      "modified": true
     },
     "tex/tree_atlas/diff": {
       "kind": "texture",

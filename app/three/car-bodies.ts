@@ -1,11 +1,14 @@
 import * as THREE from 'three'
 
 /**
- * Low-poly parked-car bodies (plan §2d): six silhouettes of 60–90 triangles each, built from
+ * Low-poly parked-car bodies (plan §2d): seven silhouettes of 60–90 triangles each, built from
  * two lofted side profiles (the lower shell to the belt line, the narrower cabin above it),
- * two axle blocks for the wheels and four lamp quads. Pure three — no project imports — so the
- * impostor bake page (scripts/assets/bake/car-impostor.html) can load this module transpiled
- * and draw exactly the geometry the runtime instances inside 500 m.
+ * two axle blocks for the wheels and four lamp quads — the kei truck from a cab-over cab and a
+ * box bed instead. Pure three — no project imports — so the impostor bake page
+ * (scripts/assets/bake/car-impostor.html) can load this module transpiled and draw exactly the
+ * geometry the runtime instances inside 500 m. The photo-textured GLB bodies that replace four
+ * of these inside `CAR_PARK.lod.hero` are car-glb.ts; these stay the fallback everywhere (the
+ * low tier, Node, a missing pack) and the 260–500 m level behind the GLBs.
  *
  * Frame: the car stands on y = 0 with its nose towards +Z and its width along X; the origin
  * is the centre of the footprint. A yaw θ about +Y turns the nose to world (sin θ, cos θ),
@@ -17,10 +20,10 @@ import * as THREE from 'three'
  * `patchCarVertexColour` installs the vertex-shader line that reads it in each of its three
  * modes — the same rule the bake's mask pass renders into the atlas's R channel.
  */
-export type CarBody = 'minivan' | 'kei' | 'suv' | 'hatch' | 'sedan' | 'coach'
+export type CarBody = 'minivan' | 'kei' | 'suv' | 'hatch' | 'sedan' | 'coach' | 'keitruck'
 
 /** atlas-row order (CAR_LAYOUT in ~/data/impostor-atlas.ts): the row of a body is its index here */
-export const CAR_BODIES: readonly CarBody[] = ['minivan', 'kei', 'suv', 'hatch', 'sedan', 'coach']
+export const CAR_BODIES: readonly CarBody[] = ['minivan', 'kei', 'suv', 'hatch', 'sedan', 'coach', 'keitruck']
 
 /** overall length × width × height (m) */
 export const CAR_DIMS: Record<CarBody, { l: number; w: number; h: number }> = {
@@ -30,15 +33,22 @@ export const CAR_DIMS: Record<CarBody, { l: number; w: number; h: number }> = {
   hatch: { l: 4.0, w: 1.7, h: 1.5 },
   sedan: { l: 4.6, w: 1.8, h: 1.45 },
   coach: { l: 12, w: 2.5, h: 3.5 },
+  /** the 軽トラ: the kei class's 3.4 × 1.48 m box, a cab-over cab 1.8 m tall over a flat bed */
+  keitruck: { l: 3.4, w: 1.48, h: 1.8 },
 }
 
-/** the car-park mix (plan §2d); the coach share is added separately, only near the gates */
+/**
+ * The car-park mix (plan §2d); the coach share is added separately, only near the gates. Kei
+ * cars (wagon + truck) are a third of the parc — the 2025 share of 軽自動車 in Mie's registrations
+ * is 38 %, less at a race meeting, where the visitors' minivans and SUVs are over-represented.
+ */
 export const CAR_MIX: readonly { body: CarBody; weight: number }[] = [
-  { body: 'minivan', weight: 30 },
-  { body: 'kei', weight: 25 },
-  { body: 'suv', weight: 20 },
-  { body: 'hatch', weight: 15 },
-  { body: 'sedan', weight: 10 },
+  { body: 'minivan', weight: 25 },
+  { body: 'kei', weight: 27 },
+  { body: 'keitruck', weight: 6 },
+  { body: 'suv', weight: 17 },
+  { body: 'hatch', weight: 13 },
+  { body: 'sedan', weight: 12 },
 ]
 
 /**
@@ -177,6 +187,22 @@ function axleBlock(s: Soup, z: number, hw: number, r: number, len: number) {
   s.quad(v(x1, y0, z0), v(x1, y1, z0), v(x1, y1, z1), v(x1, y0, z1), TYRE, inside) // right
 }
 
+/**
+ * An axis-aligned box (x0..x1 × y0..y1 × z0..z1) in one colour, faces named by the axis they look
+ * along dropped through `skip` ('-y' the underside, '+y' the top, …): the kei truck's bed walls,
+ * tailgate and chassis rail. 2 triangles per kept face.
+ */
+function box(s: Soup, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, rgba: RGBA, skip: readonly string[] = []) {
+  const inside = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+  if (!skip.includes('-y')) s.quad(v(x0, y0, z0), v(x1, y0, z0), v(x1, y0, z1), v(x0, y0, z1), rgba, inside)
+  if (!skip.includes('+y')) s.quad(v(x0, y1, z0), v(x1, y1, z0), v(x1, y1, z1), v(x0, y1, z1), rgba, inside)
+  if (!skip.includes('+z')) s.quad(v(x0, y0, z1), v(x1, y0, z1), v(x1, y1, z1), v(x0, y1, z1), rgba, inside)
+  if (!skip.includes('-z')) s.quad(v(x0, y0, z0), v(x0, y1, z0), v(x1, y1, z0), v(x1, y0, z0), rgba, inside)
+  if (!skip.includes('-x')) s.quad(v(x0, y0, z0), v(x0, y0, z1), v(x0, y1, z1), v(x0, y1, z0), rgba, inside)
+  if (!skip.includes('+x')) s.quad(v(x1, y0, z0), v(x1, y1, z0), v(x1, y1, z1), v(x1, y0, z1), rgba, inside)
+}
+
 /** a lamp quad standing 1 cm proud of a vertical end face at z */
 function lamp(s: Soup, x: number, y: number, z: number, w: number, h: number, forward: boolean, rgba: RGBA) {
   const zz = z + (forward ? 0.01 : -0.01)
@@ -203,7 +229,7 @@ interface CarSpec {
   tyre: number
 }
 
-const SPECS: Record<Exclude<CarBody, 'coach'>, CarSpec> = {
+const SPECS: Record<Exclude<CarBody, 'coach' | 'keitruck'>, CarSpec> = {
   minivan: { belt: 1.0, sill: 0.26, zb: 1.45, zw: 0.7, zt: -2.25, ztb: -2.3, hood: 0.1, cabinW: 0.94, axles: [1.45, -1.45], tyre: 0.32 },
   kei: { belt: 0.92, sill: 0.24, zb: 0.95, zw: 0.45, zt: -1.6, ztb: -1.65, hood: 0.08, cabinW: 0.95, axles: [1.15, -1.15], tyre: 0.28 },
   suv: { belt: 1.06, sill: 0.34, zb: 1.0, zw: 0.3, zt: -1.9, ztb: -2.15, hood: 0.14, cabinW: 0.92, axles: [1.35, -1.35], tyre: 0.36 },
@@ -211,7 +237,7 @@ const SPECS: Record<Exclude<CarBody, 'coach'>, CarSpec> = {
   sedan: { belt: 0.9, sill: 0.2, zb: 1.15, zw: 0.2, zt: -0.95, ztb: -1.6, hood: 0.16, cabinW: 0.9, axles: [1.4, -1.4], tyre: 0.32 },
 }
 
-function carShell(kind: Exclude<CarBody, 'coach'>): THREE.BufferGeometry {
+function carShell(kind: Exclude<CarBody, 'coach' | 'keitruck'>): THREE.BufferGeometry {
   const { l, w, h } = CAR_DIMS[kind]
   const p = SPECS[kind]
   const s = new Soup()
@@ -284,6 +310,52 @@ function coachShell(): THREE.BufferGeometry {
   return s.geometry()
 }
 
+/**
+ * The kei truck (軽トラ): a cab-over cab on the front 1.45 m — vertical front, raked windscreen,
+ * flat roof, glass sides above the belt — and a flat bed behind it with 0.3 m drop sides and a
+ * tailgate, standing on a dark chassis rail; the front axle sits under the cab, the rear one
+ * under the bed. 94 triangles.
+ */
+function keitruckShell(): THREE.BufferGeometry {
+  const { l, w, h } = CAR_DIMS.keitruck
+  const s = new Soup()
+  const zf = l / 2, zr = -l / 2
+  const sill = 0.3, belt = 1.02, bed = 0.66, side = 0.3, wall = 0.04
+  const cabRear = zf - 1.45
+  // the cab below the belt line: bumper, the vertical front, the belt, the cab's back wall
+  const lower: Profile = [
+    [zf - 0.08, sill],
+    [zf, sill + 0.22],
+    [zf, belt],
+    [cabRear, belt],
+    [cabRear, sill],
+  ]
+  loft(s, lower, w / 2, BODY, () => BODY, true)
+  // the cab above the belt: the raked windscreen, the flat roof, the back wall (body); side glass
+  const cab: Profile = [
+    [zf - 0.02, belt - 0.01],
+    [zf - 0.42, h],
+    [cabRear + 0.04, h],
+    [cabRear, belt - 0.01],
+  ]
+  loft(s, cab, (w / 2) * 0.95, GLASS, (ny, nz) => (ny > 0.8 || nz < -0.5 ? BODY : GLASS), true)
+  // the bed: floor, two drop sides, the headboard and the tailgate as thin walls; the chassis rail under it
+  const hw = w / 2, bedFront = cabRear - 0.05
+  box(s, -hw + wall, hw - wall, bed - 0.02, bed, zr + wall, bedFront, UNDER, ['-y', '+z', '-z', '-x', '+x'])
+  box(s, -hw, -hw + wall, bed - 0.02, bed + side, zr, bedFront, BODY, ['-y'])
+  box(s, hw - wall, hw, bed - 0.02, bed + side, zr, bedFront, BODY, ['-y'])
+  box(s, -hw + wall, hw - wall, bed - 0.02, bed + side, bedFront - wall, bedFront, BODY, ['-y', '-x', '+x'])
+  box(s, -hw + wall, hw - wall, bed - 0.02, bed + side, zr, zr + wall, BODY, ['-y', '-x', '+x'])
+  box(s, -hw + 0.14, hw - 0.14, sill, bed - 0.02, zr + 0.05, bedFront, UNDER, ['+y', '+z'])
+  axleBlock(s, zf - 0.95, hw - 0.04, 0.28, 0.48)
+  axleBlock(s, zr + 0.75, hw - 0.04, 0.28, 0.48)
+  lamp(s, -w * 0.33, sill + 0.42, zf - 0.02, w * 0.2, 0.14, true, HEADLAMP)
+  lamp(s, w * 0.33, sill + 0.42, zf - 0.02, w * 0.2, 0.14, true, HEADLAMP)
+  lamp(s, -w * 0.38, bed - 0.14, zr + 0.02, w * 0.12, 0.12, false, TAILLAMP)
+  lamp(s, w * 0.38, bed - 0.14, zr + 0.02, w * 0.12, 0.12, false, TAILLAMP)
+  return s.geometry()
+}
+
 const cache = new Map<CarBody, THREE.BufferGeometry>()
 
 /**
@@ -293,7 +365,7 @@ const cache = new Map<CarBody, THREE.BufferGeometry>()
 export function carBodyGeometry(kind: CarBody): THREE.BufferGeometry {
   let g = cache.get(kind)
   if (!g) {
-    g = kind === 'coach' ? coachShell() : carShell(kind)
+    g = kind === 'coach' ? coachShell() : kind === 'keitruck' ? keitruckShell() : carShell(kind)
     g.computeBoundingSphere()
     cache.set(kind, g)
   }

@@ -109,10 +109,12 @@ export const TREE_CARD_ROW_HEIGHT_M: readonly number[] = [20, 20, 20, 20, 20, 20
 
 /**
  * Parked cars and coaches (`tex/car_atlas`, baked by scripts/assets/bake-car-atlas.mjs from
- * ~/three/car-bodies.ts): 8 yaws × 1 elevation (14°, the angle a 500–2200 m camera looks down a
- * car park at), one row per body in `CAR_BODIES` order, rows 6–7 spare. The mask's R channel
+ * ~/three/car-bodies.ts, and with `--glb` from the pack's GLB bodies of ~/three/car-glb.ts for
+ * the rows that have one): 8 yaws × 1 elevation (14°, the angle a 500–2200 m camera looks down
+ * a car park at), one row per body in `CAR_BODIES` order, row 7 spare. The mask's R channel
  * marks the paintwork, tinted from aTint0 rgb the way instanceColor tints the 3D body inside
- * 500 m; glass, tyres and lamps stay as baked.
+ * 500 m; glass, tyres and lamps stay as baked. `rowsMeta.note` mirrors `layout.json`'s `source`
+ * per row (which rows the last bake took from a GLB and which from the procedural shells).
  *
  * ONE cellM for every row, not one per row: the shader and `impostorGeometry` read a single
  * `cellM`, and a per-row cell would need a per-instance quad scale (and a per-row padM) in
@@ -134,5 +136,5 @@ export const CAR_LAYOUT: ImpostorLayout = {
   padM: 0.15,
   quadW: 0.8,
   modelScale: 1,
-  rowsMeta: { subjects: 6, variants: 1, note: 'one row per body in CAR_BODIES order: minivan, kei wagon, SUV, hatchback, saloon, coach; rows 6–7 spare' },
+  rowsMeta: { subjects: 7, variants: 1, note: 'one row per body in CAR_BODIES order: minivan (glb), kei wagon (glb), SUV, hatchback, saloon, coach (glb), kei truck (glb); row 7 spare — source per row as in misc/dl/tex/car_atlas/layout.json of the last --glb bake' },
 }

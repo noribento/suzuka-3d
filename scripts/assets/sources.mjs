@@ -27,6 +27,9 @@
  *   overrideImages         { '<image index | name regex>': 'file relative to the drop dir' |
  *                          'misc/<path>' | '@<name regex of another image of the model>' }
  *   maxTex                 cap for textures inside the GLB (default 1024)
+ *   metalrough             true → gltf-transform metalrough before the resize: a drop authored
+ *                          with KHR_materials_pbrSpecularGlossiness (three's GLTFLoader no longer
+ *                          reads it) becomes metallic-roughness + KHR_materials_specular
  *   retouch / dropParts    trademark surgery (retouch-glb.mjs: UV rectangles blurred / filled,
  *                          primitives dropped by material / mesh name regex)
  *   keepBox                { min?, max? } scene-space AABB (the model's own units, as
@@ -297,6 +300,14 @@ export const SOURCES = [
     name: 'Dry Mud Field 001', author: 'Rob Tuytel, Rico Cilliers', res: '512', pixels: true, tile: 3.0, maps: ['diff'],
     use: 'dry paddy mud: the farmland detail of the cover splat (late March, before flooding)',
   }),
+  // The panel faces of the solar farms outside the fences (outskirts.ts, R Phase 5): a 1K KTX2
+  // set like the other PBR textures — the racks are seen from 140 m to 2 km, the cell grid is
+  // what reads. `tile` from ambientCG's dimensionX (260 cm: a row of 2–3 modules); the set has
+  // no AO, so ARM R is 1.0, and it does carry metalness (the frames), which is packed into B.
+  ambientcgTexture('SolarPanel003', {
+    name: 'Solar Panel 003', tile: 2.6, use: 'solar farm panel faces (outskirts.ts, the static panel quads)',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
 
   // ---- trees (R Phase 2: Sketchfab CC-BY 4.0 drops in misc/trees/) --------------------------
   // The user downloads each model page's auto-converted glTF zip into misc/trees/ (the zip keeps
@@ -461,6 +472,79 @@ export const SOURCES = [
     texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
   }),
 
+  // ---- vehicles (R Phase 5: Sketchfab CC-BY 4.0 drops in misc/vehicles/) --------------------
+  // The hero level of the parked cars within 260 m and the campsite vans (car-glb.ts through
+  // modelPrototype, one InstancedMesh per body): four Japanese bodies, one photo-textured
+  // primitive each (the Hiace splits into Body / 4 wheels / 2 plates, same material), 1.8–3.4 k
+  // tris, capped at 512 px — a 3.4 m kei car at ≥ 140 m is ~50 px long. Every texture was
+  // dumped (`retouch-glb.mjs --dump`) and read: the `retouch` rectangles (glTF UV, origin
+  // top-left) cover each maker emblem, model-name script, number plate, fleet number, operator
+  // name, destination display and sticker so that nothing legible ships (CLAUDE.md policy);
+  // the shipped GLBs were dumped again to confirm. Titles / authors as license.txt spells them
+  // (the importer takes the credit line from that file).
+  sketchfabModel('model/vehicles/kei_truck', {
+    name: 'Suzuki Carry kei truck low poly', zip: 'suzuki_carry*.zip', author: 'bean(alwayshasbean)', authorUrl: 'https://sketchfab.com/alwayshasbean',
+    pageUrl: 'https://sketchfab.com/3d-models/suzuki-carry-kei-truck-low-poly-6bc99e709e9748da98cc9ac676684510',
+    use: 'kei truck (軽トラ) body: the hero level of the `keitruck` parked cars, 2.2 k tris',
+    maxTex: 512,
+    // Authored as KHR_materials_pbrSpecularGlossiness (diffuse 1024 × 512 + specGloss 512 × 256);
+    // three's GLTFLoader dropped that extension, so it is converted at import.
+    metalrough: true,
+    // Rear number plate (top centre of the sheet), the front-grille emblem, the tailgate script
+    // at the sheet's right edge.
+    retouch: [{ image: /_diffuse$/, op: 'blur', sigma: 8, rects: [[0.32, 0.0, 0.465, 0.2], [0.86, 0.455, 0.905, 0.535], [0.96, 0.88, 1.0, 0.95]] }],
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  sketchfabModel('model/vehicles/kei_wagon', {
+    name: 'Daihatsu Move Conte (Low Poly)', zip: 'daihatsu_move_conte*.zip', author: 'NNXST',
+    pageUrl: 'https://sketchfab.com/3d-models/daihatsu-move-conte-low-poly-eff914331c194de0abe20a33d2c3a2c3',
+    use: 'kei wagon (軽ワゴン) body: the hero level of the `kei` parked cars, 1.8 k tris',
+    maxTex: 512,
+    // The sheet is a decal atlas on a white body: the model-name script is filled with the body
+    // white (a blur would leave a grey smudge), the two maker emblems, the sister-model badge
+    // and the grille emblem are blurred into chrome blobs (default sigma = a quarter of the
+    // patch), the plate and the small rear badge with a fixed sigma.
+    retouch: [
+      { image: /baseColor$/, op: 'fill', colour: '#ffffff', rects: [[0.0, 0.27, 0.26, 0.365]] },
+      { image: /baseColor$/, op: 'blur', rects: [[0.0, 0.36, 0.25, 0.505], [0.255, 0.355, 0.49, 0.505], [0.27, 0.245, 0.485, 0.33], [0.335, 0.155, 0.405, 0.215]] },
+      { image: /baseColor$/, op: 'blur', sigma: 8, rects: [[0.81, 0.505, 1.0, 0.605], [0.01, 0.135, 0.05, 0.165]] },
+    ],
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  sketchfabModel('model/vehicles/van_h100', {
+    name: '1990 Toyota Hiace (H100)', zip: '1990_toyota_hiace*.zip', author: 'ImperialBlue', authorUrl: 'https://sketchfab.com/ImperialBlue3D',
+    pageUrl: 'https://sketchfab.com/3d-models/1990-toyota-hiace-h100-1764351001194f66b85c495dd8ce2d71',
+    use: 'one-box van (ハイエース) body: the hero level of the `minivan` parked cars and the campsite vans, 2.2 k tris',
+    maxTex: 512,
+    // Rear sticker and rear model script (top-left of the sheet), the front badge above the
+    // grille and the maker script across the bumper (bottom-left); the plates are blank already.
+    retouch: [{ image: /baseColor$/, op: 'blur', sigma: 6, rects: [[0.035, 0.1, 0.085, 0.14], [0.05, 0.21, 0.1, 0.24], [0.27, 0.71, 0.35, 0.75], [0.275, 0.8, 0.445, 0.845]] }],
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  sketchfabModel('model/vehicles/bus_mid', {
+    name: 'Isuzu Erga Mio bus', zip: 'isuzu_erga_mio*.zip', author: 'own.guest',
+    pageUrl: 'https://sketchfab.com/3d-models/isuzu-erga-mio-bus-050e8acd0bbc4da0902a8a874ef10fca',
+    use: 'mid-size route bus body: the hero level of the `coach` parked cars, 3.4 k tris',
+    maxTex: 1024,
+    // A 2048 × 1024 four-view sheet (rear, side, front, side) in an operator's green livery,
+    // which stays as a generic livery; every piece of text goes: the retailer watermark in the
+    // sheet corner, both plates, the fleet number (×6), the operator script (×2) and skirt
+    // lettering (×2), the side-window stop list (×2), the door / exit / number stickers, the
+    // destination displays and the LED stop sign.
+    retouch: [{
+      image: /baseColor$/, op: 'blur', sigma: 8,
+      rects: [
+        [0.855, 0.0, 1.0, 0.058],
+        [0.07, 0.09, 0.115, 0.14], [0.148, 0.09, 0.175, 0.115], [0.055, 0.24, 0.128, 0.28], [0.14, 0.29, 0.172, 0.335], [0.045, 0.345, 0.14, 0.395],
+        [0.234, 0.165, 0.272, 0.202], [0.572, 0.163, 0.716, 0.198], [0.884, 0.165, 0.975, 0.2], [0.33, 0.288, 0.36, 0.333], [0.51, 0.372, 0.735, 0.413],
+        [0.06, 0.595, 0.12, 0.642], [0.058, 0.648, 0.13, 0.685], [0.155, 0.698, 0.18, 0.722], [0.012, 0.892, 0.185, 0.96],
+        [0.444, 0.658, 0.484, 0.694], [0.334, 0.683, 0.382, 0.742], [0.394, 0.695, 0.518, 0.745], [0.566, 0.73, 0.62, 0.765], [0.716, 0.705, 0.755, 0.742],
+        [0.46, 0.82, 0.525, 0.895], [0.285, 0.887, 0.32, 0.907], [0.488, 0.922, 0.712, 0.96], [0.955, 0.712, 0.99, 0.746],
+      ],
+    }],
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+
   // ---- reference-only downloads (kept in misc/dl, never imported) ----------------------------
   {
     key: 'ref/kenney_racing_kit',
@@ -568,23 +652,30 @@ export const SOURCES = [
     files: { 'crowd_atlas_diff.png': 'bake://crowd-atlas/diff', 'crowd_atlas_mask.png': 'bake://crowd-atlas/mask' },
     maps: { diff: 'crowd_atlas_diff.png', mask: 'crowd_atlas_mask.png' },
   },
-  // Baked in-repo from app/three/car-bodies.ts (scripts/assets/bake-car-atlas.mjs): the far-field
-  // parked-car impostor atlas. 128 px cells, one row per body (minivan, kei wagon, SUV, hatchback,
-  // saloon, coach), columns = 8 yaws at one camera elevation. diff = lit RGBA with the paintwork
-  // baked white; mask = R the paintwork (what the runtime tints), black glass / tyres / lamps.
+  // Baked in-repo from app/three/car-bodies.ts and, with --glb, the vehicle GLBs above through
+  // app/three/car-glb.ts (scripts/assets/bake-car-atlas.mjs): the far-field parked-car impostor
+  // atlas. 128 px cells, one row per body (minivan, kei wagon, SUV, hatchback, saloon, coach, kei
+  // truck), columns = 8 yaws at one camera elevation. diff = lit RGBA with the procedural
+  // paintwork baked white (the GLB rows keep their photo); mask = R the paintwork (what the
+  // runtime tints — the luma rule for the GLB rows), black glass / tyres / lamps.
   {
     key: 'tex/car_atlas',
     kind: 'texture',
-    site: 'suzuka-3d (own bake)',
-    name: 'Parked-car impostor atlas — procedural low-poly bodies',
+    site: 'suzuka-3d (own bake) + Sketchfab',
+    name: 'Parked-car impostor atlas — procedural low-poly bodies and the four CC-BY vehicle GLBs',
     pageUrl: 'https://github.com/noribento/suzuka-3d',
-    author: 'suzuka-3d',
-    credit: 'project-own bake of procedural car bodies (scripts/assets/bake-car-atlas.mjs from app/three/car-bodies.ts)',
-    licence: 'CC0-1.0',
+    author: 'suzuka-3d, bean(alwayshasbean), NNXST, ImperialBlue, own.guest',
+    // the four GLB rows (kei wagon, kei truck, minivan, coach) are renders of the CC-BY bodies
+    // above, so the atlas carries their credit: "Suzuki Carry kei truck low poly" by
+    // bean(alwayshasbean), "Daihatsu Move Conte (Low Poly)" by NNXST, "1990 Toyota Hiace (H100)"
+    // by ImperialBlue, "Isuzu Erga Mio bus" by own.guest (titles as their license.txt); the other
+    // three rows are the project's own procedural shells
+    credit: 'impostor atlas baked by scripts/assets/bake-car-atlas.mjs --glb from app/three/car-bodies.ts and the CC-BY 4.0 models "Suzuki Carry kei truck low poly" (bean(alwayshasbean)), "Daihatsu Move Conte (Low Poly)" (NNXST), "1990 Toyota Hiace (H100)" (ImperialBlue) and "Isuzu Erga Mio bus" (own.guest)',
+    licence: 'CC-BY-4.0',
     resolver: 'bake',
-    bakeScript: 'node scripts/assets/bake-car-atlas.mjs',
+    bakeScript: 'node scripts/assets/bake-car-atlas.mjs --glb',
     res: '1k', // keeps the 1024 × 1024 canvas as baked (loadRaw only shrinks above RES_PX)
-    use: 'far-field parked-car impostors (8 yaws × 6 body rows)',
+    use: 'far-field parked-car impostors (8 yaws × 7 body rows: 4 from the vehicle GLBs, 3 procedural)',
     files: { 'car_atlas_diff.png': 'bake://car-atlas/diff', 'car_atlas_mask.png': 'bake://car-atlas/mask' },
     maps: { diff: 'car_atlas_diff.png', mask: 'car_atlas_mask.png' },
   },
@@ -698,6 +789,7 @@ export const PINS = {
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_diff_1k.jpg': 'da12ad78e4de12c0b38ca5c9fe2783a6b49c4362310844ded51b1acd8821fbe0',
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_nor_gl_1k.jpg': 'd6edfa39844a4ef480ae2bfcf1c3cce549d8ce6080edd58c4493845aca9ce92d',
   'tex/roofingtiles015a/RoofingTiles015A_1K-JPG.zip': '5bb040c4c08592b607bba47cbf7384c2769bea1b49d088c463fa296708c0f743',
+  'tex/solarpanel003/SolarPanel003_1K-JPG.zip': '9691dbe84d7c44ef9a2c84a8a55bdeb87e6a59fa649ccc4f3d47121f00028b5c',
   'tex/white_plaster_02/white_plaster_02_arm_1k.jpg': '2bb1115821715dfd8bbd1c5a294a5bb43b97d5c46b1aa8aa8f744bcaf5eeeb10',
   'tex/white_plaster_02/white_plaster_02_diff_1k.jpg': 'a1ebbe091bd1ae93d2abd5de8d69f9003a8d0ee6532bcf9a87c2492c97051f23',
   'tex/white_plaster_02/white_plaster_02_nor_gl_1k.jpg': 'eb572ca3630d5bfde72e2601b1f02412da23ca005cd19384dced8690be4cb783',

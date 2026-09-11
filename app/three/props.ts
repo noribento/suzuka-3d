@@ -284,8 +284,11 @@ function keepOutSecondaryPaving(ctx: EnvBuildContext) {
  * The 77 kV overhead lines around the circuit (OSM power=tower / power=line, see
  * app/data/suzuka-power.ts): lattice pylons behind Turns 1–2, the main straight and the west
  * side are in every TV wide shot. One instanced lattice prototype (legs following the taper, ring
- * and X bracing, three pairs of cross-arms with insulator strings) stands on the terrain at each
- * tower; six catenary cables run between consecutive line vertices as plain lines.
+ * and X bracing, three pairs of truss cross-arms — two chords and three diagonals each — with a
+ * suspension insulator string of four discs under every tip, and a 3 m mast on the peak for the
+ * overhead ground wire) stands on the terrain at each tower; six catenary conductors plus the
+ * ground wire run between consecutive line vertices as plain lines. ≈ 2.4 k triangles per tower,
+ * a few dozen towers, one InstancedMesh.
  */
 /** metres from the camera over which the power cables fade to nothing */
 const CABLE_FADE = [250, 700] as const
@@ -296,7 +299,10 @@ function buildPowerLines(ctx: EnvBuildContext) {
   const baseHalf = 3.6
   const topHalf = 1.1
   const arms = [{ y: 27, len: 7.5 }, { y: 33, len: 6.5 }, { y: 39, len: 5.5 }]
+  /** insulator string length (m): the conductor hangs this far under the arm tip */
   const insulator = 1.3
+  /** the overhead-ground-wire mast on the peak (m) */
+  const peak = 3
   // only what stands on the modelled terrain (3400 × 2600 m around the track centre)
   const cx = track.center.x, cz = track.center.z
   const inside = (x: number, z: number) => Math.abs(x - cx) < 1650 && Math.abs(z - cz) < 1250
@@ -306,12 +312,32 @@ function buildPowerLines(ctx: EnvBuildContext) {
   const parts: THREE.BufferGeometry[] = latticeParts({ height: H, baseHalf, topHalf, panel: 6, leg: 0.28, ring: 0.12, brace: 0.1, braces: true })
   const bar = (a: THREE.Vector3, b: THREE.Vector3, w: number) => parts.push(barGeometry(a, b, w))
   const halfAt = (y: number) => baseHalf + (topHalf - baseHalf) * (y / H)
+  const lerp = (a: THREE.Vector3, b: THREE.Vector3, t: number) => a.clone().lerp(b, t)
   for (const a of arms) {
-    bar(V(-a.len, a.y, 0), V(a.len, a.y, 0), 0.22)
-    bar(V(-a.len, a.y + 1.2, 0), V(-halfAt(a.y + 1.2), a.y + 1.2, 0), 0.1)
-    bar(V(a.len, a.y + 1.2, 0), V(halfAt(a.y + 1.2), a.y + 1.2, 0), 0.1)
-    for (const sx of [-1, 1]) bar(V(sx * a.len, a.y, 0), V(sx * a.len, a.y - insulator, 0), 0.14)
+    for (const sx of [-1, 1]) {
+      // the arm is a Warren truss: the top chord leaves the body 1 m over the arm line and
+      // droops to the tip 0.5 m over it, the bottom chord leaves 1.4 m under it and rises to
+      // the tip; a post closes the tip and three diagonals zigzag between the chords
+      const T0 = V(sx * halfAt(a.y + 1.0), a.y + 1.0, 0), T1 = V(sx * a.len, a.y + 0.5, 0)
+      const B0 = V(sx * halfAt(a.y - 1.4), a.y - 1.4, 0), B1 = V(sx * a.len, a.y, 0)
+      bar(T0, T1, 0.14)
+      bar(B0, B1, 0.14)
+      bar(B1, T1, 0.1)
+      bar(B0, lerp(T0, T1, 1 / 3), 0.08)
+      bar(lerp(T0, T1, 1 / 3), lerp(B0, B1, 2 / 3), 0.08)
+      bar(lerp(B0, B1, 2 / 3), T1, 0.08)
+      // the suspension string: a rod with four sheds at 0.3 m, the conductor clamp at its end
+      bar(B1, V(sx * a.len, a.y - insulator, 0), 0.1)
+      for (let k = 0; k < 4; k++) {
+        const disc = new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8)
+        disc.translate(sx * a.len, a.y - 0.25 - k * 0.3, 0)
+        parts.push(disc)
+      }
+    }
   }
+  // the peak: a mast for the overhead ground wire, stayed to the top ring's corners
+  bar(V(0, H, 0), V(0, H + peak, 0), 0.14)
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) bar(V(sx * topHalf, H, sz * topHalf), V(0, H + peak, 0), 0.08)
   const towerGeo = mergeGeometries(parts, false)!
   for (const g of parts) g.dispose()
   const towerMat = new THREE.MeshStandardMaterial({ color: 0x6d7378, roughness: 0.55, metalness: 0.7 })
@@ -354,7 +380,9 @@ function buildPowerLines(ctx: EnvBuildContext) {
     group.add(inst)
   }
 
-  // cables: six per span (three arms × two sides), a parabola with ~3 % sag
+  // cables: six conductors per span (three arms × two sides, hung `insulator` under the tips)
+  // and the ground wire on the peak, each a parabola with ~3 % sag
+  const runs = [...arms.flatMap((a) => [-1, 1].map((sx) => ({ off: sx * a.len, y: a.y - insulator }))), { off: 0, y: H + peak }]
   const pos: number[] = []
   for (const line of OSM_POWER_LINES) {
     const pts = line.en.map(([e, n]) => track.enToWorld(e, n, new THREE.Vector3()))
@@ -369,15 +397,13 @@ function buildPowerLines(ctx: EnvBuildContext) {
       const perp = V(dir.z, 0, -dir.x)
       const sag = Math.min(12, span * 0.032)
       const N = 10
-      for (const arm of arms) {
-        for (const sx of [-1, 1]) {
-          for (let k = 0; k < N; k++) {
-            for (const t of [k / N, (k + 1) / N]) {
-              const x = a.x + (b.x - a.x) * t + perp.x * sx * arm.len
-              const z = a.z + (b.z - a.z) * t + perp.z * sx * arm.len
-              const y = ya + (yb - ya) * t + arm.y - insulator - sag * 4 * t * (1 - t)
-              pos.push(x, y, z)
-            }
+      for (const run of runs) {
+        for (let k = 0; k < N; k++) {
+          for (const t of [k / N, (k + 1) / N]) {
+            const x = a.x + (b.x - a.x) * t + perp.x * run.off
+            const z = a.z + (b.z - a.z) * t + perp.z * run.off
+            const y = ya + (yb - ya) * t + run.y - sag * 4 * t * (1 - t)
+            pos.push(x, y, z)
           }
         }
       }
@@ -387,7 +413,7 @@ function buildPowerLines(ctx: EnvBuildContext) {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
     // a conductor is 30 mm: a 1 px line is already 10× too wide at 250 m, and from the overview
-    // (1.8 km) six of them read as black bands across the fields — fade them out with distance
+    // (1.8 km) seven of them read as black bands across the fields — fade them out with distance
     // the way coverage does (invisible past 700 m, as in every aerial photo)
     const mat = new THREE.LineBasicMaterial({ color: 0x15161a, transparent: true, depthWrite: false })
     mat.onBeforeCompile = (shader) => {

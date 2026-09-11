@@ -1,25 +1,36 @@
 <!doctype html>
 <!--
-  Parked-car impostor bake page (driven by scripts/assets/bake-car-atlas.mjs).
+  Parked-car impostor bake page (driven by scripts/assets/bake-car-atlas.mjs on bake/serve.mjs).
 
-  Renders the six low-poly bodies of app/three/car-bodies.ts — the SAME module the runtime
-  instances inside 500 m, served transpiled by the bake script — from 8 yaws at one camera
+  Renders the seven low-poly bodies of app/three/car-bodies.ts — the SAME module the runtime
+  instances inside 500 m, served transpiled by the harness — from 8 yaws at one camera
   elevation into 128 px cells of a 1024² canvas: one atlas row per body in CAR_BODIES order
   (yaw 0 looks at the car's nose, and the yaw increases clockwise seen from above, which is the
-  convention app/three/impostor.ts reads with `rel = bbYaw − aInfo.z`). Two images come out of the
-  same geometry:
-    colour  — lit, RGBA; the paintwork baked white so the runtime multiplies its own tint in
-    mask    — unlit, R = the paintwork (what the tint applies to), black = glass, tyres, lamps
+  convention app/three/impostor.ts reads with `rel = bbYaw − aInfo.z`). With `glb=1` the rows
+  whose body has a pack model in app/three/car-glb.ts (CAR_GLB) are drawn from that GLB instead
+  — loaded from public/assets-manifest.json with the runtime's loaders (KTX2 through
+  /public/basis/, meshopt), put into the car frame by `carGlbGeometry` exactly as vehicles.ts
+  does — so the cards beyond 500 m show the same silhouettes and photo shading as the hero
+  bodies near the camera. A row whose GLB is not in the manifest falls back to its procedural
+  shell (and says so in `source`). Two images come out of the same geometry:
+    colour  — lit, RGBA; the procedural paintwork baked white so the runtime multiplies its own
+              tint in; a GLB body keeps its photo (the tint multiplies that where the mask says paint)
+    mask    — unlit, R = the paintwork (what the tint applies to), black = glass, tyres, lamps;
+              for a GLB body the luma rule of carGlbMaterial, the same one the runtime tints by
   Every cell covers CELL_M × CELL_M metres with the tyres PAD_M above the bottom edge, so the one
   fixed-size quad of `impostorGeometry` shows every body at true scale.
 -->
 <meta charset="utf-8">
 <style>body{margin:0;background:#000}canvas{display:block}</style>
-<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/","~/":"/app/"}}</script>
 <canvas id="c"></canvas>
 <script type="module">
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { CAR_BODIES, CAR_DIMS, carBodyGeometry, patchCarVertexColour } from '/app/three/car-bodies.ts'
+import { CAR_GLB, carGlbGeometry, carGlbMaterial } from '/app/three/car-glb.ts'
 
 const params = new URLSearchParams(location.search)
 const CELL = Number(params.get('cell') ?? 128)
@@ -29,6 +40,7 @@ const YAWS = Number(params.get('yaws') ?? 8)
 const ELEV = Number(params.get('elev') ?? 14)      // camera pitch (deg, looking down)
 const SIZE_W = Number(params.get('w') ?? 1024)
 const SIZE_H = Number(params.get('h') ?? 1024)
+const GLB = params.get('glb') === '1'              // the rows with a pack model come from the GLB
 
 const canvas = document.getElementById('c')
 canvas.width = SIZE_W
@@ -49,9 +61,38 @@ const key = new THREE.DirectionalLight(0xffffff, 1.1)
 scene.add(key)
 const cam = new THREE.OrthographicCamera(-CELL_M / 2, CELL_M / 2, CELL_M, 0, -60, 120)
 
-// one material per pass, shared by every row: the part mask lives in the geometry's RGBA colour
+// one material per pass, shared by every procedural row: the part mask lives in the geometry's RGBA colour
 const COLOUR_MAT = patchCarVertexColour(new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.55, metalness: 0 }), 'plain')
 const MASK_MAT = patchCarVertexColour(new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xffffff }), 'mask')
+
+// the GLB rows: the runtime's loaders (KTX2 transcoder from public/basis — SwiftShader has no GPU
+// formats, so the textures come back RGBA — and meshopt), the manifest for the paths
+const glbRows = new Map()   // kind → { geometry, map, key } | null (a row that fell back)
+if (GLB) {
+  const ktx2 = new KTX2Loader().setTranscoderPath('/public/basis/').detectSupport(renderer)
+  const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder)
+  let manifest = null
+  try {
+    manifest = await fetch('/public/assets-manifest.json').then((r) => (r.ok ? r.json() : null))
+  } catch (e) {
+    console.warn(`assets-manifest.json: ${e.message ?? e}`)
+  }
+  for (const kind of CAR_BODIES) {
+    const spec = CAR_GLB[kind]
+    if (!spec) continue
+    const entry = manifest?.assets?.[spec.key]
+    if (!entry) { console.warn(`${spec.key}: not in the manifest — the ${kind} row stays procedural`); glbRows.set(kind, null); continue }
+    try {
+      const g = await gltf.loadAsync('/public' + entry.path)
+      const car = carGlbGeometry(g.scene, kind, spec)
+      if (!car) throw new Error('no mesh extracted')
+      glbRows.set(kind, { ...car, key: spec.key, luma: spec.luma, gain: spec.gain })
+    } catch (e) {
+      console.warn(`${spec.key}: ${e.message ?? e} — the ${kind} row stays procedural`)
+      glbRows.set(kind, null)
+    }
+  }
+}
 
 function renderCell (col, row, yawDeg, pitchDeg) {
   // the camera orbits the car at the given pitch and looks at the middle of the cell
@@ -80,6 +121,14 @@ function renderCell (col, row, yawDeg, pitchDeg) {
   renderer.render(scene, cam)
 }
 
+/** the material of a GLB row in the pass: the runtime's luma rule and paint gain, the bake's studio roughness / no metalness */
+function glbMaterial (glb, pass) {
+  const mat = carGlbMaterial(glb.map, pass === 'mask' ? 'mask' : 'plain', glb.luma, glb.gain)
+  if (pass !== 'mask') { mat.roughness = 0.55; mat.metalness = 0 }
+  mat.side = THREE.DoubleSide   // the drops are two-sided (open wheel arches, single-skin bed sides)
+  return mat
+}
+
 window.bakeCars = function (pass) {
   // clear the WHOLE canvas between the two passes: with the scissor test on, `clear` would only
   // wipe the last cell, and the rows this bake never draws would keep the colour pass
@@ -89,18 +138,27 @@ window.bakeCars = function (pass) {
   const layout = []
   for (let row = 0; row < CAR_BODIES.length; row++) {
     const kind = CAR_BODIES[row]
-    const geo = carBodyGeometry(kind)
-    const mesh = new THREE.Mesh(geo, pass === 'mask' ? MASK_MAT : COLOUR_MAT)
+    const glb = glbRows.get(kind) ?? null
+    const geo = glb ? glb.geometry : carBodyGeometry(kind)
+    const mesh = new THREE.Mesh(geo, glb ? glbMaterial(glb, pass) : pass === 'mask' ? MASK_MAT : COLOUR_MAT)
     scene.add(mesh)
     for (let k = 0; k < YAWS; k++) renderCell(k, row, (k / YAWS) * 360, ELEV)
     scene.remove(mesh)
+    if (glb) mesh.material.dispose()
     const d = CAR_DIMS[kind]
-    layout.push({ id: kind, row, length: d.l, width: d.w, height: d.h, tris: geo.attributes.position.count / 3 })
+    geo.computeBoundingBox()
+    const b = geo.boundingBox
+    layout.push({
+      id: kind, row, length: d.l, width: d.w, height: d.h, tris: geo.attributes.position.count / 3,
+      source: glb ? 'glb' : 'procedural', key: glb ? glb.key : null,
+      // the drawn extent (m): a GLB is scaled to the length, its width / height follow the model
+      drawn: { length: +(b.max.z - b.min.z).toFixed(2), width: +(b.max.x - b.min.x).toFixed(2), height: +(b.max.y - b.min.y).toFixed(2) },
+    })
   }
   renderer.setScissorTest(false)
   const dataUrl = canvas.toDataURL('image/png')
   renderer.setScissorTest(true)
-  return { dataUrl, layout, cell: CELL, cellM: CELL_M, padM: PAD_M, yaws: YAWS, elevs: [ELEV], cols: YAWS, rows: SIZE_H / CELL, width: SIZE_W, height: SIZE_H }
+  return { dataUrl, layout, cell: CELL, cellM: CELL_M, padM: PAD_M, yaws: YAWS, elevs: [ELEV], cols: YAWS, rows: SIZE_H / CELL, width: SIZE_W, height: SIZE_H, glb: GLB }
 }
 window.bakeReady = true
 </script>

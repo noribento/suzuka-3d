@@ -3,6 +3,7 @@ import { SUR_PARKING, SUR_SITES } from '~/data/suzuka-surroundings'
 import { worldRing } from '~/data/en-codec'
 import { CAR_LAYOUT } from '~/data/impostor-atlas'
 import { CAR_BODIES, carBodyGeometry, carBodyMaterial, pickCarBody, pickCarColour, type CarBody } from './car-bodies'
+import { CAR_GLB, carGlbGeometry, carGlbMaterial } from './car-glb'
 import type { EnvBuildContext } from './environment'
 import type { FarLevel } from './farfield'
 import { inBBox, pointInRing, principalAxis, ringBBox, ringFromFlat, type GridShape, type XZ } from './far-geometry'
@@ -46,6 +47,16 @@ import { cutoutParams } from './materials'
  *     four kept bays, coloured by the mean paintwork of the cars in the run and mixed towards the
  *     asphalt by the share of empty bays in it. From 1.8 km up a lot then reads as the mottled
  *     white-grey of the aerials instead of bare asphalt, for two triangles per four bays.
+ *
+ * HERO cars (R フェーズ Phase 5, `Quality.farField.heroCars`, high tier with the pack): the drawn
+ * cars whose body has a GLB in car-glb.ts (kei wagon, kei truck, minivan → the Hiace, coach →
+ * the Erga Mio) are, up to the budget and `lod.heroPerCell` per cell, the cells nearest the
+ * circuit first, taken OUT of level 0 and given a second entry `carParkHero-<cell>` of their
+ * own: the photo-textured GLB bodies (one InstancedMesh per kind, the instance colour through
+ * the luma paint mask) inside `lod.hero`, then the same cars as procedural bodies out to
+ * `lod.bodies` with the same ramp. A second entry rather than a nearer level of the main one,
+ * because the registry shows one level per entry and the cards / speckle must keep covering
+ * every car: those levels stay complete. Node and the low tier have no pack → no hero entries.
  *
  * The speckle is an UP-FACING OVERLAY, so it obeys the far-field overlay rule (≥ 140 m from the
  * centreline and `ground.builtY === null`) that far-geometry.ts's `cellClippedPolygon` enforces
@@ -92,8 +103,11 @@ export const CAR_PARK = {
   coach: { share: 0.04, maxPerLot: 24, gateM: 700, bayW: 3.5, bayD: 12.5, strip: 13 },
   /** the temporary lot's grass verge: OSM ids, spacing along the edge, offset outside it, occupancy, cap */
   verge: { lotIds: [184529074] as readonly number[], spacing: 7, offset: 3.2, occupancy: 0.4, max: 14 },
-  /** LOD: the 3D bodies' range and count ramp (m, × lodScale); the cards use Quality.farField.rangeFar */
-  lod: { bodies: 500, ramp: 100 },
+  /**
+   * LOD (m, × lodScale): the 3D bodies' range and count ramp; the GLB hero bodies' range and the
+   * most heroes one cell takes of `Quality.farField.heroCars`; the cards use Quality.farField.rangeFar
+   */
+  lod: { bodies: 500, ramp: 100, hero: 260, heroPerCell: 120 },
   /** the overview speckle: bays per quad along a row, clearance over the ground under it (m, `stripY`), the asphalt tone empty bays mix in (linear grey) */
   speckle: { baysPerQuad: 4, lift: 0.02, asphalt: 0.07 },
 } as const
@@ -116,14 +130,17 @@ export interface ParkedCarStats {
   /** one car in `stride` is drawn in levels 0 / 1 (the budget over the cars planned) */
   stride: number
   bodies: number
+  /** of `bodies`, the cars also drawn as GLB heroes (`carParkHero-<cell>`), and the kinds with a prototype */
+  heroBodies: number
+  heroKinds: CarBody[]
   cards: number
   /** speckle quads (level 2) */
   quads: number
   cells: number
   jobs: number
   atlas: 'baked' | 'none'
-  /** triangles per LOD level, as registered */
-  tris: { bodies: number; cards: number; speckle: number }
+  /** triangles per LOD level, as registered (`heroes`: the GLB level of the hero entries) */
+  tris: { bodies: number; heroes: number; cards: number; speckle: number }
 }
 
 interface Lot {
@@ -155,6 +172,8 @@ interface Car {
   yaw: number
   body: CarBody
   colour: THREE.Color
+  /** centreline distance of the car's lot centre (m): the hero order inside a cell */
+  lotD: number
 }
 
 interface Quad {
@@ -260,8 +279,8 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
   const stats: ParkedCarStats = {
     lots: all.length, lotsUsed: 0, rows: 0, bays: 0, kept: 0,
     rejected: { ring: 0, grid: 0, keepOut: 0, minD: 0, builtY: 0, slope: 0 },
-    cars: 0, coaches: 0, verge: 0, stride: 1, bodies: 0, cards: 0, quads: 0, cells: 0, jobs: 0,
-    atlas: 'none', tris: { bodies: 0, cards: 0, speckle: 0 },
+    cars: 0, coaches: 0, verge: 0, stride: 1, bodies: 0, heroBodies: 0, heroKinds: [], cards: 0, quads: 0, cells: 0, jobs: 0,
+    atlas: 'none', tris: { bodies: 0, heroes: 0, cards: 0, speckle: 0 },
   }
   farField.group.userData.parkedCars = stats
   if (!all.length) return stats
@@ -279,11 +298,39 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
   let bodyMat: THREE.MeshStandardMaterial | null = null
   let speckleMat: THREE.MeshStandardMaterial | null = null
   let card: { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial } | null | undefined
+  /** the GLB hero prototypes per kind (car-glb.ts), extracted once; null = no pack / no budget / no drop */
+  let hero: Map<CarBody, { geo: THREE.BufferGeometry; mat: THREE.Material }> | null | undefined
+  /** the kinds the pack holds a model for — what the fan-out job budgets the heroes on (the extraction itself waits for the first cell) */
+  const heroKinds = new Set<CarBody>()
+  if (q.farField.heroCars > 0 && assets) {
+    for (const kind of CAR_BODIES) {
+      const spec = CAR_GLB[kind]
+      if (spec && assets.model(spec.key)) heroKinds.add(kind)
+    }
+  }
+  stats.heroKinds = [...heroKinds]
   const materials = () => {
     if (!bodyMat) {
       bodyMat = carBodyMaterial()
       speckleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.05 })
       speckleMat.customProgramCacheKey = () => 'carSpeckle'
+    }
+    if (hero === undefined) {
+      hero = null
+      if (heroKinds.size && assets) {
+        const map = new Map<CarBody, { geo: THREE.BufferGeometry; mat: THREE.Material }>()
+        for (const kind of heroKinds) {
+          const spec = CAR_GLB[kind]!
+          const model = assets.model(spec.key)
+          const g = model ? carGlbGeometry(model.scene, kind, spec) : null
+          if (!g) {
+            if (import.meta.dev) console.warn(`[vehicles] ${spec.key}: no mesh extracted, the ${kind} keeps its procedural body`)
+            continue
+          }
+          map.set(kind, { geo: g.geometry, mat: carGlbMaterial(g.map, 'tint', spec.luma, spec.gain) })
+        }
+        if (map.size) hero = map
+      }
     }
     if (card === undefined) {
       card = null
@@ -299,7 +346,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
         }
       }
     }
-    return { bodyMat: bodyMat!, speckleMat: speckleMat!, card }
+    return { bodyMat: bodyMat!, speckleMat: speckleMat!, card, hero }
   }
 
   // --- the bay rule -----------------------------------------------------------------------------
@@ -464,7 +511,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
           if (hash2(bay.i, 7, lot.seed) > lot.occupancy) continue
           // nose first, away from the aisle on the +c side (yawAlong + π/2 is −c), jittered
           const yaw = yawAlong + Math.PI / 2 + (hash2(bay.i, 8, lot.seed) - 0.5) * 2 * jit
-          addCar({ x: bay.x, z: bay.z, y: bay.y + CAR_PARK.lift, yaw, body: 'coach', colour: pickCarColour(0.05, hash2(bay.i, 9, lot.seed), new THREE.Color()) })
+          addCar({ x: bay.x, z: bay.z, y: bay.y + CAR_PARK.lift, yaw, body: 'coach', colour: pickCarColour(0.05, hash2(bay.i, 9, lot.seed), new THREE.Color()), lotD: dCentre })
           stats.coaches++
         }
         cStart = best.c + cd / 2 + aisle
@@ -520,7 +567,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
             const yaw = noseFirst + (h4 < CAR_PARK.noseOut ? Math.PI : 0) + (h5 - 0.5) * 2 * jit
             const pj = CAR_PARK.posJitter
             const [px, pz] = world(lot, a + (h6 - 0.5) * 2 * pj, c + (h5 - 0.5) * 2 * pj)
-            addCar({ x: px, z: pz, y: r + CAR_PARK.lift, yaw, body: pickCarBody(h1), colour })
+            addCar({ x: px, z: pz, y: r + CAR_PARK.lift, yaw, body: pickCarBody(h1), colour, lotD: dCentre })
             runR += colour.r
             runG += colour.g
             runB += colour.b
@@ -569,6 +616,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
             x, z, y: r + CAR_PARK.lift, yaw,
             body: pickCarBody(hash2(i, k + 3, lot.seed)),
             colour: pickCarColour(hash2(i, k + 4, lot.seed), hash2(i, k + 5, lot.seed), new THREE.Color()),
+            lotD: dCentre,
           })
           stats.verge++
           if (++placed >= max) break outer
@@ -596,37 +644,38 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
   }
   /** share of the planned cars drawn in levels 0 / 1 (set by the fan-out job) */
   let keepRatio = 1
+  /** heroes per cell (set by the fan-out job; an upper bound — the cell keeps what has a prototype) */
+  const heroBudget = new Map<number, number>()
   const triCount = (g: THREE.BufferGeometry) => Math.floor((g.getIndex()?.count ?? g.attributes.position!.count) / 3)
 
-  function buildCell(cell: number): THREE.Object3D | null {
+  /**
+   * The cars of a cell drawn in levels 0 / 1: the budget is spent as a per-cell FRACTION rather
+   * than an integer stride, so a cell of 5 cars keeps its share instead of rounding away and the
+   * total lands on the budget. Coaches are never strided away.
+   */
+  const drawnOf = (cell: number): Car[] => {
     const cars = carsByCell.get(cell) ?? []
-    const quads = quadsByCell.get(cell) ?? []
-    if (!cars.length && !quads.length) return null
-    const { bodyMat, speckleMat, card } = materials()
-    stats.cells++
-    const root = new THREE.Group()
-    root.name = `carPark-${cell}`
-    // the budget is spent as a per-cell FRACTION rather than an integer stride, so a cell of 5
-    // cars keeps its share instead of rounding away and the total lands on the budget
     const drawn: Car[] = []
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!
       if (car.body === 'coach' || Math.floor((i + 1) * keepRatio) > Math.floor(i * keepRatio)) drawn.push(car)
     }
+    return drawn
+  }
 
-    // level 0: the 3D bodies, one InstancedMesh per silhouette
-    const bodies = new THREE.Group()
-    bodies.name = `carParkBodies-${cell}`
+  /** one InstancedMesh per body kind of `list`, placed and painted, into `into`; `protoOf` gives the geometry / material of a kind; returns the triangles */
+  const instanceBodies = (list: readonly Car[], into: THREE.Group, name: string, protoOf: (kind: CarBody) => { geo: THREE.BufferGeometry; mat: THREE.Material }): number => {
     const byBody = new Map<CarBody, Car[]>()
-    for (const car of drawn) {
-      let list = byBody.get(car.body)
-      if (!list) byBody.set(car.body, (list = []))
-      list.push(car)
+    for (const car of list) {
+      let group = byBody.get(car.body)
+      if (!group) byBody.set(car.body, (group = []))
+      group.push(car)
     }
-    for (const [kind, list] of byBody) {
-      const geo = geoOf(kind)
-      const inst = new THREE.InstancedMesh(geo, bodyMat, list.length)
-      list.forEach((car, i) => {
+    let tris = 0
+    for (const [kind, cars] of byBody) {
+      const { geo, mat } = protoOf(kind)
+      const inst = new THREE.InstancedMesh(geo, mat, cars.length)
+      cars.forEach((car, i) => {
         _q.setFromAxisAngle(Y_UP, car.yaw)
         _s.setScalar(1)
         inst.setMatrixAt(i, _m.compose(_p.set(car.x, car.y, car.z), _q, _s))
@@ -637,13 +686,62 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
       inst.castShadow = castShadow
       inst.receiveShadow = true
       inst.computeBoundingSphere()
-      inst.name = `carParkBodies-${cell}-${kind}`
-      bodies.add(inst)
-      stats.bodies += list.length
-      stats.tris.bodies += triCount(geo) * list.length
+      inst.name = `${name}-${kind}`
+      into.add(inst)
+      tris += triCount(geo) * cars.length
     }
+    return tris
+  }
+
+  function buildCell(cell: number): THREE.Object3D | null {
+    const cars = carsByCell.get(cell) ?? []
+    const quads = quadsByCell.get(cell) ?? []
+    if (!cars.length && !quads.length) return null
+    const { bodyMat, speckleMat, card, hero } = materials()
+    stats.cells++
+    const root = new THREE.Group()
+    root.name = `carPark-${cell}`
+    const drawn = drawnOf(cell)
+
+    // the heroes: the cell's share of the budget, among the drawn cars with a GLB prototype,
+    // the lots nearest the circuit first (a stable sort: the planning order breaks ties)
+    let heroes: Car[] = []
+    let plain = drawn
+    const heroN = hero ? Math.min(heroBudget.get(cell) ?? 0, CAR_PARK.lod.heroPerCell) : 0
+    if (hero && heroN > 0) {
+      const eligible = drawn.filter((c) => hero.has(c.body)).sort((a, b) => a.lotD - b.lotD)
+      const chosen = new Set(eligible.slice(0, heroN))
+      if (chosen.size) {
+        heroes = drawn.filter((c) => chosen.has(c))
+        plain = drawn.filter((c) => !chosen.has(c))
+      }
+    }
+
+    // level 0: the 3D bodies, one InstancedMesh per silhouette (the plain cars; the heroes have their own entry)
+    const bodies = new THREE.Group()
+    bodies.name = `carParkBodies-${cell}`
+    const procOf = (kind: CarBody) => ({ geo: geoOf(kind), mat: bodyMat })
+    stats.tris.bodies += instanceBodies(plain, bodies, `carParkBodies-${cell}`, procOf)
+    stats.bodies += drawn.length
     root.add(bodies)
     const levels: FarLevel[] = [{ object: bodies, range: CAR_PARK.lod.bodies, ramp: CAR_PARK.lod.ramp }]
+
+    // the hero entry: the GLB bodies inside `lod.hero`, the same cars as procedural bodies behind
+    // them out to `lod.bodies` (the main entry's level 0 never draws them)
+    if (hero && heroes.length) {
+      const glb = new THREE.Group()
+      glb.name = `carParkHero-${cell}`
+      stats.tris.heroes += instanceBodies(heroes, glb, `carParkHero-${cell}`, (kind) => hero.get(kind)!)
+      const proc = new THREE.Group()
+      proc.name = `carParkHeroProc-${cell}`
+      stats.tris.bodies += instanceBodies(heroes, proc, `carParkHeroProc-${cell}`, procOf)
+      root.add(glb, proc)
+      farField.register({
+        kind: 'carPark', name: `carParkHero-${cell}`, cell,
+        levels: [{ object: glb, range: CAR_PARK.lod.hero }, { object: proc, range: CAR_PARK.lod.bodies, ramp: CAR_PARK.lod.ramp }],
+      })
+      stats.heroBodies += heroes.length
+    }
 
     // level 1: the baked impostor cards (high tier with the asset pack)
     if (card && drawn.length) {
@@ -717,7 +815,9 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
     levels.push({ object: speckle, range: Infinity })
 
     farField.register({ kind: 'carPark', name: `carPark-${cell}`, cell, levels })
-    root.userData.cars = { planned: cars.length, drawn: drawn.length, quads: quads.length }
+    const byBody: Partial<Record<CarBody, number>> = {}
+    for (const car of drawn) byBody[car.body] = (byBody[car.body] ?? 0) + 1
+    root.userData.cars = { planned: cars.length, drawn: drawn.length, heroes: heroes.length, quads: quads.length, byBody }
     return root
   }
 
@@ -729,6 +829,27 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
     keepRatio = Math.min(1, q.farField.parkedCars / Math.max(1, totalCars))
     stats.stride = Number((1 / keepRatio).toFixed(2))
     const cells = new Set<number>([...carsByCell.keys(), ...quadsByCell.keys()])
+    // the hero budget: cells nearest the circuit first (the least lot distance among a cell's
+    // cars — already measured per lot, no projection here), `lod.heroPerCell` at most per cell,
+    // counted on the drawn cars whose kind the pack has a model for
+    if (heroKinds.size) {
+      const order = [...carsByCell.keys()].map((cell) => {
+        let d = Infinity, eligible = 0
+        for (const car of drawnOf(cell)) {
+          if (!heroKinds.has(car.body)) continue
+          eligible++
+          if (car.lotD < d) d = car.lotD
+        }
+        return { cell, d, eligible }
+      }).filter((c) => c.eligible > 0).sort((a, b) => a.d - b.d)
+      let left = q.farField.heroCars
+      for (const c of order) {
+        if (left <= 0) break
+        const n = Math.min(c.eligible, CAR_PARK.lod.heroPerCell, left)
+        heroBudget.set(c.cell, n)
+        left -= n
+      }
+    }
     for (const cell of [...cells].sort((a, b) => a - b)) {
       stats.jobs++
       farField.defer('buildings', `carPark-${cell}`, 6, () => buildCell(cell))
