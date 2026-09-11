@@ -38,7 +38,7 @@ import { armcoMaps, cached, chainLinkTexture, makeTexture, mulberry, paint, scal
  *    read at the front edge) with the panel texture on top (navy cells, silver frame; one
  *    module = 1.0 × 1.65 m). The rings are pushed into `ctx.keepOutPolys` synchronously, so
  *    the forest's stems and the trackside scatter stay out of the farms.
- *  - FENCE `fence-<cell>` (kind 'fence', range `farField.rangeFar`): the circuit boundary
+ *  - FENCE `fence-<cell>` (kind 'fence', range `OUTSKIRTS.fence.range`): the circuit boundary
  *    775428456 (171 vertices, 7,467 m) resampled at 3 m — instanced 60 mm posts, a 50 mm top
  *    rail (three faces) and, with `Quality.fence`, 2.4 m mesh panels (fence003 through
  *    `cutoutFromAssets`, the procedural chain-link without the pack); a 20 m gap at the boundary
@@ -107,6 +107,11 @@ export const OUTSKIRTS = {
     minD: 60,
     /** gap centred on each gate (m) */
     gateGap: 20,
+    /**
+     * Visible within this distance (m, × lodScale). A 2.4 m mesh is sub-pixel beyond a kilometre,
+     * and from the overview (1.8 km up) every cell was in range at `rangeFar`: 81 draws for nothing.
+     */
+    range: 1000,
   },
   lightPole: {
     height: 8,
@@ -605,7 +610,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
       mesh.castShadow = castShadow
       mesh.receiveShadow = true
       mesh.userData.outskirts = { family: 'solar', segments: built, onMask }
-      farField.register({ kind: 'solar', name: `solar-${cell}`, cell, levels: [{ object: mesh, range: Infinity }] })
+      farField.register({ kind: 'solar', name: `solar-${cell}`, cell, levels: [{ object: mesh, range: Infinity, static: true }] })
       return mesh
     })
   }
@@ -710,7 +715,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         root.add(mesh)
       }
       root.userData.outskirts = { family: 'fence', posts: matrices.length, panels }
-      farField.register({ kind: 'fence', name: `fence-${cell}`, cell, levels: [{ object: root, range: q.farField.rangeFar }] })
+      farField.register({ kind: 'fence', name: `fence-${cell}`, cell, levels: [{ object: root, range: OUTSKIRTS.fence.range }] })
       return root
     })
   }

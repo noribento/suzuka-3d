@@ -1134,7 +1134,7 @@ export function buildBuildings(ctx: EnvBuildContext): BuildingsStats {
       massGroup.name = `buildingsMass-${key}`
       massGroup.add(...massMeshes, ...extra)
       root.add(massGroup)
-      farField.register({ kind: 'buildings', name: `buildings-${key}`, cell, levels: [{ object: massGroup, range: Infinity }] })
+      farField.register({ kind: 'buildings', name: `buildings-${key}`, cell, levels: [{ object: massGroup, range: Infinity, static: true }] })
       if (detail) {
         const detailMeshes = meshesOf(detail, `buildingsDetail-${key}`, false)
         if (detailMeshes.length) {

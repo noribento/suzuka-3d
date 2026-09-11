@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { bucketedInstancedMeshes, type BucketOptions } from './instancing'
 import type { Quality } from './quality'
 
@@ -43,6 +44,13 @@ export interface FarLevel {
    * `range` (the crowd's density ramp), so a mass of instances thins out instead of popping.
    */
   ramp?: number
+  /**
+   * The level is always visible (range Infinity, the entry's only level) and its meshes carry
+   * world-space vertices: after the drain the registry merges every such mesh that shares a
+   * material into one mesh per `MERGE_CELLS`² block of cells (`<kind>-m<block>`), so the overview
+   * — which sees every static level at once — pays one draw per block instead of one per cell.
+   */
+  static?: boolean
 }
 
 export interface FarEntry {
@@ -80,12 +88,16 @@ export interface FarStats {
   cells: number
   /** deferred jobs that threw (each warned once) */
   failed: number
+  /** meshes produced by the static merge (see `FarLevel.static`) */
+  merged: number
   /** wall-clock ms per deferred job (by job name, accumulated when a name repeats) */
   buildMs: Record<string, number>
 }
 
 /** Cell edge, metres — the terrain rectangle is ≈ 14 × 11 of them. */
 export const FAR_CELL_M = 250
+/** static levels are merged over blocks of this many cells a side (4 × 250 m = 1 km) */
+export const MERGE_CELLS = 4
 /** Level boundaries move by this fraction depending on the direction of travel. */
 const HYSTERESIS = 0.05
 const STAGE_ORDER: Record<FarStage, number> = { paving: 0, buildings: 1, forest: 2, dressing: 3 }
@@ -167,6 +179,9 @@ export class FarField {
   private readonly jobMs: Record<string, number> = {}
   /** level objects `register` added straight to `group` during the running job (attached with the root) */
   private loose: THREE.Object3D[] = []
+  /** entries whose only level is static: merged into per-block meshes once the queue is empty */
+  private staticPending: EntryState[] = []
+  private mergedMeshes = 0
   /** how long the last `update` took (ms), for the viewport's per-section frame timings */
   updateMs = 0
 
@@ -262,6 +277,7 @@ export class FarField {
     for (const l of input.levels) if (l.range > far) far = l.range
     if (far > c.range) c.range = far
     c.hidden = false
+    if (input.levels.length === 1 && input.levels[0]!.static && input.levels[0]!.range === Infinity) this.staticPending.push(state)
     return entry
   }
 
@@ -349,12 +365,77 @@ export class FarField {
   }
 
   private schedule() {
-    if (this.timer !== null || !this.queue.length) return
+    if (this.timer !== null) return
+    if (!this.queue.length) { this.consolidate(); return }
     this.timer = setTimeout(() => {
       this.timer = null
       this.step(this.tickMs)
       if (this.started) this.schedule()
     }, 0)
+  }
+
+  /**
+   * Merge the pending static levels (see `FarLevel.static`) per material and per block of
+   * `MERGE_CELLS`² cells. Meshes whose attribute sets differ are left alone (mergeGeometries
+   * refuses them). The merged entries leave their cells' update lists — they are visible at any
+   * distance, so `update` has nothing to do for them — but stay counted in `stats`.
+   */
+  private consolidate() {
+    if (!this.staticPending.length) return
+    const pending = this.staticPending
+    this.staticPending = []
+    const blockCols = Math.ceil(this.nx / MERGE_CELLS)
+    const groups = new Map<string, { kind: FarKind; material: THREE.Material; cast: boolean; receive: boolean; meshes: THREE.Mesh[]; states: Set<EntryState> }>()
+    for (const st of pending) {
+      const cell = st.entry.cell
+      const block = cell === this.outside ? 'out' : `${Math.floor((cell % this.nx) / MERGE_CELLS) + Math.floor(cell / this.nx / MERGE_CELLS) * blockCols}`
+      st.levels[0]!.level.object.traverse((o) => {
+        const m = o as THREE.Mesh
+        if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || Array.isArray(m.material)) return
+        const key = `${st.entry.kind}|${block}|${m.material.uuid}|${m.castShadow ? 1 : 0}`
+        let g = groups.get(key)
+        if (!g) { g = { kind: st.entry.kind, material: m.material, cast: m.castShadow, receive: m.receiveShadow, meshes: [], states: new Set() }; groups.set(key, g) }
+        g.meshes.push(m)
+        g.states.add(st)
+      })
+    }
+    let block = 0
+    for (const [key, g] of groups) {
+      if (g.meshes.length < 2) continue
+      const geos: THREE.BufferGeometry[] = []
+      for (const m of g.meshes) {
+        m.updateMatrixWorld(true)
+        const geo = m.geometry.clone()
+        geo.applyMatrix4(m.matrixWorld)
+        geos.push(geo)
+      }
+      const merged = mergeGeometries(geos, false)
+      for (const geo of geos) geo.dispose()
+      if (!merged) {
+        if (import.meta.dev) console.warn(`[farField] static merge skipped for ${key}: attribute sets differ`)
+        continue
+      }
+      merged.computeBoundingSphere()
+      const mesh = new THREE.Mesh(merged, g.material)
+      mesh.name = `${g.kind}-m${block++}`
+      mesh.castShadow = g.cast
+      mesh.receiveShadow = g.receive
+      mesh.matrixAutoUpdate = false
+      mesh.matrixWorldAutoUpdate = false
+      this.group.add(mesh)
+      mesh.updateMatrixWorld(true)
+      for (const m of g.meshes) {
+        m.removeFromParent()
+        m.geometry.dispose()
+      }
+      this.mergedMeshes++
+      // the merged entries need no per-frame work: drop them from their cells
+      for (const st of g.states) {
+        const c = this.cells[st.entry.cell]!
+        const i = c.entries.indexOf(st)
+        if (i >= 0) c.entries.splice(i, 1)
+      }
+    }
   }
 
   /**
@@ -391,6 +472,7 @@ export class FarField {
   /** Run every queued job now (the Node harness and the tests). */
   drain() {
     while (this.queue.length) this.step(Infinity)
+    this.consolidate()
   }
 
   // --- per frame -----------------------------------------------------------------------------
@@ -485,6 +567,7 @@ export class FarField {
       pending: this.queue.length,
       cells,
       failed: this.failedCount,
+      merged: this.mergedMeshes,
       buildMs: { ...this.jobMs },
     }
   }
