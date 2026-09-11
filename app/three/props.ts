@@ -287,6 +287,9 @@ function keepOutSecondaryPaving(ctx: EnvBuildContext) {
  * and X bracing, three pairs of cross-arms with insulator strings) stands on the terrain at each
  * tower; six catenary cables run between consecutive line vertices as plain lines.
  */
+/** metres from the camera over which the power cables fade to nothing */
+const CABLE_FADE = [250, 700] as const
+
 function buildPowerLines(ctx: EnvBuildContext) {
   const { track, ground, group, quality } = ctx
   const H = 42
@@ -383,7 +386,20 @@ function buildPowerLines(ctx: EnvBuildContext) {
   if (pos.length) {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    const cables = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x15161a }))
+    // a conductor is 30 mm: a 1 px line is already 10× too wide at 250 m, and from the overview
+    // (1.8 km) six of them read as black bands across the fields — fade them out with distance
+    // the way coverage does (invisible past 700 m, as in every aerial photo)
+    const mat = new THREE.LineBasicMaterial({ color: 0x15161a, transparent: true, depthWrite: false })
+    mat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying float vCableDist;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvCableDist = -mvPosition.z;')
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vCableDist;')
+        .replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.a *= 1.0 - smoothstep(${CABLE_FADE[0].toFixed(1)}, ${CABLE_FADE[1].toFixed(1)}, vCableDist);`)
+    }
+    mat.customProgramCacheKey = () => 'powerCables'
+    const cables = new THREE.LineSegments(geo, mat)
     cables.name = 'powerCables'
     group.add(cables)
   }
