@@ -482,7 +482,10 @@ export function buildForest(ctx: EnvBuildContext): ForestStats {
               geo.computeBoundingSphere()
               const mass = new THREE.Mesh(geo, canopyMat)
               mass.name = `forest-${cell}`
-              mass.castShadow = castShadow
+              // the lid is what shows beyond the stem range, which on the high tier equals
+              // followMaxFar: in the follow modes it is never inside a cascade, and in the overview
+              // its shadow is 2–3 px at 1.8 km for 80 shadow draws a frame — the stems cast instead
+              mass.castShadow = false
               mass.receiveShadow = true
               const near = new THREE.Group()
               near.name = `forestNear-${cell}`

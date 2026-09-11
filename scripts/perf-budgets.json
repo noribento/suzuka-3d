@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseline": "after-phase6-2026-09-05T13-11-52-211Z",
+  "baseline": "after-s2-2026-09-11T04-21-56-777Z",
   "comment": [
     "Render-cost ceilings for scripts/perf-gate.mjs (plan §0a). Every number here is a ceiling the SwiftShader probe",
     "(scripts/perf-probe.mjs, 1280×720, 90 frames per mode) must stay under; the per-area allocations of a phase must",
@@ -14,11 +14,17 @@
     "  programs: the MAX over the tier's mode walk (the first sampled row of a tier is skipped — it is taken before the",
     "    shader compiles of the later modes finish) must be ≤ the tier's programs budget (FAIL above, no band).",
     "  errors[] must be empty on every row (FAIL otherwise).",
-    "High-tier setupMs 110000 is justified against perf-probe's 180 s .loading wait, not the e2e wall clock: the baseline",
-    "spends 83 s in setup under SwiftShader, and the e2e suite has its own, tighter, per-test timeouts.",
-    "'static' and 'data' are consumed by scripts/audit/scene-cost.mjs (Node, no browser, no asset pack — hence the",
-    "NoAssets suffix). They are placeholders until C2 measures them (+10 %) and flips measured to true; while measured is",
-    "false scene-cost reports without failing.",
+    "'static' and 'data' are consumed by scripts/audit/scene-cost.mjs (Node, no browser, no asset pack — hence the NoAssets",
+    "suffix); measured +10 % since C5 (2026-09-11), so scene-cost runs --strict in pnpm check.",
+    "Re-based at the end of the S phase (2026-09-11, baseline after-s2): every tier/mode mean is that run's value +12.5 %",
+    "(just under warnAt, so a re-measure of the same scene is 'ok' and growth over ≈ 1 % warns), rounded up (calls to 10,",
+    "triangles to 10k, setupMs to 100); maxRatio is the documented formula over after-s2 and after-s. The C0 ceilings",
+    "(after-phase6 + headroom) predated the ground partition P3–P6 and the far field: low setupMs is now ≈ 17–19 s under",
+    "SwiftShader, of which ≈ 7.0 s is the ground plan and ≈ 7.1 s the ground meshes (README 地面の契約); the S phase's own",
+    "synchronous share is < 1 s and the deferred far field is not in setupMs at all. setupMs swings ±15 % with CPU contention",
+    "(an e2e run in parallel), which the 1.5× FAIL band absorbs. Draw calls on the high tier are 40–60 % shadow passes",
+    "(3 cascades), of which the 22 cars alone are ≈ 250; the S phase adds ≈ 200 in the overview (forest lids, buildings/solar",
+    "block merges, car-park speckle, scatter trees) — count per pass/group by wrapping renderer.renderBufferDirect.",
     "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only."
   ],
   "policy": {
@@ -31,94 +37,94 @@
   },
   "tiers": {
     "low": {
-      "setupMs": 5500,
+      "setupMs": 18700,
       "loadMs": 30000,
-      "programs": 60,
+      "programs": 61,
       "modes": {
         "overview": {
-          "triangles": 1900000,
-          "calls": 520,
+          "triangles": 1970000,
+          "calls": 630,
           "maxRatio": {
             "triangles": 1.6,
             "calls": 1.6
           }
         },
         "heli": {
-          "triangles": 1150000,
-          "calls": 480,
-          "maxRatio": {
-            "triangles": 2.16,
-            "calls": 3.22
-          }
-        },
-        "chase": {
           "triangles": 1300000,
           "calls": 500,
           "maxRatio": {
-            "triangles": 1.78,
-            "calls": 2.05
+            "triangles": 1.73,
+            "calls": 2.23
+          }
+        },
+        "chase": {
+          "triangles": 1450000,
+          "calls": 520,
+          "maxRatio": {
+            "triangles": 1.62,
+            "calls": 2.01
           }
         },
         "onboard": {
-          "triangles": 1150000,
-          "calls": 460,
+          "triangles": 1230000,
+          "calls": 480,
           "maxRatio": {
-            "triangles": 1.9,
-            "calls": 2.27
+            "triangles": 1.82,
+            "calls": 2.22
           }
         },
         "tv": {
-          "triangles": 1000000,
-          "calls": 380,
+          "triangles": 1160000,
+          "calls": 350,
           "maxRatio": {
-            "triangles": 2.03,
+            "triangles": 1.94,
             "calls": 2.53
           }
         }
       }
     },
     "high": {
-      "setupMs": 110000,
-      "programs": 92,
+      "setupMs": 26000,
+      "programs": 100,
       "modes": {
         "overview": {
-          "triangles": 2900000,
-          "calls": 620,
-          "maxRatio": {
-            "triangles": 2.01,
-            "calls": 1.72
-          }
-        },
-        "heli": {
-          "triangles": 3800000,
-          "calls": 1250,
+          "triangles": 3340000,
+          "calls": 830,
           "maxRatio": {
             "triangles": 1.6,
             "calls": 1.6
           }
         },
-        "chase": {
-          "triangles": 3000000,
+        "heli": {
+          "triangles": 2660000,
           "calls": 820,
           "maxRatio": {
-            "triangles": 1.6,
+            "triangles": 1.76,
+            "calls": 2.39
+          }
+        },
+        "chase": {
+          "triangles": 3350000,
+          "calls": 1000,
+          "maxRatio": {
+            "triangles": 1.69,
             "calls": 1.6
           }
         },
         "onboard": {
-          "triangles": 3000000,
-          "calls": 800,
+          "triangles": 3410000,
+          "calls": 1030,
           "maxRatio": {
-            "triangles": 1.64,
+            "triangles": 1.6,
             "calls": 1.6
           }
         },
         "tv": {
-          "triangles": 2700000,
-          "calls": 700,
+          "triangles": 2400000,
+          "calls": 550,
           "maxRatio": {
-            "triangles": 1.83,
-            "calls": 2.17
+            "triangles": 1.76,
+            "calls": 2.82
           }
         }
       }

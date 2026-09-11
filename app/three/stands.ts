@@ -1754,7 +1754,8 @@ function buildStand(b: Build): TierRun[] {
 }
 
 interface Lodded {
-  inst: THREE.InstancedMesh
+  /** an InstancedMesh has its count ramped to 0; a plain Mesh is hidden */
+  inst: THREE.InstancedMesh | THREE.Mesh
   full: number
   centre: THREE.Vector3
   range: number
@@ -1763,7 +1764,7 @@ interface Lodded {
 function finishStand(b: Build, lod: Lodded[], seatGeo: THREE.BufferGeometry, tubeGeo: THREE.BufferGeometry, postGeo: THREE.BufferGeometry): { tris: number; instances: number } {
   const { mats, group, def, ctx } = b
   let tris = 0
-  const merge = (geos: THREE.BufferGeometry[], mat: THREE.Material, name: string, cast: boolean) => {
+  const merge = (geos: THREE.BufferGeometry[], mat: THREE.Material, name: string, cast: boolean, range = Infinity) => {
     if (!geos.length) return
     const merged = mergeGeometries(geos, false)
     for (const g of geos) g.dispose()
@@ -1773,13 +1774,18 @@ function finishStand(b: Build, lod: Lodded[], seatGeo: THREE.BufferGeometry, tub
     mesh.castShadow = cast
     mesh.receiveShadow = true
     group.add(mesh)
+    if (range < Infinity) {
+      merged.computeBoundingSphere()
+      lod.push({ inst: mesh, full: 1, centre: merged.boundingSphere!.center.clone(), range })
+    }
     tris += (merged.index ? merged.index.count : (merged.attributes.position as THREE.BufferAttribute).count) / 3
   }
   merge(b.terrace, mats.terrace, 'terrace', true)
   merge(b.furniture, mats.furniture, 'furniture', false)
   merge(b.glass, mats.glass, 'glass', true)
   merge(b.board, mats.board, 'boards', false)
-  merge(b.signs, mats.wayfinding, 'signs', false)
+  // the wayfinding boards are a metre wide: one draw per stand that is sub-pixel from the tubes' cut
+  merge(b.signs, mats.wayfinding, 'signs', false, TUBE_LOD)
   merge(b.corrugated, mats.corrugated, 'backWall', true)
   let instances = 0
   const s0 = def.sRange[0]
@@ -1961,8 +1967,14 @@ export function buildStands(ctx: EnvBuildContext): Stands {
   }
   const update = (cameraPos: THREE.Vector3) => {
     for (const l of lod) {
-      const n = cameraPos.distanceTo(l.centre) < l.range ? l.full : 0
-      if (n !== l.inst.count) l.inst.count = n
+      const near = cameraPos.distanceTo(l.centre) < l.range
+      if ((l.inst as THREE.InstancedMesh).isInstancedMesh) {
+        const inst = l.inst as THREE.InstancedMesh
+        const n = near ? l.full : 0
+        if (n !== inst.count) inst.count = n
+      } else if (l.inst.visible !== near) {
+        l.inst.visible = near
+      }
     }
   }
   return { seats, stats: stats2, update }

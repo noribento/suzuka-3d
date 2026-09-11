@@ -114,6 +114,10 @@ node scripts/perf-gate.mjs --file .perf/after-C2-….json --against .perf/after-
 天井は `scripts/perf-budgets.json`（ティア／モードごとの三角形・draw call の平均と最大、setupMs、programs）にあり、
 平均は budget × (1 + band) で FAIL、budget × 0.9 で警告、最大はベースラインの max/mean × 1.1 倍まで。数式はファイルの
 `comment` にそのまま書いてあります。probe は遠景（`__suzuka.env.farField.pending === 0`）が組み上がるのを待ってから採取します。
+天井の数値は S フェーズ末（2026-09-11、`.perf/after-s2-…`）の実測 +12.5 %（warnAt 0.9 の直下）で、最大は同じ式を
+after-s2／after-s の 2 回で取り直したものです。低ティアの `setupMs` ≈ 17〜19 s（SwiftShader）は地面の区画（プラン ≈ 7.0 s＋
+メッシュ ≈ 7.1 s、P3〜P6）で、周辺の同期ビルドは 1 s 未満、遠景は遅延ビルドなので setupMs に入りません。draw call の内訳（パスごと・グループごと）は `__suzuka.ctx.renderer.renderBufferDirect` を包んで数えるのが早道で、
+高ティアは影のパス（CSM 3 段）が全体の 4〜6 割、そのうち車が 22 台 × 部品 × 段数で 250 前後を占めます。
 
 ```bash
 pnpm exec playwright install --with-deps chromium   # 初回のみ（sudo が必要）

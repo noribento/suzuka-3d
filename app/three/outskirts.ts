@@ -695,7 +695,9 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
       const inst = new THREE.InstancedMesh(m.postGeo, m.galvanised, matrices.length)
       matrices.forEach((mat, k) => inst.setMatrixAt(k, mat))
       inst.instanceMatrix.needsUpdate = true
-      inst.castShadow = castShadow
+      // a 60 mm post and a 40 mm rail are under a texel of the 900 m cascade (≥ 10 cm): their
+      // shadows flickered rather than read, for ~50 shadow draws a frame in the follow modes
+      inst.castShadow = false
       inst.frustumCulled = true
       inst.computeBoundingSphere()
       inst.name = `fencePosts-${cell}`
@@ -704,7 +706,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
       if (railGeo) {
         const mesh = new THREE.Mesh(railGeo, m.galvanised)
         mesh.name = `fenceRail-${cell}`
-        mesh.castShadow = castShadow
+        mesh.castShadow = false
         root.add(mesh)
       }
       const panelGeo = panel.build()
