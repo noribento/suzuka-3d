@@ -203,17 +203,19 @@ app/
     environment.ts             # 地形（高さ場: 路面 IDW → 実 DEM のクロスフェード、施設のリリーフ、格子縁のスナップと粗いリングの高さ・法線）と各ビルダーの共有コンテキスト、観覧車
     dem.ts                     # 実 DEM の高さ場（内側は双三次、遠景は双線形、外周 300 m でクロスフェード、水面ポリゴンの底）— 1 Track に 1 つ
     terrain-far.ts             # 格子の外: 粗いリング `terrainRing-0..3`（継ぎ目の頂点・法線を共有）、DEM_FAR の山並み `terrainFar`（頂点色、フォグの傾斜パッチ）、水面 `water-far`
-    landcover.ts               # 土地利用マスク（OSM の層を CPU スキャンラインで RGBA8 2 組に描く: 森・田・舗装・駐車場・水・太陽光・集落・縁線）と芝シェーダ用のディテールタイル
+    landcover.ts               # 土地利用マスク（OSM の層を CPU スキャンラインで RGBA8 2 組に描く: 森・田・舗装・駐車場・水・太陽光・集落・畦）と芝シェーダ用のディテールタイル。道路はカバレッジ AA の帯で、リボンの下は細める（遠方 LOD）
     farfield.ts                # 遠景の登録簿と遅延ビルド（250 m セルの LOD、ローディング後のタイムスライス）
-    far-geometry.ts            # 地形の三角形に沿ってポリゴンを切る（`cellClippedPolygon`）: 区画の面と 140 m 圏を避け、standY に貼り、外周からスカートを立てる
+    far-geometry.ts            # 地形の三角形に沿ってポリゴンを切る（`cellClippedPolygon`）: 区画の面と 140 m 圏を避け、standY に貼り、外周からスカートを立てる。リボン版 `cellClippedStrip`（四角ごとに地形三角形でクリップ、属性は逆双線形で補間、リングはノード高で drape）
+    road-section.ts            # 柵の外の道路網（道路・設備・電柱・並木・地形系が共用）: OSM way の復号、交差点（共有ノード）、ランクとトリム／オーバーシュート、フィレット弧、区画線の抑止窓・停止線・横断歩道・信号、サンプル列、`nearestRoad`
+    roads.ts                   # 道路リボン（'paving' ステージ、1 km ブロック static）: 断面行（路肩・クラウン・クラス段）、解析区画線の属性、橋の剛体デッキ＋高欄＋フェイシア、リングの tertiary+、キープアウト
     far-lines.ts               # 遠景ビルダー共通の折れ線・立地ヘルパー（`resample`・`siteOk`・`KeepOutGrid`・`TriSink`）— outskirts / roads / forest / terrain-side が共用
     model-proto.ts             # GLB → インスタンス用プロトタイプ（int16 属性の拡張・material 分割・ノードパス選択・原点合わせ・頂点色の保持）— 樹木・小物・車体が共用
-    surroundings.ts            # 柵の外のビルダーの入口（'buildings' → 'dressing' の順に buildings / vehicles / outskirts を遅延登録）
+    surroundings.ts            # 柵の外のビルダーの入口（'paving' → 'buildings' → 'dressing' の順に roads / buildings / vehicles / outskirts を遅延登録）
     forest.ts                  # 森（OSM の森ポリゴン）: 250 m セルの樹冠マス・森床・手続き幹・近景の GLB 幹の 3 段 LOD
     buildings.ts               # 柵の外の建物: 種別ごとのマッシング（寄棟瓦・パラペット＋金属屋根・窓帯・キャノピー）、7 層の facade 配列テクスチャ、モートピアのコースターとプール、キャンプ場
     vehicles.ts                # 駐車場の車: OSM の駐車場に枠を切り、車体 → インポスターカード → 俯瞰の点描の 3 段 LOD（車種と配色は car-bodies.ts）
     car-bodies.ts              # 低ポリの車体 6 種（ミニバン・軽・SUV・ハッチ・セダン・バス、頂点色の部位マスク）— インポスターのベイクにも使う
-    outskirts.ts               # 郊外の設備: 太陽光アレイ、外周フェンス、照明柱、電柱と架線、県道のガードレール
+    outskirts.ts               # 郊外の設備: 太陽光アレイ、外周フェンス、照明柱、電柱と架線、県道のガードレール（Phase 3 で road-furniture.ts へ）
     structures.ts              # 立体交差の桁橋（スラブ・化粧板・鋼桁・橋台・翼壁・側道）、地下道の高欄、看板とピット出口信号
     lattice.ts                 # 鉄骨ラティスのプロトタイプ（送電鉄塔・リーダータワー・スタートゲートリーで共用、低ティアはブレース無し）
     impostor.ts                # インポスターの共通実装（アトラスのレイアウト・方位セル・マスク着色）— 観客と車で共用
@@ -374,10 +376,18 @@ scripts/
   Sky と同じく far plane に固定（カメラが中心から離れても切れない）。水面 `water-far` は OSM の水面ポリゴンのうち ≥ 400 m² かつ全頂点が中心線から ≥ 150 m のものを
   水位（岸の p05）− 0.3 m の平面に earcut し（非単純な輪郭は落として警告）、高さ場はその底を 12 m の土手で 1.5 m 沈めます。
   土地利用は**地形シェーダのマスク**です: OSM の層を起動時に CPU で RGBA8 2 組（内側矩形 1024²／リング 512²、低ティアは半分）に描き、芝の材質が class ごとに
-  色とラフネスを混ぜ、田は各圃場の主軸で回転した 30×90 m の畦、道路は 1 テクセルの縁線、中心線の各サンプル周りは hw + 30 m を空けます。
-  区画の芝（`ground:grass` / `grassArea`）も同じマスクを引くので区画の縁は見えません。**柵の外に不透明な地面の面は増やしません**（R1〜R14 と census は不変）—
-  例外は水面と、`terrain` グループ下のリング・山並みだけです。地面に立つだけのもの（森・建物・駐車場・太陽光・道路・電柱・フェンス）は `farfield.ts` の登録簿に
-  ローディング後の遅延ジョブで積まれ、250 m セルごとに LOD します。ガードは `surface-check` の P6s 行（DEM の曲率で上がった G3/G4 を実測で上げ直したもの）と
+  色とラフネスを混ぜ、田は各圃場の主軸で回転した 30×90 m の畦、道路はカバレッジ AA の帯（リボンが覆う内側グリッドでは細め、遠方 LOD とリングの表現）、中心線の各サンプル周りは hw + 30 m を空けます。
+  区画の芝（`ground:grass` / `grassArea`）も同じマスクを引くので区画の縁は見えません。**柵の外に不透明な地面の面（GroundFace）は増やしません**（R1〜R14 と census は不変）—
+  例外は水面と、`terrain` グループ下のリング・山並みだけで、道路リボンは森床と同じく `standY` の上に置く遠景オーバーレイです。地面に立つだけのもの（森・建物・駐車場・太陽光・道路・電柱・フェンス）は `farfield.ts` の登録簿に
+  ローディング後の遅延ジョブで積まれ、250 m セルごとに LOD します。
+- **道路（柵の外）**（`app/three/road-section.ts`・`roads.ts`・`materials.ts roadRibbonMaterial`）: OSM の highway way を `roadSectionOf`（`surroundings-spec.ts`: 車線 × 幅 + 路肩、`lanes` / `oneway` / `surface` / `width` タグ）で断面にし、
+  共有ノードで交差点を取り（生成器が DP 1 m でも保護）、従が主の舗装縁 + 0.3 m までトリム、角は hw だけオーバーシュート、内部頂点は接線–弧のフィレット（R ≤ 種別の上限、≤ 6° 刻み）。
+  リボンは `cellClippedStrip` で地形三角形ごとに切って `standY` + 0.05 m + クラス段（0 / 8 / 16 / 24 mm）に置くので森床と同じく z-fight せず、上位の道路が交差点で上に乗ります。
+  行は ±hw（高ティアはさらに ±0.6 m の路肩行を頂点アルファ 1→0 の A2C で）と中央行の 1.5 % クラウン。区画線はテクスチャではなくフラグメントで解析描画: 頂点属性 `aRoad = (along, across, hw, style)` /
+  `aMark = (路肩 L, 路肩 R, 停止線距離, 横断歩道距離)` から、白 0.15 m 破線 5 m/5 m（舗装 ≥ 5.5 m の対面通行）、白 0.20 実線（≥ 12 m）、黄 0.15 実線（tertiary+ の R < 150 m）、外側線 0.15 m、
+  停止線 0.30 m、横断歩道 0.45/0.45 m、集落内の residential は L 型側溝 0.45 m の帯、`fwidth` の AA と画面最小半幅 0.6 px（被覆率で減光）、1.5〜3 km でフェード。アスファルトは Poly Haven `asphalt_04`（4 m タイル、ワールド UV なので重なりが同一テクセル）、農道は `gravel_road`。
+  橋（`bridge` タグ）は両端 `standY` の lerp + 0.30 m の剛体デッキに 0.9 m の高欄とフェイシア。中心線から 76 m 以内（G8 の 75 m 帯）はリボンを置かずマスクのまま。高ティアはリングにも tertiary+ を 2 行で（ノード高で drape）。
+  各 way のサンプル対ごとの四角が `ctx.keepOutPolys` に入り（駐車場の通路は除く）、車の枠と樹木は `KeepOutGrid` で避けます。ガードは `surface-check` の P6s 行（DEM の曲率で上がった G3/G4 を実測で上げ直したもの）と
   `facilities-check` §11（ヘッダ・合計 ≤ 1 MB・輪郭の単純性）、`dem-profile --verify`（34 駅で ±2.5 m）、`scene-cost`（三角形と生成データの予算）です。
 - **白線** (`app/three/lines.ts`)：全周のエッジライン、ピット入口・出口の分離線と合流テーパー、ピットレーンの
   各線、グリッドとスタートラインは 1 メッシュのジオメトリです。15 cm の線は遠景で 1 px を切るので、
@@ -425,6 +435,8 @@ scripts/
 - 建物のファサード（`app/three/buildings.ts` の `DataArrayTexture`）: 7 層の sRGB デコードとミップが正しく出ること、瓦・リブ金属・窓帯が層ごとに入れ替わらないこと。おかしければ `FACADE_ARRAY_TEXTURE = false` で 4 枚の通常マテリアルに落とせる
 - 駐車場の車（`vehicles.ts`）: 500 m でのカードへの切替、カードの向きと着色（`tex/car_atlas` のマスク）、俯瞰の点描が地面に埋まらないこと
 - A2R・130R G 席の青いキャノピーの影と支柱の接地、芝土手のレジャーシートの z-fight（standY +2 mm）、焼き込みアトラスの座り姿が芝の上で 0.40 m 沈んで見えること
+- 柵の外の道路（`roads.ts`）: `asphalt_04` / `gravel_road` の KTX2 と法線の向き（低い横光）、路肩の A2C フェードにディザ模様が出ないこと、解析区画線が近景で実寸（15 cm）・1 km 先でも ≥ 0.6 px で残り
+  MSAA / SMAA でちらつかないこと、破線が遠方で 50 % の実線に溶けること、交差点の重なり（8 mm のクラス段、反転 Z）が z-fight しないこと、リング上のリボンが丘で浮き沈みしないこと、橋のデッキと高欄
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes

@@ -6,6 +6,7 @@ import { CAR_BODIES, carBodyGeometry, carBodyMaterial, pickCarBody, pickCarColou
 import type { EnvBuildContext } from './environment'
 import type { FarLevel } from './farfield'
 import { inBBox, pointInRing, principalAxis, ringBBox, ringFromFlat, type GridShape, type XZ } from './far-geometry'
+import { KeepOutGrid } from './far-lines'
 import { IMPOSTOR_ATTRIBUTES, impostorGeometry, impostorMaterial } from './impostor'
 import { cutoutParams } from './materials'
 
@@ -21,8 +22,9 @@ import { cutoutParams } from './materials'
  * A bay is kept only when (R1 / R11, and the pit complex's flatness rule):
  *  - its four corners lie inside the lot and inside the terrain rectangle,
  *  - neither a corner nor the centre is in a keep-out disc (`ctx.keepOut`) or polygon
- *    (`ctx.keepOutPolys`) — the building footprints, pushed in the same 'buildings' stage by the
- *    jobs that run before these ones,
+ *    (`ctx.keepOutPolys`, through a `KeepOutGrid`) — the road ribbons of the 'paving' stage and
+ *    the building footprints, pushed in the same 'buildings' stage by the jobs that run before
+ *    these ones,
  *  - it is ≥ 140 m from the centreline (`ground.plan.project`) and stands on no drawn ground face
  *    (`ground.builtY === null`) at its corners and its centre,
  *  - the ground under it is no steeper than `CAR_PARK.slopeGrade`: a car body is rigid, and a
@@ -301,19 +303,12 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
   }
 
   // --- the bay rule -----------------------------------------------------------------------------
-  /** the keep-outs that can reach a lot's bounding box, gathered once when the lot's job runs */
-  const keepOutsFor = (box: readonly [number, number, number, number]) => {
-    const m = CAR_PARK.coach.strip
-    const discs = ctx.keepOut.filter((k) => k.x + k.r >= box[0] - m && k.x - k.r <= box[2] + m && k.z + k.r >= box[1] - m && k.z - k.r <= box[3] + m)
-    const polys = ctx.keepOutPolys.filter((k) => k.box[2] >= box[0] - m && k.box[0] <= box[2] + m && k.box[3] >= box[1] - m && k.box[1] <= box[3] + m)
-    return { discs, polys }
-  }
-  type KeepOuts = ReturnType<typeof keepOutsFor>
-  const inKeepOut = (x: number, z: number, ko: KeepOuts): boolean => {
-    for (const k of ko.discs) { const dx = x - k.x, dz = z - k.z; if (dx * dx + dz * dz < k.r * k.r) return true }
-    for (const k of ko.polys) if (inBBox(x, z, k.box) && pointInRing(x, z, k.ring)) return true
-    return false
-  }
+  /**
+   * `ctx.keepOut` / `ctx.keepOutPolys` hashed into tiles (far-lines.ts): the road ribbons alone
+   * push tens of thousands of quads, and a lot tests thousands of bay corners. Synced at the top
+   * of every lot job — the producers (roads, buildings) push between the jobs, never inside one.
+   */
+  const keepOuts = new KeepOutGrid()
 
   /**
    * The rule on one footprint, given its centre and its four corners. `inside` 'in' wants the
@@ -322,14 +317,14 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
    * their own because that one distance already puts them outside the band.
    * Returns the rejection reason, or the footprint's height (`standY` at the centre).
    */
-  const bayTest = (cx: number, cz: number, corners: readonly XZ[], lot: Lot, inside: 'in' | 'out', ko: KeepOuts, dCentre: number): BayReject | number => {
+  const bayTest = (cx: number, cz: number, corners: readonly XZ[], lot: Lot, inside: 'in' | 'out', dCentre: number): BayReject | number => {
     for (const [x, z] of corners) {
       if (!inBBox(x, z, gridInset)) return 'grid'
       const inRing = inBBox(x, z, lot.box) && pointInRing(x, z, lot.ring)
       if (inside === 'in' ? !inRing : inRing) return 'ring'
     }
-    if (inKeepOut(cx, cz, ko)) return 'keepOut'
-    for (const [x, z] of corners) if (inKeepOut(x, z, ko)) return 'keepOut'
+    if (keepOuts.hit(cx, cz)) return 'keepOut'
+    for (const [x, z] of corners) if (keepOuts.hit(x, z)) return 'keepOut'
     let halfDiag = 0
     for (const [x, z] of corners) halfDiag = Math.max(halfDiag, Math.hypot(x - cx, z - cz))
     // One projection for the whole footprint — every corner is within the half diagonal of the
@@ -412,7 +407,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
     // 60 of the 111 lots are outside the terrain rectangle, where there is no height field at all
     // — no bay of theirs could be kept, so lay none out (their ring still keeps the forest off)
     if (lot.box[2] < gridInset[0] || lot.box[0] > gridInset[2] || lot.box[3] < gridInset[1] || lot.box[1] > gridInset[3]) return
-    const ko = keepOutsFor(lot.box)
+    keepOuts.sync(ctx.keepOut, ctx.keepOutPolys)
     const before = stats.cars
     const jit = THREE.MathUtils.degToRad(CAR_PARK.yawJitterDeg)
     const { bayW, bayD, pitch, aisle } = CAR_PARK
@@ -453,7 +448,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
         for (let i = 0; i < n; i++) {
           const a = aOf(i)
           const [x, z] = world(lot, a, c)
-          const r = bayTest(x, z, cornersOf(a, c), lot, 'in', ko, dCentre)
+          const r = bayTest(x, z, cornersOf(a, c), lot, 'in', dCentre)
           if (typeof r === 'string') why.push(r)
           else bays.push({ i, x, z, y: r })
         }
@@ -513,7 +508,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
           const corners: XZ[] = [world(lot, a - bayW / 2, cb0), world(lot, a + bayW / 2, cb0), world(lot, a + bayW / 2, cb1), world(lot, a - bayW / 2, cb1)]
           const [x, z] = world(lot, a, c)
           stats.bays++
-          const r = bayTest(x, z, corners, lot, 'in', ko, dCentre)
+          const r = bayTest(x, z, corners, lot, 'in', dCentre)
           if (typeof r === 'string') { stats.rejected[r]++; flush(j); continue }
           stats.kept++
           if (runStart < 0) runStart = j
@@ -566,7 +561,7 @@ export function buildParkedCars(ctx: EnvBuildContext): ParkedCarStats {
             [x + ux * hl + nx * hw, z + uz * hl + nz * hw], [x - ux * hl + nx * hw, z - uz * hl + nz * hw],
           ]
           stats.bays++
-          const r = bayTest(x, z, corners, lot, 'out', ko, dCentre)
+          const r = bayTest(x, z, corners, lot, 'out', dCentre)
           if (typeof r === 'string') { stats.rejected[r]++; continue }
           stats.kept++
           const yaw = edgeYaw + (hash2(i, k + 1, lot.seed) < 0.5 ? 0 : Math.PI) + (hash2(i, k + 2, lot.seed) - 0.5) * 2 * jit

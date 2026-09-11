@@ -321,7 +321,9 @@ function prepareModel (model, src, srcDir) {
     for (const [sel, rel] of Object.entries(src.overrideImages)) {
       const idx = selectImages(model, /^\d+$/.test(sel) ? Number(sel) : sel)
       if (!idx.length) throw new Error(`overrideImages: no image matches ${sel}`)
-      const file = join(srcDir, rel)
+      // a path under misc/ (the user's own drops, e.g. a pack's season atlases from the author's
+      // side download) or a file next to the source
+      const file = rel.startsWith('misc/') ? join(MISC, rel.slice(5)) : join(srcDir, rel)
       if (!existsSync(file)) throw new Error(`overrideImages: ${file} missing`)
       const data = readFileSync(file)
       const { format } = sniffImage(data)

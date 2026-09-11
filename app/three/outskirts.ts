@@ -8,6 +8,7 @@ import { TriSink, inGrid, nearestArc, outsideGrid, pathLength, resample, siteOk,
 import { BARRIER_KIND, FENCE_TILE_M } from './barriers'
 import { cutoutFromAssets, cutoutParams } from './materials'
 import { armcoMaps, cached, chainLinkTexture, makeTexture, mulberry, paint, scaled } from './textures'
+import { roadNetwork, walk } from './road-section'
 
 /**
  * Outskirts furniture (plan §2b, §2e): the solar farms, the circuit's perimeter fence, the light
@@ -648,46 +649,53 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   interface UPole { x: number; z: number; nx: number; nz: number; lo: number; way: number; idx: number }
   const uPoles: UPole[] = []
   const uByCell = new Map<number, number[]>()
-  interface RailWay { pts: XZ[]; samples: Sample[]; off: number; dmin: number }
+  interface RailWay { pts: XZ[]; samples: Sample[]; off: number; dmin: number; /** the network's centreline-distance lower bound per sample */ lo: number[] }
   const railWays: RailWay[] = []
   const railByCell = new Map<number, [number, number][]>()
   let railSamples = 0
-  for (const w of SUR_ROADS) {
-    const utility = OUTSKIRTS.utilityKinds.includes(w.kind)
-    const guard = G.kinds.includes(w.kind)
+  // the poles and the rails follow the road NETWORK (road-section.ts) — the same trimmed,
+  // filleted paths the ribbons are cut from — so a rail never runs on into a junction the
+  // ribbon was trimmed out of, and a pole stands off the real paved edge
+  const net = roadNetwork(ctx, { stepScale: q.farField.roads.stepScale, ring: q.farField.roads.ring })
+  for (const way of net.ways) {
+    const utility = OUTSKIRTS.utilityKinds.includes(way.kind)
+    const guard = G.kinds.includes(way.kind)
     if (!utility && !guard) continue
+    const w = way.row
     const [cx, cz] = centroidWorld(w)
     if (outsideGrid(grid, cx, cz, OUTSKIRTS.gridMargin)) continue
-    const pts = polyline(worldRing(w, enScale))
-    if (pts.length < 2) continue
+    if (way.path.length < 2) continue
+    /** the junctions' reach along the way: no rail and no pole inside the other road's mouth */
+    const nearJunction = (s: number): boolean => way.junctions.some((j) => Math.abs(j.s - s) < j.j.major.hw + G.edge + 3)
     if (utility) {
       const side = mulberry(w.id * 7 + 1)() < 0.5 ? 1 : -1
-      const off = Math.max(U.offset, w.width / 2 + 1)
-      const samples = resample(pts, U.pitch, false, U.pitch / 2)
+      const off = Math.max(U.offset, way.hw + 1)
+      const samples = walk(way, U.pitch, U.pitch / 2)
       for (let i = 0; i < samples.length; i++) {
         const s = samples[i]!
+        if (nearJunction(s.s)) continue
         const nx = -s.tz * side, nz = s.tx * side
         const x = s.x + nx * off, z = s.z + nz * off
         // outside the circuit's own grounds, tested per pole rather than on the way's centroid
         if (!inGrid(grid, x, z) || insideCircuit(x, z)) continue
         const idx = uPoles.length
-        uPoles.push({ x, z, nx, nz, lo: w.dmin - s.dv - off, way: w.id, idx: i })
+        uPoles.push({ x, z, nx, nz, lo: s.dLo - off, way: w.id, idx: i })
         push(uByCell, farField.cellOf(x, z), idx)
       }
     }
     if (guard) {
-      const samples = resample(pts, G.step, false, 0)
+      const walked = walk(way, G.step, 0)
       // the far end of the way, so the rail reaches the last vertex
-      const last = pts[pts.length - 1]!, prev = pts[pts.length - 2]!
-      const ex = last[0] - prev[0], ez = last[1] - prev[1], el = Math.hypot(ex, ez) || 1
-      const total = samples.length ? samples[samples.length - 1]!.t : 0
-      if (samples.length && Math.hypot(last[0] - samples[samples.length - 1]!.x, last[1] - samples[samples.length - 1]!.z) > 1) samples.push({ x: last[0], z: last[1], tx: ex / el, tz: ez / el, t: total + Math.hypot(last[0] - samples[samples.length - 1]!.x, last[1] - samples[samples.length - 1]!.z), dv: 0 })
+      const end = way.path[way.path.length - 1]!
+      const lastW = walked[walked.length - 1]
+      if (lastW && Math.hypot(end.x - lastW.x, end.z - lastW.z) > 1) walked.push({ ...lastW, x: end.x, z: end.z, s: way.length })
+      const samples: Sample[] = walked.map((r) => ({ x: r.x, z: r.z, tx: r.tx, tz: r.tz, t: r.s, dv: 0 }))
       if (samples.length < 2) continue
       const wi = railWays.length
-      railWays.push({ pts, samples, off: w.width / 2 + G.edge, dmin: w.dmin })
+      railWays.push({ pts: way.path.map((v) => [v.x, v.z] as XZ), samples, off: way.hw + G.edge, dmin: w.dmin, lo: walked.map((r) => r.dLo) })
       for (let i = 0; i + 1 < samples.length; i++) {
         const s = samples[i]!
-        if (!inGrid(grid, s.x, s.z)) continue
+        if (!inGrid(grid, s.x, s.z) || nearJunction(s.t) || nearJunction(samples[i + 1]!.t)) continue
         push(railByCell, farField.cellOf(s.x, s.z), [wi, i] as [number, number])
         railSamples++
       }
@@ -712,7 +720,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     if (y !== undefined) return y
     const w = railWays[wi]!, s = w.samples[i]!
     const x = s.x - s.tz * side * w.off, z = s.z + s.tx * side * w.off
-    y = siteOk(rule, x, z, w.dmin - s.dv - w.off, MIN_D) ? ground.standY(x, z) : null
+    y = siteOk(rule, x, z, w.lo[i]! - w.off, MIN_D) ? ground.standY(x, z) : null
     railSite.set(key, y)
     return y
   }

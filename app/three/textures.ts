@@ -409,6 +409,63 @@ export function asphaltDetailMaps(): MaterialMaps {
   })
 }
 
+/** Side of the public roads' procedural asphalt tile (m): square, and the ribbons sample it in world metres. */
+export const ROAD_ASPHALT_TILE_M = 4
+
+/**
+ * Asphalt of the public roads outside the fences (materials.ts roadRibbonMaterial): the stand-in
+ * for Poly Haven's asphalt_04 on the low tier, in Node and with the pack off.
+ *
+ * A SQUARE 4 m tile repeating on both axes, unlike asphaltMaps' road-aligned 13 × 20 m strip,
+ * because the ribbons sample it in world (x, z) metres: the overlapping ribbons of a junction
+ * must show the same texels, and a county road has no "across" the texels could be spent on.
+ * Nothing registered to a road lives here — no edge lines, no rubbered lanes, no marbles — the
+ * material draws every marking analytically. Same mid grey 96 and slight blue-grey bias as the
+ * circuit's asphalt (COLOURS.asphalt), a coarser mottle (chip seal, older than the racing
+ * surface) and sparse hairline cracks pressed into the height field so they shade rather than
+ * paint. Cached by textureScale: scaled() halves it on the low tier.
+ */
+export function roadAsphaltMaps(): MaterialMaps {
+  return cached(`road-asphalt@${textureScale}`, () => {
+    const [w, h] = scaled(512, 512)
+    const n = new Noise2(23)
+    const n2 = new Noise2(29)
+    const height = new Float32Array(w * h)
+    const rough = new Float32Array(w * h)
+    const c = paint(w, h, (x, y, out) => {
+      const u = x / w, v = y / h
+      // mottle 3 octaves from 32 → 12.5 cm at the base over 4 m; patch 3 from 4 → 1 m
+      const mottle = n.fbm(u * 32, v * 32, 32, 32, 3, 0.5)
+      const patch = n2.fbm(u * 4, v * 4, 4, 4, 3, 0.6)
+      let hgt = mottle * 0.75 + patch * 0.25
+      // hairline cracks: the zero crossings of a band-limited field (|noise − ½| ≈ 0) are a web of
+      // thin lines ≈ 1 cm wide; a slow gate keeps them to a quarter of the tile so they stay sparse
+      const web = Math.abs(n2.fbm(u * 6, v * 6, 6, 6, 2, 0.5) - 0.5)
+      const crack = smooth((0.006 - web) / 0.004) * smooth((n.fbm(u * 2, v * 2, 2, 2, 2, 0.5) - 0.55) / 0.15)
+      let base = 96 + (hgt - 0.5) * 24 + (patch - 0.5) * 8
+      base -= crack * 22
+      let r = base - 3, g = base, b = base + 6
+      // a touch warmer where the surface is old and worn, cooler on fresh patches (as asphaltMaps)
+      r += (patch - 0.5) * 6
+      g += (patch - 0.5) * 3
+      b += (0.5 - patch) * 3
+      hgt -= crack * 0.35
+      out[0] = r
+      out[1] = g
+      out[2] = b
+      height[y * w + x] = hgt
+      rough[y * w + x] = 0.9 + (hgt - 0.5) * 0.08 + crack * 0.05
+    })
+    const map = makeTexture(c, { aniso: groundAniso() })
+    // square texels (7.8 mm at 512 over 4 m): the base tile's across-axis strength, divided by
+    // this tile's metres per texel so the world-space slopes match the circuit's asphalt
+    const K = (3.2 * (ASPHALT_WIDTH_M / 1024) * 0.7) / (ROAD_ASPHALT_TILE_M / w)
+    const normalMap = normalMapFrom(height, w, h, K, K, groundAniso())
+    const roughnessMap = grayMap(rough, w, h, groundAniso())
+    return { map, normalMap, roughnessMap }
+  })
+}
+
 /**
  * Grass, tile ≈ 8 m, in the SEASON palette (suzuka-facilities-spec SEASON_GRASS). Late-March
  * dormant 高麗芝 is straw-coloured with darker khaki clumps and a scatter of olive blades that

@@ -26,12 +26,16 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 ### Poly Haven
 
+- "Asphalt 04" by Jenelle van Heerden, Sergej Majboroda (Poly Haven, https://polyhaven.com/a/asphalt_04), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_04/arm`, `tex/asphalt_04/diff`, `tex/asphalt_04/nor_gl`
 - "Asphalt Pit Lane" by Dimitrios Savva (Poly Haven, https://polyhaven.com/a/asphalt_pit_lane), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_pit_lane/arm`, `tex/asphalt_pit_lane/diff`, `tex/asphalt_pit_lane/nor_gl`
 - "Concrete Road Barrier" by Amal Kumar (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/concrete_road_barrier`
 - "Grass Medium 01 (dry albedo + alpha)" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/grass_medium_01), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/grass_medium_01/diff`, `tex/grass_medium_01/opacity`
+- "Gravel Road" by Amal Kumar (Poly Haven, https://polyhaven.com/a/gravel_road), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/gravel_road/arm`, `tex/gravel_road/diff`, `tex/gravel_road/nor_gl`
 - "Plaster Grey 04" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/plaster_grey_04), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plaster_grey_04/arm`, `tex/plaster_grey_04/diff`, `tex/plaster_grey_04/nor_gl`
 - "Preconcrete Wall 001 Long" by Dimitrios Savva, Rico Cilliers (Poly Haven, https://polyhaven.com/a/preconcrete_wall_001_long), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
@@ -94,4 +98,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-11T11:08:31.999Z · 77 files · 29.67 MB
+Generated 2026-09-11T11:42:24.749Z · 83 files · 32.65 MB

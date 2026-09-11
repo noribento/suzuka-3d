@@ -91,6 +91,17 @@ export const CREDITS: Credit[] = [
   },
   {
     kind: 'asset',
+    title: 'Asphalt 04',
+    author: 'Jenelle van Heerden, Sergej Majboroda',
+    url: 'https://polyhaven.com/a/asphalt_04',
+    site: 'Poly Haven',
+    licence: 'CC0-1.0',
+    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    modified: true,
+    attribution: '"Asphalt 04" by Jenelle van Heerden, Sergej Majboroda (Poly Haven, https://polyhaven.com/a/asphalt_04), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)',
+  },
+  {
+    kind: 'asset',
     title: 'Asphalt Pit Lane',
     author: 'Dimitrios Savva',
     url: 'https://polyhaven.com/a/asphalt_pit_lane',
@@ -121,6 +132,17 @@ export const CREDITS: Credit[] = [
     licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
     modified: true,
     attribution: '"Grass Medium 01 (dry albedo + alpha)" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/grass_medium_01), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)',
+  },
+  {
+    kind: 'asset',
+    title: 'Gravel Road',
+    author: 'Amal Kumar',
+    url: 'https://polyhaven.com/a/gravel_road',
+    site: 'Poly Haven',
+    licence: 'CC0-1.0',
+    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    modified: true,
+    attribution: '"Gravel Road" by Amal Kumar (Poly Haven, https://polyhaven.com/a/gravel_road), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)',
   },
   {
     kind: 'asset',
@@ -362,4 +384,4 @@ export const CREDITS: Credit[] = [
   },
 ]
 
-export const ASSETS_GENERATED = '2026-09-11T11:08:31.999Z'
+export const ASSETS_GENERATED = '2026-09-11T11:42:24.749Z'

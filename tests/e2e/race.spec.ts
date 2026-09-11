@@ -244,7 +244,10 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(gaps).toHaveLength(21)
     for (const g of gaps) expect(g).toMatch(/^\+\d+\.\d$|^\+\d LAPS?$|^PIT$|^OUT$/)
     // the control bar is operator chrome: shown right after an input, hidden ~3 s later, back on a pointer move
-    // (the 3 s timer plus the leave transition has to land on a software rasteriser running 7-12 fps)
+    // (the 3 s timer plus the leave transition has to land on a software rasteriser running 7-12 fps;
+    // the tower reads above can already outlast the timer, so wake the bar with a fresh input first)
+    await page.mouse.move(600, 340)
+    await page.mouse.move(620, 350)
     await expect(page.locator('.controls')).toBeVisible()
     await expect(page.locator('.controls')).toBeHidden({ timeout: 25_000 })
     await page.mouse.move(640, 360)

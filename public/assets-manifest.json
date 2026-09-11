@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-11T11:08:31.999Z",
+  "generated": "2026-09-11T11:42:24.749Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -1169,6 +1169,69 @@
         "meshopt compression (gltfpack -cc)"
       ]
     },
+    "tex/asphalt_04/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_04_arm.2b952193.ktx2",
+      "format": "ktx2",
+      "bytes": 152179,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 4.04,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt 04",
+        "pageUrl": "https://polyhaven.com/a/asphalt_04",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_04/asphalt_04_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Jenelle van Heerden, Sergej Majboroda",
+        "sha256Source": "35f582fb66d223d242d294616aec5749affdc6ca0a97067311cd6f247f7ef081"
+      },
+      "modified": true
+    },
+    "tex/asphalt_04/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_04_diff.ce564ffa.ktx2",
+      "format": "ktx2",
+      "bytes": 213238,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 4.04,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt 04",
+        "pageUrl": "https://polyhaven.com/a/asphalt_04",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_04/asphalt_04_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Jenelle van Heerden, Sergej Majboroda",
+        "sha256Source": "837a78bb1e94864c221f847c85480484e953a9ee958772481dd2c501e18def2e"
+      },
+      "modified": true
+    },
+    "tex/asphalt_04/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_04_nor_gl.d7047bf9.ktx2",
+      "format": "ktx2",
+      "bytes": 1185118,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 4.04,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt 04",
+        "pageUrl": "https://polyhaven.com/a/asphalt_04",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_04/asphalt_04_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Jenelle van Heerden, Sergej Majboroda",
+        "sha256Source": "18b91c2a6d83a8fbaa8d7fe84e80a66bd6451e4ec2774a09bf4429498c8f3912"
+      },
+      "modified": true
+    },
     "tex/asphalt_pit_lane/arm": {
       "kind": "texture",
       "path": "/assets/tex/asphalt_pit_lane_arm.31afa31d.ktx2",
@@ -1608,6 +1671,69 @@
         "licence": "CC0-1.0",
         "author": "Rob Tuytel, Rico Cilliers",
         "sha256Source": "711a8e49af758d6a6ce1f610db858899a27be19da6d1866bd35c13bc7b8ffeff"
+      },
+      "modified": true
+    },
+    "tex/gravel_road/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/gravel_road_arm.039ef4c5.ktx2",
+      "format": "ktx2",
+      "bytes": 126501,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Gravel Road",
+        "pageUrl": "https://polyhaven.com/a/gravel_road",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravel_road/gravel_road_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Amal Kumar",
+        "sha256Source": "1fa3f6f701df897975fcb2d8682acd8da949793d686b2be86320d7d3acd1858d"
+      },
+      "modified": true
+    },
+    "tex/gravel_road/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/gravel_road_diff.b711e75f.ktx2",
+      "format": "ktx2",
+      "bytes": 189447,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Gravel Road",
+        "pageUrl": "https://polyhaven.com/a/gravel_road",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravel_road/gravel_road_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Amal Kumar",
+        "sha256Source": "bccbb077a825bdd0eb6f607939578a6ee549822824278fb3a828f6eed3d05d45"
+      },
+      "modified": true
+    },
+    "tex/gravel_road/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/gravel_road_nor_gl.6da28b3b.ktx2",
+      "format": "ktx2",
+      "bytes": 1256444,
+      "width": 1024,
+      "height": 1024,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Gravel Road",
+        "pageUrl": "https://polyhaven.com/a/gravel_road",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravel_road/gravel_road_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Amal Kumar",
+        "sha256Source": "0920996cab9f2d62a2eb73a3589804527aa0273c4ca61b9f526ce4cba37edebc"
       },
       "modified": true
     },

@@ -24,13 +24,18 @@ import { cached, groundAniso, mulberry, scaled } from './textures'
  * rather than a stair. `settle` has no polygon of its own: it is the 60 m box-blurred density of
  * the residential / service roads plus a disc per building (r = 1.7·√area, 10–40 m), which is
  * what reads as a village from above (grey roofs and yards between the paddies). Roads, streams
- * and the railway are capsule-distance strips in the SUR widths, unblurred; tertiary and wider
- * roads carry a one-texel white edge line 0.7 m inside their edge in the `edge` channel, and the
- * paddies carry their bunds in the same channel at half value — 30 × 90 m cells rotated to each
- * polygon's principal axis (the 圃場整備 grid of the Suzuka plain) plus the field boundary —
- * so the shader needs no per-polygon data and no third mask. Last, a disc of hw + 30 m around
- * every centreline sample is cleared so no class ever reaches the verge: the partition's faces
- * own everything inside G5's reach.
+ * and the railway are capsule-distance strips in the SUR widths, drawn with COVERAGE instead of
+ * the blur: a texel's value is the fraction of it the strip covers (its signed depth over the
+ * texel size), max-blended so a road over a road keeps the max — a 3 m track on 3.3 m texels is
+ * a soft two-texel band, not a dotted row. Inside the inner rectangle the roads are narrowed by
+ * RIBBON_INSET: roads.ts draws every road there as a ribbon mesh with its own markings, and the
+ * mask only has to hide the grass under the ribbon's anti-aliased edge (on the outer ring it
+ * stays the whole road; under the ribbons it is the far LOD). The paddies carry their bunds in
+ * the `edge` channel at half value — 30 × 90 m cells rotated to each polygon's principal axis
+ * (the 圃場整備 grid of the Suzuka plain) plus the field boundary — so the shader needs no
+ * per-polygon data and no third mask. Last, a disc of hw + 30 m around every centreline sample
+ * is cleared so no class ever reaches the verge: the partition's faces own everything inside
+ * G5's reach.
  *
  * No canvas: the masks are DataTextures, so the Node harness (scripts/audit/app-runtime.mjs)
  * and the low tier build exactly the same bytes; `classAt` / `weightAt` read those bytes back for
@@ -117,7 +122,6 @@ export const COVER_COLOURS = {
   farmland: '#9a8a66',
   bund: '#7a7359',
   paved: '#5d626c',
-  edge: '#d9d9d9',
   parking: '#55585e',
   solar: '#1e2a4a',
   water: '#33443f',
@@ -138,12 +142,18 @@ const SETTLE_DENSITY = [0.05, 0.22] as const
 const DISC_K = 1.7, DISC_MIN = 10, DISC_MAX = 40
 /** paddy cell (m) along the polygon's principal axis × across it */
 const PADDY_CELL = [90, 30] as const
-/** edge lines and bunds are one texel wide: only worth drawing where a texel is at most this (m) */
+/** the bunds are one texel wide: only worth drawing where a texel is at most this (m) */
 const LINE_MAX_TEXEL = 5
-/** roads at least this wide (m) get an edge line — tertiary (7) and wider */
-const EDGE_MIN_WIDTH = 7
-/** the edge line's inset from the road edge (m) */
-const EDGE_INSET = 0.7
+/**
+ * How far (m) the mask's roads stop short of the paved edge under the ribbons roads.ts draws over
+ * the inner rectangle: `max(min, perTexel · texel)`. The ribbon is the road; the mask beneath only
+ * hides the grass under the ribbon's anti-aliased edge, so it must never show a stair-step or a
+ * coverage ramp beyond that edge (the road would look wider than its markings). The outer ring
+ * stays mask-only (inset 0) until the ring ribbons exist (`q.farField.roads.ring`, high tier).
+ */
+const RIBBON_INSET = { min: 0.8, perTexel: 0.35 } as const
+/** a road narrowed by the inset is never thinner than this half-width (m): the far LOD keeps a trace of every lane */
+const RIBBON_MIN_HW = 0.3
 /** the railway is a dark strip: ballast, not asphalt */
 const RAIL_PAVED = 0.7
 /** weight of scrub as forest / bare land as settle */
@@ -158,9 +168,6 @@ class CoverRaster {
   readonly sz: number
   /** eight planes, res² each, 0–255 */
   readonly ch: Uint8Array[]
-  /** per texel, the road inset depth (m) of the widest road covering it and whether that road takes an edge line */
-  private readonly roadDepth: Float32Array
-  private readonly roadEdge: Uint8Array
   /** residential / service road raster for the settle density */
   private readonly resRoads: Uint8Array
   /** bunds (paddy cell edges and field boundaries), composed into `edge` last */
@@ -176,8 +183,6 @@ class CoverRaster {
     this.sz = rect.d / res
     const n = res * res
     this.ch = CHANNELS.map(() => new Uint8Array(n))
-    this.roadDepth = new Float32Array(n).fill(-1)
-    this.roadEdge = new Uint8Array(n)
     this.resRoads = new Uint8Array(n)
     this.bund = new Uint8Array(n)
     this.cls = new Uint8Array(n)
@@ -265,12 +270,21 @@ class CoverRaster {
     }
   }
 
-  /** Capsule-distance strips of a polyline (world xz interleaved) into `roadDepth` / `resRoads` / a channel. */
-  strip(pts: Float64Array, halfWidth: number, target: 'road' | 'resRoads' | 'water', edge: boolean, value = 255) {
+  /**
+   * Capsule-distance strip of a polyline (world xz interleaved) into the paved / water channel or
+   * the settle density raster. A texel's value is `value` × its COVERAGE, ½ + depth / texel with
+   * depth the capsule's signed inset at the texel centre (0 at the edge), clamped to 0–1: the
+   * edge becomes a one-texel ramp centred on the true edge instead of a stair, and a road much
+   * narrower than a texel is a faint band rather than a dotted row. Max-blended, so a road over a
+   * road keeps the deeper one. The density raster stays binary: it is box-blurred over 60 m
+   * anyway, and a change there would move the settle threshold under every builder reading it.
+   */
+  strip(pts: Float64Array, halfWidth: number, target: 'road' | 'resRoads' | 'water', value = 255) {
     const res = this.res
-    const reach = halfWidth + Math.max(this.sx, this.sz)
-    // a stream narrower than a texel would vanish: draw at least one texel's width
-    const hw = target === 'water' ? Math.max(halfWidth, Math.max(this.sx, this.sz) * 0.5) : halfWidth
+    const texel = Math.max(this.sx, this.sz)
+    const reach = halfWidth + texel
+    // a stream narrower than a texel would fade to nothing on the ring: draw at least one texel's width
+    const hw = target === 'water' ? Math.max(halfWidth, texel * 0.5) : halfWidth
     for (let s = 0; s + 3 < pts.length; s += 2) {
       const ax = pts[s]!, az = pts[s + 1]!, bx = pts[s + 2]!, bz = pts[s + 3]!
       const i0 = Math.max(0, Math.ceil(this.colOf(Math.min(ax, bx) - reach)))
@@ -288,35 +302,26 @@ class CoverRaster {
           t = t < 0 ? 0 : t > 1 ? 1 : t
           const dx = x - (ax + vx * t), dz = z - (az + vz * t)
           const depth = hw - Math.sqrt(dx * dx + dz * dz)
-          if (depth < 0) continue
           const k = j * res + i
-          if (target === 'water') {
-            if (this.ch[CH.water]![k]! < value) this.ch[CH.water]![k] = value
-          } else if (target === 'resRoads') {
-            this.resRoads[k] = 255
-          } else {
-            const plane = this.ch[CH.paved]!
-            if (plane[k]! < value) plane[k] = value
-            if (depth > this.roadDepth[k]!) {
-              this.roadDepth[k] = depth
-              this.roadEdge[k] = edge ? 1 : 0
-            }
+          if (target === 'resRoads') {
+            if (depth >= 0) this.resRoads[k] = 255
+            continue
           }
+          const cov = 0.5 + depth / texel
+          if (cov <= 0) continue
+          const v = cov >= 1 ? value : Math.round(value * cov)
+          const plane = this.ch[target === 'water' ? CH.water : CH.paved]!
+          if (plane[k]! < v) plane[k] = v
         }
       }
     }
   }
 
-  /** The white edge line: the texels whose deepest road inset is ≈ EDGE_INSET, on roads that take one. */
+  /** The edge channel: the paddy bunds (nothing else draws into it). */
   composeEdges() {
     const n = this.res * this.res
-    const half = Math.max(this.sx, this.sz) * 0.5
     const edge = this.ch[CH.edge]!
-    for (let t = 0; t < n; t++) {
-      const d = this.roadDepth[t]!
-      if (this.lines && this.roadEdge[t] && d >= 0 && Math.abs(d - EDGE_INSET) <= half) edge[t] = 255
-      else if (this.bund[t]! > edge[t]!) edge[t] = this.bund[t]!
-    }
+    for (let t = 0; t < n; t++) if (this.bund[t]! > edge[t]!) edge[t] = this.bund[t]!
   }
 
   /** Building discs (soft-edged, r = 1.7·√area clamped) into the settle plane. */
@@ -497,7 +502,7 @@ interface PolyLayer {
   paddy?: boolean
 }
 
-function rasterise(track: Track, rect: CoverRect, res: number, decoded: DecodedData): CoverRaster {
+function rasterise(track: Track, rect: CoverRect, res: number, decoded: DecodedData, ribbons: boolean): CoverRaster {
   const r = new CoverRaster(rect, res)
   const layers: PolyLayer[] = [
     { polys: SUR_FOREST, channel: CH.forest, weight: 1 },
@@ -528,7 +533,7 @@ function rasterise(track: Track, rect: CoverRect, res: number, decoded: DecodedD
     if (decoded.inCircuit(w)) continue
     const pts = decoded.ring(w)
     if (!touches(pts, rect, w.width)) continue
-    r.strip(pts, w.width / 2 + 2, 'resRoads', false)
+    r.strip(pts, w.width / 2 + 2, 'resRoads')
   }
   for (const b of SUR_BUILDINGS) {
     if (decoded.inCircuit(b)) continue
@@ -548,21 +553,22 @@ function rasterise(track: Track, rect: CoverRect, res: number, decoded: DecodedD
     r.ch[c]!.set(scratch)
   }
 
-  // strips: streams into water, roads / rail into paved (+ the edge line on tertiary and wider)
+  // strips: streams into water, roads / rail into paved — the roads narrowed where ribbons cover them
   for (const w of SUR_STREAMS) {
     const pts = decoded.ring(w)
     if (!touches(pts, rect, w.width)) continue
-    r.strip(pts, w.width / 2, 'water', false)
+    r.strip(pts, w.width / 2, 'water')
   }
+  const inset = ribbons ? Math.max(RIBBON_INSET.min, RIBBON_INSET.perTexel * Math.max(r.sx, r.sz)) : 0
   for (const w of SUR_ROADS) {
     const pts = decoded.ring(w)
     if (!touches(pts, rect, w.width)) continue
-    r.strip(pts, w.width / 2, 'road', w.width >= EDGE_MIN_WIDTH)
+    r.strip(pts, Math.max(w.width / 2 - inset, RIBBON_MIN_HW), 'road')
   }
   for (const w of SUR_RAIL) {
     const pts = decoded.ring(w)
     if (!touches(pts, rect, w.width)) continue
-    r.strip(pts, w.width / 2, 'road', false, Math.round(RAIL_PAVED * 255))
+    r.strip(pts, w.width / 2, 'road', Math.round(RAIL_PAVED * 255))
   }
   r.composeEdges()
 
@@ -627,7 +633,8 @@ function makeTexture(data: Uint8Array, res: number, name: string): THREE.DataTex
 function coverTextures(track: Track, rect: CoverRect, res: number, decoded: DecodedData, tag: string, pct: Record<string, number>): CoverTextures {
   const key = `cover-${tag}-${res}-${rect.x0.toFixed(1)},${rect.z0.toFixed(1)},${rect.w.toFixed(1)},${rect.d.toFixed(1)}`
   return cached(key, () => {
-    const r = rasterise(track, rect, res, decoded)
+    // the ribbons (roads.ts) cover the inner rectangle only: its roads are narrowed under them
+    const r = rasterise(track, rect, res, decoded, tag === 'inner')
     const n = res * res
     for (const c of CHANNELS) {
       let k = 0

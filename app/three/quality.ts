@@ -155,6 +155,21 @@ export interface FarFieldQuality {
   tickMs: number
   /** the far field's outer range: beyond this nothing but the mass levels is drawn (metres) */
   rangeFar: number
+  /** the public roads outside the fences (roads.ts): ribbons draped on the terrain, markings in the shader */
+  roads: {
+    /**
+     * cross-section rows per way: 'full' = the paved rows plus a soil verge row each side (5 rows
+     * on a marked road, 4 unmarked); 'lean' = the paved edges and the centre only (3 / 2 rows),
+     * no verge — the software rasteriser's budget
+     */
+    rows: 'full' | 'lean'
+    /** multiplies the sample pitch along the way (ROADS.stepStraight / arcDeg); > 1 = fewer, longer quads */
+    stepScale: number
+    /** draw the tertiary+ roads on the coarse ring beyond the inner grid too (two rows, ROADS.ring) */
+    ring: boolean
+    /** density 0–1 of the roadside furniture (road-furniture.ts, Phase 3) */
+    furniture: number
+  }
 }
 
 export const QUALITY: Record<QualityTier, Quality> = {
@@ -201,7 +216,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     textureRes: '2k',
     coverRes: [1024, 512],
     coverDetail: true,
-    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 40, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200 },
+    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 40, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 } },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -251,7 +266,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     coverDetail: false,
     // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
-    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400 },
+    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 } },
   },
 }
 

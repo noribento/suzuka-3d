@@ -178,6 +178,17 @@ export const SOURCES = [
   polyhavenTexture('asphalt_pit_lane', {
     name: 'Asphalt Pit Lane', author: 'Dimitrios Savva', tile: 2.0, use: 'pit lane surface',
   }),
+  // The public roads outside the fences (roads.ts, materials.ts roadRibbonMaterial): sampled in
+  // world metres so overlapping ribbons at a junction show the same texels. Authors and tile
+  // sizes as api.polyhaven.com/info/<id> lists them (`authors`, `dimensions`), verified 2026-09-11.
+  polyhavenTexture('asphalt_04', {
+    name: 'Asphalt 04', author: 'Jenelle van Heerden, Sergej Majboroda', tile: 4.04,
+    use: 'public roads outside the fences (県道・市道): lighter, browner and coarser than the pit lane',
+  }),
+  polyhavenTexture('gravel_road', {
+    name: 'Gravel Road', author: 'Amal Kumar', tile: 2.0,
+    use: 'unsealed farm tracks (農道) and unpaved lanes',
+  }),
 
   // ---- buildings ----------------------------------------------------------------------------
   polyhavenTexture('white_plaster_02', {
@@ -424,6 +435,9 @@ export const PINS = {
   'ref/crowd_plates/bangabandhu_crowd_2019.jpg': '6557474c28a545cecfcf6e6859f3c368945f94ad4e95dbbfa3d9a56e0d9985a5',
   'ref/crowd_plates/front_row_audience_unsplash.jpg': '7585fefb4bcb4b14af078fb1d4eb71663f3ef740ebf060f09ff3c5d2fce0c392',
   'ref/kenney_racing_kit/kenney_racing-kit.zip': '8a71ea16219315a01d00d5a90c4f6b5c090faddbc56d80ecf727e2b3b853c6c0',
+  'tex/asphalt_04/asphalt_04_arm_1k.jpg': '35f582fb66d223d242d294616aec5749affdc6ca0a97067311cd6f247f7ef081',
+  'tex/asphalt_04/asphalt_04_diff_1k.jpg': '837a78bb1e94864c221f847c85480484e953a9ee958772481dd2c501e18def2e',
+  'tex/asphalt_04/asphalt_04_nor_gl_1k.jpg': '18b91c2a6d83a8fbaa8d7fe84e80a66bd6451e4ec2774a09bf4429498c8f3912',
   'tex/asphalt_pit_lane/asphalt_pit_lane_arm_1k.jpg': '3e4315b489f07ff88315017932bdf40d3b9670e3d04c07d4077aa86a16e98d37',
   'tex/asphalt_pit_lane/asphalt_pit_lane_diff_1k.jpg': '8aad5097f6de913aebc33f2b9b9271834b55c6942359955722db3196a9ce9bca',
   'tex/asphalt_pit_lane/asphalt_pit_lane_nor_gl_1k.jpg': 'a215356a1180664fbbf94076f3720a4620a1121e137780ce98059621bf8b444e',
@@ -431,6 +445,9 @@ export const PINS = {
   'tex/corrugatedsteel003/CorrugatedSteel003_1K-JPG.zip': '0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1',
   'tex/facade001/Facade001_1K-JPG.zip': 'e804ad49d692ca60b260394db2ec05d8a274ad319759f536a042471b58d38ea9',
   'tex/fence003/Fence003_1K-JPG.zip': '235f74060d50f379ab0154d7130178fff65ceaf6a6f8e5615260d57ec0f3e1f2',
+  'tex/gravel_road/gravel_road_arm_1k.jpg': '1fa3f6f701df897975fcb2d8682acd8da949793d686b2be86320d7d3acd1858d',
+  'tex/gravel_road/gravel_road_diff_1k.jpg': 'bccbb077a825bdd0eb6f607939578a6ee549822824278fb3a828f6eed3d05d45',
+  'tex/gravel_road/gravel_road_nor_gl_1k.jpg': '0920996cab9f2d62a2eb73a3589804527aa0273c4ca61b9f526ce4cba37edebc',
   'tex/grass_medium_01/grass_medium_01_alpha_1k.png': '711a8e49af758d6a6ce1f610db858899a27be19da6d1866bd35c13bc7b8ffeff',
   'tex/grass_medium_01/grass_medium_01_dry_diff_1k.png': 'da85639d6eb8f029b50e7920aaf7e649940541bb24fe6ad239dbae7400af2eb2',
   'tex/plaster_grey_04/plaster_grey_04_arm_1k.jpg': '9c4a6d0dc9d019ebc4c2cefea095ae413ebce078189bd641fab2bdac49bfc52c',

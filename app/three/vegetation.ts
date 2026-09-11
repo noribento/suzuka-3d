@@ -6,6 +6,7 @@ import { worldRing } from '~/data/en-codec'
 import type { EnvBuildContext } from './environment'
 import { bucketedInstancedMeshes } from './instancing'
 import { inBBox, pointInRing, ringBBox, ringFromFlat, type XZ } from './far-geometry'
+import { KeepOutGrid } from './far-lines'
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
@@ -172,11 +173,30 @@ export interface TreeSite {
 }
 
 /**
+ * `ctx.keepOut` / `ctx.keepOutPolys` hashed per build context (far-lines.ts KeepOutGrid): the
+ * road ribbons alone leave tens of thousands of quads, and the scatter tests every candidate.
+ * `sync` is two length compares, so it runs per call — the producers push between the deferred
+ * jobs, and the forest's jobs come after every producer's stage.
+ */
+const KEEP_OUTS = new WeakMap<EnvBuildContext, KeepOutGrid>()
+
+function keepOutsOf(ctx: EnvBuildContext): KeepOutGrid {
+  let g = KEEP_OUTS.get(ctx)
+  if (!g) KEEP_OUTS.set(ctx, (g = new KeepOutGrid()))
+  g.sync(ctx.keepOut, ctx.keepOutPolys)
+  return g
+}
+
+/** land-cover classes no tree stands on: a road (the mask is narrowed under the ribbons but still paved), a car park, water */
+const TREELESS_COVER = new Set(['paved', 'parking', 'water'])
+
+/**
  * Where no tree may stand — the one rule the trackside scatter (`buildTrees`) and the forest's
  * stems (forest.ts) share: inside 44 m of the centreline, the pit / paddock band, the
- * grandstands' footprints (plus 26 m behind, 4 m for a spectator bank), 60 m around the Ferris wheel, and the keep-out
- * discs and polygons the building / paving builders leave in the context. `near` is the
- * candidate's projection (computed once by the caller, it is the expensive part).
+ * grandstands' footprints (plus 26 m behind, 4 m for a spectator bank), 60 m around the Ferris wheel, the keep-out
+ * discs and polygons the building / paving builders leave in the context, and the paved /
+ * parking / water classes of the land-cover mask. `near` is the candidate's projection
+ * (computed once by the caller, it is the expensive part).
  */
 export function treeSiteBlocked(ctx: EnvBuildContext, x: number, z: number, near: TreeSite, wheel: { x: number; z: number }): boolean {
   if (near.d < 44) return true
@@ -191,9 +211,9 @@ export function treeSiteBlocked(ctx: EnvBuildContext, x: number, z: number, near
   }
   if (Math.hypot(x - wheel.x, z - wheel.z) < 60) return true
   // buildings and paving placed by the other builders
-  for (const k of ctx.keepOut) if (Math.hypot(x - k.x, z - k.z) < k.r) return true
-  for (const k of ctx.keepOutPolys) if (inBBox(x, z, k.box) && pointInRing(x, z, k.ring)) return true
-  return false
+  if (keepOutsOf(ctx).hit(x, z)) return true
+  // the mask's own roads, car parks and water (the ribbons' keep-outs stop at the grid; the mask reaches the ring)
+  return TREELESS_COVER.has(ctx.landCover.classAt(x, z))
 }
 
 /** The forest polygons (SUR_FOREST) as world rings with their bounding boxes, decoded once per build. */
