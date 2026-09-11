@@ -168,6 +168,13 @@ export interface FarFieldQuality {
    * ≈ 100 k triangles the overview never sees; false = the static panel quads alone
    */
   solarDetail: boolean
+  /**
+   * the paddies' relief (terrain-side.ts `paddy-b<n>`): the 圃場整備 levees and the boundary
+   * ditches of the in-grid fields as thin ribbons draped on the terrain (≈ 26 km of line, tens
+   * of thousands of triangles the low tier's rasteriser cannot afford); false = the mask's bund
+   * texels alone. The railway and the streams are drawn on every tier.
+   */
+  paddyRelief: boolean
   /** far-field meshes cast shadows */
   shadows: boolean
   /** wall-clock budget of one deferred-build tick (ms), a `setTimeout(0)` loop after loading */
@@ -250,7 +257,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     textureRes: '2k',
     coverRes: [1024, 512],
     coverDetail: true,
-    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 24, midTrees: 6000, canopy: true, buildingsDetailM: 700, heroBuildings: 48, parkedCars: 4000, heroCars: 400, carImpostors: true, lightPoles: 350, solarDetail: true, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 }, trees: { lodM: [50, 110], cards: true, leafShadowM: 50, shrubs: 2500 } },
+    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 24, midTrees: 6000, canopy: true, buildingsDetailM: 700, heroBuildings: 48, parkedCars: 4000, heroCars: 400, carImpostors: true, lightPoles: 350, solarDetail: true, paddyRelief: true, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 }, trees: { lodM: [50, 110], cards: true, leafShadowM: 50, shrubs: 2500 } },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -300,7 +307,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     coverDetail: false,
     // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
-    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, heroBuildings: 0, parkedCars: 1000, heroCars: 0, carImpostors: false, lightPoles: 120, solarDetail: false, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 }, trees: { lodM: [0, 0], cards: false, leafShadowM: 0, shrubs: 600 } },
+    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, heroBuildings: 0, parkedCars: 1000, heroCars: 0, carImpostors: false, lightPoles: 120, solarDetail: false, paddyRelief: false, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 }, trees: { lodM: [0, 0], cards: false, leafShadowM: 0, shrubs: 600 } },
   },
 }
 

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { worldRing } from '~/data/en-codec'
 import type { SurFeatureBase, SurPolygon } from '~/data/en-codec'
 import { SUR_BARE, SUR_BUILDINGS, SUR_FARMLAND, SUR_FOREST, SUR_GRASS, SUR_PARKING, SUR_RAIL, SUR_ROADS, SUR_SCRUB, SUR_SITES, SUR_SOLAR, SUR_STREAMS, SUR_WATER } from '~/data/suzuka-surroundings'
+import { PADDY } from '~/data/surroundings-spec'
 import type { Track } from '~/sim/track'
 import type { AssetRegistry } from './assets'
 import type { Quality } from './quality'
@@ -147,8 +148,8 @@ const SETTLE_BLUR_M = 60
 const SETTLE_DENSITY = [0.05, 0.22] as const
 /** building disc radius = clamp(1.7·√area, min, max) */
 const DISC_K = 1.7, DISC_MIN = 10, DISC_MAX = 40
-/** paddy cell (m) along the polygon's principal axis × across it */
-const PADDY_CELL = [90, 30] as const
+/** paddy cell (m) along the polygon's principal axis × across it — surroundings-spec PADDY, shared with the levee geometry of terrain-side.ts */
+const PADDY_CELL = PADDY.cell
 /** the bunds are one texel wide: only worth drawing where a texel is at most this (m) */
 const LINE_MAX_TEXEL = 5
 /**

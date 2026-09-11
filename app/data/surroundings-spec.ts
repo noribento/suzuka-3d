@@ -214,6 +214,73 @@ export const STREAM_WIDTH: Record<string, number> = { river: 10, stream: 3 }
 /** 伊勢鉄道 single track incl. ballast shoulder */
 export const RAIL_WIDTH = 4
 
+// ---------------------------------------------------------------- terrain-side relief (R フェーズ Phase 6)
+/**
+ * The paddies' relief (app/three/terrain-side.ts, `Quality.farField.paddyRelief`): the 圃場整備
+ * field standard of the Suzuka plain is a 30 × 90 m cell (`cell`, m along the field's principal
+ * axis × across it — the SAME lattice the land-cover mask draws its bund texels on, so the levee
+ * geometry lies on the mask's lines), separated by earth bunds (畦) 0.3–0.5 m high; the ridge
+ * built here is `levee` (crest width, crest height and the feet's lift over the ground, m, all
+ * sampled every `step` m of line) and the boundary ditch (用水路 / 排水路) inside every field edge
+ * is `ditch` (width and lift, m — a dark band, the channel itself is below the mask's texel).
+ * Nothing stands closer than `minD` to the GP centreline (the outskirts' rule).
+ */
+export const PADDY = {
+  cell: [90, 30] as readonly [number, number],
+  levee: { w: 0.7, h: 0.28, foot: 0.03, step: 4 },
+  ditch: { w: 0.5, lift: 0.02 },
+  minD: 140,
+} as const
+
+/**
+ * 伊勢鉄道伊勢線 (app/three/terrain-side.ts): a single-track, non-electrified (diesel — no
+ * catenary masts) 1,067 mm gauge line on a ballast bed. `step` / `ringStep` are the sample
+ * pitches along the way inside the terrain grid / on the coarse ring (m); `crest` is the ballast
+ * crest width (≈ 3.4 m for a JR-gauge single track), `bed` the width at the ground with the 0.6 m
+ * shoulders, `bedH` the ballast height over the formation (m); `layer=1` rows stand on an earth
+ * embankment `embankH` high with `slope` (1:1.5) flanks; `bridge=yes` rows are a concrete viaduct
+ * (`viaduct`: deck width × depth, the deck's clearance `rise` over the highest ground it crosses
+ * where a road passes under it, box piers every `pierPitch` of `pier` [along, across] section,
+ * `parapet` high side walls). `rail` is one rail's head width × height, `tile` the ballast
+ * texture's period along the bed (m). `minD` as PADDY.
+ */
+export const RAIL = {
+  step: 5,
+  ringStep: 12,
+  gauge: 1.067,
+  crest: 3.4,
+  bed: 4.6,
+  bedH: 0.35,
+  embankH: 1.6,
+  slope: 1.5,
+  viaduct: { deckW: 4.8, deckH: 1.6, rise: 6, pierPitch: 25, pier: [1.4, 2.6] as readonly [number, number], parapet: 0.8 },
+  rail: { w: 0.07, h: 0.14 },
+  tile: 4,
+  minD: 140,
+} as const
+
+/**
+ * The streams and rivers (app/three/terrain-side.ts): sampled every `step` m (in the grid;
+ * `ringStep` on the coarse ring, water only there except the rivers' levees). The banks follow
+ * the land: inside a settlement (the mask's settle weight ≥ `settleMin`) a rural stream is a
+ * concrete U-channel whose `rim` (width × height, m) shows above the ground; in the fields it
+ * runs between earth `berm`s (width × height); a `river` (SUR width 10) between `levee`s. The
+ * water is a strip `waterLift` m over the ground (the DEM carries no channel; a sunk bed would
+ * need the grid — R11). Where a road crosses, the banks and the water stop `crossingGap` m
+ * outside the paved edge (a culvert under the ribbon). `minD` as PADDY.
+ */
+export const STREAM = {
+  step: 5,
+  ringStep: 12,
+  berm: { w: 0.6, h: 0.3 },
+  rim: { w: 0.25, h: 0.15 },
+  levee: { w: 2.5, h: 1.2 },
+  waterLift: 0.03,
+  crossingGap: 3,
+  settleMin: 0.5,
+  minD: 140,
+} as const
+
 // ---------------------------------------------------------------- generator tolerances
 /** Douglas–Peucker tolerance (m) per layer */
 export const SUR_DP = {
