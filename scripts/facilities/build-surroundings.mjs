@@ -10,10 +10,12 @@
  *
  * Pipeline: lon/lat → local EN metres (the CENTERLINE_EN frame, see osm-common.mjs) → clip to
  * SUR_RECT (Sutherland–Hodgman for polygons, segment cutting for polylines) → Douglas–Peucker
- * per layer → 0.1 m grid → int16-delta base64 (decimetres, per-feature origin) → track
- * coordinates (s / dmin) via the app's own Track. Hand-authored widths, tolerances and the
- * building-kind thresholds come from app/data/surroundings-spec.ts so the data cannot drift
- * from the rules; the ODbL header is the same text suzuka-facilities.ts carries.
+ * per layer (road vertices that are junction nodes of the shipped road network are protected,
+ * see `nodeUse`) → 0.1 m grid → int16-delta base64 (decimetres, per-feature origin) → track
+ * coordinates (s / dmin) via the app's own Track. The road cross-sections (`roadSectionOf`),
+ * the tolerances and the building-kind thresholds come from app/data/surroundings-spec.ts so
+ * the data cannot drift from the rules; the ODbL header is the same text suzuka-facilities.ts
+ * carries.
  */
 import '../ts-hooks.mjs'
 import fs from 'node:fs'
@@ -102,14 +104,16 @@ const SITE_BY_TAG = [
   { role: 'camp_site', key: 'tourism', value: 'camp_site' },
 ]
 
-// tags worth shipping per layer; keys the row already expresses (highway → kind, lanes → width,
-// waterway / railway → kind) are not repeated
+// tags worth shipping per layer; keys the row already expresses (highway / waterway / railway →
+// kind) are not repeated. A road row keeps `oneway` / `lanes` / `surface` / `width` even though
+// its `width` field is derived from them: the runtime re-runs roadSectionOf() on the shipped
+// subset for the markings, and the two must agree (asserted below).
 const TAGS = {
   building: ['name', 'name:en', 'building', 'building:levels', 'height', 'roof:shape', 'roof:levels', 'roof:colour', 'amenity', 'shop', 'tourism', 'attraction', 'layer', 'man_made'],
-  land: ['name', 'natural', 'landuse', 'leisure', 'water', 'amenity', 'power', 'plant:source', 'generator:source', 'parking'],
-  road: ['name', 'bridge', 'layer', 'oneway'],
-  stream: ['name', 'width'],
-  rail: ['name', 'bridge', 'layer'],
+  land: ['name', 'natural', 'landuse', 'leisure', 'water', 'amenity', 'power', 'plant:source', 'generator:source', 'parking', 'leaf_type', 'leaf_cycle', 'wood'],
+  road: ['name', 'bridge', 'layer', 'oneway', 'lanes', 'surface', 'maxspeed', 'width'],
+  stream: ['name', 'width', 'tunnel'],
+  rail: ['name', 'bridge', 'layer', 'electrified'],
   site: ['name', 'name:en', 'tourism', 'leisure', 'building', 'highway', 'layer', 'sport'],
 }
 const pick = (tags, keys) => {
@@ -123,9 +127,9 @@ const MAX_SEG = 3000 // m — keeps every consecutive delta inside int16 at 0.1 
 const MAX_EXTENT = 6000 // m — keeps the first (origin-relative) delta inside int16
 const warnings = []
 const warn = (m) => warnings.push(m)
-const dropped = { outsideRect: 0, tinyPolygons: 0, tunnelRoads: 0, tunnelStreams: 0, tunnelRail: 0, nearRaceway: 0, ownedBuildings: 0, notSimple: 0 }
+const dropped = { outsideRect: 0, tinyPolygons: 0, tunnelRoads: 0, tunnelStreams: 0, tunnelRail: 0, nearRaceway: 0, farServiceTrack: 0, ownedBuildings: 0, notSimple: 0 }
 
-/** rounded to the 0.1 m grid (integer decimetres), consecutive duplicates removed */
+/** rounded to the 0.1 m grid (integer decimetres), consecutive duplicates removed; a node id riding as p[2] is dropped here */
 function toDm(pts, closed) {
   const out = []
   for (const [e, n] of pts) {
@@ -217,14 +221,29 @@ function polygon(el, tol, minArea) {
   }
 }
 
-/** way → clipped, simplified polyline pieces (closed ways become closed polylines) */
-function polylines(el, tol) {
+/**
+ * way → clipped, simplified polyline pieces (closed ways become closed polylines). With
+ * `protectedIds` (a Set of OSM node ids) every vertex on one of those nodes survives the
+ * simplification: the node id rides along as p[2] of the EN point through clipLine (which keeps
+ * the original point objects and only makes fresh [e, n] pairs at the window crossings) and
+ * splitLongSegments (fresh midpoints), is turned into the `protect` flags of simplifyLine per
+ * piece, and is stripped by toDm. wayToEN drops the duplicated closing vertex of a closed way,
+ * so el.nodes[i] pairs with g.en[i] for i < en.length and the re-appended vertex is nodes[0].
+ */
+function polylines(el, tol, protectedIds) {
   const g = wayToEN(el)
   if (!g || g.en.length < 2) return []
-  const pts = g.closed ? [...g.en, g.en[0]] : g.en
+  let en = g.en
+  if (protectedIds) {
+    const ids = el.nodes ?? []
+    if (ids.length === (el.geometry?.length ?? -1)) en = en.map((p, i) => (protectedIds.has(ids[i]) ? [p[0], p[1], ids[i]] : p))
+    else warn(`way ${el.id}: nodes (${ids.length}) and geometry (${el.geometry?.length}) differ in length — junction nodes not protected`)
+  }
+  const pts = g.closed ? [...en, en[0]] : en
   const out = []
   const emit = (piece) => {
-    const dm = toDm(splitLongSegments(simplifyLine(piece, tol), MAX_SEG, false), false)
+    const protect = protectedIds ? piece.map((p) => (p.length > 2 ? 1 : 0)) : undefined
+    const dm = toDm(splitLongSegments(simplifyLine(piece, tol, protect), MAX_SEG, false), false)
     if (dm.length < 2) return
     const bw = Math.max(...dm.map((p) => p[0])) - Math.min(...dm.map((p) => p[0]))
     const bh = Math.max(...dm.map((p) => p[1])) - Math.min(...dm.map((p) => p[1]))
@@ -279,6 +298,7 @@ function buildingKind(el, area, centroid, industrialRings) {
   if (override) return override
   const b = t.building
   if (b === 'roof') return 'canopy'
+  if (b === 'greenhouse') return 'greenhouse'
   if (t.tourism === 'hotel' || b === 'hotel') return 'hotel'
   if (t.attraction || el.id === 308691933 || /コースター|ライド|ride/i.test(t.name ?? '')) return 'ride'
   if (IN(b, 'school', 'kindergarten', 'university', 'college') || IN(t.amenity, 'school', 'kindergarten', 'college', 'university')) return 'school'
@@ -327,6 +347,39 @@ if (missing.length) {
 }
 
 const industrialRings = ways.filter((w) => w.tags?.landuse === 'industrial').map((w) => wayToEN(w)).filter((g) => g?.closed).map((g) => g.en)
+
+// ---------------------------------------------------------------- roads
+/**
+ * Which highway ways become SUR_ROADS rows: `roadSections` (id → RoadSection) for the shipped
+ * ones, `roadDrops` (id → `dropped` counter) for a tunnel or one of the circuit's own raceway
+ * ways; a class roadSectionOf() does not draw, an area or a site way is neither. Decided once,
+ * before the element loop, so the junction node set is built over exactly the ways that end up
+ * in the file.
+ */
+const roadSections = new Map()
+const roadDrops = new Map()
+for (const el of ways) {
+  const t = el.tags ?? {}
+  if (!t.highway || SITE_BY_ID.has(el.id)) continue
+  const section = spec.roadSectionOf(t.highway, t)
+  if (!section || ((wayToEN(el)?.closed ?? false) && t.area === 'yes')) continue
+  if (t.tunnel && t.tunnel !== 'no') roadDrops.set(el.id, 'tunnelRoads')
+  else if (t.highway === 'raceway' && rawDmin(el) < spec.RACEWAY_KEEP_OUT) roadDrops.set(el.id, 'nearRaceway')
+  else roadSections.set(el.id, section)
+}
+/**
+ * Junction nodes: every OSM node shared by two or more shipped highway ways (`out body geom`
+ * returns `nodes` next to `geometry`). Douglas–Peucker keeps them (see polylines), so the two
+ * ways still meet at one vertex and the runtime can find the junction by vertex coincidence
+ * instead of by a distance search. A node appearing twice in one way (a loop) counts once.
+ */
+const nodeUse = new Map()
+for (const el of ways) {
+  if (!roadSections.has(el.id)) continue
+  for (const id of new Set(el.nodes ?? [])) nodeUse.set(id, (nodeUse.get(id) ?? 0) + 1)
+}
+const junctionNodes = new Set()
+for (const [id, n] of nodeUse) if (n >= 2) junctionNodes.add(id)
 
 const layers = {
   SUR_FOREST: [], SUR_FARMLAND: [], SUR_GRASS: [], SUR_SCRUB: [], SUR_BARE: [], SUR_WATER: [], SUR_STREAMS: [],
@@ -377,19 +430,27 @@ for (const el of ways) {
   }
 
   if (t.highway && !SITE_BY_ID.has(el.id)) {
-    const width0 = spec.ROAD_WIDTH[t.highway]
-    if (width0 === undefined || (closedWay && t.area === 'yes')) continue
-    if (t.tunnel && t.tunnel !== 'no') {
-      dropped.tunnelRoads++
+    const section = roadSections.get(el.id)
+    if (!section) {
+      const reason = roadDrops.get(el.id)
+      if (reason) dropped[reason]++
       continue
     }
-    if (t.highway === 'raceway' && rawDmin(el) < spec.RACEWAY_KEEP_OUT) {
-      dropped.nearRaceway++
-      continue
+    const tags = pick(t, TAGS.road)
+    const width = section.paved
+    // the runtime recomputes the section from the shipped tag subset — it must land on the same width
+    const back = spec.roadSectionOf(t.highway, tags)
+    if (!back || back.paved !== width) throw new Error(`way ${el.id}: roadSectionOf on the shipped tags gives ${back?.paved} m, the full tags ${width} m — TAGS.road lacks a key the section reads`)
+    const far = spec.ROADS.farDrop.kinds.includes(t.highway)
+    for (const p of polylines(el, spec.SUR_DP.roads, junctionNodes)) {
+      // 3–4 m service roads and farm tracks beyond the far-drop distance sit on the ring's 12 m
+      // texels and would never be drawn as ribbons: not worth their bytes
+      if (far && p.dmin > spec.ROADS.farDrop.dmin) {
+        dropped.farServiceTrack++
+        continue
+      }
+      layers.SUR_ROADS.push({ id: el.id, kind: t.highway, width, tags, ...p })
     }
-    const lanes = parseInt(t.lanes, 10)
-    const width = Number.isFinite(lanes) && lanes > 0 ? round1(lanes * spec.LANE_WIDTH + spec.LANE_EXTRA) : width0
-    for (const p of polylines(el, spec.SUR_DP.roads)) layers.SUR_ROADS.push({ id: el.id, kind: t.highway, width, tags: pick(t, TAGS.road), ...p })
     continue
   }
 
@@ -448,7 +509,7 @@ const LAYER_DOC = {
   SUR_PARKING: 'amenity=parking only (the camp site is in SUR_SITES)',
   SUR_SOLAR: 'power=plant|generator with *:source=solar',
   SUR_BUILDINGS: 'building=* outside the stands / pit building / spec-owned ids, with the generator\'s massing `kind`',
-  SUR_ROADS: 'highway polylines with their drawn width (ROAD_WIDTH / lanes); tunnel pieces and raceway within RACEWAY_KEEP_OUT dropped',
+  SUR_ROADS: 'highway polylines; `width` = roadSectionOf(kind, tags).paved (surroundings-spec ROAD_SECTION); tunnel pieces, raceway within RACEWAY_KEEP_OUT and service / track beyond ROADS.farDrop.dmin dropped; junction nodes kept',
   SUR_RAIL: 'railway=rail (伊勢鉄道), 4 m',
   SUR_SITES: 'circuit boundary, Motopia, the camp site, the four gates, the two pools, the coaster station and its track ways',
 }
@@ -461,7 +522,8 @@ function renderLayer(name, list) {
 
 function render(layers) {
   const dp = Object.entries(spec.SUR_DP).map(([k, v]) => `${k} ${v}`).join(', ')
-  const widths = Object.entries(spec.ROAD_WIDTH).map(([k, v]) => `${k} ${v}`).join(', ')
+  const RS = spec.ROAD_SECTION
+  const table = (o) => Object.entries(o).map(([k, v]) => `${k} ${v}`).join(', ')
   const notes = `Rows: each feature is a positional tuple (see the Sur*Row types in ./en-codec) that the
 unpackers turn into SurPolygon / SurBuilding / SurWay / SurSite objects at module load:
   polygon  [id, area m², ce, cn, s, dmin, tags, en]
@@ -477,16 +539,24 @@ z = −N) places it in the scene). Polygons are counter-clockwise in EN with no 
 vertex; polylines are open unless the way was a loop (then the first vertex is repeated at the
 end). \`s\` / \`dmin\` come from the app's own Track (nearest segment of the sampled centreline,
 world metres, whole); \`s\` is the centroid's. A polyline cut into pieces (SUR_RECT edge,
-splitting) repeats its way id. Tags a row already expresses (highway → kind, lanes → width,
-waterway / railway → kind) are not repeated in \`tags\`.
+splitting) repeats its way id. Tags a row already expresses (highway / waterway / railway →
+kind) are not repeated in \`tags\`; a road row keeps oneway / lanes / surface / width because
+the runtime recomputes its cross-section (markings) from them.
 
 Extent: everything is clipped to SUR_RECT (the DEM terrain rectangle, track.center
 ± (${HALF_W}, ${HALF_D}) m in world metres = inner 3400 × 2600 grid + 1313 m ring + 300 m margin).
 Douglas–Peucker per layer (m): ${dp}.
-Polygons under ${spec.SUR_MIN_AREA.default} m² are dropped (forest ${spec.SUR_MIN_AREA.forest} m²). Road widths (m): ${widths};
-with \`lanes\`: lanes × ${spec.LANE_WIDTH} + ${spec.LANE_EXTRA}. Tunnel pieces of roads / streams / rail are dropped
-(they are underground), raceway ways within ${spec.RACEWAY_KEEP_OUT} m of the centreline are the circuit itself and
-are dropped. Building \`kind\` follows plan §2c (surroundings-spec BUILDING_KIND_RULES).
+Polygons under ${spec.SUR_MIN_AREA.default} m² are dropped (forest ${spec.SUR_MIN_AREA.forest} m²).
+Road \`width\` = surroundings-spec roadSectionOf(kind, tags).paved — lane classes: lanes × lane
++ 2 × shoulder (lane m: ${table(RS.lane)}; shoulder m: ${table(RS.shoulder)};
+default lanes 2, or 1 one-way; a one-way trunk carriageway's shoulders are ${RS.onewayTrunkShoulders.join(' + ')} m;
++ ${RS.median} m median on a two-way trunk with lanes ≥ 4); fixed widths m: ${table(RS.fixed)}
+(a parseable \`width\` tag overrides those). Vertices on OSM nodes shared by two or more shipped
+highway ways survive the simplification, so junctions meet at a vertex. ${spec.ROADS.farDrop.kinds.join(' / ')} pieces
+beyond ${spec.ROADS.farDrop.dmin} m from the centreline are not shipped. Tunnel pieces of roads / streams / rail are
+dropped (they are underground), raceway ways within ${spec.RACEWAY_KEEP_OUT} m of the centreline are the circuit
+itself and are dropped. Building \`kind\` follows plan §2c (surroundings-spec BUILDING_KIND_RULES);
+building=greenhouse is its own kind.
 Coordinates are on a 0.1 m grid. Size guard: ≤ ${LIMIT} bytes (facilities-check §11 caps this
 file plus suzuka-dem.ts at 1 MB).`
   const header = odblHeader({
@@ -559,6 +629,7 @@ console.log('\nbuilding kinds: ' + Object.entries(kinds).sort((a, b) => b[1] - a
 const roadKinds = {}
 for (const r of layers.SUR_ROADS) roadKinds[r.kind] = (roadKinds[r.kind] ?? 0) + 1
 console.log('road classes:   ' + Object.entries(roadKinds).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', '))
+console.log(`road junctions: ${junctionNodes.size} nodes shared by ≥ 2 of the ${roadSections.size} shipped highway ways (kept through DP ${spec.SUR_DP.roads} m)`)
 console.log('sites:          ' + layers.SUR_SITES.map((s) => `${s.role}:${s.id}`).join(', '))
 console.log(`\nfiltered: ${Object.entries(dropped).map(([k, v]) => `${k} ${v}`).join(', ')}`)
 console.log(removed.length ? `size guard dropped: ${removed.join('; ')}` : 'size guard: nothing dropped')

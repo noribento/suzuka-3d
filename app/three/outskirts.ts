@@ -3,8 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { SUR_BUILDINGS, SUR_PARKING, SUR_ROADS, SUR_SITES, SUR_SOLAR } from '~/data/suzuka-surroundings'
 import { worldRing, type SurFeatureBase } from '~/data/en-codec'
 import type { EnvBuildContext } from './environment'
-import type { Ground } from './ground'
 import { inBBox, pointInRing, principalAxis, ringBBox, ringFromFlat, type GridShape, type XZ } from './far-geometry'
+import { TriSink, inGrid, nearestArc, outsideGrid, pathLength, resample, siteOk, type Sample, type SiteRule } from './far-lines'
 import { BARRIER_KIND, FENCE_TILE_M } from './barriers'
 import { cutoutFromAssets, cutoutParams } from './materials'
 import { armcoMaps, cached, chainLinkTexture, makeTexture, mulberry, paint, scaled } from './textures'
@@ -170,76 +170,9 @@ export interface OutskirtsStats {
 // ---------------------------------------------------------------------------------------------
 // small helpers
 
-interface Sample {
-  x: number
-  z: number
-  /** unit tangent */
-  tx: number
-  tz: number
-  /** arc length from the start (m) */
-  t: number
-  /** distance to the nearer of the two OSM vertices of the edge the sample lies on (the 1-Lipschitz bound's radius) */
-  dv: number
-}
-
 /** [x, z, x, z, …] → points */
 function polyline(flat: Float64Array): XZ[] {
   return ringFromFlat(flat)
-}
-
-/**
- * Resample a polyline at `step` metres of arc length (closed: the last edge back to the first
- * vertex is walked too), each sample with its tangent and its distance to the nearer edge vertex.
- */
-function resample(pts: readonly XZ[], step: number, closed: boolean, phase = 0): Sample[] {
-  const out: Sample[] = []
-  const n = pts.length
-  if (n < 2) return out
-  const edges = closed ? n : n - 1
-  let total = 0
-  for (let i = 0; i < edges; i++) {
-    const a = pts[i]!, b = pts[(i + 1) % n]!
-    total += Math.hypot(b[0] - a[0], b[1] - a[1])
-  }
-  if (total < step) return out
-  // a closed ring is resampled at an integer count so the last post meets the first
-  const actual = closed ? total / Math.max(1, Math.round(total / step)) : step
-  let next = phase, walked = 0
-  for (let i = 0; i < edges; i++) {
-    const a = pts[i]!, b = pts[(i + 1) % n]!
-    const ex = b[0] - a[0], ez = b[1] - a[1]
-    const len = Math.hypot(ex, ez)
-    if (len < 1e-6) continue
-    const tx = ex / len, tz = ez / len
-    while (next <= walked + len + (closed ? -1e-6 : 1e-6) && (!closed || next < total - 1e-6)) {
-      const u = (next - walked) / len
-      out.push({ x: a[0] + ex * u, z: a[1] + ez * u, tx, tz, t: next, dv: Math.min(u, 1 - u) * len })
-      next += actual
-    }
-    walked += len
-  }
-  return out
-}
-
-/** arc-length position on a polyline nearest to (x, z), and the distance to it */
-function nearestArc(pts: readonly XZ[], closed: boolean, x: number, z: number): { t: number; d: number } {
-  const n = pts.length
-  const edges = closed ? n : n - 1
-  let best = Infinity, bestT = 0, walked = 0
-  for (let i = 0; i < edges; i++) {
-    const a = pts[i]!, b = pts[(i + 1) % n]!
-    const ex = b[0] - a[0], ez = b[1] - a[1]
-    const l2 = ex * ex + ez * ez
-    const u = l2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * ex + (z - a[1]) * ez) / l2)) : 0
-    const dx = x - (a[0] + ex * u), dz = z - (a[1] + ez * u)
-    const d2 = dx * dx + dz * dz
-    if (d2 < best) {
-      best = d2
-      bestT = walked + Math.sqrt(l2) * u
-    }
-    walked += Math.sqrt(l2)
-  }
-  return { t: bestT, d: Math.sqrt(best) }
 }
 
 /** distance from (x, z) to the nearest vertex of a ring */
@@ -250,26 +183,6 @@ function nearestVertex(x: number, z: number, ring: readonly XZ[]): number {
     if (d2 < best) best = d2
   }
   return Math.sqrt(best)
-}
-
-function inGrid(g: GridShape, x: number, z: number): boolean {
-  return x >= g.x0 && z >= g.z0 && x < g.x0 + g.w && z < g.z0 + g.d
-}
-
-/** further than `margin` outside the grid rectangle — the cheap pre-reject, before any decoding */
-function outsideGrid(g: GridShape, x: number, z: number, margin: number): boolean {
-  return x < g.x0 - margin || z < g.z0 - margin || x > g.x0 + g.w + margin || z > g.z0 + g.d + margin
-}
-
-/** total length of a polyline (`closed`: the edge back to the first vertex counts) */
-function pathLength(pts: readonly XZ[], closed: boolean): number {
-  let total = 0
-  const edges = closed ? pts.length : pts.length - 1
-  for (let i = 0; i < edges; i++) {
-    const a = pts[i]!, b = pts[(i + 1) % pts.length]!
-    total += Math.hypot(b[0] - a[0], b[1] - a[1])
-  }
-  return total
 }
 
 function push<T>(map: Map<number, T[]>, key: number, item: T) {
@@ -287,45 +200,6 @@ const Y_UP = new THREE.Vector3(0, 1, 0)
 const _p = new THREE.Vector3()
 const _q = new THREE.Quaternion()
 const _s = new THREE.Vector3(1, 1, 1)
-
-/**
- * A non-indexed triangle sink with flat normals: quads given as four corners (any order) and an
- * outward direction, so the winding never has to be worked out by hand.
- */
-class TriSink {
-  private readonly pos: number[] = []
-  private readonly uv: number[] = []
-  get triangles(): number {
-    return this.pos.length / 9
-  }
-  private tri(a: readonly number[], b: readonly number[], c: readonly number[], ua: readonly number[], ub: readonly number[], uc: readonly number[]) {
-    this.pos.push(a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!, c[0]!, c[1]!, c[2]!)
-    this.uv.push(ua[0]!, ua[1]!, ub[0]!, ub[1]!, uc[0]!, uc[1]!)
-  }
-  /** corners p0 → p1 → p2 → p3 around the quad, `out` the side the face shows; uvs per corner */
-  quad(p0: readonly number[], p1: readonly number[], p2: readonly number[], p3: readonly number[], out: readonly number[], uvs: readonly (readonly number[])[]) {
-    const ux = p1[0]! - p0[0]!, uy = p1[1]! - p0[1]!, uz = p1[2]! - p0[2]!
-    const vx = p2[0]! - p0[0]!, vy = p2[1]! - p0[1]!, vz = p2[2]! - p0[2]!
-    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-    const flip = nx * out[0]! + ny * out[1]! + nz * out[2]! < 0
-    if (flip) {
-      this.tri(p0, p2, p1, uvs[0]!, uvs[2]!, uvs[1]!)
-      this.tri(p0, p3, p2, uvs[0]!, uvs[3]!, uvs[2]!)
-    } else {
-      this.tri(p0, p1, p2, uvs[0]!, uvs[1]!, uvs[2]!)
-      this.tri(p0, p2, p3, uvs[0]!, uvs[2]!, uvs[3]!)
-    }
-  }
-  build(): THREE.BufferGeometry | null {
-    if (!this.pos.length) return null
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2))
-    g.computeVertexNormals()
-    g.computeBoundingSphere()
-    return g
-  }
-}
 
 // ---------------------------------------------------------------------------------------------
 // textures and materials (textures.ts helpers; `textureScale` in the key through `scaled`)
@@ -428,29 +302,7 @@ function makeMaterials(ctx: EnvBuildContext): Materials {
 }
 
 // ---------------------------------------------------------------------------------------------
-// the site rule
-
-interface SiteRule {
-  ground: Ground
-  grid: GridShape
-  /** exact centreline distances taken (for the stats) */
-  projections: number
-}
-
-/**
- * Whether something may stand at (x, z): inside the terrain grid, ≥ `minD` from the centreline
- * (`lo` is a lower bound of that distance — the feature's `dmin` minus the sample's distance to
- * the feature's nearest vertex, valid because distance to the centreline is 1-Lipschitz — so
- * the projection is only taken when the bound does not settle it) and on no drawn ground face.
- */
-function standOk(rule: SiteRule, x: number, z: number, lo: number, minD: number): boolean {
-  if (!inGrid(rule.grid, x, z)) return false
-  if (lo < minD) {
-    rule.projections++
-    if (rule.ground.plan.project(x, z).d < minD) return false
-  }
-  return !rule.ground.builtY(x, z)
-}
+// the site rule (`siteOk` of far-lines.ts) and the poles' building clearance
 
 /**
  * A pole's clearance from the OSM buildings, from the shipped centroid and area alone (the
@@ -579,7 +431,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         const zf = s.z, zb = zf - depthXZ
         const samples: [number, number][] = [[s.x0, zf], [s.x1, zf], [s.x0, zb], [s.x1, zb], [(s.x0 + s.x1) / 2, (zf + zb) / 2]]
         let ok = true
-        for (const [x, z] of samples) if (!standOk(rule, x, z, s.lo, MIN_D)) { ok = false; break }
+        for (const [x, z] of samples) if (!siteOk(rule, x, z, s.lo, MIN_D)) { ok = false; break }
         if (!ok) continue
         // the front edge stands `front` over the ground it is on; where the ground rises to the
         // north (the back edge is `rise` higher) the whole panel is lifted so the BACK edge keeps
@@ -778,7 +630,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
       const matrices: THREE.Matrix4[] = []
       for (const c of lightCandidates) {
         if (matrices.length >= lightBudget) break
-        if (!standOk(rule, c.x, c.z, c.lo, MIN_D)) continue
+        if (!siteOk(rule, c.x, c.z, c.lo, MIN_D)) continue
         if (c.clear && buildings().hit(c.x, c.z)) continue
         _p.set(c.x, ground.standY(c.x, c.z) - LP.bury, c.z)
         matrices.push(new THREE.Matrix4().compose(_p, yawTo(c.dx, c.dz, _q), _s.set(1, 1, 1)))
@@ -848,7 +700,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     if (y !== undefined) return y
     const p = uPoles[i]!
     // the crossarm's half-length more, so the wires hung from its ends keep the 140 m too
-    y = standOk(rule, p.x, p.z, p.lo, MIN_D + U.arm / 2 + U.wireW) && !buildings().hit(p.x, p.z) ? ground.standY(p.x, p.z) : null
+    y = siteOk(rule, p.x, p.z, p.lo, MIN_D + U.arm / 2 + U.wireW) && !buildings().hit(p.x, p.z) ? ground.standY(p.x, p.z) : null
     uSite.set(i, y)
     return y
   }
@@ -860,7 +712,7 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     if (y !== undefined) return y
     const w = railWays[wi]!, s = w.samples[i]!
     const x = s.x - s.tz * side * w.off, z = s.z + s.tx * side * w.off
-    y = standOk(rule, x, z, w.dmin - s.dv - w.off, MIN_D) ? ground.standY(x, z) : null
+    y = siteOk(rule, x, z, w.dmin - s.dv - w.off, MIN_D) ? ground.standY(x, z) : null
     railSite.set(key, y)
     return y
   }

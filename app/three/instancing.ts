@@ -10,10 +10,12 @@ export interface BucketOptions {
  * Split one circuit-wide set of instances into several InstancedMeshes, one per spatial bucket,
  * so the camera (and the shadow cameras) can frustum-cull whole groups instead of always
  * drawing every tree / post around the lap. Placement order is preserved inside each bucket.
+ * `material` may be an array when the geometry has groups (a prototype with several parts —
+ * body and glass, post and sign face — in ONE InstancedMesh, one draw per group).
  */
 export function bucketedInstancedMeshes(
   geometry: THREE.BufferGeometry,
-  material: THREE.Material,
+  material: THREE.Material | THREE.Material[],
   matrices: THREE.Matrix4[],
   colors: THREE.Color[] | null,
   bucketOf: (index: number, matrix: THREE.Matrix4) => number,

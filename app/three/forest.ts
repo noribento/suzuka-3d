@@ -9,6 +9,7 @@ import type { EnvBuildContext } from './environment'
 import { FAR_CELL_M } from './farfield'
 import { cellClippedPolygon, inBBox, makeNodeCache, pointInRing, ringBBox, ringFromFlat, type GridShape, type NodeCache, type XZ } from './far-geometry'
 import { cutoutParams } from './materials'
+import { modelPrototype } from './model-proto'
 import { cached, makeTexture, mulberry, normalMapFrom, paint, scaled } from './textures'
 import { treePrototype, treeSiteBlocked } from './vegetation'
 
@@ -236,95 +237,27 @@ function allotStems(polys: ForestPoly[], midTrees: number, grid: GridShape) {
 // ---------------------------------------------------------------------------------------------
 // the GLB prototypes (high tier with the pack)
 
-/** widen a quantised attribute (KHR_mesh_quantization int16 / int8) to floats, so the node transform does not truncate it */
-function widened(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, size: number): THREE.Float32BufferAttribute {
-  const f = new THREE.Float32BufferAttribute(a.count * size, size)
-  for (let i = 0; i < a.count; i++) {
-    if (size === 2) f.setXY(i, a.getX(i), a.getY(i))
-    else f.setXYZ(i, a.getX(i), a.getY(i), a.getZ(i))
-  }
-  return f
-}
-
 const LEAF_RE = /leaf|leaves|orange|green/i
 
 /**
- * One prototype per model: the bark primitives merged, the leaf primitives merged, both at
- * metric scale (the packs ship in assorted units, so each is scaled to its FOREST.hero.heights
- * entry), the trunk base at the origin. The leaves are drawn as a cutout (alphaTest, double
- * sided) instead of the pack's alpha blend, which would sort wrongly between instances. null
- * when the model is not in the registry (the caller falls back to the procedural stem).
+ * One prototype per model (`modelPrototype` of model-proto.ts): the bark primitives merged, the
+ * leaf primitives merged (told apart by their material's name), both at metric scale (the packs
+ * ship in assorted units, so each is scaled to its FOREST.hero.heights entry), the trunk base at
+ * the origin (the bark's xz centre, not the crown's, which leans). The leaves are drawn as a
+ * cutout (alphaTest, double sided) instead of the pack's alpha blend, which would sort wrongly
+ * between instances. null when the model is not in the registry (the caller falls back to the
+ * procedural stem).
  */
 function heroPrototype(reg: AssetRegistry, key: string, q: EnvBuildContext['quality'], blossom: THREE.Color | null): HeroProto | null {
-  const m = reg.model(key)
-  if (!m) return null
-  m.scene.updateMatrixWorld(true)
-  const bark: THREE.BufferGeometry[] = []
-  const leaf: THREE.BufferGeometry[] = []
-  let barkSrc: THREE.Material | null = null
-  let leafSrc: THREE.Material | null = null
-  const bbox = new THREE.Box3()
-  const barkBox = new THREE.Box3()
-  m.scene.traverse((o) => {
-    const mesh = o as THREE.Mesh
-    if (!mesh.isMesh) return
-    const src = mesh.geometry
-    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-    // a multi-material mesh draws its groups with different materials; split by group
-    const groups = src.groups.length ? src.groups : [{ start: 0, count: src.index ? src.index.count : src.attributes.position!.count, materialIndex: 0 }]
-    for (const grp of groups) {
-      const mat = mats[grp.materialIndex ?? 0] ?? mats[0]!
-      const g = new THREE.BufferGeometry()
-      for (const [name, size] of [['position', 3], ['normal', 3], ['uv', 2]] as const) {
-        const a = src.getAttribute(name)
-        if (a) g.setAttribute(name, widened(a, size))
-      }
-      if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.Float32BufferAttribute(g.getAttribute('position')!.count * 2, 2))
-      const idx = src.index
-      if (idx) {
-        const end = Math.min(idx.count, grp.start + grp.count)
-        const sub: number[] = []
-        for (let i = grp.start; i < end; i++) sub.push(idx.getX(i))
-        g.setIndex(sub)
-      } else if (grp.start > 0 || grp.count < g.getAttribute('position')!.count) {
-        const sub: number[] = []
-        for (let i = grp.start; i < grp.start + grp.count; i++) sub.push(i)
-        g.setIndex(sub)
-      }
-      g.applyMatrix4(mesh.matrixWorld)
-      const part = g.index ? g.toNonIndexed() : g
-      part.computeBoundingBox()
-      bbox.union(part.boundingBox!)
-      if (LEAF_RE.test(mat.name)) {
-        leaf.push(part)
-        leafSrc ??= mat
-      } else {
-        bark.push(part)
-        barkSrc ??= mat
-        barkBox.union(part.boundingBox!)
-      }
-    }
+  const proto = modelPrototype(reg, key, {
+    partOf: (m) => (LEAF_RE.test(m.name) ? 'leaf' : 'bark'),
+    scaleTo: { height: FOREST.hero.heights[key] ?? 9 },
+    origin: { part: 'bark' },
   })
-  if (!bark.length && !leaf.length) return null
-  const height = bbox.max.y - bbox.min.y
-  if (!(height > 0)) return null
-  const k = (FOREST.hero.heights[key] ?? 9) / height
-  const base = barkBox.isEmpty() ? bbox : barkBox
-  const cx = (base.min.x + base.max.x) / 2, cz = (base.min.z + base.max.z) / 2
-  const fit = (parts: THREE.BufferGeometry[]): THREE.BufferGeometry | null => {
-    if (!parts.length) return null
-    const merged = mergeGeometries(parts, false)
-    for (const p of parts) p.dispose()
-    if (!merged) return null
-    merged.translate(-cx, -bbox.min.y, -cz)
-    merged.scale(k, k, k)
-    merged.computeBoundingSphere()
-    return merged
-  }
-  const std = (src: THREE.Material | null): THREE.MeshStandardMaterial | null => (src && (src as THREE.MeshStandardMaterial).isMeshStandardMaterial ? (src as THREE.MeshStandardMaterial) : null)
-  const barkStd = std(barkSrc)
+  if (!proto) return null
+  const barkStd = proto.parts.bark?.source ?? null
   const barkMat = new THREE.MeshStandardMaterial({ color: barkStd?.color ?? new THREE.Color(0x4a3a2a), map: barkStd?.map ?? null, normalMap: barkStd?.normalMap ?? null, roughness: 0.9, metalness: 0 })
-  const leafStd = std(leafSrc)
+  const leafStd = proto.parts.leaf?.source ?? null
   const cut = cutoutParams(q)
   const leafMat = new THREE.MeshStandardMaterial({
     color: blossom ?? leafStd?.color ?? new THREE.Color(0x35502a),
@@ -339,8 +272,8 @@ function heroPrototype(reg: AssetRegistry, key: string, q: EnvBuildContext['qual
   const isBlossom = !!blossom
   return {
     key,
-    bark: fit(bark),
-    leaf: fit(leaf),
+    bark: proto.parts.bark?.geometry ?? null,
+    leaf: proto.parts.leaf?.geometry ?? null,
     barkMat,
     leafMat,
     plain: isBlossom ? 'deciduous' : 'evergreen',

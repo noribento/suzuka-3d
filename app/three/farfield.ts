@@ -5,7 +5,8 @@ import type { Quality } from './quality'
 
 /**
  * The far field: one registry for everything outside the fences that only STANDS on the ground
- * (forest, buildings, car parks, solar farms, roads, poles, fences, structures, water), one
+ * (forest, buildings, car parks, solar farms, roads and their furniture, poles, fences,
+ * structures, water, the railway, the streams, the paddy relief), one
  * deferred build queue that assembles it after the loading screen, and one per-cell LOD pass in
  * `Environment.update`.
  *
@@ -29,7 +30,7 @@ import type { Quality } from './quality'
  * `freezeStatic` in the viewport), so the materials get their tier setup and the matrices are
  * computed once.
  */
-export type FarKind = 'forest' | 'floor' | 'buildings' | 'carPark' | 'solar' | 'roads' | 'poles' | 'fence' | 'structure' | 'water'
+export type FarKind = 'forest' | 'floor' | 'buildings' | 'carPark' | 'solar' | 'roads' | 'furniture' | 'poles' | 'fence' | 'structure' | 'water' | 'rail' | 'stream' | 'paddy'
 
 /** Build stages, run in this order: the keep-out producers (paving, buildings) before the forest that avoids them. */
 export type FarStage = 'paving' | 'buildings' | 'forest' | 'dressing'
@@ -70,9 +71,9 @@ export type FarEntryInput = Omit<FarEntry, 'sphere' | 'cell'> & { sphere?: THREE
 export interface FarBucketLevel {
   range: number
   ramp?: number
-  /** defaults to the geometry / material the buckets were registered with */
+  /** defaults to the geometry / material the buckets were registered with (an array of materials draws the geometry's groups) */
   geometry?: THREE.BufferGeometry
-  material?: THREE.Material
+  material?: THREE.Material | THREE.Material[]
 }
 
 export interface FarStats {
@@ -284,14 +285,15 @@ export class FarField {
   /**
    * `bucketedInstancedMeshes` bucketed by cell: one entry per occupied cell, named
    * `<name>-<cell>` (pass the kind as `name` unless one kind registers several sets), each level
-   * an InstancedMesh of the same instances with that level's geometry / material. `opts` are the
+   * an InstancedMesh of the same instances with that level's geometry / material (a material
+   * array draws the geometry's groups — one InstancedMesh, one draw per group). `opts` are the
    * bucket options minus the name.
    */
   registerBuckets(
     kind: FarKind,
     name: string,
     geometry: THREE.BufferGeometry,
-    material: THREE.Material,
+    material: THREE.Material | THREE.Material[],
     matrices: THREE.Matrix4[],
     colors: THREE.Color[] | null,
     levels: FarBucketLevel[],

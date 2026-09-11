@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { SOURCES, PINS, UA } from './sources.mjs'
 import {
-  DL, DL_INDEX, MISC, download, fetchJson, fetchText, md5, readJson, sha256, sha256File, writeJson, fmtKB,
+  DL, DL_INDEX, MISC, download, fetchJson, fetchText, md5, readJson, sha256, sha256File, writeJson, fmtKB, findDrop,
 } from './lib.mjs'
 
 const args = process.argv.slice(2)
@@ -119,8 +119,9 @@ function checkLocal (src) {
     failures.push(`${src.key}: ${licPath} does not contain "${src.licenceMarker}"`)
     return
   }
-  const what = src.zip ? (existsSync(join(root, src.zip)) ? src.zip : 'ZIP MISSING') : 'licence OK'
-  if (what === 'ZIP MISSING') { console.log(`  · ${src.key}: not present (${src.zip})`); return }
+  const drop = src.zip ? findDrop(src.miscRoots, src.zip) : null
+  const what = src.zip ? (drop ? drop.file.slice(root.length + 1) : 'ZIP MISSING') : 'licence OK'
+  if (what === 'ZIP MISSING') { console.log(`  · ${src.key}: not present (${String(src.zip)})`); return }
   console.log(`  ✓ ${src.key}: ${root.slice(MISC.length + 1) || '.'} (${what})`)
 }
 

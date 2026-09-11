@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-10T11:37:36.769Z",
+  "generated": "2026-09-11T11:08:31.999Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -717,15 +717,18 @@
       "textures": [
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         }
       ],
       "source": {
@@ -733,7 +736,7 @@
         "name": "Concrete Road Barrier",
         "pageUrl": "https://polyhaven.com/a/concrete_road_barrier",
         "licence": "CC0-1.0",
-        "author": "Rico Cilliers",
+        "author": "Amal Kumar",
         "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/concrete_road_barrier/concrete_road_barrier_1k.gltf",
         "sha256Source": "c371e87d303fff3f0c9fbe88520f7837514364e5c66aac3244e115ffa673d061"
       },
@@ -752,19 +755,23 @@
       "textures": [
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         }
       ],
       "source": {
@@ -772,7 +779,7 @@
         "name": "Security Camera 01",
         "pageUrl": "https://polyhaven.com/a/security_camera_01",
         "licence": "CC0-1.0",
-        "author": "Rico Cilliers",
+        "author": "Alexander Otterbeck, Yann Kervran",
         "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/security_camera_01/security_camera_01_1k.gltf",
         "sha256Source": "d2468fe353cd9f992a5549709cf9efcfae67e9fd17f80bf7ff3866e2881dd2ae"
       },
@@ -784,26 +791,30 @@
     },
     "model/props/street_lamp_02": {
       "kind": "model",
-      "path": "/assets/models/props_street_lamp_02.cdccf12f.glb",
+      "path": "/assets/models/props_street_lamp_02.646aaed3.glb",
       "format": "glb",
-      "bytes": 265700,
+      "bytes": 266740,
       "role": "model",
       "textures": [
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "jpeg"
         }
       ],
       "source": {
@@ -811,7 +822,7 @@
         "name": "Street Lamp 02",
         "pageUrl": "https://polyhaven.com/a/street_lamp_02",
         "licence": "CC0-1.0",
-        "author": "Rico Cilliers",
+        "author": "Josh Dean",
         "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/street_lamp_02/street_lamp_02_1k.gltf",
         "sha256Source": "3a8a42486c5dc4538a8b44aeeef502c64a1c9d0d42fa5610e37886c355337ff8"
       },
@@ -859,27 +870,33 @@
       "textures": [
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "png"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "png"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "png"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "png"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "png"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "png"
         }
       ],
       "source": {
@@ -958,15 +975,18 @@
       "textures": [
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "png"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "png"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "png"
         }
       ],
       "source": {

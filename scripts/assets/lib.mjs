@@ -3,12 +3,13 @@
  *
  * Everything here is plain Node (26+): sha256, HTTP downloads with a User-Agent, a minimal
  * zip reader (the box has no `unzip`, and we only need stored/deflated members), tool lookup
- * (`ktx` from misc/tools first, then PATH) and a glTF/GLB image probe used to decide whether
- * a model's textures need resizing before meshopt packing.
+ * (`ktx` from misc/tools first, then PATH) and a glTF/GLB image probe (format sniffing incl.
+ * KTX2) used to decide whether a model's textures need resizing before meshopt packing and to
+ * charge them to the VRAM budget afterwards.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { spawnSync } from 'node:child_process'
@@ -162,12 +163,24 @@ export function findKtx () {
   return null
 }
 
+/** `env` for `run` / `npx` that puts the directory of the found `ktx` first on PATH. */
+export function ktxEnv () {
+  const k = findKtx()
+  if (!k) return {}
+  const dir = dirname(k.bin)
+  return dir === '.' ? {} : { PATH: `${dir}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}` }
+}
+
 export const GLTFPACK = 'gltfpack@1.2.0'
 export const GLTF_TRANSFORM = '@gltf-transform/cli@4.5.0'
 
-/** Run a command, failing loudly with its output on a non-zero exit. */
-export function run (cmd, args, { cwd, quiet = true } = {}) {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1048576 })
+/**
+ * Run a command, failing loudly with its output on a non-zero exit. `env` is merged over
+ * process.env — gltf-transform's ktx commands find `ktx` through PATH only, so callers prepend
+ * misc/tools/ktx/bin (see `ktxEnv`) instead of asking the user to install it globally.
+ */
+export function run (cmd, args, { cwd, quiet = true, env } = {}) {
+  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1048576, env: env ? { ...process.env, ...env } : process.env })
   if (r.error) throw r.error
   if (r.status !== 0) {
     throw new Error(`${cmd} ${args.join(' ')}\nexit ${r.status}\n${r.stdout}\n${r.stderr}`)
@@ -184,43 +197,104 @@ export function npx (pkg, args, opts) {
 // ---------------------------------------------------------------------------------------------
 // glTF / GLB image probe
 
+/** KTX2 file identifier: «KTX 20»\r\n\x1A\n. */
+const KTX2_MAGIC = Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])
+
 /**
- * Return the raw image buffers referenced by a .glb or .gltf (embedded buffer views, data URIs
- * and external files). Used only to measure texture dimensions before packing.
+ * Sniff an image buffer: `format` is 'ktx2' | 'png' | 'jpeg' | 'webp' | 'unknown'. KTX2 also
+ * yields width / height from the fixed header (sharp cannot open it; readers that need the
+ * mip chain use three's ktx-parse), the other formats leave the dimensions to sharp.
  */
-export function gltfImages (file) {
+export function sniffImage (buf) {
+  if (buf.length >= 44 && buf.subarray(0, 12).equals(KTX2_MAGIC)) {
+    return { format: 'ktx2', width: buf.readUInt32LE(20), height: buf.readUInt32LE(24), levels: buf.readUInt32LE(36) }
+  }
+  if (buf.length >= 8 && buf.readUInt32BE(0) === 0x89504e47) return { format: 'png' }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { format: 'jpeg' }
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return { format: 'webp' }
+  return { format: 'unknown' }
+}
+
+/** Split a GLB into its JSON object and BIN chunk; `bin` is undefined for a .gltf. */
+export function readGltfJson (file) {
   const buf = readFileSync(file)
-  let json, bin
-  if (buf.readUInt32LE(0) === 0x46546c67) {
+  if (buf.length >= 12 && buf.readUInt32LE(0) === 0x46546c67) {
     // GLB: header (12) + chunks. Chunk 0 is JSON, chunk 1 (if present) is BIN.
     let off = 12
     const chunks = []
-    while (off < buf.length) {
+    while (off + 8 <= buf.length) {
       const len = buf.readUInt32LE(off)
       const type = buf.readUInt32LE(off + 4)
       chunks.push({ type, data: buf.subarray(off + 8, off + 8 + len) })
       off += 8 + len
     }
-    json = JSON.parse(chunks[0].data.toString('utf8'))
-    bin = chunks.find(c => c.type === 0x004e4942)?.data
-  } else {
-    json = JSON.parse(buf.toString('utf8'))
+    return { json: JSON.parse(chunks[0].data.toString('utf8')), bin: chunks.find(c => c.type === 0x004e4942)?.data, glb: true }
   }
-  const dir = dirname(file)
-  const buffers = (json.buffers ?? []).map((b, i) => {
-    if (b.uri == null) return bin
+  return { json: JSON.parse(buf.toString('utf8')), bin: undefined, glb: false }
+}
+
+/**
+ * Resolve every `buffers[i]` of a parsed glTF to a Buffer (BIN chunk, data URI or external file).
+ * Only buffer 0 may be the GLB BIN chunk; a later uri-less buffer is an EXT_meshopt_compression
+ * fallback buffer whose bytes do not exist (undefined).
+ */
+export function gltfBuffers (json, bin, dir) {
+  return (json.buffers ?? []).map((b, i) => {
+    if (b.uri == null) return i === 0 ? bin : undefined
     if (b.uri.startsWith('data:')) return Buffer.from(b.uri.slice(b.uri.indexOf(',') + 1), 'base64')
     return readFileSync(join(dir, decodeURIComponent(b.uri)))
   })
+}
+
+/**
+ * Return the images referenced by a .glb or .gltf (embedded buffer views, data URIs and external
+ * files) as `{ data, name, mimeType, format }`, in `json.images` order. `format` comes from the
+ * bytes, not the declared mimeType, so a KTX2 texture (KHR_texture_basisu) is recognised even
+ * when the writer forgot the mimeType. Used to measure textures before and after packing.
+ */
+export function gltfImages (file) {
+  const { json, bin } = readGltfJson(file)
+  const dir = dirname(file)
+  const buffers = gltfBuffers(json, bin, dir)
   return (json.images ?? []).map((img) => {
+    let data
     if (img.bufferView != null) {
       const bv = json.bufferViews[img.bufferView]
       const b = buffers[bv.buffer]
-      return b.subarray(bv.byteOffset ?? 0, (bv.byteOffset ?? 0) + bv.byteLength)
+      data = b.subarray(bv.byteOffset ?? 0, (bv.byteOffset ?? 0) + bv.byteLength)
+    } else if (img.uri?.startsWith('data:')) {
+      data = Buffer.from(img.uri.slice(img.uri.indexOf(',') + 1), 'base64')
+    } else {
+      data = readFileSync(join(dir, decodeURIComponent(img.uri)))
     }
-    if (img.uri?.startsWith('data:')) return Buffer.from(img.uri.slice(img.uri.indexOf(',') + 1), 'base64')
-    return readFileSync(join(dir, decodeURIComponent(img.uri)))
+    return { data, name: img.name ?? (img.uri ? basename(decodeURIComponent(img.uri)) : ''), mimeType: img.mimeType, ...sniffImage(data) }
   })
 }
 
 export const fileBytes = (file) => statSync(file).size
+
+/**
+ * `zip` / `entry` matcher: a RegExp, a glob-like string (`*`, `?`) or an exact name, tested on
+ * the basename case-insensitively. Sketchfab names the zip after the model title, which the
+ * user does not always keep, so most entries use a glob.
+ */
+export function nameMatcher (pat) {
+  if (pat instanceof RegExp) return (name) => pat.test(name)
+  if (/[*?]/.test(pat)) {
+    const re = new RegExp('^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i')
+    return (name) => re.test(name)
+  }
+  return (name) => name.toLowerCase() === pat.toLowerCase()
+}
+
+/** First file directly under the first misc root that matches `pat`; `null` when nothing does. */
+export function findDrop (roots, pat) {
+  const match = nameMatcher(pat)
+  for (const r of roots) {
+    const root = join(MISC, r)
+    if (!existsSync(root)) continue
+    const hit = readdirSync(root, { withFileTypes: true }).filter(e => e.isFile() && match(e.name)).map(e => e.name).sort()[0]
+    if (hit) return { root, file: join(root, hit) }
+  }
+  return null
+}

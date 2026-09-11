@@ -10,29 +10,38 @@
  *   node scripts/assets/import-misc.mjs --only tex/withered_grass   # rebuild a subset
  *
  * Textures (sharp → ktx):
- *   - resized to the source's target resolution (1K, 2K only for withered_grass)
+ *   - resized to the source's target resolution `res` (512 / 1K, 2K only for withered_grass);
+ *     `fetchRes` is the resolution of the download when the site has no file at `res`
  *   - arm packed as R = AO (1.0 when absent), G = roughness, B = metalness (0 when absent)
  *   - diff → KTX2 ETC1S (Basis-LZ) sRGB; nor_gl → KTX2 UASTC linear + zstd; arm / opacity → KTX2
  *     ETC1S linear; always with a full mip chain (compressed textures cannot generate mips at
  *     runtime, and anisotropy needs them). Without `ktx` the fallback is WebP (q80 colour, q90
  *     data, near-lossless when there is alpha).
- * Models: `gltfpack -cc` (EXT_meshopt_compression + quantisation, no simplification); textures
- *   inside a model are kept as they are unless larger than 1K, in which case gltf-transform
- *   resizes them first. The crowd GLBs are deliberately not decimated (impostor bake later).
+ *   - `pixels: true` → WebP (lossless at ≤ 512²) instead of KTX2: the runtime needs the pixels
+ *     (drawImage / getImageData into a DataArrayTexture), which a GPU-compressed file cannot give.
+ * Models (`packModel`, one pipeline, every stage opt-in per source — see sources.mjs "Map roles"):
+ *   prepare (`dropNodes` / `keepNodes` / `overrideImages`) → gltf-transform prune → resize
+ *   (`maxTex`, default 1K) → retouch (`retouch` / `dropParts`, retouch-glb.mjs) → `texEncode`
+ *   (gltf-transform uastc for normal + alpha-tested textures, etc1s for the rest, KTX2 inside the
+ *   GLB via KHR_texture_basisu) → `gltfpack -cc -kn -km [-si R]` (EXT_meshopt_compression +
+ *   quantisation, node and material names kept — the runtime classifies bark / leaf by material
+ *   name — simplification only when the source asks). Without `texEncode` the textures inside a
+ *   GLB stay PNG/JPEG exactly as before, so the shipped GLBs are not churned.
  *
- * Budgets enforced by --check (plan §6): Σ public/assets ≤ 80 MB, RGBA8-equivalent VRAM
- * ≤ 250 MB, licences ⊂ {CC0-1.0, CC-BY-3.0, CC-BY-4.0, Apache-2.0}, nothing from misc/ref.
+ * Budgets enforced by --check (plan §6 → R phase): Σ public/assets ≤ 200 MB, RGBA8-equivalent
+ * VRAM ≤ 512 MB, licences ⊂ {CC0-1.0, CC-BY-3.0, CC-BY-4.0, Apache-2.0}, nothing from misc/ref.
  */
-import { existsSync, readFileSync, writeFileSync, rmSync, copyFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync, copyFileSync, mkdirSync, readdirSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import sharp from 'sharp'
 import { read as readKtx, KHR_DF_TRANSFER_SRGB } from 'three/examples/jsm/libs/ktx-parse.module.js'
 import { SOURCES, LICENCES, RES_PX } from './sources.mjs'
 import {
   ROOT, MISC, DL, DL_INDEX, PUBLIC_ASSETS, MANIFEST, WORK, GLTFPACK, GLTF_TRANSFORM,
-  ensureDir, readJson, writeJson, sha256, sha256File, walk, zipExtract, findKtx, npx, run,
-  gltfImages, fmtMB, fmtKB,
+  ensureDir, readJson, writeJson, sha256, sha256File, walk, zipExtract, findKtx, ktxEnv, npx, run,
+  gltfImages, sniffImage, fmtMB, fmtKB,
 } from './lib.mjs'
+import { MIME_BY_FORMAT, readModel, writeGlb, retouchModel, imageUses, selectImages } from './retouch-glb.mjs'
 
 const args = process.argv.slice(2)
 const checkOnly = args.includes('--check')
@@ -46,16 +55,22 @@ const CREDITS_TS = join(ROOT, 'app', 'data', 'credits.ts')
 const BASIS_SRC = join(ROOT, 'node_modules', 'three', 'examples', 'jsm', 'libs', 'basis')
 const BASIS_DST = join(ROOT, 'public', 'basis')
 const BASIS_FILES = ['basis_transcoder.js', 'basis_transcoder.wasm', 'README.md']
-const BUDGET_BYTES = 80 * 1048576
-const BUDGET_VRAM = 250 * 1048576
+/**
+ * R phase (柵の外のリアリズム): the user raised the pack from 80 MB / 250 MB to 200 MB / 512 MB to
+ * make room for the photoreal trees, road-side furniture, houses and vehicles. Download size is
+ * what a first visit pays; the VRAM figure is the RGBA8-equivalent estimate below.
+ */
+const BUDGET_BYTES = 200 * 1048576
+const BUDGET_VRAM = 512 * 1048576
 /** Textures inside models are capped at this unless the source sets a smaller `maxTex`. */
 const MAX_MODEL_TEX = 1024
 const MIP_OVERHEAD = 1.33
 /**
  * Bytes per texel resident on the GPU. KTX2 (Basis-LZ / UASTC) transcodes to BC7 or ASTC 4×4 on
- * desktop three (8 bpp; older GPUs get BC1/ETC1 at 4 bpp, so 1 B/px is the ceiling); images that
- * are still PNG/JPEG/WebP inside a GLB are decoded and uploaded as RGBA8. The plan's 250 MB is a
- * budget for real VRAM — measured strictly as RGBA8 the 32 planned textures alone would be 229 MB.
+ * desktop three (8 bpp; older GPUs get BC1/ETC1 at 4 bpp, so 1 B/px is the ceiling) — whether it
+ * is a stand-alone .ktx2 or a KHR_texture_basisu image inside a GLB; images that are still
+ * PNG/JPEG/WebP (inside a GLB, or a `pixels: true` texture) are decoded and uploaded as RGBA8.
+ * The budget is for real VRAM — measured strictly as RGBA8 the pack would be far over.
  */
 const BYTES_PER_TEXEL = { ktx2: 1, uncompressed: 4 }
 
@@ -113,10 +128,21 @@ async function packArm (spec, locate, target) {
   return { data: out, width, height, channels: 3, packed: { ao: !!ao, metal: !!metal }, sourceWidth: rough.sourceWidth, sourceHeight: rough.sourceHeight }
 }
 
-/** Encode raw pixels to KTX2 (preferred) or WebP; returns { buffer, ext, format }. */
-async function encodeTexture (raw, role, name) {
+/**
+ * Encode raw pixels to KTX2 (preferred) or WebP; returns { buffer, ext, format }. `pixels`
+ * sources always get WebP — lossless at ≤ 512², near-lossless q90 above — because the runtime
+ * reads them back with drawImage, which no GPU-compressed format allows.
+ */
+async function encodeTexture (raw, role, name, { pixels = false } = {}) {
   const srgb = role === 'diff'
   const { data, width, height, channels } = raw
+  if (pixels) {
+    const lossless = Math.max(width, height) <= 512
+    const buffer = await sharp(data, { raw: { width, height, channels } })
+      .webp(lossless ? { lossless: true, effort: 6 } : { quality: 90, nearLossless: true, effort: 6 })
+      .toBuffer()
+    return { buffer, ext: 'webp', format: 'webp' }
+  }
   const png = sharp(data, { raw: { width, height, channels } }).png({ compressionLevel: 3 })
   if (ktx) {
     const dir = ensureDir(join(WORK, 'tex'))
@@ -158,6 +184,7 @@ function verifyKtx2 (buffer, label, srgb) {
 async function importTexture (src, assets) {
   const assetName = src.key.split('/')[1]
   const target = RES_PX[src.res]
+  if (!target) throw new Error(`${src.key}: res ${src.res} is not one of ${Object.keys(RES_PX).join('/')}`)
   const dlDir = join(DL, src.key)
   let locate
   let zipUrl
@@ -203,7 +230,7 @@ async function importTexture (src, assets) {
       }
     }
     const name = `${assetName}_${role}`
-    const enc = await encodeTexture(raw, role, name)
+    const enc = await encodeTexture(raw, role, name, { pixels: !!src.pixels })
     const hash = sha256(enc.buffer)
     const file = `${name}.${hash.slice(0, 8)}.${enc.ext}`
     ensureDir(OUT_TEX)
@@ -223,6 +250,8 @@ async function importTexture (src, assets) {
       // Source width / height — the physical tile is `tile` × `tile / aspect` metres.
       ...(raw.sourceWidth !== raw.sourceHeight ? { aspect: Number((raw.sourceWidth / raw.sourceHeight).toFixed(4)) } : {}),
       ...(raw.packed ? { packed: raw.packed } : {}),
+      // `pixels`: shipped as WebP so the runtime can read the texels back (facade array layers).
+      ...(src.pixels ? { pixels: true } : {}),
       source: {
         site: src.site,
         name: src.name,
@@ -234,6 +263,7 @@ async function importTexture (src, assets) {
         sha256Source: src.zip ? sha256File(join(dlDir, src.zip)) : sha256File(sourceFile),
       },
       modified: true,
+      ...(src.pixels ? { modifications: ['resized / repacked (lossless WebP)'] } : {}),
     }
     console.log(`  ${role.padEnd(8)} ${raw.width}×${raw.height} ${enc.format.padEnd(5)} ${fmtKB(enc.buffer.length).padStart(8)}  ${file}`)
   }
@@ -242,38 +272,168 @@ async function importTexture (src, assets) {
 // ---------------------------------------------------------------------------------------------
 // Models
 
+/** `{ width, height, format }` of every image in a glTF/GLB; KTX2 (KHR_texture_basisu) read from its header. */
 async function textureDims (file) {
   const dims = []
   for (const img of gltfImages(file)) {
-    const m = await sharp(img).metadata()
-    dims.push({ width: m.width, height: m.height })
+    if (img.format === 'ktx2') dims.push({ width: img.width, height: img.height, format: 'ktx2' })
+    else {
+      const m = await sharp(img.data).metadata()
+      dims.push({ width: m.width, height: m.height, format: img.format === 'unknown' ? (m.format ?? 'unknown') : img.format })
+    }
   }
   return dims
 }
 
-/** gltf/glb → meshopt GLB in public/assets/models; returns the manifest fragment. */
-async function packModel (input, outName, maxTex = MAX_MODEL_TEX) {
+const fmtRe = (re) => (re instanceof RegExp ? re.source : String(re))
+/** Source fields documented as RegExp also accept a pattern string (case-insensitive). */
+const toRe = (v) => (v == null || v instanceof RegExp ? v : new RegExp(String(v), 'i'))
+
+/**
+ * Prepare stage: node selection and image overrides on the parsed JSON, before anything is
+ * packed. `keepNodes` / `dropNodes` are tested on the node's full name path (`Root/Pine_1/LOD0`,
+ * as inspect-model.mjs prints it) — a dropped node just loses its mesh, gltf-transform prune
+ * then removes the mesh, its accessors, materials and images, and the empty leaf node.
+ * `overrideImages` swaps an image's bytes for a file next to the source (a re-drawn atlas).
+ */
+function prepareModel (model, src, srcDir) {
+  const notes = []
+  const { json } = model
+  if (src.dropNodes || src.keepNodes) {
+    const keep = toRe(src.keepNodes)
+    const drop = toRe(src.dropNodes)
+    const nodes = json.nodes ?? []
+    let dropped = 0
+    let kept = 0
+    const visit = (i, path) => {
+      const n = nodes[i]
+      const p = path ? `${path}/${n.name || '(unnamed)'}` : (n.name || '(unnamed)')
+      if (n.mesh != null) {
+        if ((keep && !keep.test(p)) || (drop && drop.test(p))) { delete n.mesh; delete n.skin; delete n.weights; dropped++ } else kept++
+      }
+      for (const c of n.children ?? []) visit(c, p)
+    }
+    for (const scene of json.scenes ?? []) for (const r of scene.nodes ?? []) visit(r, '')
+    if (!kept) throw new Error(`keepNodes / dropNodes left no mesh node (keep ${fmtRe(src.keepNodes)}, drop ${fmtRe(src.dropNodes)})`)
+    notes.push(`${dropped} mesh nodes dropped (${[src.keepNodes && `keep /${fmtRe(src.keepNodes)}/`, src.dropNodes && `drop /${fmtRe(src.dropNodes)}/`].filter(Boolean).join(', ')})`)
+  }
+  if (src.overrideImages) {
+    for (const [sel, rel] of Object.entries(src.overrideImages)) {
+      const idx = selectImages(model, /^\d+$/.test(sel) ? Number(sel) : sel)
+      if (!idx.length) throw new Error(`overrideImages: no image matches ${sel}`)
+      const file = join(srcDir, rel)
+      if (!existsSync(file)) throw new Error(`overrideImages: ${file} missing`)
+      const data = readFileSync(file)
+      const { format } = sniffImage(data)
+      if (!MIME_BY_FORMAT[format]) throw new Error(`overrideImages: ${rel} is not PNG / JPEG / WebP / KTX2`)
+      for (const i of idx) model.images[i] = { ...model.images[i], data, format, mimeType: MIME_BY_FORMAT[format] }
+    }
+    notes.push(`images replaced (${Object.values(src.overrideImages).join(', ')})`)
+  }
+  return notes
+}
+
+/**
+ * Texture encode stage: KTX2 inside the GLB. Normal maps and the base colour of MASK / BLEND
+ * materials (leaf cards, fences) default to UASTC — ETC1S smears tangent gradients and eats the
+ * alpha edge — everything else to ETC1S. gltf-transform can only select textures by slot or by
+ * image name, so the images are tagged `__tx<i>__` for the run and renamed back afterwards.
+ * Already-KTX2 images are skipped by gltf-transform, which is what makes two passes possible.
+ */
+function encodeModelTextures (cur, work, enc) {
+  if (!ktx) throw new Error('texEncode needs the ktx CLI (misc/tools/ktx/bin or $KTX_BIN)')
+  const model = readModel(cur)
+  const uses = imageUses(model.json)
+  const mode = { default: enc.default ?? 'etc1s', normal: enc.normal ?? 'uastc', alpha: enc.alpha ?? 'uastc' }
+  for (const [k, v] of Object.entries(mode)) if (!['etc1s', 'uastc', 'none'].includes(v)) throw new Error(`texEncode.${k}: ${v} is not etc1s / uastc / none`)
+  const plan = model.images.map((img, i) => {
+    if (img.format === 'ktx2' || !uses[i].length) return 'none'
+    const encoders = uses[i].map(u => mode[/normalTexture$/i.test(u.slot) ? 'normal' : u.alphaMode !== 'OPAQUE' && /(baseColor|diffuse)Texture$/i.test(u.slot) ? 'alpha' : 'default'])
+    return encoders.includes('uastc') ? 'uastc' : encoders.every(e => e === 'none') ? 'none' : 'etc1s'
+  })
+  const names = model.images.map(img => img.name)
+  model.images.forEach((img, i) => { img.name = `${img.name}__tx${i}__` })
+  let file = join(work, 'tagged.glb')
+  writeGlb(file, model)
+  const passes = [
+    ['uastc', ['--level', '2', '--zstd', '18']],
+    ['etc1s', enc.quality ? ['--quality', String(enc.quality)] : []],
+  ]
+  for (const [encoder, args] of passes) {
+    const idx = plan.map((e, i) => (e === encoder ? i : -1)).filter(i => i >= 0)
+    if (!idx.length) continue
+    const out = join(work, `${encoder}.glb`)
+    // micromatch with `contains`: a bare token or a brace list of tokens, matched on the image name.
+    const pattern = idx.length === plan.length ? [] : ['--pattern', idx.length === 1 ? `__tx${idx[0]}__` : `{${idx.map(i => `__tx${i}__`).join(',')}}`]
+    npx(GLTF_TRANSFORM, [encoder, file, out, ...args, ...pattern], { env: ktxEnv() })
+    file = out
+  }
+  const done = readModel(file)
+  done.images.forEach((img, i) => { img.name = names[i] })
+  for (const [i, img] of done.images.entries()) if (plan[i] !== 'none' && img.format !== 'ktx2') throw new Error(`texEncode: image ${i} (${names[i]}) is still ${img.format} after ${plan[i]}`)
+  const encoded = join(work, 'encoded.glb')
+  writeGlb(encoded, done)
+  const counts = Object.fromEntries(['uastc', 'etc1s'].map(e => [e, plan.filter(p => p === e).length]).filter(([, n]) => n))
+  return { file: encoded, note: `textures GPU-compressed to KTX2 (${Object.entries(counts).map(([e, n]) => `${n} ${e}`).join(', ')})` }
+}
+
+/**
+ * gltf/glb → meshopt GLB in public/assets/models; returns the manifest fragment. `src` is the
+ * sources.mjs entry: every stage below is skipped unless its field is set, so an entry with
+ * nothing but `maxTex` produces the same GLB as before (plus `-km`). `srcDir` is where
+ * `overrideImages` paths resolve.
+ */
+async function packModel (input, outName, src = {}, srcDir = dirname(input)) {
+  const maxTex = src.maxTex ?? MAX_MODEL_TEX
   const work = ensureDir(join(WORK, 'models', outName))
-  let src = input
-  const dims = await textureDims(input)
+  const modifications = ['meshopt compression (gltfpack -cc)']
+  let cur = input
+  if (src.dropNodes || src.keepNodes || src.overrideImages) {
+    const model = readModel(cur)
+    modifications.push(...prepareModel(model, src, srcDir))
+    const prepared = join(work, 'prepared.glb')
+    writeGlb(prepared, model)
+    const pruned = join(work, 'pruned.glb')
+    npx(GLTF_TRANSFORM, ['prune', prepared, pruned])
+    cur = pruned
+  }
+  const dims = await textureDims(cur)
   if (dims.some(d => Math.max(d.width, d.height) > maxTex)) {
     const resized = join(work, 'resized.glb')
-    npx(GLTF_TRANSFORM, ['resize', input, resized, '--width', String(maxTex), '--height', String(maxTex)])
-    src = resized
+    npx(GLTF_TRANSFORM, ['resize', cur, resized, '--width', String(maxTex), '--height', String(maxTex)])
+    cur = resized
+    modifications.push(`textures resized to ≤ ${maxTex} px`)
+  }
+  if (src.retouch || src.dropParts) {
+    const model = readModel(cur)
+    const r = await retouchModel(model, { retouch: src.retouch, dropParts: src.dropParts })
+    const retouched = join(work, 'retouched.glb')
+    writeGlb(retouched, model)
+    cur = retouched
+    if (r.retouched) modifications.push(`trademarks retouched (${src.retouch.reduce((n, op) => n + op.rects.length, 0)} rectangles blurred / filled)`)
+    if (src.dropParts) modifications.push(`parts dropped (${r.dropped} primitives matching /${fmtRe(src.dropParts)}/)`)
+  }
+  if (src.texEncode) {
+    const r = encodeModelTextures(cur, work, src.texEncode)
+    cur = r.file
+    modifications.push(r.note)
   }
   const packed = join(work, 'packed.glb')
   // -cc: meshopt compression (textures are embedded in .glb output by default), -kn: keep node
   // names so a pack that holds several trees stays addressable per node (gltfpack would
-  // otherwise merge everything into one mesh). No -si: nothing is simplified.
-  npx(GLTFPACK, ['-i', src, '-o', packed, '-cc', '-kn'])
+  // otherwise merge everything into one mesh), -km: keep material names — the runtime tells
+  // bark from leaves by them. Nothing is simplified unless the source asks (`simplify`).
+  const simplify = src.simplify != null ? ['-si', String(src.simplify)] : []
+  npx(GLTFPACK, ['-i', cur, '-o', packed, '-cc', '-kn', '-km', ...simplify])
+  if (simplify.length) modifications.push(`simplified to ${src.simplify} of the triangles (gltfpack -si)`)
   const buffer = readFileSync(packed)
   const hash = sha256(buffer)
   const file = `${outName}.${hash.slice(0, 8)}.glb`
   ensureDir(OUT_MODELS)
   writeFileSync(join(OUT_MODELS, file), buffer)
   const textures = await textureDims(packed)
-  console.log(`  ${outName.padEnd(34)} glb ${fmtKB(buffer.length).padStart(8)}  tex ${textures.map(t => `${t.width}×${t.height}`).join(' ') || '-'}  ${file}`)
-  return { path: `/assets/models/${file}`, bytes: buffer.length, textures, resized: src !== input }
+  console.log(`  ${outName.padEnd(34)} glb ${fmtKB(buffer.length).padStart(8)}  tex ${textures.map(t => `${t.width}×${t.height}${t.format === 'ktx2' ? 'k' : ''}`).join(' ') || '-'}  ${file}`)
+  return { path: `/assets/models/${file}`, bytes: buffer.length, textures, modifications }
 }
 
 function sourceBlock (src, extra) {
@@ -289,6 +449,21 @@ function sourceBlock (src, extra) {
   }
 }
 
+/** The manifest entry of one packed model. */
+function modelEntry (m, source) {
+  return {
+    kind: 'model',
+    path: m.path,
+    format: 'glb',
+    bytes: m.bytes,
+    role: 'model',
+    textures: m.textures,
+    source,
+    modified: true,
+    modifications: m.modifications,
+  }
+}
+
 async function importRemoteModel (src, assets) {
   const dir = join(DL, src.key)
   let input
@@ -301,22 +476,12 @@ async function importRemoteModel (src, assets) {
     if (!existsSync(input)) throw new Error(`${src.key}: ${input} missing — run fetch.mjs`)
   }
   const outName = src.key.split('/').slice(1).join('_')
-  const m = await packModel(input, outName, src.maxTex)
+  const m = await packModel(input, outName, src, dir)
   const rel = relative(dir, input).split('\\').join('/')
-  assets[src.key] = {
-    kind: 'model',
-    path: m.path,
-    format: 'glb',
-    bytes: m.bytes,
-    role: 'model',
-    textures: m.textures,
-    source: sourceBlock(src, {
-      url: dlIndex[`${src.key}/${rel}`]?.url ?? src.files?.[rel] ?? src.apiUrl,
-      sha256Source: sha256File(input),
-    }),
-    modified: true,
-    modifications: ['meshopt compression (gltfpack -cc)'].concat(m.resized ? [`textures resized to ≤ ${src.maxTex ?? MAX_MODEL_TEX} px`] : []),
-  }
+  assets[src.key] = modelEntry(m, sourceBlock(src, {
+    url: dlIndex[`${src.key}/${rel}`]?.url ?? src.files?.[rel] ?? src.apiUrl,
+    sha256Source: sha256File(input),
+  }))
 }
 
 /** Sketchfab's license.txt is the authoritative title / source / author for the credit line. */
@@ -334,55 +499,54 @@ function parseSketchfabLicence (text) {
 }
 
 async function importLocalModel (src, assets) {
+  const miscRel = (p) => relative(MISC, p).split('\\').join('/')
+
+  if (src.zip) {
+    const drop = findDrop(src.miscRoots, src.zip)
+    if (!drop) {
+      console.warn(`  ${src.key}: ${fmtRe(src.zip)} not found under misc/ (${src.miscRoots.join(', ')}) — skipped`)
+      return
+    }
+    const { root, file: zipFile } = drop
+    if (miscRel(root).startsWith('ref')) throw new Error(`${src.key}: refusing to import from misc/ref`)
+    const zipName = basename(zipFile)
+    const dir = join(WORK, 'zip', src.key.split('/').pop())
+    rmSync(dir, { recursive: true, force: true })
+    const members = zipExtract(zipFile, ensureDir(dir))
+    const licMember = members.find(m => basename(m).toLowerCase() === src.licenceFile.toLowerCase())
+    if (!licMember) throw new Error(`${src.key}: ${zipName} has no ${src.licenceFile}`)
+    const licText = readFileSync(join(dir, licMember), 'utf8')
+    if (!licText.includes(src.licenceMarker)) throw new Error(`${src.key}: ${src.licenceFile} does not say ${src.licenceMarker}`)
+    const parsed = parseSketchfabLicence(licText)
+    if (parsed.licence && parsed.licence !== src.licence) throw new Error(`${src.key}: licence file says ${parsed.licence}, sources.mjs says ${src.licence}`)
+    // Default entry: Sketchfab's scene.gltf, or the one .glb of a hand-made zip.
+    const entryMatch = src.entry ? nameMatcher(src.entry) : (name) => /^scene\.gltf$|\.glb$/i.test(name)
+    const entries = members.filter(m => /\.(gltf|glb)$/i.test(m) && entryMatch(basename(m)))
+    if (!entries.length) throw new Error(`${src.key}: ${src.entry ? fmtRe(src.entry) : 'scene.gltf / *.glb'} not in ${zipName}`)
+    if (entries.length > 1 && !src.entry) throw new Error(`${src.key}: ${zipName} has several models (${entries.join(', ')}) — set entry`)
+    const outName = src.key.split('/').slice(1).join('_')
+    const m = await packModel(join(dir, entries[0]), outName, src, root)
+    assets[src.key] = modelEntry(m, sourceBlock({
+      ...src,
+      name: parsed.title ?? src.name,
+      pageUrl: parsed.source ?? src.pageUrl,
+      author: parsed.author ?? src.author,
+      authorUrl: parsed.authorUrl ?? src.authorUrl,
+    }, {
+      url: parsed.source ?? src.pageUrl,
+      sha256Source: sha256File(zipFile),
+      miscPath: miscRel(zipFile),
+      licenceEvidence: `${zipName}!${licMember}`,
+    }))
+    return
+  }
+
   const root = src.miscRoots.map(r => join(MISC, r)).find(existsSync)
   if (!root) {
     console.warn(`  ${src.key}: not found under misc/ (${src.miscRoots.join(', ')}) — skipped`)
     return
   }
-  const miscRel = (p) => relative(MISC, p).split('\\').join('/')
   if (miscRel(root).startsWith('ref')) throw new Error(`${src.key}: refusing to import from misc/ref`)
-
-  if (src.zip) {
-    const zipFile = join(root, src.zip)
-    if (!existsSync(zipFile)) { console.warn(`  ${src.key}: ${src.zip} not found — skipped`); return }
-    const dir = join(WORK, 'zip', src.key.split('/').pop())
-    rmSync(dir, { recursive: true, force: true })
-    const members = zipExtract(zipFile, ensureDir(dir))
-    const licMember = members.find(m => basename(m).toLowerCase() === src.licenceFile.toLowerCase())
-    if (!licMember) throw new Error(`${src.key}: ${src.zip} has no ${src.licenceFile}`)
-    const licText = readFileSync(join(dir, licMember), 'utf8')
-    if (!licText.includes(src.licenceMarker)) throw new Error(`${src.key}: ${src.licenceFile} does not say ${src.licenceMarker}`)
-    const parsed = parseSketchfabLicence(licText)
-    if (parsed.licence && parsed.licence !== src.licence) throw new Error(`${src.key}: licence file says ${parsed.licence}, sources.mjs says ${src.licence}`)
-    const entry = members.find(m => basename(m) === src.entry)
-    if (!entry) throw new Error(`${src.key}: ${src.entry} not in ${src.zip}`)
-    const outName = src.key.split('/').slice(1).join('_')
-    const m = await packModel(join(dir, entry), outName, src.maxTex)
-    assets[src.key] = {
-      kind: 'model',
-      path: m.path,
-      format: 'glb',
-      bytes: m.bytes,
-      role: 'model',
-      textures: m.textures,
-      source: sourceBlock({
-        ...src,
-        name: parsed.title ?? src.name,
-        pageUrl: parsed.source ?? src.pageUrl,
-        author: parsed.author ?? src.author,
-        authorUrl: parsed.authorUrl ?? src.authorUrl,
-      }, {
-        url: parsed.source ?? src.pageUrl,
-        sha256Source: sha256File(zipFile),
-        miscPath: miscRel(zipFile),
-        licenceEvidence: `${src.zip}!${licMember}`,
-      }),
-      modified: true,
-      modifications: ['meshopt compression (gltfpack -cc)'].concat(m.resized ? [`textures resized to ≤ ${src.maxTex ?? MAX_MODEL_TEX} px`] : []),
-    }
-    return
-  }
-
   const licFile = join(root, src.licenceFile)
   if (!existsSync(licFile) || !readFileSync(licFile, 'utf8').includes(src.licenceMarker)) {
     throw new Error(`${src.key}: ${licFile} missing or does not say ${src.licenceMarker}`)
@@ -395,23 +559,13 @@ async function importLocalModel (src, assets) {
     const input = join(root, globDir, f)
     const sub = src.subKey(f)
     const outName = `${src.key.split('/').slice(1).join('_')}_${sub}`
-    const m = await packModel(input, outName, src.maxTex)
-    assets[`${src.key}/${sub}`] = {
-      kind: 'model',
-      path: m.path,
-      format: 'glb',
-      bytes: m.bytes,
-      role: 'model',
-      textures: m.textures,
-      source: sourceBlock(src, {
-        url: src.pageUrl,
-        sha256Source: sha256File(input),
-        miscPath: miscRel(input),
-        licenceEvidence: miscRel(licFile),
-      }),
-      modified: true,
-      modifications: ['meshopt compression (gltfpack -cc)'],
-    }
+    const m = await packModel(input, outName, src, root)
+    assets[`${src.key}/${sub}`] = modelEntry(m, sourceBlock(src, {
+      url: src.pageUrl,
+      sha256Source: sha256File(input),
+      miscPath: miscRel(input),
+      licenceEvidence: miscRel(licFile),
+    }))
   }
 }
 
@@ -635,8 +789,20 @@ function check () {
         } catch (err) { warn(err.message) }
       }
     } else {
-      // Model textures stay PNG/JPEG inside the GLB → decoded to RGBA8 on upload.
-      for (const t of a.textures ?? []) texVram(t.width, t.height, 'uncompressed')
+      // Model textures: PNG/JPEG inside the GLB → decoded to RGBA8 on upload; KTX2
+      // (KHR_texture_basisu, `texEncode`) → transcoded like a stand-alone .ktx2, and its mip
+      // chain is verified the same way.
+      for (const t of a.textures ?? []) texVram(t.width, t.height, t.format === 'ktx2' ? 'ktx2' : 'uncompressed')
+      if ((a.textures ?? []).some(t => t.format === 'ktx2')) {
+        try {
+          const imgs = gltfImages(file)
+          if (imgs.length !== a.textures.length) warn(`${key}: ${imgs.length} images in the GLB, manifest lists ${a.textures.length}`)
+          imgs.forEach((img, i) => {
+            if (img.format !== (a.textures[i]?.format ?? 'ktx2') && a.textures[i]) warn(`${key}: image ${i} is ${img.format}, manifest says ${a.textures[i].format}`)
+            if (img.format === 'ktx2') verifyKtx2(img.data, `${key} image ${i}`)
+          })
+        } catch (err) { warn(err.message) }
+      }
     }
   }
   if (bytes > BUDGET_BYTES) warn(`public/assets is ${fmtMB(bytes)} > budget ${fmtMB(BUDGET_BYTES)}`)

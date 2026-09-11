@@ -116,7 +116,7 @@ export type SurTags = Record<string, string>
 export interface SurFeatureBase {
   /** OSM way id — a polyline cut into several pieces (rect / tunnel) repeats its id */
   id: number
-  /** the tag subset worth shipping (name, the classifying key, levels / height / roof …); keys already expressed by `kind` / `width` are not repeated */
+  /** the tag subset worth shipping (name, the classifying key, levels / height / roof …); the key `kind` expresses (highway / waterway / railway) is not repeated */
   tags: SurTags
   /** vertex stream, see `decodeEN` / `enRing`; polygons are counter-clockwise in EN with no repeated closing vertex */
   en: string
@@ -140,13 +140,17 @@ export interface SurPolygon extends SurFeatureBase {
 export interface SurWay extends SurFeatureBase {
   /** highway class (`trunk` … `track`, `raceway`), `river` / `stream`, or `rail` */
   kind: string
-  /** m — the class width, or lanes × LANE_WIDTH + LANE_EXTRA when the way carries `lanes` */
+  /**
+   * m — roads: `roadSectionOf(kind, tags).paved` (surroundings-spec ROAD_SECTION applied to the
+   * shipped `oneway` / `lanes` / `surface` / `width` tags, so the runtime can recompute the whole
+   * section from the row); streams / rail: STREAM_WIDTH / RAIL_WIDTH
+   */
   width: number
 }
 
-/** Massing family the generator assigns from the tags and the footprint (plan §2c). */
+/** Massing family the generator assigns from the tags and the footprint (plan §2c); `greenhouse` is building=greenhouse (an arched sheet tunnel, not a walled mass). */
 export type SurBuildingKind =
-  | 'house' | 'industrial' | 'warehouse' | 'retail' | 'commercial' | 'hotel' | 'ride' | 'canopy' | 'school' | 'temple' | 'generic'
+  | 'house' | 'industrial' | 'warehouse' | 'retail' | 'commercial' | 'hotel' | 'ride' | 'canopy' | 'school' | 'temple' | 'greenhouse' | 'generic'
 
 export interface SurBuilding extends SurPolygon {
   kind: SurBuildingKind

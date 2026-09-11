@@ -43,7 +43,9 @@ pnpm perf       # dev サーバー（:3100）に対して perf-probe → perf-ga
 node scripts/assets/fetch.mjs                 # Poly Haven / ambientCG / poly.pizza から misc/dl/ へ取得（ハッシュ検証）
 node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアトラスを焼く（Playwright、SwiftShader で可）
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
-node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 80 MB）・VRAM 見積・KTX2 mip の検査
+node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 200 MB）・VRAM 見積（≤ 512 MB）・KTX2 mip の検査
+node scripts/assets/inspect-model.mjs misc/trees/<zip>   # ドロップした GLB/zip のノードパス・三角形数・material 名・画像を表示（sources.mjs の正規表現を書くため）
+node scripts/assets/retouch-glb.mjs --dump <in.glb> <dir>  # GLB 内テクスチャの書き出し（バッジ・ナンバープレートの矩形を決める）/ --spec で blur・fill・dropParts
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
 node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・GROUND_AREAS・周辺データの整合性
 node scripts/textures-lint.mjs                # テクスチャに描く文字列の商標リント（denylist / allow は scripts/trademark-*.json、1 秒未満）
@@ -204,6 +206,8 @@ app/
     landcover.ts               # 土地利用マスク（OSM の層を CPU スキャンラインで RGBA8 2 組に描く: 森・田・舗装・駐車場・水・太陽光・集落・縁線）と芝シェーダ用のディテールタイル
     farfield.ts                # 遠景の登録簿と遅延ビルド（250 m セルの LOD、ローディング後のタイムスライス）
     far-geometry.ts            # 地形の三角形に沿ってポリゴンを切る（`cellClippedPolygon`）: 区画の面と 140 m 圏を避け、standY に貼り、外周からスカートを立てる
+    far-lines.ts               # 遠景ビルダー共通の折れ線・立地ヘルパー（`resample`・`siteOk`・`KeepOutGrid`・`TriSink`）— outskirts / roads / forest / terrain-side が共用
+    model-proto.ts             # GLB → インスタンス用プロトタイプ（int16 属性の拡張・material 分割・ノードパス選択・原点合わせ・頂点色の保持）— 樹木・小物・車体が共用
     surroundings.ts            # 柵の外のビルダーの入口（'buildings' → 'dressing' の順に buildings / vehicles / outskirts を遅延登録）
     forest.ts                  # 森（OSM の森ポリゴン）: 250 m セルの樹冠マス・森床・手続き幹・近景の GLB 幹の 3 段 LOD
     buildings.ts               # 柵の外の建物: 種別ごとのマッシング（寄棟瓦・パラペット＋金属屋根・窓帯・キャノピー）、7 層の facade 配列テクスチャ、モートピアのコースターとプール、キャンプ場
@@ -240,7 +244,7 @@ scripts/
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
   facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生
-  assets/                      # fetch / import-misc / bake-crowd-atlas / bake-car-atlas / sources（アセットパイプライン）
+  assets/                      # fetch / import-misc / bake-crowd-atlas / bake-car-atlas / sources（アセットパイプライン）、inspect-model（ドロップの中身）、retouch-glb（GLB 内画像の矩形修正・部品の削除）
   facilities/                  # build-facilities（Overpass → TS）、build-power、build-surroundings（柵の外の OSM → suzuka-surroundings.ts）、osm-common（Overpass 取得・EN 投影・DP・int16 デルタの共通部）、
                                #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge

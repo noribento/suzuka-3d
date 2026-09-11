@@ -15,13 +15,33 @@
  * R = ambient occlusion (1.0 when the source has none), G = roughness, B = metalness (0 when
  * absent), opacity → linear cut-out mask.
  *
- * Only '2k' for the hero grass; everything else ships at 1K (budget §6: ≤ 80 MB, ≤ 250 MB RGBA8).
+ * Texture fields: `res` is the shipped size ('512' | '1k' | '2k' | '4k'), `fetchRes` the size in
+ * the download URL when the site has no file at `res` (Poly Haven has no _512: fetch 1k, ship
+ * 512); `pixels: true` ships WebP (lossless ≤ 512²) instead of KTX2 for textures the runtime
+ * reads back with drawImage (building facade array layers).
+ * Model fields (all optional; import-misc.mjs `packModel` runs them in this order):
+ *   dropNodes / keepNodes  RegExp on the node's full name path (`Root/Pine_1/LOD2`, see
+ *                          inspect-model.mjs) — drop LOD / billboard / season variants at import
+ *   overrideImages         { '<image index | name regex>': 'file relative to the drop dir' }
+ *   maxTex                 cap for textures inside the GLB (default 1024)
+ *   retouch / dropParts    trademark surgery (retouch-glb.mjs: UV rectangles blurred / filled,
+ *                          primitives dropped by material / mesh name regex)
+ *   texEncode              { default?, normal?, alpha?: 'etc1s' | 'uastc' | 'none', quality? } →
+ *                          KTX2 inside the GLB (normal + alpha-tested default to uastc, rest
+ *                          etc1s; `quality` is the etc1s qlevel); absent = textures stay PNG/JPEG
+ *   simplify               0–1 → gltfpack -si (triangle ratio to keep)
+ * misc-local: `zip` / `entry` may be a glob-like string or RegExp (Sketchfab zip names vary);
+ * the first match directly under the first existing `miscRoots` entry wins (convention:
+ * ['<group>/<id>', '<group>', '.']); `entry` defaults to scene.gltf or the single *.glb.
+ *
+ * Only '2k' for the hero grass; everything else ships at 1K or 512 (budget: ≤ 200 MB on disk,
+ * ≤ 512 MB RGBA8-equivalent VRAM, enforced by import-misc.mjs --check).
  */
 
 /** User-Agent for every request: poly.pizza needs the Mozilla prefix, Wikimedia wants a contact. */
 export const UA = 'Mozilla/5.0 (compatible; suzuka3d/0.1; +mailto:bhyg756@gmail.com)'
 
-export const RES_PX = { '1k': 1024, '2k': 2048, '4k': 4096 }
+export const RES_PX = { 512: 512, '1k': 1024, '2k': 2048, '4k': 4096 }
 
 /** Licences that may ever reach public/assets (checked by `import-misc.mjs --check`). */
 export const LICENCES = {
@@ -33,9 +53,12 @@ export const LICENCES = {
 
 const PH_TEX = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg'
 
-/** Poly Haven texture: predictable URL template, three maps (diff / nor_gl / arm). */
-function polyhavenTexture (id, { name, author, res = '1k', tile, use }) {
-  const f = (map) => `${id}_${map}_${res}.jpg`
+/**
+ * Poly Haven texture: predictable URL template, three maps (diff / nor_gl / arm). Smallest
+ * published size is 1k, so a 512 entry sets `fetchRes: '1k'` (the default when `res` is 512).
+ */
+function polyhavenTexture (id, { name, author, res = '1k', fetchRes = RES_PX[res] < 1024 ? '1k' : res, tile, use, pixels }) {
+  const f = (map) => `${id}_${map}_${fetchRes}.jpg`
   return {
     key: `tex/${id}`,
     kind: 'texture',
@@ -47,19 +70,22 @@ function polyhavenTexture (id, { name, author, res = '1k', tile, use }) {
     licence: 'CC0-1.0',
     resolver: 'direct',
     res,
+    ...(fetchRes !== res ? { fetchRes } : {}),
+    ...(pixels ? { pixels: true } : {}),
     tile,
     use,
-    files: Object.fromEntries(['diff', 'nor_gl', 'arm'].map(m => [f(m), `${PH_TEX}/${res}/${id}/${f(m)}`])),
+    files: Object.fromEntries(['diff', 'nor_gl', 'arm'].map(m => [f(m), `${PH_TEX}/${fetchRes}/${id}/${f(m)}`])),
     maps: { diff: f('diff'), nor_gl: f('nor_gl'), arm: f('arm') },
   }
 }
 
 /**
  * ambientCG texture: one zip per resolution behind a 302. Map values are member-name suffixes;
- * a trailing '?' marks an optional member (packed with a neutral value when missing).
+ * a trailing '?' marks an optional member (packed with a neutral value when missing). Like Poly
+ * Haven, 1K is the smallest zip, so `res: '512'` fetches 1K.
  */
-function ambientcgTexture (id, { name, res = '1k', tile, use, maps }) {
-  const zip = `${id}_${res.toUpperCase()}-JPG.zip`
+function ambientcgTexture (id, { name, res = '1k', fetchRes = RES_PX[res] < 1024 ? '1k' : res, tile, use, maps, pixels }) {
+  const zip = `${id}_${fetchRes.toUpperCase()}-JPG.zip`
   return {
     key: `tex/${id.toLowerCase()}`,
     kind: 'texture',
@@ -71,6 +97,8 @@ function ambientcgTexture (id, { name, res = '1k', tile, use, maps }) {
     licence: 'CC0-1.0',
     resolver: 'ambientcg-redirect',
     res,
+    ...(fetchRes !== res ? { fetchRes } : {}),
+    ...(pixels ? { pixels: true } : {}),
     tile,
     use,
     files: { [zip]: `https://ambientcg.com/get?file=${zip}` },
@@ -79,11 +107,12 @@ function ambientcgTexture (id, { name, res = '1k', tile, use, maps }) {
   }
 }
 
-/** poly.pizza GLB (Quaternius CC0 mirror). `publicId` is the page slug, `resourceId` the file. */
-function polypizzaModel (key, { name, publicId, resourceId, author = 'Quaternius', use, maxTex }) {
+/** poly.pizza GLB (Quaternius CC0 mirror). `publicId` is the page slug, `resourceId` the file; `pack` = model fields above. */
+function polypizzaModel (key, { name, publicId, resourceId, author = 'Quaternius', use, maxTex, ...pack }) {
   const file = `${key.split('/').pop()}.glb`
   return {
     ...(maxTex ? { maxTex } : {}),
+    ...pack,
     key,
     kind: 'model',
     site: 'poly.pizza',
@@ -99,10 +128,11 @@ function polypizzaModel (key, { name, publicId, resourceId, author = 'Quaternius
   }
 }
 
-/** Poly Haven model: the .bin folder is not derivable, so fetch.mjs resolves it via the API. */
-function polyhavenModel (id, { name, author, res = '1k', use, maxTex }) {
+/** Poly Haven model: the .bin folder is not derivable, so fetch.mjs resolves it via the API. `pack` = model fields above. */
+function polyhavenModel (id, { name, author, res = '1k', use, maxTex, ...pack }) {
   return {
     ...(maxTex ? { maxTex } : {}),
+    ...pack,
     key: `model/${use.startsWith('veg') ? 'veg' : 'props'}/${id}`,
     kind: 'model',
     site: 'Poly Haven',
@@ -196,9 +226,10 @@ export const SOURCES = [
   polyhavenModel('shrub_03', { name: 'Shrub 03', author: 'Rico Cilliers', use: 'veg: undergrowth along the tree line' }),
 
   // ---- props (small objects seen from > 20 m: 512 px textures) -------------------------------
-  polyhavenModel('concrete_road_barrier', { maxTex: 512, name: 'Concrete Road Barrier', author: 'Rico Cilliers', use: 'props: pit entry / paddock separation blocks' }),
-  polyhavenModel('security_camera_01', { maxTex: 512, name: 'Security Camera 01', author: 'Rico Cilliers', use: 'props: trackside TV camera stand-in' }),
-  polyhavenModel('street_lamp_02', { maxTex: 512, name: 'Street Lamp 02', author: 'Rico Cilliers', use: 'props: paddock / car-park lighting' }),
+  // Authors as api.polyhaven.com/info/<id> lists them (`authors`), verified 2026-09-11.
+  polyhavenModel('concrete_road_barrier', { maxTex: 512, name: 'Concrete Road Barrier', author: 'Amal Kumar', use: 'props: pit entry / paddock separation blocks' }),
+  polyhavenModel('security_camera_01', { maxTex: 512, name: 'Security Camera 01', author: 'Alexander Otterbeck, Yann Kervran', use: 'props: trackside TV camera stand-in' }),
+  polyhavenModel('street_lamp_02', { maxTex: 512, name: 'Street Lamp 02', author: 'Josh Dean', use: 'props: paddock / car-park lighting' }),
 
   // ---- reference-only downloads (kept in misc/dl, never imported) ----------------------------
   {

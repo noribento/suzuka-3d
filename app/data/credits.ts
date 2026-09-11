@@ -103,13 +103,13 @@ export const CREDITS: Credit[] = [
   {
     kind: 'asset',
     title: 'Concrete Road Barrier',
-    author: 'Rico Cilliers',
+    author: 'Amal Kumar',
     url: 'https://polyhaven.com/a/concrete_road_barrier',
     site: 'Poly Haven',
     licence: 'CC0-1.0',
     licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
     modified: true,
-    attribution: '"Concrete Road Barrier" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
+    attribution: '"Concrete Road Barrier" by Amal Kumar (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
   },
   {
     kind: 'asset',
@@ -147,13 +147,13 @@ export const CREDITS: Credit[] = [
   {
     kind: 'asset',
     title: 'Security Camera 01',
-    author: 'Rico Cilliers',
+    author: 'Alexander Otterbeck, Yann Kervran',
     url: 'https://polyhaven.com/a/security_camera_01',
     site: 'Poly Haven',
     licence: 'CC0-1.0',
     licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
     modified: true,
-    attribution: '"Security Camera 01" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
+    attribution: '"Security Camera 01" by Alexander Otterbeck, Yann Kervran (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
   },
   {
     kind: 'asset',
@@ -169,13 +169,13 @@ export const CREDITS: Credit[] = [
   {
     kind: 'asset',
     title: 'Street Lamp 02',
-    author: 'Rico Cilliers',
+    author: 'Josh Dean',
     url: 'https://polyhaven.com/a/street_lamp_02',
     site: 'Poly Haven',
     licence: 'CC0-1.0',
     licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
     modified: true,
-    attribution: '"Street Lamp 02" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
+    attribution: '"Street Lamp 02" by Josh Dean (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
   },
   {
     kind: 'asset',
@@ -362,4 +362,4 @@ export const CREDITS: Credit[] = [
   },
 ]
 
-export const ASSETS_GENERATED = '2026-09-10T11:37:36.769Z'
+export const ASSETS_GENERATED = '2026-09-11T11:08:31.999Z'

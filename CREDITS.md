@@ -28,7 +28,7 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - "Asphalt Pit Lane" by Dimitrios Savva (Poly Haven, https://polyhaven.com/a/asphalt_pit_lane), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_pit_lane/arm`, `tex/asphalt_pit_lane/diff`, `tex/asphalt_pit_lane/nor_gl`
-- "Concrete Road Barrier" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
+- "Concrete Road Barrier" by Amal Kumar (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/concrete_road_barrier`
 - "Grass Medium 01 (dry albedo + alpha)" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/grass_medium_01), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/grass_medium_01/diff`, `tex/grass_medium_01/opacity`
@@ -36,11 +36,11 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plaster_grey_04/arm`, `tex/plaster_grey_04/diff`, `tex/plaster_grey_04/nor_gl`
 - "Preconcrete Wall 001 Long" by Dimitrios Savva, Rico Cilliers (Poly Haven, https://polyhaven.com/a/preconcrete_wall_001_long), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/preconcrete_wall_001_long/arm`, `tex/preconcrete_wall_001_long/diff`, `tex/preconcrete_wall_001_long/nor_gl`
-- "Security Camera 01" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
+- "Security Camera 01" by Alexander Otterbeck, Yann Kervran (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/security_camera_01`
 - "Shrub 03" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/shrub_03), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/veg/shrub_03`
-- "Street Lamp 02" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
+- "Street Lamp 02" by Josh Dean (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/street_lamp_02`
 - "White Plaster 02" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/white_plaster_02), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/white_plaster_02/arm`, `tex/white_plaster_02/diff`, `tex/white_plaster_02/nor_gl`
@@ -94,4 +94,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-10T11:37:36.769Z · 77 files · 29.67 MB
+Generated 2026-09-11T11:08:31.999Z · 77 files · 29.67 MB

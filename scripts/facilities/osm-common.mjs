@@ -152,13 +152,26 @@ export function wayToEN(el) {
   return { en, closed }
 }
 
-/** Douglas–Peucker on an open polyline (endpoints kept). */
-export function simplifyLine(pts, tol) {
+/**
+ * Douglas–Peucker on an open polyline (endpoints kept). `protect` is an optional array-like of
+ * per-vertex flags (same length as `pts`): truthy vertices are kept and split the recursion
+ * exactly like the endpoints do — the deviation of the others is measured from the chords
+ * between them. build-surroundings.mjs flags the junction nodes of the road network with it, so
+ * two ways that share an OSM node still meet at that vertex after each was simplified alone.
+ * Points may carry extra elements past [x, y] (a node id); they are passed through untouched.
+ */
+export function simplifyLine(pts, tol, protect) {
   if (pts.length < 3 || tol <= 0) return pts.slice()
   const keep = new Uint8Array(pts.length)
   keep[0] = 1
   keep[pts.length - 1] = 1
-  const stack = [[0, pts.length - 1]]
+  if (protect) for (let i = 0; i < pts.length; i++) if (protect[i]) keep[i] = 1
+  const stack = []
+  for (let i = 1, a = 0; i < pts.length; i++) {
+    if (!keep[i]) continue
+    stack.push([a, i])
+    a = i
+  }
   while (stack.length) {
     const [a, b] = stack.pop()
     if (b - a < 2) continue

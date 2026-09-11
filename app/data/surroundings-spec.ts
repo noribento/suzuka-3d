@@ -9,22 +9,165 @@
 import type { SurBuildingKind } from './en-codec'
 
 // ---------------------------------------------------------------- roads / streams / rail
-/** Drawn width (m) per highway class; ways with `lanes` use LANE_WIDTH × lanes + LANE_EXTRA instead. */
-export const ROAD_WIDTH: Record<string, number> = {
-  trunk: 20, // 中勢バイパス, dual carriageway incl. the median
-  trunk_link: 20,
-  primary: 9,
-  secondary: 8,
-  tertiary: 7,
-  unclassified: 5.5,
-  residential: 5,
-  service: 4,
-  track: 3,
-  /** the south course / kart track / traffic-education loops outside the 150 m keep-out (hand-chosen) */
-  raceway: 10,
+/**
+ * The road cross-section per highway class — ONE table shared by the generator (`width` of a
+ * SUR_ROADS row is `roadSectionOf(kind, tags).paved`), the land-cover mask (it paints that
+ * width) and the ribbon builder (it draws the markings from the rest of the section), so the
+ * data, the mask and the paint can never disagree about how wide a road is. The numbers follow
+ * the Japanese rural standards (道路構造令 第 3 種): lane widths by class, 路肩 shoulders, and
+ * fixed widths for the classes OSM maps without a lane count. The 中勢バイパス is mapped as two
+ * one-way `trunk` carriageways with `lanes=1`, so its 20 m dual-carriageway width never applies;
+ * each carriageway is one 3.5 m lane between a 1.75 m stopping lane and a 0.75 m median shoulder.
+ */
+export const ROAD_SECTION = {
+  /** lane width (m) of the lane-based classes; the `lanes` tag sets the count (default 2, 1 when one-way) */
+  lane: { trunk: 3.5, primary: 3.25, secondary: 3.0, tertiary: 3.0, unclassified: 2.75 } as Record<string, number>,
+  /** shoulder (m) on each side of the lane-based classes (also the inset of the edge line); unclassified = 2 × 2.75 = 5.5 m, no marked shoulder */
+  shoulder: { trunk: 0.75, primary: 0.75, secondary: 0.75, tertiary: 0.5, unclassified: 0 } as Record<string, number>,
+  /** paved width (m) of the classes whose lane count is not meaningful; a parseable `width` tag overrides it */
+  fixed: { trunk_link: 6.0, residential: 5.0, service: 4.0, track: 3.0, raceway: 10 } as Record<string, number>,
+  /** a one-way trunk carriageway's shoulders (m): [outer stopping lane, median side] — the sum replaces 2 × shoulder */
+  onewayTrunkShoulders: [1.75, 0.75] as readonly [number, number],
+  /** painted median (m) added to a two-way trunk with `lanes` ≥ 4 */
+  median: 1.5,
+  /** a two-way road at least this wide (m) gets a dashed centre line; at `solidMin` it is solid */
+  centreMin: 5.5,
+  solidMin: 12,
+  /** classes with white edge lines (車道外側線), `shoulder` inside the paved edge */
+  edgeKinds: ['trunk', 'trunk_link', 'primary', 'secondary', 'tertiary'] as readonly string[],
+  /** classes that may carry an L-gutter band — the runtime turns it on inside the settle mask only */
+  gutterKinds: ['residential', 'unclassified'] as readonly string[],
+  /** `surface` values that make any class unsealed (gravel / dirt), and the ones that seal a `track` */
+  unsealed: ['unpaved', 'gravel', 'dirt', 'ground', 'grass', 'compacted', 'fine_gravel', 'sand', 'earth'] as readonly string[],
+  sealed: ['asphalt', 'paved', 'concrete', 'paving_stones'] as readonly string[],
+  /** classes that never get a centre line (a race course paints its own) */
+  unmarked: ['raceway'] as readonly string[],
+  /** junction precedence: the higher rank keeps its paved edge, the lower one is trimmed to it (also the drawn class list) */
+  rank: { trunk: 8, trunk_link: 7, primary: 6, secondary: 5, tertiary: 4, unclassified: 3, residential: 2, raceway: 2, service: 1, track: 0 } as Record<string, number>,
+  /** class rung over the base lift (m): 0 / 8 / 16 / 24 mm — every step ≥ LAYER_MIN_STEP so the class order holds under log depth too */
+  lift: { trunk: 0.024, trunk_link: 0.024, primary: 0.024, secondary: 0.016, tertiary: 0.016, raceway: 0.016, unclassified: 0.008, residential: 0.008, service: 0, track: 0 } as Record<string, number>,
+} as const
+
+/** The drawn cross-section of one road way (see `roadSectionOf`). */
+export interface RoadSection {
+  /** paved width incl. shoulders (m) */
+  paved: number
+  lanes: number
+  /** shoulder (m) each side — the regular one; a one-way trunk's outer stopping lane is `ROAD_SECTION.onewayTrunkShoulders[0]` */
+  shoulder: number
+  oneway: boolean
+  /** gravel / dirt (highway=track unless `surface` says paved, or any class with an unpaved `surface`) */
+  unsealed: boolean
+  centre: 'none' | 'dashed' | 'solid'
+  /** white edge lines (車道外側線) */
+  edgeLines: boolean
+  /** L-gutter band on residential roads in settlements (decided at runtime with the settle mask; this is the class permission) */
+  gutter: boolean
+  /** junction precedence: trunk 8 … track 0 */
+  rank: number
+  /** class rung over the base lift (m): 0 / 0.008 / 0.016 / 0.024 */
+  lift: number
 }
-export const LANE_WIDTH = 3.25
-export const LANE_EXTRA = 1.5
+
+/** truthy `oneway` values (`-1` is one-way against the way's direction; `reversible` / `alternating` are two-way here) */
+const ONEWAY = new Set(['yes', 'true', '1', '-1'])
+/** the leading number of a tag value (`6`, `6.5`, `6 m`), NaN otherwise */
+const num = (v: string | undefined): number => (v === undefined ? NaN : parseFloat(v))
+
+/**
+ * The cross-section of a highway way from its class and OSM tags, or null when the class is not
+ * drawn at all (motorway, living_street, footways …). Pure and deterministic: the generator calls
+ * it with the raw tags and ships `paved` as the row's `width`, the runtime calls it again with
+ * the shipped tag subset (`oneway`, `lanes`, `surface`, `width`) and gets the same section.
+ */
+export function roadSectionOf(kind: string, tags: Record<string, string>): RoadSection | null {
+  const R = ROAD_SECTION
+  const rank = R.rank[kind]
+  if (rank === undefined) return null
+  const oneway = ONEWAY.has(tags.oneway ?? '')
+  const surface = tags.surface
+  const unsealed = kind === 'track'
+    ? !(surface !== undefined && R.sealed.includes(surface))
+    : surface !== undefined && R.unsealed.includes(surface)
+  const lanesTag = parseInt(tags.lanes ?? '', 10)
+  const lanesGiven = Number.isFinite(lanesTag) && lanesTag > 0
+  let paved: number
+  let lanes: number
+  let shoulder: number
+  const laneW = R.lane[kind]
+  if (laneW !== undefined) {
+    lanes = lanesGiven ? lanesTag : oneway ? 1 : 2
+    shoulder = R.shoulder[kind]!
+    const shoulders = kind === 'trunk' && oneway ? R.onewayTrunkShoulders[0] + R.onewayTrunkShoulders[1] : 2 * shoulder
+    const median = kind === 'trunk' && !oneway && lanes >= 4 ? R.median : 0
+    paved = lanes * laneW + shoulders + median
+  } else {
+    // fixed classes: the width tag (when it parses to something plausible) wins over the class width
+    const w = num(tags.width)
+    paved = w >= 1.5 && w <= 40 ? w : R.fixed[kind]!
+    lanes = lanesGiven ? lanesTag : oneway || kind === 'service' || kind === 'track' ? 1 : 2
+    shoulder = kind === 'trunk_link' ? R.shoulder.trunk! : 0
+  }
+  paved = Math.round(paved * 10) / 10
+  const centre = unsealed || oneway || R.unmarked.includes(kind) || paved < R.centreMin ? 'none' : paved >= R.solidMin ? 'solid' : 'dashed'
+  return {
+    paved,
+    lanes,
+    shoulder,
+    oneway,
+    unsealed,
+    centre,
+    edgeLines: !unsealed && R.edgeKinds.includes(kind),
+    gutter: R.gutterKinds.includes(kind),
+    rank,
+    lift: R.lift[kind]!,
+  }
+}
+
+/**
+ * The ribbon builder's numbers (app/three/roads.ts, plan R フェーズ Phase 1) — here so the road
+ * network, the furniture, the tree rows and the buildings' road-facing rules read one table.
+ */
+export const ROADS = {
+  /** ribbons stop this close to the GP centreline (m) — outside surface-check's 75 m band; the mask still paints 45–76 m */
+  minD: 76,
+  /** the soil shoulder row beyond the paved edge (m) */
+  verge: 0.6,
+  /** crown of the paved rows (m per m of half-width) */
+  crown: 0.015,
+  /** the base lift of the paved rows over standY (m), plus the class rung (ROAD_SECTION.lift) */
+  lift: 0.05,
+  /** the verge rows' lift (m): 3 cm under the paved rows reads as a kerb */
+  vergeLift: 0.02,
+  /** sample pitch on straights (m) and the angular step on fillet arcs (°) */
+  stepStraight: 10,
+  arcDeg: 6,
+  /** fillets at interior kinks: the largest radius per class (m) and the smallest kink that gets one (°) */
+  fillet: {
+    rMax: { trunk: 200, trunk_link: 150, primary: 150, secondary: 120, tertiary: 90, unclassified: 60, residential: 30, service: 15, track: 15, raceway: 60 } as Record<string, number>,
+    minKinkDeg: 2,
+  },
+  /** tertiary+ fillets under this radius (m) get a solid yellow centre line (± 30 m) */
+  yellowR: 150,
+  /** a way ending on a higher-ranked road is trimmed to that road's paved edge + this (m) */
+  trim: 0.3,
+  /** the minor road's stop line sits this far before the major's paved edge (m) */
+  stopLine: 2.0,
+  /** dashed centre line: [dash, gap] (m) */
+  dash: [5, 5] as readonly [number, number],
+  /** line widths (m): dashed / edge lines, the solid centre line */
+  lineW: 0.15,
+  solidW: 0.2,
+  /** the L-gutter band along residential roads in settlements (m) */
+  gutter: 0.45,
+  /** bridge pieces (`bridge` tag): deck over the abutments' standY lerp (m), the parapet height and thickness (m) */
+  bridge: { deck: 0.3, parapetH: 0.9, parapetT: 0.25 },
+  /** the ring (beyond the inner grid, high tier): rows, sample pitch (m) and the classes drawn there */
+  ring: { rows: 2, step: 15, kinds: ['trunk', 'trunk_link', 'primary', 'secondary', 'tertiary'] as readonly string[] },
+  /** classes the generator does not ship beyond this distance from the centreline (m) — 3–4 m roads on 12 m outer texels */
+  farDrop: { kinds: ['service', 'track'] as readonly string[], dmin: 2500 },
+} as const
+
 /** raceway ways closer than this to the GP centreline are the circuit itself — not shipped */
 export const RACEWAY_KEEP_OUT = 150
 
@@ -45,7 +188,7 @@ export const SUR_DP = {
   parking: 0.8,
   solar: 1.0,
   buildings: 0.4,
-  roads: 1.5,
+  roads: 1.0,
   rail: 2,
   sites: 2,
 } as const
