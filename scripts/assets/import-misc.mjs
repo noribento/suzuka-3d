@@ -21,9 +21,9 @@
  *     (drawImage / getImageData into a DataArrayTexture), which a GPU-compressed file cannot give.
  * Models (`packModel`, one pipeline, every stage opt-in per source — see sources.mjs "Map roles"):
  *   prepare (`dropNodes` / `keepNodes` / `overrideImages`) → gltf-transform prune → resize
- *   (`maxTex`, default 1K) → retouch (`retouch` / `dropParts`, retouch-glb.mjs) → `texEncode`
+ *   (`maxTex`, default 1K) → retouch (`retouch` / `dropParts` / `keepBox`, retouch-glb.mjs) → `texEncode`
  *   (gltf-transform uastc for normal + alpha-tested textures, etc1s for the rest, KTX2 inside the
- *   GLB via KHR_texture_basisu) → `gltfpack -cc -kn -km [-si R]` (EXT_meshopt_compression +
+ *   GLB via KHR_texture_basisu) → `gltfpack -cc -kn -km [-si R -sa]` (EXT_meshopt_compression +
  *   quantisation, node and material names kept — the runtime classifies bark / leaf by material
  *   name — simplification only when the source asks). Without `texEncode` the textures inside a
  *   GLB stay PNG/JPEG exactly as before, so the shipped GLBs are not churned.
@@ -429,14 +429,15 @@ async function packModel (input, outName, src = {}, srcDir = dirname(input)) {
     cur = resized
     modifications.push(`textures resized to ≤ ${maxTex} px`)
   }
-  if (src.retouch || src.dropParts) {
+  if (src.retouch || src.dropParts || src.keepBox) {
     const model = readModel(cur)
-    const r = await retouchModel(model, { retouch: src.retouch, dropParts: src.dropParts })
+    const r = await retouchModel(model, { retouch: src.retouch, dropParts: src.dropParts, keepBox: src.keepBox })
     const retouched = join(work, 'retouched.glb')
     writeGlb(retouched, model)
     cur = retouched
     if (r.retouched) modifications.push(`trademarks retouched (${src.retouch.reduce((n, op) => n + op.rects.length, 0)} rectangles blurred / filled)`)
     if (src.dropParts) modifications.push(`parts dropped (${r.dropped} primitives matching /${fmtRe(src.dropParts)}/)`)
+    if (src.keepBox) modifications.push(`clipped to the model's own object (${r.clipped} triangles outside keepBox dropped)`)
   }
   if (src.texEncode) {
     const r = encodeModelTextures(cur, work, src.texEncode)
@@ -447,10 +448,14 @@ async function packModel (input, outName, src = {}, srcDir = dirname(input)) {
   // -cc: meshopt compression (textures are embedded in .glb output by default), -kn: keep node
   // names so a pack that holds several trees stays addressable per node (gltfpack would
   // otherwise merge everything into one mesh), -km: keep material names — the runtime tells
-  // bark from leaves by them. Nothing is simplified unless the source asks (`simplify`).
-  const simplify = src.simplify != null ? ['-si', String(src.simplify)] : []
+  // bark from leaves by them. Nothing is simplified unless the source asks (`simplify`); then
+  // -sa makes the ratio a target rather than a wish: -si alone stops at gltfpack's 1 % error
+  // bound, which on a scan-like mesh with a dense UV atlas keeps 90 % of the triangles
+  // (jp_denchu 18 k → 13 k at 0.15), and it spreads the budget better than a relaxed -se,
+  // which kept the shaft dense while crumpling the lamp shade.
+  const simplify = src.simplify != null ? ['-si', String(src.simplify), '-sa'] : []
   npx(GLTFPACK, ['-i', cur, '-o', packed, '-cc', '-kn', '-km', ...simplify])
-  if (simplify.length) modifications.push(`simplified to ${src.simplify} of the triangles (gltfpack -si)`)
+  if (simplify.length) modifications.push(`simplified to ${src.simplify} of the triangles (gltfpack -si -sa)`)
   const buffer = readFileSync(packed)
   const hash = sha256(buffer)
   const file = `${outName}.${hash.slice(0, 8)}.glb`

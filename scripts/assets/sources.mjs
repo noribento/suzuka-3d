@@ -29,13 +29,18 @@
  *   maxTex                 cap for textures inside the GLB (default 1024)
  *   retouch / dropParts    trademark surgery (retouch-glb.mjs: UV rectangles blurred / filled,
  *                          primitives dropped by material / mesh name regex)
+ *   keepBox                { min?, max? } scene-space AABB (the model's own units, as
+ *                          inspect-model.mjs prints them): triangles outside are dropped — for a
+ *                          one-primitive drop that also holds a backdrop or a second prop
  *   texEncode              { default?, normal?, alpha?: 'etc1s' | 'uastc' | 'none', quality? } →
  *                          KTX2 inside the GLB (normal + alpha-tested default to uastc, rest
  *                          etc1s; `quality` is the etc1s qlevel); absent = textures stay PNG/JPEG
- *   simplify               0–1 → gltfpack -si (triangle ratio to keep)
+ *   simplify               0–1 → gltfpack -si -sa (the triangle ratio to keep, reached — plain
+ *                          -si stops at a 1 % error bound and barely touches a scan-like mesh)
  * misc-local: `zip` / `entry` may be a glob-like string or RegExp (Sketchfab zip names vary);
  * the first match directly under the first existing `miscRoots` entry wins (convention:
- * ['<group>/<id>', '<group>', '.']); `entry` defaults to scene.gltf or the single *.glb.
+ * ['<group>/<id>', '<group>', '.'], where <group> is the key's middle segment — `sketchfabModel`
+ * derives it); `entry` defaults to scene.gltf or the single *.glb.
  *
  * Only '2k' for the hero grass; everything else ships at 1K or 512 (budget: ≤ 200 MB on disk,
  * ≤ 512 MB RGBA8-equivalent VRAM, enforced by import-misc.mjs --check).
@@ -153,11 +158,16 @@ function polyhavenModel (id, { name, author, res = '1k', use, maxTex, ...pack })
 }
 
 /**
- * Sketchfab tree drop (CC-BY 4.0, plan R Phase 2): the auto-converted glTF zip in misc/trees/ (or
- * misc/), scene.gltf inside, license.txt as evidence. `pack` = the model fields above
- * (dropNodes / keepNodes / overrideImages / maxTex); every pack ships KTX2 at ≤ 1K.
+ * Sketchfab drop (CC-BY 4.0): the model page's auto-converted glTF zip under misc/<group>/ (or
+ * misc/), where <group> is the key's middle segment (`model/trees/…` → misc/trees/, `model/road/…`
+ * → misc/road/), scene.gltf inside, license.txt as evidence — the importer takes the credit line
+ * (title / author / URL) from that file, so `author` / `authorUrl` here only need to match it.
+ * `authorUrl` defaults to the Sketchfab profile named like `author` (most usernames are the
+ * display name; pass it when they differ). `pack` = the model fields above (dropNodes /
+ * keepNodes / overrideImages / maxTex / simplify / texEncode); by default every pack ships KTX2
+ * at ≤ 1K with the tree recipe (foliage alpha + normals UASTC, the rest ETC1S q160).
  */
-function sketchfabTree (key, { name, zip, author, pageUrl, use, maxTex = 1024, ...pack }) {
+function sketchfabModel (key, { name, zip, author, authorUrl = `https://sketchfab.com/${author}`, pageUrl, use, maxTex = 1024, texEncode = { default: 'etc1s', normal: 'uastc', alpha: 'uastc', quality: 160 }, ...pack }) {
   return {
     ...pack,
     key,
@@ -166,17 +176,17 @@ function sketchfabTree (key, { name, zip, author, pageUrl, use, maxTex = 1024, .
     name,
     pageUrl,
     author,
-    authorUrl: `https://sketchfab.com/${author}`,
+    authorUrl,
     licence: 'CC-BY-4.0',
     resolver: 'misc-local',
     use,
-    miscRoots: ['trees', '.'],
+    miscRoots: [key.split('/')[1], '.'],
     zip,
     entry: 'scene.gltf',
     licenceFile: 'license.txt',
     licenceMarker: 'CC-BY-4.0',
     maxTex,
-    texEncode: { default: 'etc1s', normal: 'uastc', alpha: 'uastc', quality: 160 },
+    texEncode,
   }
 }
 
@@ -262,13 +272,13 @@ export const SOURCES = [
   // packs' own billboards, reference planes and checker floors are dropped — the impostor atlas
   // is baked in-repo — and every texture goes to KTX2 (foliage alpha and normals UASTC, the
   // rest ETC1S) at ≤ 1K: 4K cluster atlases would be 64 MB of VRAM per pack.
-  sketchfabTree('model/trees/pine_pack', {
+  sketchfabModel('model/trees/pine_pack', {
     name: 'Pine trees pack (lowpoly, game ready, LODs)', zip: 'pine_trees_pack*.zip', author: 'lolipop_1707',
     pageUrl: 'https://sketchfab.com/3d-models/pine-trees-pack-lowpoly-game-ready-lods-e1e9c07b8e2e445c943fec660beefba2',
     use: 'matsu (red / black pine): Pine_large / big for the hill woods, medium / small for the scatter; LOD0–2 per tree',
     dropNodes: /Billboard|(^|\/)Back(\/|$)|Ref_plane|Checker|Pine_sapling/i,
   }),
-  sketchfabTree('model/trees/fir_pack', {
+  sketchfabModel('model/trees/fir_pack', {
     name: 'Realistic Fir Trees Pack (LODS, gameready)', zip: 'realistic_fir_trees*.zip', author: 'lolipop_1707',
     pageUrl: 'https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7',
     use: 'sugi / hinoki plantation rows: the spire silhouette, needles tinted per species at runtime; LOD0–2',
@@ -279,14 +289,14 @@ export const SOURCES = [
   // (winter → bare keyaki, spring → budding). The `@` overrides copy those Sketchfab-converted
   // images: the author's raw season download (misc/trees/oak_seasons/*_MRAO.png) packs
   // metallic / roughness / AO in the opposite channel order to glTF, so it is not used.
-  sketchfabTree('model/trees/oak_pack', {
+  sketchfabModel('model/trees/oak_pack', {
     name: 'Oak trees pack (17var, LODs, seasons, gameready)', zip: 'oak_trees_pack*.zip', author: 'lolipop_1707',
     pageUrl: 'https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393',
     use: 'kusunoki (evergreen broadleaf): the four Large oaks with the summer clusters, darkened at runtime; LOD0–2',
     keepNodes: /(^|\/)Large_oak_tree_00[1-4]\//,
     dropNodes: /Billboard|Ground|Man ref|Seasons|Checker/i,
   }),
-  sketchfabTree('model/trees/oak_winter', {
+  sketchfabModel('model/trees/oak_winter', {
     name: 'Oak trees pack (17var, LODs, seasons, gameready)', zip: 'oak_trees_pack*.zip', author: 'lolipop_1707',
     pageUrl: 'https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393',
     use: 'keyaki, bare (late March): the Big / Medium oaks wearing the pack\'s winter cluster atlas; LOD0–2',
@@ -298,7 +308,7 @@ export const SOURCES = [
       '^Cluster_Mat_normal$': '@^Cluster_Mat_Winter_EX_normal$',
     },
   }),
-  sketchfabTree('model/trees/oak_spring', {
+  sketchfabModel('model/trees/oak_spring', {
     name: 'Oak trees pack (17var, LODs, seasons, gameready)', zip: 'oak_trees_pack*.zip', author: 'lolipop_1707',
     pageUrl: 'https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393',
     use: 'budding broadleaves: the Medium / Small oaks wearing the pack\'s spring cluster atlas; LOD0–2',
@@ -310,33 +320,72 @@ export const SOURCES = [
       '^Cluster_Mat_normal$': '@^Cluster_Mat_Spring_EX_normal$',
     },
   }),
-  sketchfabTree('model/trees/bush_pack', {
+  sketchfabModel('model/trees/bush_pack', {
     name: 'Bush models pack (gameready, LODs)', zip: 'bush_models_pack*.zip', author: 'lolipop_1707', maxTex: 512,
     pageUrl: 'https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8',
     use: 'hedges outside the fences and the forest-edge shrubs: 15 bushes in three sizes, LOD0–2',
     dropNodes: /Billboard|Ground|Man ref/i,
   }),
-  sketchfabTree('model/trees/cherry_medium', {
+  sketchfabModel('model/trees/cherry_medium', {
     name: 'Japanese Cherry Tree (medium-Poly)', zip: 'japanese_cherry_tree_medium*.zip', author: 'Sereib',
     pageUrl: 'https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c',
     use: 'sakura in full bloom, LOD0 (11.7 k tris): the gate and roadside cherries',
   }),
-  sketchfabTree('model/trees/cherry_low', {
+  sketchfabModel('model/trees/cherry_low', {
     name: 'Japanese Cherry Tree (low-Poly)', zip: 'japanese_cherry_tree_low*.zip', author: 'Sereib', maxTex: 512,
     pageUrl: 'https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209',
     use: 'sakura in full bloom, LOD1 (5 k tris) and the smaller roadside rows',
   }),
-  sketchfabTree('model/trees/bamboo', {
+  sketchfabModel('model/trees/bamboo', {
     name: 'bamboo', zip: 'bamboo.zip', author: 'evolveduk', maxTex: 512,
     pageUrl: 'https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59',
     use: 'bamboo: one culm with leaves (2.2 k tris), three per clump at the village edges',
   }),
 
   // ---- props (small objects seen from > 20 m: 512 px textures) -------------------------------
-  // Authors as api.polyhaven.com/info/<id> lists them (`authors`), verified 2026-09-11.
+  // Authors as api.polyhaven.com/info/<id> lists them (`authors`), verified 2026-09-11 / 09-12.
   polyhavenModel('concrete_road_barrier', { maxTex: 512, name: 'Concrete Road Barrier', author: 'Amal Kumar', use: 'props: pit entry / paddock separation blocks' }),
   polyhavenModel('security_camera_01', { maxTex: 512, name: 'Security Camera 01', author: 'Alexander Otterbeck, Yann Kervran', use: 'props: trackside TV camera stand-in' }),
   polyhavenModel('street_lamp_02', { maxTex: 512, name: 'Street Lamp 02', author: 'Josh Dean', use: 'props: paddock / car-park lighting' }),
+  polyhavenModel('utility_box_02', { maxTex: 512, name: 'Utility Box 02', author: 'James Ray Cock', use: 'props: signal controller / distribution cabinet at the signal poles' }),
+
+  // ---- roadside furniture (R Phase 3: Sketchfab CC-BY 4.0 drops in misc/road/) ---------------
+  // Addressed by node path at runtime (road-furniture.ts / outskirts.ts through modelPrototype,
+  // gltfpack -kn) and by material name (-km): the sign faces are `triangle` (止まれ, material
+  // Stop), `triangle1` (徐行, Slow), `circle_new2` (SpeedLimit — the pack's only value is 60;
+  // the other limits are painted at runtime), `circle_new4` (NoEntry), the signal head
+  // `traffic_things/traffic_lights1`, the poles `main_tube*` / `short_tube` /
+  // `pasted__trafficpole*mesh`, the pin insulators `electric_mega_isolator*`, the wiring
+  // brackets `pasted__electric_pole_iso_holder1..6`. 82 textures at 1K / 512 would be 60 MB
+  // of RGBA8-equivalent VRAM, so the pack is capped at 256 px (≈ 6 MB): every prop is a few
+  // metres tall and seen from ≥ 20 m. The `citylight` advertising column (its poster is a
+  // billboard we would never show) is dropped whole.
+  sketchfabModel('model/road/jp_traffic_assets', {
+    name: 'Japanese Traffic Assets', zip: 'japanese_traffic_assets*.zip', author: 'Erik Kinč', authorUrl: 'https://sketchfab.com/erikkinc',
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-traffic-assets-1a4833770ace4df6aecfdabb76e36d60',
+    use: 'JP signs (止まれ, speed, no entry …), signal heads, sign poles, insulators, vending machine, bins',
+    maxTex: 256,
+    dropNodes: /citylight|Citylight/i,
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  // The hero level of the utility poles within 200 m (outskirts.ts). The author's scene is one
+  // primitive: the pole (10.6 k tris — two crossarms with pin insulators, a lamp arm, step-bolt
+  // holes; scene units ≈ 2.2 × metres, 23.4 tall), a red round post box beside it (7.8 k) and a
+  // 34 × 14 backdrop wall (14) — `keepBox` keeps the pole's own column (x −4.4…2.9, z 3.6…11.4)
+  // and the rest goes. Decimated to a quarter (≈ 2.5 k tris: crossarms still straight, lamp
+  // shade round), the 2K set capped at 512. The material carries KHR_materials_specular (a
+  // uniform white texture, a no-op that makes three build a MeshPhysicalMaterial),
+  // KHR_materials_emissive_strength 4.5 on the lamp and a normal map with scale 0; the runtime
+  // builds its own material from the base colour, so they only have to survive the loader.
+  sketchfabModel('model/road/jp_denchu', {
+    name: 'Japanese Pole (Denchu)', zip: 'japanese_pole_denchu*.zip', author: 'Fumiya Funatsu', authorUrl: 'https://sketchfab.com/funatsu.fumiya',
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-pole-denchu-e46e33e8908f40dc99eb3e0849a15048',
+    use: 'concrete utility pole with crossarms, pin insulators and a lamp arm: the hero level of the roadside poles',
+    maxTex: 512,
+    keepBox: { min: [-5, null, 3], max: [4, null, 12] },
+    simplify: 0.25,
+    texEncode: { default: 'etc1s', normal: 'uastc' },
+  }),
 
   // ---- reference-only downloads (kept in misc/dl, never imported) ----------------------------
   {
@@ -538,6 +587,11 @@ export const PINS = {
   'model/props/street_lamp_02/textures/street_lamp_02_arm_1k.jpg': 'a1e2d654e7d5d48a1fdfbf720840192d171df54e5ea5f055145d0472d617eede',
   'model/props/street_lamp_02/textures/street_lamp_02_diff_1k.jpg': '19882567313dd43fef60f9fa41a4c55f81a957f9fee539e931fc36a32e386b6c',
   'model/props/street_lamp_02/textures/street_lamp_02_nor_gl_1k.jpg': 'fdd9fb26ca853020ed156fdd84e90ce3f9a68bf94edf71c0ffe72add67e316c6',
+  'model/props/utility_box_02/textures/utility_box_02_arm_1k.jpg': 'f85575f891c97354d2fff11d5d0e2bc5f7d3aeab853ff3d75100c30c177a9cc5',
+  'model/props/utility_box_02/textures/utility_box_02_diff_1k.jpg': '78a0c93b1d8d394beee5989c0d3470a9c8c4e902f708acf3c11cd4edafbe08b1',
+  'model/props/utility_box_02/textures/utility_box_02_nor_gl_1k.jpg': 'e7c85b37fa5420591b6fa5dcef7875c927c8dc51f38c39c5844d53284ef37c74',
+  'model/props/utility_box_02/utility_box_02.bin': '0f0a3f8ecc0358e36e97120aa752c2456a78bf922671e6f77e402b0aa58ecfce',
+  'model/props/utility_box_02/utility_box_02_1k.gltf': 'd3f87ce0852709498602f6a096be99a9e13f0ac2619f99edcebad9e89f9faf00',
   'ref/crowd_plates/bangabandhu_crowd_2019.jpg': '6557474c28a545cecfcf6e6859f3c368945f94ad4e95dbbfa3d9a56e0d9985a5',
   'ref/crowd_plates/front_row_audience_unsplash.jpg': '7585fefb4bcb4b14af078fb1d4eb71663f3ef740ebf060f09ff3c5d2fce0c392',
   'ref/kenney_racing_kit/kenney_racing-kit.zip': '8a71ea16219315a01d00d5a90c4f6b5c090faddbc56d80ecf727e2b3b853c6c0',

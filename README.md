@@ -46,7 +46,8 @@ node scripts/assets/bake-tree-atlas.mjs       # 樹木インポスターアト�
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
 node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 200 MB）・VRAM 見積（≤ 512 MB）・KTX2 mip の検査
 node scripts/assets/inspect-model.mjs misc/trees/<zip>   # ドロップした GLB/zip のノードパス・三角形数・material 名・画像を表示（sources.mjs の正規表現を書くため）
-node scripts/assets/retouch-glb.mjs --dump <in.glb> <dir>  # GLB 内テクスチャの書き出し（バッジ・ナンバープレートの矩形を決める）/ --spec で blur・fill・dropParts
+node scripts/assets/retouch-glb.mjs --dump <in.glb> <dir>  # GLB 内テクスチャの書き出し（バッジ・ナンバープレートの矩形を決める）/ --spec で blur・fill・dropParts・keepBox（AABB の外の三角形を落とす）
+# sources.mjs のモデル項目: maxTex / simplify（gltfpack -si -sa）/ texEncode（GLB 内 KTX2: uastc は法線と MASK/BLEND の色、etc1s は他）/ dropNodes / keepNodes / overrideImages（'@<image>' でパック内の別画像、'misc/…' で手元の画像）/ retouch / dropParts / keepBox。Sketchfab の CC-BY は misc/<group>/ に zip のまま置く（trees / road / buildings / vehicles）
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL）
 node scripts/facilities-check.mjs --strict    # スタンド・ピット定数・ガレージ順・GROUND_AREAS・周辺データの整合性
 node scripts/textures-lint.mjs                # テクスチャに描く文字列の商標リント（denylist / allow は scripts/trademark-*.json、1 秒未満）
@@ -218,7 +219,8 @@ app/
     buildings.ts               # 柵の外の建物: 種別ごとのマッシング（寄棟瓦・パラペット＋金属屋根・窓帯・キャノピー）、7 層の facade 配列テクスチャ、モートピアのコースターとプール、キャンプ場
     vehicles.ts                # 駐車場の車: OSM の駐車場に枠を切り、車体 → インポスターカード → 俯瞰の点描の 3 段 LOD（車種と配色は car-bodies.ts）
     car-bodies.ts              # 低ポリの車体 6 種（ミニバン・軽・SUV・ハッチ・セダン・バス、頂点色の部位マスク）— インポスターのベイクにも使う
-    outskirts.ts               # 郊外の設備: 太陽光アレイ、外周フェンス、照明柱、電柱と架線、県道のガードレール（Phase 3 で road-furniture.ts へ）
+    outskirts.ts               # 郊外の設備: 太陽光アレイ、外周フェンス、照明柱、JIS 12 m 級の電柱（8 角テーパー、高圧腕金＋低圧腕、6 本の架線、道路網に沿って交差点の口は避ける）
+    road-furniture.ts          # 道路脇の設備（'dressing'、1 km ブロックごとに材質別 1 メッシュ、700 m）: Gr-C ガードレール（W ビーム＋φ114 支柱、県道は両側、市道は急カーブ外側と盛土）、視線誘導標、カーブミラー、止まれ／速度／警戒標識（erikkinc のパック、無ければ手続き板）、信号機と制御箱、電柱の変圧器
     structures.ts              # 立体交差の桁橋（スラブ・化粧板・鋼桁・橋台・翼壁・側道）、地下道の高欄、看板とピット出口信号
     lattice.ts                 # 鉄骨ラティスのプロトタイプ（送電鉄塔・リーダータワー・スタートゲートリーで共用、低ティアはブレース無し）
     impostor.ts                # インポスターの共通実装（アトラスのレイアウト・方位セル・マスク着色・疑似法線）— 観客・車・樹木で共用
@@ -448,6 +450,7 @@ scripts/
 - A2R・130R G 席の青いキャノピーの影と支柱の接地、芝土手のレジャーシートの z-fight（standY +2 mm）、焼き込みアトラスの座り姿が芝の上で 0.40 m 沈んで見えること
 - 柵の外の道路（`roads.ts`）: `asphalt_04` / `gravel_road` の KTX2 と法線の向き（低い横光）、路肩の A2C フェードにディザ模様が出ないこと、解析区画線が近景で実寸（15 cm）・1 km 先でも ≥ 0.6 px で残り
   MSAA / SMAA でちらつかないこと、破線が遠方で 50 % の実線に溶けること、交差点の重なり（8 mm のクラス段、反転 Z）が z-fight しないこと、リング上のリボンが丘で浮き沈みしないこと、橋のデッキと高欄
+- 道路脇の設備（`road-furniture.ts`）: ガードレールの armco 法線と影、標識板の向き（印刷面が走行方向を向くこと）、ミラーの鏡面、信号機のレンズの点灯色、電柱の変圧器と 6 本の架線、`ROAD_FURNITURE.pole.hero` を true にしたときの jp_denchu スキャンの見え方（SwiftShader では茶色い塊に見えたので既定は off）
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes

@@ -93,6 +93,8 @@ export interface RoadStats {
 // ---------------------------------------------------------------------------------------------
 // tuning that is not a road-design number (those live in surroundings-spec ROADS)
 
+/** the ribbon's alpha fades to 0 over this length before its ROADS.minD cut (m) */
+const CUT_FADE_M = 14
 /** the keep-out reaches this far beyond the paved edge (m): a tree trunk or a parked car clear of the verge */
 const KEEP_OUT_M = 1.5
 /** the sample-pair pre-reject: a quad whose samples are both inside the job's window expanded by hw + verge + this (m) may reach the window; ≥ the longest quad (16 m on the low tier) */
@@ -300,6 +302,17 @@ export function buildRoads(ctx: EnvBuildContext): RoadStats {
       key[i] = style[i]! | (s.stop !== SPECIAL_NONE ? 256 : 0) | (s.zebra !== SPECIAL_NONE ? 512 : 0) | (cuts << 10)
     }
     const pad = hw + ROADS.verge + WINDOW_PAD_M
+    // the ribbon's alpha near its minD cut: a road that runs on towards the circuit is cut at
+    // ROADS.minD as a hard quad edge on bare ground; fading the vertex alpha over the last
+    // CUT_FADE_M (A2C on the high tier) dissolves the ribbon into the mask's own paved band
+    // underneath instead. Only samples whose bound says they may be that near are projected.
+    const cutFade = new Float64Array(n).fill(1)
+    for (let i = 0; i < n; i++) {
+      const s = samples[i]!
+      if (s.dLo - hw - ROADS.verge >= ROADS.minD + CUT_FADE_M) continue
+      const d = plan.project(s.x, s.z).d
+      cutFade[i] = Math.max(0, Math.min(1, (d - ROADS.minD) / CUT_FADE_M))
+    }
     const input: StripInput = {
       rows,
       lift: liftOf(way, sec),
@@ -313,7 +326,7 @@ export function buildRoads(ctx: EnvBuildContext): RoadStats {
         out[5] = shR
         out[6] = s.stop
         out[7] = s.zebra
-        out[8] = verge[r] ? 0 : 1
+        out[8] = verge[r] ? 0 : cutFade[i]!
       },
       okAt: (i) => {
         const a = samples[i]!, b = samples[i + 1]!

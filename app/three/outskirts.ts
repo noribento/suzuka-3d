@@ -2,20 +2,24 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { SUR_BUILDINGS, SUR_PARKING, SUR_ROADS, SUR_SITES, SUR_SOLAR } from '~/data/suzuka-surroundings'
 import { worldRing, type SurFeatureBase } from '~/data/en-codec'
+import { ROAD_FURNITURE } from '~/data/surroundings-spec'
 import type { EnvBuildContext } from './environment'
 import { inBBox, pointInRing, principalAxis, ringBBox, ringFromFlat, type GridShape, type XZ } from './far-geometry'
 import { TriSink, inGrid, nearestArc, outsideGrid, pathLength, resample, siteOk, type Sample, type SiteRule } from './far-lines'
-import { BARRIER_KIND, FENCE_TILE_M } from './barriers'
+import { FENCE_TILE_M } from './barriers'
 import { cutoutFromAssets, cutoutParams } from './materials'
-import { armcoMaps, cached, chainLinkTexture, makeTexture, mulberry, paint, scaled } from './textures'
-import { roadNetwork, walk } from './road-section'
+import { modelPrototype } from './model-proto'
+import { cached, chainLinkTexture, makeTexture, mulberry, paint, scaled } from './textures'
+import { offsetAt, roadNetwork, walk } from './road-section'
 
 /**
  * Outskirts furniture (plan §2b, §2e): the solar farms, the circuit's perimeter fence, the light
- * poles of the car parks and the service roads, the utility poles with their wires along the
- * public roads and the guardrails of the prefectural roads — everything that STANDS on
- * `ground.standY` outside the fences, built as deferred 'dressing' jobs of `ctx.farField`, one
- * per family and 250 m cell, and chosen per cell by the registry's LOD pass.
+ * poles of the car parks and the service roads, and the utility poles with their wires along
+ * the public roads — everything that STANDS on `ground.standY` outside the fences, built as
+ * deferred 'dressing' jobs of `ctx.farField`, one per family and 250 m cell, and chosen per cell
+ * by the registry's LOD pass. (The guardrails, delineators, mirrors, signs and signals of the
+ * public roads are road-furniture.ts, R フェーズ Phase 3; the transformer cans it hangs on every
+ * fourth pole read the same `utilityPoles` plan, so both modules agree on where a pole stands.)
  *
  * The rule every family obeys (README 地面の契約): a thing stands ≥ OUTSKIRTS.minD (140 m) from
  * the GP centreline (`ground.plan.project`), on no drawn ground face (`ground.builtY === null`)
@@ -51,13 +55,17 @@ import { roadNetwork, walk } from './road-section'
  *    (36 triangles; the street_lamp_02 GLB is 20k) in the car parks' row dividers every 35 m
  *    and along the service roads inside the circuit every 40 m, the nearest to the track first
  *    up to `Quality.farField.lightPoles`. No emissive: the race is at 14:00.
- *  - UTILITY `utility-<cell>` (kind 'poles', 600 m) + `wires-<cell>` (400 m): 11 m tapered
- *    concrete poles (24 triangles with the 1.5 m crossarm) every 35 m on one side of the
- *    tertiary / unclassified / residential roads outside the circuit, three catenary wires
- *    (thin dark strips standing on edge — a wire has to read as a line from a camera at eye
- *    level, and a strip lying flat is invisible there — no shadow) between consecutive poles,
- *    and the white W-beam guardrail (armco maps, BARRIER_KIND.guardrail heights) on both sides
- *    of the trunk / primary / secondary roads.
+ *  - UTILITY `utility-<cell>` (kind 'poles', 600 m) + `wires-<cell>` (400 m): JIS 12 m concrete
+ *    poles (ROAD_FURNITURE.pole — 10.5 m exposed, φ320 → φ190, the HV crossarm with three pin
+ *    insulators at 9.6 m, the LV arm at 8.2 m; 72 triangles) every 35 m on one side of the
+ *    tertiary / unclassified / residential roads outside the circuit, placed on the road
+ *    NETWORK (road-section.ts `walk` / `offsetAt`, so a pole stands off the real paved edge and
+ *    never inside a junction mouth), and six catenary wires (thin dark strips standing on edge —
+ *    a wire has to read as a line from a camera at eye level, and a strip lying flat is
+ *    invisible there — no shadow) between consecutive poles: three HV on the crossarm, three LV
+ *    on the lower arm. With the jp_denchu GLB in the pack a HERO entry `utilityHero-<cell>`
+ *    draws the scanned pole over the procedural one inside `pole.heroRange`, thinning out over
+ *    `pole.heroRamp` so the hand-off is a fade rather than a pop.
  *
  * The poles keep out of the OSM building footprints on their own (a disc from the centroid and
  * the area, `BuildingClearance`) rather than through `ctx.keepOut` / `ctx.keepOutPolys`: those hold
@@ -128,13 +136,8 @@ export const OUTSKIRTS = {
     range: 600,
   },
   utility: {
-    height: 11,
+    /** how deep the pole is set (m); the exposed height, taper, arms and pitch are ROAD_FURNITURE.pole */
     bury: 0.4,
-    pitch: 35,
-    /** the pole stands this far off the road axis, at least (m); wider roads: half the width + 1 */
-    offset: 3.5,
-    arm: 1.5,
-    armY: 10.3,
     /** wires: sag = sagK × span² (m), strip height (m, the strip stands on edge), segments per span, the longest span a wire is strung over (m) */
     sagK: 0.00035,
     wireW: 0.08,
@@ -142,14 +145,10 @@ export const OUTSKIRTS = {
     maxSpan: 70,
     range: 600,
     wiresRange: 400,
-  },
-  guardrail: {
-    /** sampling step along the road (m), the rail's distance beyond the road edge (m), the armco tile (m) */
-    step: 8,
-    edge: 0.5,
-    tile: 4,
-    /** highway classes that carry a guardrail on both sides */
-    kinds: ['trunk', 'trunk_link', 'primary', 'secondary'] as readonly string[],
+    /** pin insulator on the HV crossarm: diameter and height (m) */
+    insulator: { d: 0.08, h: 0.15 },
+    /** a hero GLB whose footprint's long side exceeds this fraction of its height is not a pole (an exploded parts layout) and is refused */
+    heroMaxAspect: 0.6,
   },
   /** highway classes that carry utility poles (outside the circuit polygon) */
   utilityKinds: ['tertiary', 'unclassified', 'residential'] as readonly string[],
@@ -162,8 +161,8 @@ export interface OutskirtsStats {
   fence: { posts: number; cells: number }
   /** light-pole candidates (car parks / service roads) and the tier's budget */
   lightPoles: { candidates: number; budget: number }
-  /** utility poles planned, guardrail samples planned, cells */
-  utility: { poles: number; guardrailSamples: number; cells: number }
+  /** utility poles planned, cells; `heroDrop`: the jp_denchu GLB is in the registry (whether it is pole-shaped is decided by the first job) */
+  utility: { poles: number; cells: number; heroDrop: boolean }
   /** deferred jobs queued */
   jobs: number
 }
@@ -246,11 +245,12 @@ interface Materials {
   lightPole: THREE.MeshStandardMaterial
   concretePole: THREE.MeshStandardMaterial
   wire: THREE.MeshStandardMaterial
-  guardrail: THREE.MeshStandardMaterial
-  /** prototypes (instanced): the light pole with its arm and head; the utility pole with its crossarm */
+  /** prototypes (instanced): the light pole with its arm and head; the JIS utility pole with its arms */
   lightPoleGeo: THREE.BufferGeometry
   utilityPoleGeo: THREE.BufferGeometry
   postGeo: THREE.BufferGeometry
+  /** the jp_denchu GLB at 10.5 m with the foot at the origin and the arms along local x, or null (no pack, or the drop is not pole-shaped) */
+  hero: { geometry: THREE.BufferGeometry; material: THREE.MeshStandardMaterial } | null
 }
 
 function makeMaterials(ctx: EnvBuildContext): Materials {
@@ -271,8 +271,6 @@ function makeMaterials(ctx: EnvBuildContext): Materials {
   const lightPole = new THREE.MeshStandardMaterial({ color: 0xb4b8b6, roughness: 0.6, metalness: 0.4 })
   const concretePole = new THREE.MeshStandardMaterial({ color: 0x9d9c97, roughness: 0.9, metalness: 0.05 })
   const wire = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.9, metalness: 0.2, side: THREE.DoubleSide })
-  const armco = armcoMaps()
-  const guardrail = new THREE.MeshStandardMaterial({ map: armco.map, normalMap: armco.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), color: 0xdfe2e4, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide })
 
   // the light pole: a tapered 6-sided mast, the arm, the head — local +x is the arm's direction
   const lp = OUTSKIRTS.lightPole
@@ -286,20 +284,94 @@ function makeMaterials(ctx: EnvBuildContext): Materials {
   for (const g of [mast, arm, head]) g.dispose()
   lightPoleGeo.computeBoundingSphere()
 
-  // the utility pole: a tapered 6-sided concrete pole (12 tris) and the crossarm along local x
-  // (across the road, 12 tris) — 24 triangles the wires hang from
-  const up = OUTSKIRTS.utility
-  const shaft = new THREE.CylinderGeometry(0.095, 0.17, up.height, 6, 1, true)
-  shaft.translate(0, up.height / 2, 0)
-  const cross = new THREE.BoxGeometry(up.arm, 0.09, 0.09)
-  cross.translate(0, up.armY, 0)
-  const utilityPoleGeo = mergeGeometries([shaft, cross], false)!
-  shaft.dispose()
-  cross.dispose()
-  utilityPoleGeo.computeBoundingSphere()
+  const utilityPoleGeo = utilityPolePrototype()
+  const hero = heroPolePrototype(ctx)
 
   const postGeo = new THREE.BoxGeometry(1, 1, 1)
-  return { solar, galvanised, fencePanel, lightPole, concretePole, wire, guardrail, lightPoleGeo, utilityPoleGeo, postGeo }
+  return { solar, galvanised, fencePanel, lightPole, concretePole, wire, lightPoleGeo, utilityPoleGeo, postGeo, hero }
+}
+
+/**
+ * The JIS 12 m concrete pole (ROAD_FURNITURE.pole): an 8-sided shaft tapering φ320 → φ190 over
+ * the exposed 10.5 m (+ the buried part below y = 0, so the instance stands at standY), the HV
+ * crossarm along local x at 9.6 m with three pin insulators (the middle one on a short bracket,
+ * 0.3 m higher — the 三角配列 of a JIS distribution line), the LV arm at 8.2 m — 72 triangles
+ * the wires hang from (`WIRE_ATTACH`, the tops of the pins and of the LV arm). Local +x is
+ * across the road, away from it.
+ */
+function utilityPolePrototype(): THREE.BufferGeometry {
+  const P = ROAD_FURNITURE.pole, U = OUTSKIRTS.utility
+  const total = P.exposed + U.bury
+  const shaft = new THREE.CylinderGeometry(P.dTop / 2, (P.dBase / 2) * (1 + (U.bury / P.exposed) * ((P.dBase - P.dTop) / P.dBase)), total, 8, 1, true)
+  shaft.translate(0, total / 2 - U.bury, 0)
+  const hv = new THREE.BoxGeometry(P.hvArm, ARM_T, ARM_T)
+  hv.translate(0, P.hvArmY, 0)
+  const lv = new THREE.BoxGeometry(P.lvArm, ARM_T, ARM_T)
+  lv.translate(0, P.lvArmY, 0)
+  const parts: THREE.BufferGeometry[] = [shaft, hv, lv]
+  for (const [lx, ly] of WIRE_ATTACH.slice(0, 3)) {
+    const pin = new THREE.CylinderGeometry(U.insulator.d / 2, U.insulator.d / 2, U.insulator.h, 4, 1, true)
+    pin.translate(lx, ly - U.insulator.h / 2, 0)
+    parts.push(pin)
+    // the centre pin stands on a bracket above the arm
+    const gap = ly - U.insulator.h - (P.hvArmY + ARM_T / 2)
+    if (gap > 0.01) {
+      const bracket = new THREE.CylinderGeometry(0.025, 0.025, gap, 4, 1, true)
+      bracket.translate(lx, P.hvArmY + ARM_T / 2 + gap / 2, 0)
+      parts.push(bracket)
+    }
+  }
+  const geo = mergeGeometries(parts, false)!
+  for (const g of parts) g.dispose()
+  geo.computeBoundingSphere()
+  return geo
+}
+
+/** the crossarms' section (m) */
+const ARM_T = 0.09
+
+/**
+ * Where the six wires attach on the pole, in the prototype's frame: [x along the arm, y]. HV on
+ * the tops of the three pin insulators standing on the crossarm at ±0.75 and the centre (that
+ * one 0.3 m higher on its bracket), LV on the lower arm's top at ±0.5 and the centre.
+ */
+const WIRE_ATTACH: readonly (readonly [number, number])[] = (() => {
+  const P = ROAD_FURNITURE.pole, U = OUTSKIRTS.utility
+  const hv = P.hvArmY + ARM_T / 2 + U.insulator.h, lv = P.lvArmY + ARM_T / 2
+  return [[-0.75, hv], [0, hv + 0.3], [0.75, hv], [-0.5, lv], [0, lv], [0.5, lv]]
+})()
+
+/**
+ * The hero pole: the jp_denchu GLB (a scanned JIS pole with its arms, insulators and can) put
+ * at the exposed height with the arms along local x (`forward: 'x'` — the pack's orientation is
+ * not documented, so the widest horizontal extent of the bbox is taken as the arm direction) and
+ * the FOOT at the origin: the bbox centre is not the shaft where the arms and cable stubs are
+ * one-sided, so the xz centre is re-read from the lowest vertices. Refused (null, one warning)
+ * when the drop is not pole-shaped — an exploded parts layout has a footprint as wide as it is
+ * tall — so a bad drop degrades to the procedural pole instead of a 15 m blob at every site.
+ */
+function heroPolePrototype(ctx: EnvBuildContext): Materials['hero'] {
+  const reg = ctx.assets
+  if (!reg || !ROAD_FURNITURE.pole.hero) return null
+  const proto = modelPrototype(reg, 'model/road/jp_denchu', { scaleTo: { height: ROAD_FURNITURE.pole.exposed }, forward: 'x' })
+  if (!proto) return null
+  const part = proto.parts.main!
+  const geo = part.geometry
+  if (proto.footprint.long > OUTSKIRTS.utility.heroMaxAspect * proto.footprint.height) {
+    if (import.meta.dev) console.warn(`[outskirts] jp_denchu is ${proto.footprint.long.toFixed(1)} × ${proto.footprint.short.toFixed(1)} m at ${proto.footprint.height.toFixed(1)} m tall — not a single pole; hero level skipped`)
+    geo.dispose()
+    return null
+  }
+  // the foot: the xz mean of the lowest 3 % of the height
+  const pos = geo.getAttribute('position')
+  let sx = 0, sz = 0, n = 0
+  const cut = proto.footprint.height * 0.03
+  for (let i = 0; i < pos.count; i++) if (pos.getY(i) <= cut) { sx += pos.getX(i); sz += pos.getZ(i); n++ }
+  if (n) geo.translate(-sx / n, 0, -sz / n)
+  geo.computeBoundingSphere()
+  const src = part.source
+  const material = new THREE.MeshStandardMaterial({ map: src?.map ?? null, normalMap: src?.normalMap ?? null, color: src?.map ? 0xffffff : 0x9d9c97, roughness: 0.85, metalness: 0.05 })
+  return { geometry: geo, material }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -644,118 +716,40 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
   }
 
   // ===========================================================================================
-  // 4. utility poles + wires, guardrails
-  const U = OUTSKIRTS.utility, G = OUTSKIRTS.guardrail
-  interface UPole { x: number; z: number; nx: number; nz: number; lo: number; way: number; idx: number }
-  const uPoles: UPole[] = []
-  const uByCell = new Map<number, number[]>()
-  interface RailWay { pts: XZ[]; samples: Sample[]; off: number; dmin: number; /** the network's centreline-distance lower bound per sample */ lo: number[] }
-  const railWays: RailWay[] = []
-  const railByCell = new Map<number, [number, number][]>()
-  let railSamples = 0
-  // the poles and the rails follow the road NETWORK (road-section.ts) — the same trimmed,
-  // filleted paths the ribbons are cut from — so a rail never runs on into a junction the
-  // ribbon was trimmed out of, and a pole stands off the real paved edge
-  const net = roadNetwork(ctx, { stepScale: q.farField.roads.stepScale, ring: q.farField.roads.ring })
-  for (const way of net.ways) {
-    const utility = OUTSKIRTS.utilityKinds.includes(way.kind)
-    const guard = G.kinds.includes(way.kind)
-    if (!utility && !guard) continue
-    const w = way.row
-    const [cx, cz] = centroidWorld(w)
-    if (outsideGrid(grid, cx, cz, OUTSKIRTS.gridMargin)) continue
-    if (way.path.length < 2) continue
-    /** the junctions' reach along the way: no rail and no pole inside the other road's mouth */
-    const nearJunction = (s: number): boolean => way.junctions.some((j) => Math.abs(j.s - s) < j.j.major.hw + G.edge + 3)
-    if (utility) {
-      const side = mulberry(w.id * 7 + 1)() < 0.5 ? 1 : -1
-      const off = Math.max(U.offset, way.hw + 1)
-      const samples = walk(way, U.pitch, U.pitch / 2)
-      for (let i = 0; i < samples.length; i++) {
-        const s = samples[i]!
-        if (nearJunction(s.s)) continue
-        const nx = -s.tz * side, nz = s.tx * side
-        const x = s.x + nx * off, z = s.z + nz * off
-        // outside the circuit's own grounds, tested per pole rather than on the way's centroid
-        if (!inGrid(grid, x, z) || insideCircuit(x, z)) continue
-        const idx = uPoles.length
-        uPoles.push({ x, z, nx, nz, lo: s.dLo - off, way: w.id, idx: i })
-        push(uByCell, farField.cellOf(x, z), idx)
-      }
-    }
-    if (guard) {
-      const walked = walk(way, G.step, 0)
-      // the far end of the way, so the rail reaches the last vertex
-      const end = way.path[way.path.length - 1]!
-      const lastW = walked[walked.length - 1]
-      if (lastW && Math.hypot(end.x - lastW.x, end.z - lastW.z) > 1) walked.push({ ...lastW, x: end.x, z: end.z, s: way.length })
-      const samples: Sample[] = walked.map((r) => ({ x: r.x, z: r.z, tx: r.tx, tz: r.tz, t: r.s, dv: 0 }))
-      if (samples.length < 2) continue
-      const wi = railWays.length
-      railWays.push({ pts: way.path.map((v) => [v.x, v.z] as XZ), samples, off: way.hw + G.edge, dmin: w.dmin, lo: walked.map((r) => r.dLo) })
-      for (let i = 0; i + 1 < samples.length; i++) {
-        const s = samples[i]!
-        if (!inGrid(grid, s.x, s.z) || nearJunction(s.t) || nearJunction(samples[i + 1]!.t)) continue
-        push(railByCell, farField.cellOf(s.x, s.z), [wi, i] as [number, number])
-        railSamples++
-      }
-    }
-  }
-  /** utility pole i: its ground height, null where it may not stand — memoised across the cells' jobs (a wire span crosses a cell boundary) */
-  const uSite = new Map<number, number | null>()
-  const uY = (i: number): number | null => {
-    let y = uSite.get(i)
-    if (y !== undefined) return y
-    const p = uPoles[i]!
-    // the crossarm's half-length more, so the wires hung from its ends keep the 140 m too
-    y = siteOk(rule, p.x, p.z, p.lo, MIN_D + U.arm / 2 + U.wireW) && !buildings().hit(p.x, p.z) ? ground.standY(p.x, p.z) : null
-    uSite.set(i, y)
-    return y
-  }
-  /** guardrail sample (way, i, side): the rail's base height, null where it may not stand */
-  const railSite = new Map<number, number | null>()
-  const railY = (wi: number, i: number, side: 1 | -1): number | null => {
-    const key = (wi * 65536 + i) * 2 + (side > 0 ? 1 : 0)
-    let y = railSite.get(key)
-    if (y !== undefined) return y
-    const w = railWays[wi]!, s = w.samples[i]!
-    const x = s.x - s.tz * side * w.off, z = s.z + s.tx * side * w.off
-    y = siteOk(rule, x, z, w.lo[i]! - w.off, MIN_D) ? ground.standY(x, z) : null
-    railSite.set(key, y)
-    return y
-  }
-  const utilityCells = new Set<number>([...uByCell.keys(), ...railByCell.keys()])
-  const armY = U.armY, wireY = U.height + 0.1
-  for (const cell of utilityCells) {
+  // 4. utility poles + wires (the plan is shared with road-furniture.ts through `utilityPoles`)
+  const U = OUTSKIRTS.utility, P = ROAD_FURNITURE.pole
+  const plan = utilityPoles(ctx)
+  const uPoles = plan.poles
+  for (const [cell, ids] of plan.byCell) {
     jobs++
     farField.defer('dressing', `utility-${cell}`, 8, () => {
       const m = mats()
       const matrices: THREE.Matrix4[] = []
       const wires = new TriSink()
       let spans = 0
-      for (const i of uByCell.get(cell) ?? []) {
-        const y = uY(i)
+      for (const i of ids) {
+        const y = plan.y(i)
         if (y === null) continue
         const p = uPoles[i]!
-        _p.set(p.x, y - U.bury, p.z)
+        // the prototype's y = 0 is the ground (its shaft continues `bury` below it); the hero foot sits at 0 too
+        _p.set(p.x, y, p.z)
         matrices.push(new THREE.Matrix4().compose(_p, yawTo(p.nx, p.nz, _q), _s.set(1, 1, 1)))
         // wires to the next pole of the same way
         const j = i + 1
         const n = uPoles[j]
         if (!n || n.way !== p.way || n.idx !== p.idx + 1) continue
-        const yn = uY(j)
+        const yn = plan.y(j)
         if (yn === null) continue
         const span = Math.hypot(n.x - p.x, n.z - p.z)
         if (span < 3 || span > U.maxSpan) continue
         const sag = U.sagK * span * span
         const dx = (n.x - p.x) / span, dz = (n.z - p.z) / span
         // the strip stands on edge (its width is in Y): a catenary is looked at from the side,
-        // and a ribbon lying flat 11 m up is edge-on — invisible — from every camera on the ground
+        // and a ribbon lying flat 10 m up is edge-on — invisible — from every camera on the ground
         const out = [-dz, 0, dx]
-        const attach: [number, number][] = [[-U.arm / 2 + 0.05, armY], [U.arm / 2 - 0.05, armY], [0, wireY]]
-        for (const [lx, ly] of attach) {
-          const ax = p.x + p.nx * lx, az = p.z + p.nz * lx, ay = y - U.bury + ly
-          const bx = n.x + n.nx * lx, bz = n.z + n.nz * lx, by = yn - U.bury + ly
+        for (const [lx, ly] of WIRE_ATTACH) {
+          const ax = p.x + p.nx * lx, az = p.z + p.nz * lx, ay = y + ly
+          const bx = n.x + n.nx * lx, bz = n.z + n.nz * lx, by = yn + ly
           let prev0: number[] | null = null, prev1: number[] | null = null
           for (let k = 0; k <= U.wireSegs; k++) {
             const t = k / U.wireSegs
@@ -769,54 +763,44 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
         }
         spans++
       }
-      const rail = new TriSink()
-      let railM = 0
-      const bottom = BARRIER_KIND.guardrail.bottom, top = BARRIER_KIND.guardrail.top
-      for (const [wi, i] of railByCell.get(cell) ?? []) {
-        const w = railWays[wi]!, s = w.samples[i]!, n = w.samples[i + 1]!
-        for (const side of [1, -1] as const) {
-          const ya = railY(wi, i, side), yb = railY(wi, i + 1, side)
-          if (ya === null || yb === null) continue
-          const ax = s.x - s.tz * side * w.off, az = s.z + s.tx * side * w.off
-          const bx = n.x - n.tz * side * w.off, bz = n.z + n.tx * side * w.off
-          // the face looks at the road
-          const out = [s.tz * side, 0, -s.tx * side]
-          rail.quad([ax, ya + bottom, az], [bx, yb + bottom, bz], [bx, yb + top, bz], [ax, ya + top, az], out, [[s.t / G.tile, 0], [n.t / G.tile, 0], [n.t / G.tile, 1], [s.t / G.tile, 1]])
-          railM += n.t - s.t
-        }
-      }
-      if (!matrices.length && !rail.triangles && !wires.triangles) return null
-      // the poles and the rail are one LOD level, the wires (a shorter range) another entry;
-      // both are registered parentless, so the registry adds and attaches each on its own
+      if (!matrices.length) return null
+      // the poles are one entry (registered parentless, so the registry adds and attaches the
+      // root on its own); the wires (a shorter range) another; the hero level a third that draws
+      // OVER the procedural pole inside `heroRange` and thins out over `heroRamp` — a second
+      // entry rather than a nearer level of the same one, because a level's ramp thins its
+      // instances to nothing before the next level appears (the crowd's rule), which would make
+      // the poles vanish over the hand-off band
       const near = new THREE.Group()
       near.name = `utility-${cell}`
-      if (matrices.length) {
-        const inst = new THREE.InstancedMesh(m.utilityPoleGeo, m.concretePole, matrices.length)
-        matrices.forEach((mat, k) => inst.setMatrixAt(k, mat))
-        inst.instanceMatrix.needsUpdate = true
-        inst.castShadow = castShadow
-        inst.frustumCulled = true
-        inst.computeBoundingSphere()
-        inst.name = `utilityPoles-${cell}`
-        near.add(inst)
-      }
-      const railGeo = rail.build()
-      if (railGeo) {
-        const mesh = new THREE.Mesh(railGeo, m.guardrail)
-        mesh.name = `guardrail-${cell}`
-        mesh.castShadow = castShadow
-        mesh.receiveShadow = true
-        near.add(mesh)
-      }
-      near.userData.outskirts = { family: 'utility', poles: matrices.length, guardrailM: Math.round(railM) }
+      const inst = new THREE.InstancedMesh(m.utilityPoleGeo, m.concretePole, matrices.length)
+      matrices.forEach((mat, k) => inst.setMatrixAt(k, mat))
+      inst.instanceMatrix.needsUpdate = true
+      inst.castShadow = castShadow
+      inst.frustumCulled = true
+      inst.computeBoundingSphere()
+      inst.name = `utilityPoles-${cell}`
+      near.add(inst)
+      near.userData.outskirts = { family: 'utility', poles: matrices.length }
       farField.register({ kind: 'poles', name: `utility-${cell}`, cell, levels: [{ object: near, range: U.range }] })
+      if (m.hero) {
+        const h = new THREE.InstancedMesh(m.hero.geometry, m.hero.material, matrices.length)
+        matrices.forEach((mat, k) => h.setMatrixAt(k, mat))
+        h.instanceMatrix.needsUpdate = true
+        h.castShadow = castShadow
+        h.receiveShadow = true
+        h.frustumCulled = true
+        h.computeBoundingSphere()
+        h.name = `utilityHero-${cell}`
+        h.userData.outskirts = { family: 'utilityHero', poles: matrices.length }
+        farField.register({ kind: 'poles', name: `utilityHero-${cell}`, cell, levels: [{ object: h, range: P.heroRange, ramp: P.heroRamp }] })
+      }
       const wireGeo = wires.build()
       if (wireGeo) {
         const mesh = new THREE.Mesh(wireGeo, m.wire)
         mesh.name = `wires-${cell}`
         mesh.castShadow = false
         mesh.receiveShadow = false
-        mesh.userData.outskirts = { family: 'wires', spans, strips: spans * 3 }
+        mesh.userData.outskirts = { family: 'wires', spans, strips: spans * WIRE_ATTACH.length }
         farField.register({ kind: 'poles', name: `wires-${cell}`, cell, levels: [{ object: mesh, range: U.wiresRange }] })
       }
       return null
@@ -827,9 +811,103 @@ export function buildOutskirts(ctx: EnvBuildContext): OutskirtsStats {
     solar: { polygons: solarPolys, rows: solarRows, segments: solarSegs, cells: solarByCell.size },
     fence: { posts: fencePosts, cells: fenceByCell.size },
     lightPoles: { candidates: lightCandidates.length, budget: lightBudget },
-    utility: { poles: uPoles.length, guardrailSamples: railSamples, cells: utilityCells.size },
+    utility: { poles: uPoles.length, cells: plan.byCell.size, heroDrop: !!ctx.assets?.model('model/road/jp_denchu') },
     jobs,
   }
-  if (import.meta.dev) console.info(`[outskirts] solar ${solarPolys} farms / ${solarSegs} segments in ${solarByCell.size} cells, fence ${fencePosts} posts in ${fenceByCell.size} cells, ${lightCandidates.length} light-pole sites for ${lightBudget}, ${uPoles.length} utility poles + ${railSamples} guardrail samples in ${utilityCells.size} cells; ${jobs} jobs`)
+  if (import.meta.dev) console.info(`[outskirts] solar ${solarPolys} farms / ${solarSegs} segments in ${solarByCell.size} cells, fence ${fencePosts} posts in ${fenceByCell.size} cells, ${lightCandidates.length} light-pole sites for ${lightBudget}, ${uPoles.length} utility poles in ${plan.byCell.size} cells; ${jobs} jobs`)
   return stats
+}
+
+// ---------------------------------------------------------------------------------------------
+// the utility-pole plan, shared with road-furniture.ts (the transformer cans hang on these poles)
+
+export interface UtilityPole {
+  x: number
+  z: number
+  /** unit direction from the road to the pole: the crossarm's local +x (the pole's yaw) */
+  nx: number
+  nz: number
+  /** lower bound of the centreline distance at the pole (the way's dLo minus the offset) */
+  lo: number
+  /** the OSM way id and the pole's index along that way (consecutive indices are wired together) */
+  way: number
+  idx: number
+}
+
+export interface UtilityPlan {
+  poles: UtilityPole[]
+  /** far-field cell → indices into `poles` */
+  byCell: Map<number, number[]>
+  /**
+   * The ground height a pole stands on, null where it may not stand (the site rule with the
+   * crossarm's reach added to the 140 m, and the building clearance). Memoised: a wire span, a
+   * transformer can and the pole itself read the same answer from different jobs.
+   */
+  y(i: number): number | null
+}
+
+const PLANS = new WeakMap<EnvBuildContext, UtilityPlan>()
+
+/**
+ * Plan the utility poles once per build context (memoised): every `ROAD_FURNITURE.pole.pitch`
+ * metres along the tertiary / unclassified / residential ways of the road network, on one side
+ * of the way (chosen per OSM way id), `pole.offset` outside the paved edge, never inside a
+ * junction mouth, inside the terrain grid and outside the circuit's own grounds. Pure XZ
+ * arithmetic; the ground reads happen in `y`, in the deferred jobs.
+ */
+export function utilityPoles(ctx: EnvBuildContext): UtilityPlan {
+  let plan = PLANS.get(ctx)
+  if (plan) return plan
+  const { track, terrain, ground, quality: q, farField } = ctx
+  const grid: GridShape = terrain.grid()
+  const enScale = track.enScale
+  const P = ROAD_FURNITURE.pole, U = OUTSKIRTS.utility
+  const circuit = SUR_SITES.find((s) => s.id === OUTSKIRTS.fence.wayId && s.closed)
+  const circuitRing: XZ[] = circuit ? polyline(worldRing(circuit, enScale)) : []
+  const circuitBox = circuitRing.length ? ringBBox(circuitRing) : ([0, 0, 0, 0] as [number, number, number, number])
+  const insideCircuit = (x: number, z: number) => circuitRing.length > 0 && inBBox(x, z, circuitBox) && pointInRing(x, z, circuitRing)
+  const poles: UtilityPole[] = []
+  const byCell = new Map<number, number[]>()
+  // the poles follow the road NETWORK (road-section.ts) — the same trimmed, filleted paths the
+  // ribbons are cut from — so a pole stands off the real paved edge and never in a junction the
+  // ribbon was trimmed out of
+  const net = roadNetwork(ctx, { stepScale: q.farField.roads.stepScale, ring: q.farField.roads.ring })
+  for (const way of net.ways) {
+    if (!OUTSKIRTS.utilityKinds.includes(way.kind)) continue
+    const w = way.row
+    const cx = w.centroid[0] * enScale, cz = -w.centroid[1] * enScale
+    if (outsideGrid(grid, cx, cz, OUTSKIRTS.gridMargin)) continue
+    if (way.path.length < 2) continue
+    /** the junctions' reach along the way: no pole inside the other road's mouth */
+    const nearJunction = (s: number): boolean => way.junctions.some((j) => Math.abs(j.s - s) < j.j.major.hw + 3)
+    const side = mulberry(w.id * 7 + 1)() < 0.5 ? 1 : -1
+    const off = way.hw + P.offset
+    const samples = walk(way, P.pitch, P.pitch / 2)
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i]!
+      if (nearJunction(s.s)) continue
+      const [x, z] = offsetAt(s, side * off)
+      // outside the circuit's own grounds, tested per pole rather than on the way's centroid
+      if (!inGrid(grid, x, z) || insideCircuit(x, z)) continue
+      const idx = poles.length
+      // +lateral is (tz, −tx): the pole's outward normal on `side`
+      poles.push({ x, z, nx: s.tz * side, nz: -s.tx * side, lo: s.dLo - off, way: w.id, idx: i })
+      push(byCell, farField.cellOf(x, z), idx)
+    }
+  }
+  const rule: SiteRule = { ground, grid, projections: 0 }
+  let clearance: BuildingClearance | null = null
+  const site = new Map<number, number | null>()
+  const y = (i: number): number | null => {
+    let v = site.get(i)
+    if (v !== undefined) return v
+    const p = poles[i]!
+    clearance ??= new BuildingClearance(enScale, grid, OUTSKIRTS.gridMargin)
+    // the crossarm's half-length more, so the wires hung from its ends keep the 140 m too
+    v = siteOk(rule, p.x, p.z, p.lo, OUTSKIRTS.minD + P.hvArm / 2 + U.wireW) && !clearance.hit(p.x, p.z) ? ground.standY(p.x, p.z) : null
+    site.set(i, v)
+    return v
+  }
+  PLANS.set(ctx, (plan = { poles, byCell, y }))
+  return plan
 }

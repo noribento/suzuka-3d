@@ -132,20 +132,20 @@
   },
   "static": {
     "highNoAssets": {
-      "triangles": 3310400,
+      "triangles": 3708600,
       "meshes": 960,
       "instancedMeshes": 755,
       "farFieldEntries": 1018,
       "measured": true,
-      "measuredAt": "2026-09-11 R phase 2 scene-cost (Node, assets null): 686 InstancedMeshes / 925 entries (trees per far-field cell and species, hedges, cherry rows), +10 %; triangles/meshes from the S phase run"
+      "measuredAt": "2026-09-12 R phase 3 scene-cost (Node, assets null): 3,371,419 tris (roads 272 k, road furniture 96 k, utility poles / wires 93 k, trees on the cone path), 686 InstancedMeshes / 925 entries (R phase 2), +10 %"
     },
     "lowNoAssets": {
-      "triangles": 1694500,
+      "triangles": 1932500,
       "meshes": 803,
       "instancedMeshes": 667,
       "farFieldEntries": 843,
       "measured": true,
-      "measuredAt": "2026-09-11 R phase 2 scene-cost (Node, assets null): 606 InstancedMeshes / 766 entries, +10 %; triangles/meshes from the S phase run"
+      "measuredAt": "2026-09-12 R phase 3 scene-cost (Node, assets null): 1,756,806 tris, 606 InstancedMeshes / 766 entries (R phase 2), +10 %"
     }
   },
   "data": {

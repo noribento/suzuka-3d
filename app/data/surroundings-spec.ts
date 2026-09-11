@@ -168,6 +168,45 @@ export const ROADS = {
   farDrop: { kinds: ['service', 'track'] as readonly string[], dmin: 2500 },
 } as const
 
+/**
+ * The roadside furniture (app/three/road-furniture.ts, plan R フェーズ Phase 3) and the utility
+ * poles (app/three/outskirts.ts) — Japanese road facts, so a guardrail or a sign reads at the
+ * right size next to a 7 m 県道. Every length in metres.
+ */
+export const ROAD_FURNITURE = {
+  /**
+   * Gr-C W-beam guardrail: the beam spans 0.30–0.65 m over the ground (a 350 mm beam whose top
+   * is at 0.60–0.65 m), two corrugations `depth` deep, φ114 posts every 4 m, the beam face
+   * `offset` outside the paved edge. Continuous on both sides of the `continuous` classes; on
+   * tertiary roads only on the outside of fillets under `curveR` (± `curvePad` around the arc)
+   * and along embankments where the ground drops more than `dropM` between hw + 1 and hw + 5.
+   */
+  guardrail: { beam: [0.30, 0.65] as readonly [number, number], depth: 0.05, postD: 0.114, postH: 0.70, pitch: 4, offset: 0.25, continuous: ['trunk', 'trunk_link', 'primary', 'secondary'] as readonly string[], curveR: 150, curvePad: 15, dropM: 0.8 },
+  /** 視線誘導標: φ80 white discs at 1.2 m every 40 m on straights, `clamp(R / 6, 12, 40)` on arcs under `curveR`; orange only on the median side of the one-way trunk carriageways */
+  delineator: { h: 1.2, d: 0.08, pitchStraight: 40, curveR: 300, kinds: ['trunk', 'trunk_link', 'primary', 'secondary'] as readonly string[] },
+  /** カーブミラー: φ800 convex mirror with an orange rim on a φ76 × 3.6 m pole, at kept corners of at least `kinkDeg` and opposite every minor road's mouth on a major */
+  mirror: { d: 0.8, poleH: 3.6, poleD: 0.076, kinkDeg: 40 },
+  /** signs: plate centre at `plateH`, φ60 pole; 止まれ `stopBack` m before the stop bar; a speed-limit sign every `speedPitch` on tertiary+; a warning sign `warnBefore` m before fillets under `warnR` */
+  sign: { plateH: 2.0, poleD: 0.06, stopBack: 1.0, speedPitch: 500, warnBefore: 50, warnR: 60 },
+  /** 横型 signal: a φ200 × 6 m pole at the approach's left corner, an `arm` m arm over the carriageway, a 1.25 × 0.4 × 0.35 head with φ300 lenses hung under its end */
+  signal: { poleD: 0.2, poleH: 6, arm: 4.5, head: [1.25, 0.4, 0.35] as readonly [number, number, number], lens: 0.3 },
+  /**
+   * JIS 12 m concrete pole: 10.5 m exposed, tapered φ320 → φ190, HV crossarm at 9.6 m (three
+   * pin insulators), LV arm at 8.2 m, a transformer can on every `transformerEvery`-th pole;
+   * `offset` m outside the paved edge every `pitch` m. The hero GLB (jp_denchu) shows inside
+   * `heroRange` with a `heroRamp` m hand-off to the procedural prototype.
+   */
+  pole: { exposed: 10.5, dTop: 0.19, dBase: 0.32, hvArmY: 9.6, hvArm: 1.8, lvArmY: 8.2, lvArm: 1.2, transformerEvery: 4, transformer: { d: 0.45, h: 0.8 }, offset: 0.8, pitch: 35, heroRange: 200, heroRamp: 60,
+    /**
+     * draw the jp_denchu scan over the procedural pole inside heroRange: off — the decimated
+     * 512 px drop read as a brown blotchy column next to the clean JIS prototype on the
+     * SwiftShader check; flip it on a GPU to judge (README「GPU で確認すること」)
+     */
+    hero: false },
+  /** the furniture blocks draw within this distance (m, × lodScale) */
+  range: 700,
+} as const
+
 /** raceway ways closer than this to the GP centreline are the circuit itself — not shipped */
 export const RACEWAY_KEEP_OUT = 150
 

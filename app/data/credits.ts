@@ -190,6 +190,17 @@ export const CREDITS: Credit[] = [
   },
   {
     kind: 'asset',
+    title: 'Utility Box 02',
+    author: 'James Ray Cock',
+    url: 'https://polyhaven.com/a/utility_box_02',
+    site: 'Poly Haven',
+    licence: 'CC0-1.0',
+    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    modified: true,
+    attribution: '"Utility Box 02" by James Ray Cock (Poly Haven, https://polyhaven.com/a/utility_box_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)',
+  },
+  {
+    kind: 'asset',
     title: 'White Plaster 02',
     author: 'Rob Tuytel',
     url: 'https://polyhaven.com/a/white_plaster_02',
@@ -284,6 +295,30 @@ export const CREDITS: Credit[] = [
   },
   {
     kind: 'asset',
+    title: 'Japanese Pole (Denchu)',
+    author: 'Fumiya Funatsu',
+    authorUrl: 'https://sketchfab.com/funatsu.fumiya',
+    url: 'https://sketchfab.com/3d-models/japanese-pole-denchu-e46e33e8908f40dc99eb3e0849a15048',
+    site: 'Sketchfab',
+    licence: 'CC-BY-4.0',
+    licenceUrl: 'http://creativecommons.org/licenses/by/4.0/',
+    modified: true,
+    attribution: 'This work is based on "Japanese Pole (Denchu)" (https://sketchfab.com/3d-models/japanese-pole-denchu-e46e33e8908f40dc99eb3e0849a15048) by Fumiya Funatsu (https://sketchfab.com/funatsu.fumiya) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, clipped to the model\'s own object (7789 triangles outside keepBox dropped), textures GPU-compressed to KTX2 (1 uastc, 4 etc1s), simplified to 0.25 of the triangles (gltfpack -si -sa))',
+  },
+  {
+    kind: 'asset',
+    title: 'Japanese Traffic Assets',
+    author: 'Erik Kinč',
+    authorUrl: 'https://sketchfab.com/erikkinc',
+    url: 'https://sketchfab.com/3d-models/japanese-traffic-assets-1a4833770ace4df6aecfdabb76e36d60',
+    site: 'Sketchfab',
+    licence: 'CC-BY-4.0',
+    licenceUrl: 'http://creativecommons.org/licenses/by/4.0/',
+    modified: true,
+    attribution: 'This work is based on "Japanese Traffic Assets" (https://sketchfab.com/3d-models/japanese-traffic-assets-1a4833770ace4df6aecfdabb76e36d60) by Erik Kinč (https://sketchfab.com/erikkinc) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 2 mesh nodes dropped (drop /citylight|Citylight/), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (19 uastc, 54 etc1s))',
+  },
+  {
+    kind: 'asset',
     title: 'Low poly stadium/sports arena seats',
     author: 'anDDDres',
     authorUrl: 'https://sketchfab.com/anDDDres',
@@ -373,4 +408,4 @@ export const CREDITS: Credit[] = [
   },
 ]
 
-export const ASSETS_GENERATED = '2026-09-11T14:05:47.228Z'
+export const ASSETS_GENERATED = '2026-09-11T16:03:29.278Z'

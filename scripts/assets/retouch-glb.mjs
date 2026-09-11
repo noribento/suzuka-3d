@@ -8,15 +8,20 @@
  *   node scripts/assets/retouch-glb.mjs <in.glb|in.gltf> <out.glb> --spec '<json>'
  *   node scripts/assets/retouch-glb.mjs --dump <in.glb|in.gltf> <dir>   # every image as PNG + a table
  *
- * Spec (also the `retouch` / `dropParts` fields of a sources.mjs entry, passed in-process by
- * import-misc.mjs):
+ * Spec (also the `retouch` / `dropParts` / `keepBox` fields of a sources.mjs entry, passed
+ * in-process by import-misc.mjs):
  *   { retouch: [{ image: <index | name regex>, op: 'blur' | 'fill', rects: [[u0, v0, u1, v1], …],
  *                 colour?: '#rrggbb', sigma?: number }, …],
- *     dropParts: <regex source> }
+ *     dropParts: <regex source>,
+ *     keepBox: { min?: [x, y, z], max?: [x, y, z] } }
  * Rects are glTF UV space (origin top-left, 0–1). Retouched images are re-encoded as PNG when
  * they carry alpha and JPEG q92 otherwise; KTX2 images cannot be retouched (run this before the
  * texture encode, as the importer does). `--dump` is how the rectangles get decided: look at the
- * PNGs, write the spec.
+ * PNGs, write the spec. `keepBox` is scene space (node transforms applied, y up, the model's own
+ * units — inspect-model.mjs prints the extents): a triangle survives only when all three of its
+ * vertices lie inside; a null / missing bound is open. It is for a drop whose single primitive
+ * also holds a backdrop or a second prop (Sketchfab merges the author's objects into one mesh),
+ * which no node or material regex can separate; unreferenced vertices go in gltfpack.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
@@ -247,6 +252,121 @@ export function dropParts (model, pattern) {
   return dropped
 }
 
+const COMPONENT = {
+  5120: { size: 1, read: 'readInt8', write: 'writeInt8' },
+  5121: { size: 1, read: 'readUInt8', write: 'writeUInt8' },
+  5122: { size: 2, read: 'readInt16LE', write: 'writeInt16LE' },
+  5123: { size: 2, read: 'readUInt16LE', write: 'writeUInt16LE' },
+  5125: { size: 4, read: 'readUInt32LE', write: 'writeUInt32LE' },
+  5126: { size: 4, read: 'readFloatLE', write: 'writeFloatLE' },
+}
+const ELEMENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 }
+
+/** Every element of an accessor as an array of numbers (dense, non-sparse; a meshopt view cannot be read). */
+function readAccessor (model, index) {
+  const a = model.json.accessors[index]
+  if (a.sparse || a.bufferView == null) throw new Error(`accessor ${index} is sparse or empty`)
+  const view = model.views[a.bufferView]
+  if (!view.data) throw new Error(`accessor ${index} is meshopt-compressed — clip before gltfpack`)
+  const bv = model.json.bufferViews[a.bufferView]
+  const comp = COMPONENT[a.componentType]
+  const n = ELEMENTS[a.type]
+  const stride = bv.byteStride ?? comp.size * n
+  const norm = a.normalized ? { 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 }[a.componentType] : 0
+  const out = new Array(a.count)
+  for (let i = 0; i < a.count; i++) {
+    const e = new Array(n)
+    for (let c = 0; c < n; c++) {
+      const v = view.data[comp.read]((a.byteOffset ?? 0) + i * stride + c * comp.size)
+      e[c] = norm ? Math.max(v / norm, -1) : v
+    }
+    out[i] = e
+  }
+  return out
+}
+
+/** Column-major 4×4 product a·b. */
+const mul4 = (a, b) => {
+  const r = new Array(16).fill(0)
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) r[j * 4 + i] += a[k * 4 + i] * b[j * 4 + k]
+  return r
+}
+
+/** A node's local matrix from `matrix` or its TRS (column-major, as glTF stores it). */
+function nodeMatrix (n) {
+  if (n.matrix) return n.matrix
+  const [tx, ty, tz] = n.translation ?? [0, 0, 0]
+  const [sx, sy, sz] = n.scale ?? [1, 1, 1]
+  const [x, y, z, w] = n.rotation ?? [0, 0, 0, 1]
+  const m = [
+    1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0,
+    2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0,
+    2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0,
+    tx, ty, tz, 1,
+  ]
+  for (let r = 0; r < 3; r++) { m[r] *= sx; m[4 + r] *= sy; m[8 + r] *= sz }
+  return m
+}
+
+/**
+ * Keep only the triangles inside a scene-space box (see the module comment). Returns the number
+ * of triangles dropped. The index accessor of every clipped primitive is rewritten (a non-indexed
+ * one becomes indexed); the vertex buffers are left alone — gltfpack drops what nothing indexes.
+ */
+export function clipTriangles (model, box) {
+  if (!box) return 0
+  const { json } = model
+  const lo = box.min ?? [], hi = box.max ?? []
+  const inside = (p) => p.every((v, c) => (lo[c] == null || v >= lo[c]) && (hi[c] == null || v <= hi[c]))
+  // one world matrix per mesh: a mesh instanced twice with different transforms has no single
+  // scene-space box, so that is refused rather than guessed
+  const world = new Map()
+  const visit = (i, M) => {
+    const n = json.nodes[i]
+    const W = mul4(M, nodeMatrix(n))
+    if (n.mesh != null) {
+      const prev = world.get(n.mesh)
+      if (prev && prev.some((v, k) => Math.abs(v - W[k]) > 1e-9)) throw new Error(`keepBox: mesh ${n.mesh} is instanced with different transforms`)
+      world.set(n.mesh, W)
+    }
+    for (const c of n.children ?? []) visit(c, W)
+  }
+  const I4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+  for (const scene of json.scenes ?? []) for (const r of scene.nodes ?? []) visit(r, I4)
+  let dropped = 0
+  for (const [mi, mesh] of (json.meshes ?? []).entries()) {
+    const W = world.get(mi)
+    if (!W) continue
+    for (const prim of mesh.primitives) {
+      if ((prim.mode ?? 4) !== 4) throw new Error(`keepBox: mesh ${mi} has a non-triangle primitive (mode ${prim.mode})`)
+      const pos = readAccessor(model, prim.attributes.POSITION).map(([x, y, z]) => [
+        W[0] * x + W[4] * y + W[8] * z + W[12],
+        W[1] * x + W[5] * y + W[9] * z + W[13],
+        W[2] * x + W[6] * y + W[10] * z + W[14],
+      ])
+      const ok = pos.map(inside)
+      const idx = prim.indices != null ? readAccessor(model, prim.indices).map(v => v[0]) : pos.map((_, k) => k)
+      const kept = []
+      for (let k = 0; k + 2 < idx.length; k += 3) {
+        if (ok[idx[k]] && ok[idx[k + 1]] && ok[idx[k + 2]]) kept.push(idx[k], idx[k + 1], idx[k + 2])
+        else dropped++
+      }
+      if (kept.length === idx.length) continue
+      if (!kept.length) throw new Error(`keepBox: mesh ${mi} primitive has no triangle inside`)
+      // a fresh index view: uint32 when the vertex count needs it, the compact uint16 otherwise
+      const wide = pos.length > 65535
+      const comp = COMPONENT[wide ? 5125 : 5123]
+      const data = Buffer.alloc(kept.length * comp.size)
+      kept.forEach((v, k) => data[comp.write](v, k * comp.size))
+      model.views.push({ data, meshopt: null, byteLength: data.length })
+      json.bufferViews.push({ buffer: 0, byteOffset: 0, byteLength: data.length, target: 34963 })
+      json.accessors.push({ bufferView: json.bufferViews.length - 1, componentType: wide ? 5125 : 5123, count: kept.length, type: 'SCALAR' })
+      prim.indices = json.accessors.length - 1
+    }
+  }
+  return dropped
+}
+
 /** Drop materials, textures, samplers and images nothing references any more (index-remapping). */
 export function pruneModel (model) {
   const { json } = model
@@ -285,12 +405,13 @@ export function pruneModel (model) {
   for (const k of ['materials', 'textures', 'images', 'samplers']) if (!json[k].length) delete json[k]
 }
 
-/** Apply a whole spec in place: retouch rectangles, drop parts, prune. Returns what changed. */
+/** Apply a whole spec in place: retouch rectangles, drop parts, clip to the box, prune. Returns what changed. */
 export async function retouchModel (model, spec) {
   await retouchImages(model, spec.retouch)
   const dropped = dropParts(model, spec.dropParts)
+  const clipped = clipTriangles(model, spec.keepBox)
   pruneModel(model)
-  return { retouched: (spec.retouch ?? []).length, dropped }
+  return { retouched: (spec.retouch ?? []).length, dropped, clipped }
 }
 
 /** Write every image to `dir` as PNG (KTX2 as-is) and return the table rows. */
@@ -338,6 +459,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const model = readModel(input)
     const r = await retouchModel(model, JSON.parse(specArg))
     writeGlb(output, model)
-    console.log(`${basename(output)}: ${r.retouched} retouch ops, ${r.dropped} primitives dropped, ${model.images.length} images, ${fmtKB(readFileSync(output).length)}`)
+    console.log(`${basename(output)}: ${r.retouched} retouch ops, ${r.dropped} primitives dropped, ${r.clipped} triangles clipped, ${model.images.length} images, ${fmtKB(readFileSync(output).length)}`)
   }
 }
