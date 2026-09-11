@@ -39,7 +39,7 @@ import { SOURCES, LICENCES, RES_PX } from './sources.mjs'
 import {
   ROOT, MISC, DL, DL_INDEX, PUBLIC_ASSETS, MANIFEST, WORK, GLTFPACK, GLTF_TRANSFORM,
   ensureDir, readJson, writeJson, sha256, sha256File, walk, zipExtract, findKtx, ktxEnv, npx, run,
-  gltfImages, sniffImage, fmtMB, fmtKB,
+  gltfImages, sniffImage, fmtMB, fmtKB, findDrop, nameMatcher,
 } from './lib.mjs'
 import { MIME_BY_FORMAT, readModel, writeGlb, retouchModel, imageUses, selectImages } from './retouch-glb.mjs'
 
@@ -294,7 +294,11 @@ const toRe = (v) => (v == null || v instanceof RegExp ? v : new RegExp(String(v)
  * packed. `keepNodes` / `dropNodes` are tested on the node's full name path (`Root/Pine_1/LOD0`,
  * as inspect-model.mjs prints it) — a dropped node just loses its mesh, gltf-transform prune
  * then removes the mesh, its accessors, materials and images, and the empty leaf node.
- * `overrideImages` swaps an image's bytes for a file next to the source (a re-drawn atlas).
+ * `overrideImages` swaps an image's bytes for a file next to the source (a re-drawn atlas), a
+ * file under misc/, or — `'@<image name regex>'` — another image of the same model: a pack that
+ * ships its season variants as example materials (the oak pack's `Cluster_Mat_Winter_EX_*`) is
+ * re-skinned from its own, already glTF-packed textures instead of the author's raw drops, whose
+ * `_MRAO.png` carry metallic / roughness / AO in the opposite channel order to glTF's.
  */
 function prepareModel (model, src, srcDir) {
   const notes = []
@@ -318,19 +322,35 @@ function prepareModel (model, src, srcDir) {
     notes.push(`${dropped} mesh nodes dropped (${[src.keepNodes && `keep /${fmtRe(src.keepNodes)}/`, src.dropNodes && `drop /${fmtRe(src.dropNodes)}/`].filter(Boolean).join(', ')})`)
   }
   if (src.overrideImages) {
+    const replaced = []
     for (const [sel, rel] of Object.entries(src.overrideImages)) {
       const idx = selectImages(model, /^\d+$/.test(sel) ? Number(sel) : sel)
       if (!idx.length) throw new Error(`overrideImages: no image matches ${sel}`)
-      // a path under misc/ (the user's own drops, e.g. a pack's season atlases from the author's
-      // side download) or a file next to the source
-      const file = rel.startsWith('misc/') ? join(MISC, rel.slice(5)) : join(srcDir, rel)
-      if (!existsSync(file)) throw new Error(`overrideImages: ${file} missing`)
-      const data = readFileSync(file)
+      let data
+      let from
+      if (rel.startsWith('@')) {
+        // another image of this model (selected before prune, so an image only an example
+        // material uses is still there) — its bytes are copied, the target keeps its name
+        const other = selectImages(model, rel.slice(1)).filter(i => !idx.includes(i))
+        if (other.length !== 1) throw new Error(`overrideImages: ${rel} matches ${other.length} images, expected one`)
+        data = model.images[other[0]].data
+        from = model.images[other[0]].name
+      } else {
+        // a path under misc/ (the user's own drops, e.g. a pack's season atlases from the author's
+        // side download) or a file next to the source
+        const file = rel.startsWith('misc/') ? join(MISC, rel.slice(5)) : join(srcDir, rel)
+        if (!existsSync(file)) throw new Error(`overrideImages: ${file} missing`)
+        data = readFileSync(file)
+        from = rel
+      }
       const { format } = sniffImage(data)
       if (!MIME_BY_FORMAT[format]) throw new Error(`overrideImages: ${rel} is not PNG / JPEG / WebP / KTX2`)
-      for (const i of idx) model.images[i] = { ...model.images[i], data, format, mimeType: MIME_BY_FORMAT[format] }
+      for (const i of idx) {
+        model.images[i] = { ...model.images[i], data, format, mimeType: MIME_BY_FORMAT[format] }
+        replaced.push(`${model.images[i].name} ← ${from}`)
+      }
     }
-    notes.push(`images replaced (${Object.values(src.overrideImages).join(', ')})`)
+    notes.push(`images replaced (${replaced.join(', ')})`)
   }
   return notes
 }
@@ -371,7 +391,10 @@ function encodeModelTextures (cur, work, enc) {
     file = out
   }
   const done = readModel(file)
-  done.images.forEach((img, i) => { img.name = names[i] })
+  // An image that had no name (a .gltf whose images are only known by uri, once gltf-transform
+  // has embedded them) must not keep the tag either: writeGlb leaves the JSON name alone when
+  // the restored name is empty.
+  done.images.forEach((img, i) => { img.name = names[i]; if (!names[i]) delete done.json.images[i].name })
   for (const [i, img] of done.images.entries()) if (plan[i] !== 'none' && img.format !== 'ktx2') throw new Error(`texEncode: image ${i} (${names[i]}) is still ${img.format} after ${plan[i]}`)
   const encoded = join(work, 'encoded.glb')
   writeGlb(encoded, done)
@@ -828,7 +851,10 @@ async function build () {
   ensureDir(WORK)
   const previous = only ? readJson(MANIFEST, { assets: {} }).assets : {}
   const assets = {}
-  if (only) for (const [k, v] of Object.entries(previous)) assets[k] = v
+  // A subset run keeps the other entries as they are — except those whose source has left
+  // sources.mjs: they go now, so the prune below removes their files without a full rebuild.
+  const sourced = (k) => SOURCES.some(s => k === s.key || k.startsWith(s.key + '/'))
+  if (only) for (const [k, v] of Object.entries(previous)) if (sourced(k)) assets[k] = v; else console.log(`  dropped ${k} (no longer in sources.mjs)`)
   const failures = []
   console.log(`import → ${PUBLIC_ASSETS}  (ktx: ${ktx ? `${ktx.bin} v${ktx.version}` : 'NOT FOUND → WebP fallback'})`)
   for (const src of SOURCES) {

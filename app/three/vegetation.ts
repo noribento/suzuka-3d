@@ -2,16 +2,15 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { FERRIS_WHEEL, SEASON, SEASONS } from '~/data/suzuka-facilities-spec'
 import { SUR_FOREST } from '~/data/suzuka-surroundings'
+import { TREE_MIX, TREE_SPECIES } from '~/data/tree-species'
 import { worldRing } from '~/data/en-codec'
 import type { EnvBuildContext } from './environment'
-import { bucketedInstancedMeshes } from './instancing'
 import { inBBox, pointInRing, ringBBox, ringFromFlat, type XZ } from './far-geometry'
 import { KeepOutGrid } from './far-lines'
+import { emitTrees, pickHeight, pickRole, pickTint, type TreePlacement } from './trees'
 
 const _p = new THREE.Vector3()
 const _m = new THREE.Matrix4()
-const _q = new THREE.Quaternion()
-const _s = new THREE.Vector3()
 
 /**
  * Ferris wheel (the Suzuka landmark beside the main straight). The returned group is added to
@@ -71,8 +70,6 @@ export function buildFerrisWheel(ctx: EnvBuildContext): THREE.Group {
   }
   return ferrisWheel
 }
-
-type TreeKind = 'evergreen' | 'bare' | 'blossom'
 
 /** Fill (or add) a constant `color` attribute so the merged prototype can carry a per-part tint mask. */
 function tinted(g: THREE.BufferGeometry, r: number, gr: number, b: number): THREE.BufferGeometry {
@@ -225,40 +222,36 @@ export function forestRings(enScale: number): { ring: XZ[]; box: [number, number
 }
 
 /**
- * The trackside scatter: trees in the season's palette (spec SEASONS[SEASON].trees; late March =
- * 60 % dark evergreen, 30 % bare or budding deciduous, 10 % cherry in full bloom) inside 500 m
- * of the centreline — the band the broadcast cameras see, where the far field's canopy masses
- * are not drawn (plan §2a: the lids stop 60 m out and hide inside the stem range). The cherries
- * are concentrated where the photos show them — around the hairpin, outside the S-curves, in
- * the park behind the main grandstand and the main gate — and rare elsewhere. `quality.trees`
- * instances, kept off the track, the pit / paddock zone, the grandstands, the Ferris wheel and
- * the keep-outs (`treeSiteBlocked`); a candidate inside a SUR_FOREST polygon is accepted eight
- * times as readily as one outside (× 4 inside, × 0.5 outside against the old uniform scatter),
- * so the woods stand as a dense wall up to the fence at Degner, Spoon and 130R while the open
- * ground stays open. Placement draws from `rng` in a fixed order, so the caller's seeded
- * generator decides the woods; run this after the Ferris wheel is placed.
+ * The trackside scatter: trees inside 500 m of the centreline — the band the broadcast cameras
+ * see, where the far field's canopy masses are not drawn (plan §2a: the lids stop 60 m out and
+ * hide inside the stem range). Species by TREE_MIX.scatter (late March: pines, sugi, camphor,
+ * bare and budding keyaki, a stray cherry), TREE_MIX.cherryZone where the photos show the
+ * cherries — around the hairpin, outside the S-curves, in the park behind the main grandstand
+ * and the main gate. `quality.trees` instances, kept off the track, the pit / paddock zone, the
+ * grandstands, the Ferris wheel and the keep-outs (`treeSiteBlocked`); a candidate inside a
+ * SUR_FOREST polygon is accepted eight times as readily as one outside (× 4 inside, × 0.5
+ * outside against the old uniform scatter), so the woods stand as a dense wall up to the fence
+ * at Degner, Spoon and 130R while the open ground stays open. Placement draws from `rng` in a
+ * fixed order (position, density, thinning, role, yaw, height, tint × 3, seed — seven draws per
+ * placed tree), so the caller's seeded generator decides the woods; run this after the Ferris
+ * wheel is placed.
  *
  * The work is a deferred 'forest' job (after the keep-out producers of the 'buildings' stage):
- * the instanced meshes are bucketed per terrain chunk and returned as the job's root, so the
- * viewport's attach hook gives them their materials and frozen matrices.
+ * the placements are bucketed per far-field cell and handed to `emitTrees` (trees.ts), which
+ * registers the LOD buckets and the impostor cards — or, without the pack (Node, the low tier),
+ * the mid-detail cones — so the follow cameras and the cascades cull the far side of the
+ * circuit. Trees inside 120 m of the centreline are the heroes (LOD0 in the camera band).
  */
 export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
-  const { track, terrain, ground, quality, rng } = ctx
+  const { track, ground, quality, rng, farField } = ctx
   const season = SEASONS[SEASON]
   const count = quality.trees
   const wheelPos = ferrisWheel.position
-  ctx.farField.defer('forest', 'trees', 250, () => {
-    const evergreenGeo = treePrototype('evergreen')
-    const deciduousGeo = treePrototype('deciduous')
-    const treeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true })
-    const evergreens: THREE.Matrix4[] = []
-    const evergreenColors: THREE.Color[] = []
-    const deciduous: THREE.Matrix4[] = []
-    const deciduousColors: THREE.Color[] = []
-    const blossom = new THREE.Color(season.blossom)
-    const blossomDeep = new THREE.Color('#e9a9be')
+  farField.defer('forest', 'trees', 250, () => {
+    const lib = ctx.trees
     const b = track.bounds
     const forests = forestRings(track.enScale)
+    const byCell = new Map<number, TreePlacement[]>()
     let placed = 0
     let tries = 0
     // the park / main gate lie 150–450 m behind the main grandstand — beyond the 200 m reach of
@@ -290,40 +283,36 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
       if (ground.builtY(x, z)) continue
       // thinner right beside the fences outside the woods
       if (!wooded && near.d < 120 && rng.next() < 0.55) continue
-      // kind: the season's mix, with the cherries pulled into their zones (rare outside them)
-      const r = rng.next()
-      let kind: TreeKind
-      if (season.trees.blossom > 0 && inCherryZone(x, z, near)) kind = r < 0.5 ? 'blossom' : r < 0.72 ? 'bare' : 'evergreen'
-      else {
-        const stray = season.trees.blossom * 0.3
-        kind = r < stray ? 'blossom' : r < stray + season.trees.bare ? 'bare' : 'evergreen'
-      }
+      // species: the scatter mix, the cherry mix inside the zones (a cherry is rare elsewhere)
+      const mix = season.trees.blossom > 0 && inCherryZone(x, z, near) ? TREE_MIX.cherryZone : TREE_MIX.scatter
+      const role = pickRole(mix, rng.next())
+      const species = TREE_SPECIES[role]
       const y = ground.standY(x, z)
-      _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.next() * Math.PI * 2)
-      if (kind === 'evergreen') {
-        const sc = rng.range(0.7, 1.45)
-        _s.set(sc, sc * rng.range(0.85, 1.2), sc)
-        evergreens.push(new THREE.Matrix4().compose(_p.set(x, y - 0.3, z), _q, _s))
-        // cedar / cypress / pine: dark, slightly blue-green, low saturation
-        evergreenColors.push(new THREE.Color().setHSL(0.33 + rng.next() * 0.09, 0.26 + rng.next() * 0.18, 0.08 + rng.next() * 0.08))
-      } else {
-        const sc = kind === 'blossom' ? rng.range(0.75, 1.15) : rng.range(0.6, 1.05)
-        _s.set(sc, sc * rng.range(0.9, 1.15), sc)
-        deciduous.push(new THREE.Matrix4().compose(_p.set(x, y - 0.2, z), _q, _s))
-        if (kind === 'blossom') deciduousColors.push(blossom.clone().lerp(blossomDeep, rng.next() * 0.6))
-        // twigs and early buds: grey-brown, a hint of green on some
-        else deciduousColors.push(new THREE.Color().setHSL(0.08 + rng.next() * 0.06, 0.12 + rng.next() * 0.14, 0.2 + rng.next() * 0.12))
-      }
+      const yaw = rng.next() * Math.PI * 2
+      const height = pickHeight(species, rng.next())
+      const tint = pickTint(species, rng.next(), rng.next(), rng.next())
+      const seed = Math.floor(rng.next() * 0x7fffffff)
+      // the camera band: the trees the follow cameras pass at close range take the full LOD0
+      const hero = near.d < 120
+      const cell = farField.cellOf(x, z)
+      let list = byCell.get(cell)
+      if (!list) byCell.set(cell, (list = []))
+      list.push({ role, x, y, z, yaw, height, tint, hero, seed })
       placed++
     }
-    // one InstancedMesh per terrain chunk (16) and prototype so the follow cameras and the cascades
-    // cull the far side of the circuit; trees cast only where the tier allows
+    // one bucket set per cell and species so the follow cameras and the cascades cull the far
+    // side of the circuit; the cards reach any distance (the scatter has no canopy mass behind it)
     const root = new THREE.Group()
     root.name = 'trees'
-    const bucketOf = (_i: number, m: THREE.Matrix4) => terrain.chunkIndex(m.elements[12]!, m.elements[14]!)
-    for (const inst of bucketedInstancedMeshes(evergreenGeo, treeMat, evergreens, evergreenColors, bucketOf, { castShadow: quality.treeShadows, name: 'evergreens' })) root.add(inst)
-    for (const inst of bucketedInstancedMeshes(deciduousGeo, treeMat, deciduous, deciduousColors, bucketOf, { castShadow: quality.treeShadows, name: 'deciduous' })) root.add(inst)
-    root.userData.trees = { placed, tries }
+    const sum = { entries: 0, triangles: 0, cards: 0, cones: 0 }
+    for (const [cell, list] of byCell) {
+      const r = emitTrees(lib, ctx, 'trees', cell, list, { cardsRange: Infinity, castShadow: quality.treeShadows })
+      sum.entries += r.entries
+      sum.triangles += r.triangles
+      sum.cards += r.cards
+      sum.cones += r.cones
+    }
+    root.userData.trees = { placed, tries, cells: byCell.size, mode: lib.mode, ...sum }
     return root
   })
 }

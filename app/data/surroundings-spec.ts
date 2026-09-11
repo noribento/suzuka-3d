@@ -305,9 +305,13 @@ export const CAR_COLOURS: { hex: string; weight: number }[] = []
 
 // ---------------------------------------------------------------- forest (plan §2a)
 /**
- * The woods: canopy masses per 250 m cell (far), procedural stems (middle), GLB stems (near, high
- * tier). Every number the forest builder (app/three/forest.ts) tunes lives here; the tier budgets
- * (`midTrees`, `heroPerCell`, `nearTrees`, `canopy`, `shadows`, `lodScale`) are in quality.ts.
+ * The woods: canopy masses per 250 m cell (far), the species prototypes of app/three/trees.ts
+ * inside the stem range (LOD meshes, then impostor cards; cones where the library has no
+ * pack), plantation rows, hedges, bamboo clumps and the cherry rows along the roads. Every number
+ * the forest builder (app/three/forest.ts) tunes lives here; the species themselves (heights,
+ * tints, crown colours, the mixes per polygon kind) are app/data/tree-species.ts and the tier
+ * budgets (`midTrees`, `heroPerCell`, `nearTrees`, `canopy`, `shadows`, `lodScale`, `trees`)
+ * are in quality.ts.
  */
 export const FOREST = {
   /**
@@ -334,30 +338,48 @@ export const FOREST = {
   canopyTileM: 26,
   floorTileM: 7,
   /**
-   * procedural stems (vegetation.ts treePrototype): level range (m, × lodScale), the count ramp
-   * before it (m), the closest a stem stands to the centreline (the trackside scatter's rule),
-   * the late-March species mix, how far in from the polygon edge a cherry may stand, and the
-   * minimum stratified spacing (m)
+   * the stems inside the polygons: the outer range of the cards / cones (m, × lodScale — the
+   * canopy mass takes over beyond it), the count ramp before it (m), the closest a stem stands
+   * to the centreline (the trackside scatter's rule), how far in from the polygon edge a cherry
+   * may stand (the aerial's pink fringes), and the minimum stratified spacing (m). The species
+   * mix per polygon kind is TREE_MIX of tree-species.ts.
    */
-  stems: { range: 900, ramp: 220, minD: 44, mix: { evergreen: 0.72, bare: 0.25, blossom: 0.03 }, edgeM: 14, minSpacing: 4 },
+  stems: { range: 900, ramp: 220, minD: 44, edgeM: 14, minSpacing: 4 },
   /**
-   * GLB stems (high tier with the asset pack): level range (m), the models by species and the
-   * height (m) each is scaled to (the packs ship in assorted units), the hero yaw / scale jitter
+   * landuse=forest plantations stand in rows: the row axis follows the contour (⊥ the ground
+   * gradient at the polygon centroid; the polygon's principal axis on flat ground), `pitchAcross`
+   * is the pitch between neighbouring rows and `pitchAlong` the pitch along a row, both × the
+   * polygon's stem spacing (0.7 × 1.43 ≈ 1, so the allotment is unchanged), `jitter` the
+   * per-stem offset (× spacing) that keeps the lattice from reading as a grid up close
    */
-  hero: {
-    range: 260,
-    evergreen: ['model/trees/pine_a', 'model/trees/pine_b'],
-    blossom: 'model/trees/autumn_tree',
-    heights: { 'model/trees/pine_a': 9.5, 'model/trees/pine_b': 10.5, 'model/trees/autumn_tree': 7.5, 'model/trees/bush': 1.4 } as Record<string, number>,
-    scale: [0.85, 1.2] as const,
-  },
+  rows: { pitchAcross: 0.7, pitchAlong: 1.43, jitter: 0.15 },
+  /**
+   * the cherry rows along the roads (job C of forest.ts): the ways named here and every PUBLIC
+   * way (ROAD_SECTION.rank ≥ `minRank`, i.e. residential and up — not the service drives, car-park
+   * aisles or the kart raceways, which are 15 km of the gate surroundings) whose centroid lies
+   * within `gateR` m of a circuit gate (SUR_SITES role 'gate') get a tree every `pitch` m on both
+   * sides, `offset` m outside the paved edge (just past the road's keep-out)
+   */
+  cherryRows: { names: ['サーキット道路'], gateR: 350, minRank: 2, pitch: 7, offset: 2.5 },
+  /**
+   * the shrubs along the forest edges: a site every `pitch` m of ring, from `offset` m outside
+   * the edge out to `edgeBand` m (biased to the edge), `share` of the sites taken at most — the
+   * tier's `Quality.farField.trees.shrubs` is allotted over the polygons by perimeter first
+   */
+  hedge: { pitch: 4, offset: 1.2, edgeBand: 6, share: 0.35 },
+  /**
+   * bamboo clumps on the wood / scrub lattice sites where the settlement weight of the land-cover
+   * mask is at least `settleMin` (the village edges), or the polygon is tagged bamboo; a clump is
+   * `perClump` culms within `clumpR` m (expanded by trees.ts emitTrees)
+   */
+  bamboo: { settleMin: 0.3, clumpR: 2.5, perClump: 3 },
   /** visibility weight of a polygon for the stem allotment: 1 at the track, falling to `floor` at `far` metres */
   visibility: { far: 1500, floor: 0.35 },
 } as const
 
 // LOD ranges per family (forest done; buildings detail and cars 3D / impostor / stipple are filled by plan §2c / §2d).
 export const SUR_LOD: Record<string, { near?: number; far?: number }> = {
-  forest: { near: FOREST.hero.range, far: FOREST.stems.range },
+  forest: { far: FOREST.stems.range },
 }
 
 /** Land-cover colours live in app/three/landcover.ts (COVER_COLOURS); nothing to hand-tune here. */

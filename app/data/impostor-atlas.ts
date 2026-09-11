@@ -1,8 +1,8 @@
 /**
  * Layouts of the baked impostor atlases the runtime shader in app/three/impostor.ts reads: the
  * spectators (mirrored from ~/data/crowd-atlas.ts, baked by scripts/assets/bake-crowd-atlas.mjs),
- * the parked cars (baked by scripts/assets/bake-car-atlas.mjs) and the trees (placeholder until
- * C2 bakes them).
+ * the parked cars (baked by scripts/assets/bake-car-atlas.mjs) and the trees (baked by
+ * scripts/assets/bake-tree-atlas.mjs).
  * Every layout describes the same thing: a grid of `cell` px cells, one ROW per subject (or
  * per subject × variant), `yaws` columns per elevation band (yaw 0 faces the camera, clockwise
  * seen from above), and where the second elevation band sits (`bandAxis`). A cell covers
@@ -69,27 +69,43 @@ export const CROWD_LAYOUT: ImpostorLayout = {
 }
 
 /**
- * Trees (`tex/tree_atlas`, baked in C2 from the trees_*.glb prototypes): 8 yaws × 2 elevations,
- * the two bands stacked as consecutive rows (row 2·k = low camera, 2·k + 1 = high camera of
- * species k). The mask R channel marks the foliage so the season tint (aTint0 rgb) leaves the
- * trunk alone. Cell 24 m: the widest canopy in the pack is ≈ 20 m. Placeholder numbers — the
- * bake writes the final ones.
+ * Trees (`tex/tree_atlas`, baked by scripts/assets/bake-tree-atlas.mjs from the first variant's
+ * LOD0 of every species in ~/data/tree-species.ts): 8 yaws × 2 elevations (10° and 45° cameras)
+ * side by side in 16 columns like the crowd, one row per species (`TreeSpecies.row`), rows 11–15
+ * spare. The mask's R channel marks the foliage, so the per-tree tint (aTint0, the species'
+ * `tint` sample) leaves the trunk alone.
+ *
+ * Unlike the figures and the cars the rows are NOT at true scale: a species spans 4–20 m, so
+ * every tree is baked to fill its 24 m cell (`TREE_CARD_ROW_HEIGHT_M` tall, the trunk base
+ * `padM` above the bottom edge) and app/three/trees.ts scales the card instance by the
+ * placement's height / the row's baked height — the base stays at the instance origin because
+ * `impostorGeometry` puts it there.
  */
 export const TREE_LAYOUT: ImpostorLayout = {
-  width: 2048,
+  width: 4096,
   height: 4096,
   cell: 256,
-  cols: 8,
+  cols: 16,
   rows: 16,
   yaws: 8,
-  elevations: [8, 40],
-  bandAxis: 'rows',
+  elevations: [10, 45],
+  bandAxis: 'cols',
   cellM: 24,
   padM: 0.5,
   quadW: 1.0,
   modelScale: 1,
-  rowsMeta: { subjects: 8, variants: 1, note: 'baked in C2: species k at rows 2k (low camera) and 2k + 1 (high camera)' },
+  rowsMeta: { subjects: 11, variants: 1, note: 'one row per TreeRole (tree-species.ts row), columns 0–7 the 10° band, 8–15 the 45° band; rows 11–15 spare' },
 }
+
+/**
+ * Height (m) of each row's tree inside its atlas cell: the bake fits a tree to
+ * `TREE_CARD_BAKE_M` tall unless it would be wider than the cell minus the padding, in which
+ * case the width rules and the row is shorter. Mirrored from misc/dl/tex/tree_atlas/layout.json
+ * `rows[].heightM` after every bake (the bake prints the array when a row deviates); the
+ * placeholder is the bake height for every row.
+ */
+export const TREE_CARD_BAKE_M = 20
+export const TREE_CARD_ROW_HEIGHT_M: readonly number[] = [20, 20, 20, 20, 20, 20, 20, 19.17, 19.09, 20, 20]
 
 /**
  * Parked cars and coaches (`tex/car_atlas`, baked by scripts/assets/bake-car-atlas.mjs from

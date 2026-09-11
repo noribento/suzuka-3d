@@ -170,6 +170,21 @@ export interface FarFieldQuality {
     /** density 0–1 of the roadside furniture (road-furniture.ts, Phase 3) */
     furniture: number
   }
+  /** the trees (trees.ts): pack prototypes with LODs, impostor cards, the canopy mass */
+  trees: {
+    /**
+     * mesh LOD ranges (m, before lodScale): a hero tree draws LOD0 inside lodM[0] and LOD1 to
+     * lodM[1]; a plain tree LOD1 inside lodM[0] and LOD2 to lodM[1]; beyond that the impostor
+     * card. [0, 0] = never a mesh (the cone fallback everywhere)
+     */
+    lodM: [number, number]
+    /** draw the baked impostor cards between lodM[1] and the stem range (false = the cone stand-ins) */
+    cards: boolean
+    /** foliage casts shadows only at the mesh levels whose range is at most this (m); 0 = bark only */
+    leafShadowM: number
+    /** hedge / edge shrubs over the whole grid */
+    shrubs: number
+  }
 }
 
 export const QUALITY: Record<QualityTier, Quality> = {
@@ -216,7 +231,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     textureRes: '2k',
     coverRes: [1024, 512],
     coverDetail: true,
-    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 40, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 } },
+    farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 24, midTrees: 6000, canopy: true, buildingsDetailM: 700, parkedCars: 4000, carImpostors: true, lightPoles: 350, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 }, trees: { lodM: [60, 130], cards: true, leafShadowM: 130, shrubs: 2500 } },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -266,7 +281,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     coverDetail: false,
     // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
-    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 } },
+    farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, parkedCars: 1000, carImpostors: false, lightPoles: 120, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 }, trees: { lodM: [0, 0], cards: false, leafShadowM: 0, shrubs: 600 } },
   },
 }
 

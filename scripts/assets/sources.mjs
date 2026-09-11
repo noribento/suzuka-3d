@@ -9,7 +9,9 @@
  * Road007 (white lines stay procedural), Plastic011, metal_plate_02, any HDRI (the analytic sky
  * dome IBL follows the sun and cannot coexist with a fixed HDRI), aerial_grass_rock,
  * concrete_panels, box_profile_metal_sheet, TextureCan ground_0040, Poly Haven's dense trees
- * (pine_tree_01.bin is 948 MB), and the Suzuka wordmark (trademark).
+ * (pine_tree_01.bin is 948 MB), the Suzuka wordmark (trademark), and — since R Phase 2 — the
+ * Quaternius low-poly trees / bush and Poly Haven shrub_03 (stylised; replaced by the Sketchfab
+ * packs below, with the procedural cones as the fallback when a pack is missing).
  *
  * Map roles: diff → sRGB colour, nor_gl → linear OpenGL-convention normal, arm → linear packed
  * R = ambient occlusion (1.0 when the source has none), G = roughness, B = metalness (0 when
@@ -22,7 +24,8 @@
  * Model fields (all optional; import-misc.mjs `packModel` runs them in this order):
  *   dropNodes / keepNodes  RegExp on the node's full name path (`Root/Pine_1/LOD2`, see
  *                          inspect-model.mjs) — drop LOD / billboard / season variants at import
- *   overrideImages         { '<image index | name regex>': 'file relative to the drop dir' }
+ *   overrideImages         { '<image index | name regex>': 'file relative to the drop dir' |
+ *                          'misc/<path>' | '@<name regex of another image of the model>' }
  *   maxTex                 cap for textures inside the GLB (default 1024)
  *   retouch / dropParts    trademark surgery (retouch-glb.mjs: UV rectangles blurred / filled,
  *                          primitives dropped by material / mesh name regex)
@@ -149,6 +152,34 @@ function polyhavenModel (id, { name, author, res = '1k', use, maxTex, ...pack })
   }
 }
 
+/**
+ * Sketchfab tree drop (CC-BY 4.0, plan R Phase 2): the auto-converted glTF zip in misc/trees/ (or
+ * misc/), scene.gltf inside, license.txt as evidence. `pack` = the model fields above
+ * (dropNodes / keepNodes / overrideImages / maxTex); every pack ships KTX2 at ≤ 1K.
+ */
+function sketchfabTree (key, { name, zip, author, pageUrl, use, maxTex = 1024, ...pack }) {
+  return {
+    ...pack,
+    key,
+    kind: 'model',
+    site: 'Sketchfab',
+    name,
+    pageUrl,
+    author,
+    authorUrl: `https://sketchfab.com/${author}`,
+    licence: 'CC-BY-4.0',
+    resolver: 'misc-local',
+    use,
+    miscRoots: ['trees', '.'],
+    zip,
+    entry: 'scene.gltf',
+    licenceFile: 'license.txt',
+    licenceMarker: 'CC-BY-4.0',
+    maxTex,
+    texEncode: { default: 'etc1s', normal: 'uastc', alpha: 'uastc', quality: 160 },
+  }
+}
+
 export const SOURCES = [
   // ---- grass / ground -----------------------------------------------------------------------
   polyhavenTexture('withered_grass', {
@@ -223,18 +254,83 @@ export const SOURCES = [
     maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
   }),
 
-  // ---- vegetation models (low-poly; sakura via instanceColor) ---------------------------------
-  // The textured Quaternius pines/trees carry a stylised 1K bark tile + flat leaf-card sheet
-  // (three PNGs, ~2 MB and 22 MB of RGBA8 VRAM per file) — far-field trees never need more than
-  // 512 px, so `maxTex` caps them (default cap is 1K, applied to everything else).
-  polypizzaModel('model/trees/pine_trees', { name: 'Pine Trees', publicId: 'oYtDty0fR6', resourceId: '1d499f8b-5a1b-4966-9a35-10c0d3841e91', use: 'tree line' }),
-  polypizzaModel('model/trees/pine_a', { maxTex: 512, name: 'Pine', publicId: 'igSu0cPoBz', resourceId: '712aaefa-ae7f-4cb3-8834-a1b8860df3b2', use: 'tree line' }),
-  polypizzaModel('model/trees/pine_b', { maxTex: 512, name: 'Pine', publicId: '79gmlLnweB', resourceId: '082c2026-56af-4e3f-bea7-9ae5de71101f', use: 'tree line' }),
-  polypizzaModel('model/trees/pine_c', { maxTex: 512, name: 'Pine', publicId: '699sFuLCN2', resourceId: 'c55b8641-4679-4a85-8bd8-2a20e79abecd', use: 'tree line' }),
-  polypizzaModel('model/trees/trees', { maxTex: 512, name: 'Trees', publicId: 'etFGNvsiFv', resourceId: '53a83125-e16a-4024-b8f6-1e72679c7ddf', use: 'broadleaf variety' }),
-  polypizzaModel('model/trees/autumn_tree', { name: 'Autumn Tree', publicId: '2lRubrT6Na', resourceId: '653f3101-2c31-4d15-9e54-3d81aeca345a', use: 'recoloured pink → sakura' }),
-  polypizzaModel('model/trees/bush', { name: 'Bush', publicId: 'ooG6CkLyE8', resourceId: '6bbb833e-26cb-4bf9-ae67-a31b98e30bd9', use: 'low bushes' }),
-  polyhavenModel('shrub_03', { name: 'Shrub 03', author: 'Rico Cilliers', use: 'veg: undergrowth along the tree line' }),
+  // ---- trees (R Phase 2: Sketchfab CC-BY 4.0 drops in misc/trees/) --------------------------
+  // The user downloads each model page's auto-converted glTF zip into misc/trees/ (the zip keeps
+  // Sketchfab's title-derived name, matched by glob); license.txt inside supplies the credit
+  // line. Every pack is addressed by node path at runtime (app/data/tree-species.ts, gltfpack
+  // -kn) and classified bark / foliage by material name (-km), so nothing is merged here. The
+  // packs' own billboards, reference planes and checker floors are dropped — the impostor atlas
+  // is baked in-repo — and every texture goes to KTX2 (foliage alpha and normals UASTC, the
+  // rest ETC1S) at ≤ 1K: 4K cluster atlases would be 64 MB of VRAM per pack.
+  sketchfabTree('model/trees/pine_pack', {
+    name: 'Pine trees pack (lowpoly, game ready, LODs)', zip: 'pine_trees_pack*.zip', author: 'lolipop_1707',
+    pageUrl: 'https://sketchfab.com/3d-models/pine-trees-pack-lowpoly-game-ready-lods-e1e9c07b8e2e445c943fec660beefba2',
+    use: 'matsu (red / black pine): Pine_large / big for the hill woods, medium / small for the scatter; LOD0–2 per tree',
+    dropNodes: /Billboard|(^|\/)Back(\/|$)|Ref_plane|Checker|Pine_sapling/i,
+  }),
+  sketchfabTree('model/trees/fir_pack', {
+    name: 'Realistic Fir Trees Pack (LODS, gameready)', zip: 'realistic_fir_trees*.zip', author: 'lolipop_1707',
+    pageUrl: 'https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7',
+    use: 'sugi / hinoki plantation rows: the spire silhouette, needles tinted per species at runtime; LOD0–2',
+    dropNodes: /LOD3|Billboard/i,
+  }),
+  // The oak pack is imported three times: the pack as shipped (summer clusters → kusunoki), and
+  // twice re-skinned with the season atlases the pack carries on its "Seasons Example" trees
+  // (winter → bare keyaki, spring → budding). The `@` overrides copy those Sketchfab-converted
+  // images: the author's raw season download (misc/trees/oak_seasons/*_MRAO.png) packs
+  // metallic / roughness / AO in the opposite channel order to glTF, so it is not used.
+  sketchfabTree('model/trees/oak_pack', {
+    name: 'Oak trees pack (17var, LODs, seasons, gameready)', zip: 'oak_trees_pack*.zip', author: 'lolipop_1707',
+    pageUrl: 'https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393',
+    use: 'kusunoki (evergreen broadleaf): the four Large oaks with the summer clusters, darkened at runtime; LOD0–2',
+    keepNodes: /(^|\/)Large_oak_tree_00[1-4]\//,
+    dropNodes: /Billboard|Ground|Man ref|Seasons|Checker/i,
+  }),
+  sketchfabTree('model/trees/oak_winter', {
+    name: 'Oak trees pack (17var, LODs, seasons, gameready)', zip: 'oak_trees_pack*.zip', author: 'lolipop_1707',
+    pageUrl: 'https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393',
+    use: 'keyaki, bare (late March): the Big / Medium oaks wearing the pack\'s winter cluster atlas; LOD0–2',
+    keepNodes: /(^|\/)(Big|Medium)_oak_tree__00[1-4]\//,
+    dropNodes: /Billboard|Ground|Man ref|Seasons|Checker/i,
+    overrideImages: {
+      '^Cluster_Mat_baseColor$': '@^Cluster_Mat_Winter_EX_baseColor$',
+      '^Cluster_Mat_metallicRoughness$': '@^Cluster_Mat_Winter_EX_metallicRoughness$',
+      '^Cluster_Mat_normal$': '@^Cluster_Mat_Winter_EX_normal$',
+    },
+  }),
+  sketchfabTree('model/trees/oak_spring', {
+    name: 'Oak trees pack (17var, LODs, seasons, gameready)', zip: 'oak_trees_pack*.zip', author: 'lolipop_1707',
+    pageUrl: 'https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393',
+    use: 'budding broadleaves: the Medium / Small oaks wearing the pack\'s spring cluster atlas; LOD0–2',
+    keepNodes: /(^|\/)(Medium|Small)_oak_tree__00[1-3]\//,
+    dropNodes: /Billboard|Ground|Man ref|Seasons|Checker/i,
+    overrideImages: {
+      '^Cluster_Mat_baseColor$': '@^Cluster_Mat_Spring_EX_baseColor$',
+      '^Cluster_Mat_metallicRoughness$': '@^Cluster_Mat_Spring_EX_metallicRoughness$',
+      '^Cluster_Mat_normal$': '@^Cluster_Mat_Spring_EX_normal$',
+    },
+  }),
+  sketchfabTree('model/trees/bush_pack', {
+    name: 'Bush models pack (gameready, LODs)', zip: 'bush_models_pack*.zip', author: 'lolipop_1707', maxTex: 512,
+    pageUrl: 'https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8',
+    use: 'hedges outside the fences and the forest-edge shrubs: 15 bushes in three sizes, LOD0–2',
+    dropNodes: /Billboard|Ground|Man ref/i,
+  }),
+  sketchfabTree('model/trees/cherry_medium', {
+    name: 'Japanese Cherry Tree (medium-Poly)', zip: 'japanese_cherry_tree_medium*.zip', author: 'Sereib',
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c',
+    use: 'sakura in full bloom, LOD0 (11.7 k tris): the gate and roadside cherries',
+  }),
+  sketchfabTree('model/trees/cherry_low', {
+    name: 'Japanese Cherry Tree (low-Poly)', zip: 'japanese_cherry_tree_low*.zip', author: 'Sereib', maxTex: 512,
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209',
+    use: 'sakura in full bloom, LOD1 (5 k tris) and the smaller roadside rows',
+  }),
+  sketchfabTree('model/trees/bamboo', {
+    name: 'bamboo', zip: 'bamboo.zip', author: 'evolveduk', maxTex: 512,
+    pageUrl: 'https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59',
+    use: 'bamboo: one culm with leaves (2.2 k tris), three per clump at the village edges',
+  }),
 
   // ---- props (small objects seen from > 20 m: 512 px textures) -------------------------------
   // Authors as api.polyhaven.com/info/<id> lists them (`authors`), verified 2026-09-11.
@@ -397,6 +493,28 @@ export const SOURCES = [
     licenceFile: 'License_Standard.txt',
     licenceMarker: 'CC0 1.0 Universal',
   },
+  // --- tree impostor atlas (Phase 2, scripts/assets/bake-tree-atlas.mjs) ---------------------
+  // Baked in-repo from the imported tree packs above (`model/trees/*`, CC-BY 4.0): one 4096²
+  // atlas, 256 px cells, one row per species of app/data/tree-species.ts, columns = 8 yaws × 2
+  // camera elevations (10°, 45°). diff = the lit trees, RGBA; mask = R the foliage (what the
+  // runtime tints per tree), black the bark. The layout is mirrored as TREE_LAYOUT in
+  // app/data/impostor-atlas.ts.
+  {
+    key: 'tex/tree_atlas',
+    kind: 'texture',
+    site: 'Sketchfab (baked by suzuka-3d)',
+    name: 'Tree impostor atlas — pine / fir / oak / bush / cherry / bamboo packs',
+    pageUrl: 'https://github.com/noribento/suzuka-3d',
+    author: 'lolipop_1707, Sereib, evolveduk',
+    credit: 'impostor atlas baked from the CC-BY tree packs by scripts/assets/bake-tree-atlas.mjs',
+    licence: 'CC-BY-4.0',
+    resolver: 'bake',
+    bakeScript: 'node scripts/assets/bake-tree-atlas.mjs',
+    res: '4k', // keeps the 4096 × 4096 canvas as baked (loadRaw only shrinks above RES_PX)
+    use: 'far-field tree impostors (8 yaws × 2 elevations × 11 species rows)',
+    files: { 'tree_atlas_diff.png': 'bake://tree-atlas/diff', 'tree_atlas_mask.png': 'bake://tree-atlas/mask' },
+    maps: { diff: 'tree_atlas_diff.png', mask: 'tree_atlas_mask.png' },
+  },
 ]
 
 /**
@@ -420,18 +538,6 @@ export const PINS = {
   'model/props/street_lamp_02/textures/street_lamp_02_arm_1k.jpg': 'a1e2d654e7d5d48a1fdfbf720840192d171df54e5ea5f055145d0472d617eede',
   'model/props/street_lamp_02/textures/street_lamp_02_diff_1k.jpg': '19882567313dd43fef60f9fa41a4c55f81a957f9fee539e931fc36a32e386b6c',
   'model/props/street_lamp_02/textures/street_lamp_02_nor_gl_1k.jpg': 'fdd9fb26ca853020ed156fdd84e90ce3f9a68bf94edf71c0ffe72add67e316c6',
-  'model/trees/autumn_tree/autumn_tree.glb': 'dcec1dcaa91c1b43a82dfc082c9b64b1e533bfb484b2de151d9817b3a1e07f03',
-  'model/trees/bush/bush.glb': '917de9eee116cd439637abeca201ac0a823cb534c4618e15dcbca34d3a916782',
-  'model/trees/pine_a/pine_a.glb': 'b2cc7f2e672f94a41925ba831af8b3db9cbe6621172fb6f2717881c81c074e18',
-  'model/trees/pine_b/pine_b.glb': '240e6f60c5b106a892c80490d7c710f20ef902b328b5e173c0a567334e4df972',
-  'model/trees/pine_c/pine_c.glb': '3a5db923999bd47281f1f38cf8451c1544acfad33d953892fa95ca74765be361',
-  'model/trees/pine_trees/pine_trees.glb': 'aea959025a31b0d250d7c94c96cf9456f9fcdaf9fb269790029d85adae3703c4',
-  'model/trees/trees/trees.glb': '2dc587f401a3a86e0e1ee0bb95b4a0293b620b445a26278fcf55b5b68b40b097',
-  'model/veg/shrub_03/shrub_03.bin': 'bf4df21e6d2a2bc5f00b4c9142f776171fe7da00cf960001825748067af542b6',
-  'model/veg/shrub_03/shrub_03_1k.gltf': 'b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea',
-  'model/veg/shrub_03/textures/shrub_03_arm_1k.jpg': '3e2b16812a623037138eedace958210c5f3443a827bbe69663045bba5612f815',
-  'model/veg/shrub_03/textures/shrub_03_diff_1k.jpg': '3cadc7aba46d3aabbd7d6d2b1d04aa32e2a7da0bc87c2d38ef3cb1ee42cb03ec',
-  'model/veg/shrub_03/textures/shrub_03_nor_gl_1k.jpg': 'ff856bacfce859b8a7555dd9a3b92fbd36b2e775d486be71df485afb4235d6c9',
   'ref/crowd_plates/bangabandhu_crowd_2019.jpg': '6557474c28a545cecfcf6e6859f3c368945f94ad4e95dbbfa3d9a56e0d9985a5',
   'ref/crowd_plates/front_row_audience_unsplash.jpg': '7585fefb4bcb4b14af078fb1d4eb71663f3ef740ebf060f09ff3c5d2fce0c392',
   'ref/kenney_racing_kit/kenney_racing-kit.zip': '8a71ea16219315a01d00d5a90c4f6b5c090faddbc56d80ecf727e2b3b853c6c0',

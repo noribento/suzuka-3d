@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-11T11:42:24.749Z",
+  "generated": "2026-09-11T14:05:47.228Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -917,256 +917,530 @@
         "textures resized to ≤ 1024 px"
       ]
     },
-    "model/trees/autumn_tree": {
+    "model/trees/bamboo": {
       "kind": "model",
-      "path": "/assets/models/trees_autumn_tree.63f7b8d1.glb",
+      "path": "/assets/models/trees_bamboo.f720f7dd.glb",
       "format": "glb",
-      "bytes": 37644,
-      "role": "model",
-      "textures": [],
-      "source": {
-        "site": "poly.pizza",
-        "name": "Autumn Tree",
-        "pageUrl": "https://poly.pizza/m/2lRubrT6Na",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/653f3101-2c31-4d15-9e54-3d81aeca345a.glb",
-        "sha256Source": "dcec1dcaa91c1b43a82dfc082c9b64b1e533bfb484b2de151d9817b3a1e07f03"
-      },
-      "modified": true,
-      "modifications": [
-        "meshopt compression (gltfpack -cc)"
-      ]
-    },
-    "model/trees/bush": {
-      "kind": "model",
-      "path": "/assets/models/trees_bush.1b43cf94.glb",
-      "format": "glb",
-      "bytes": 124660,
-      "role": "model",
-      "textures": [
-        {
-          "width": 512,
-          "height": 512
-        }
-      ],
-      "source": {
-        "site": "poly.pizza",
-        "name": "Bush",
-        "pageUrl": "https://poly.pizza/m/ooG6CkLyE8",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/6bbb833e-26cb-4bf9-ae67-a31b98e30bd9.glb",
-        "sha256Source": "917de9eee116cd439637abeca201ac0a823cb534c4618e15dcbca34d3a916782"
-      },
-      "modified": true,
-      "modifications": [
-        "meshopt compression (gltfpack -cc)"
-      ]
-    },
-    "model/trees/pine_a": {
-      "kind": "model",
-      "path": "/assets/models/trees_pine_a.6cbe3efb.glb",
-      "format": "glb",
-      "bytes": 834484,
+      "bytes": 747680,
       "role": "model",
       "textures": [
         {
           "width": 512,
           "height": 512,
-          "format": "png"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "png"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "png"
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
         }
       ],
       "source": {
-        "site": "poly.pizza",
-        "name": "Pine",
-        "pageUrl": "https://poly.pizza/m/igSu0cPoBz",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/712aaefa-ae7f-4cb3-8834-a1b8860df3b2.glb",
-        "sha256Source": "b2cc7f2e672f94a41925ba831af8b3db9cbe6621172fb6f2717881c81c074e18"
+        "site": "Sketchfab",
+        "name": "bamboo",
+        "pageUrl": "https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59",
+        "licence": "CC-BY-4.0",
+        "author": "evolveduk",
+        "authorUrl": "https://sketchfab.com/evolveduk",
+        "url": "https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59",
+        "sha256Source": "d22fa495dcdcd080fff3dfd84b20b487fc9281817450c4864f3ff32a4e3a5860",
+        "miscPath": "trees/bamboo.zip",
+        "licenceEvidence": "bamboo.zip!license.txt"
       },
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
       ]
     },
-    "model/trees/pine_b": {
+    "model/trees/bush_pack": {
       "kind": "model",
-      "path": "/assets/models/trees_pine_b.8a1d8f14.glb",
+      "path": "/assets/models/trees_bush_pack.7241b853.glb",
       "format": "glb",
-      "bytes": 847768,
+      "bytes": 850732,
       "role": "model",
       "textures": [
         {
-          "width": 512,
-          "height": 512
+          "width": 64,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 64,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 64,
+          "height": 512,
+          "format": "ktx2"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "ktx2"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
         }
       ],
       "source": {
-        "site": "poly.pizza",
-        "name": "Pine",
-        "pageUrl": "https://poly.pizza/m/79gmlLnweB",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/082c2026-56af-4e3f-bea7-9ae5de71101f.glb",
-        "sha256Source": "240e6f60c5b106a892c80490d7c710f20ef902b328b5e173c0a567334e4df972"
+        "site": "Sketchfab",
+        "name": "Bush models pack (gameready, LODs)",
+        "pageUrl": "https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8",
+        "licence": "CC-BY-4.0",
+        "author": "LOLIPOP",
+        "authorUrl": "https://sketchfab.com/lolipop_1707",
+        "url": "https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8",
+        "sha256Source": "98f72227d3ba2cded11bbba803027e0852a5d07fb8ffe75cb38fc7e24994f505",
+        "miscPath": "trees/bush_models_pack_gameready_lods.zip",
+        "licenceEvidence": "bush_models_pack_gameready_lods.zip!license.txt"
       },
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "17 mesh nodes dropped (drop /Billboard|Ground|Man ref/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
       ]
     },
-    "model/trees/pine_c": {
+    "model/trees/cherry_low": {
       "kind": "model",
-      "path": "/assets/models/trees_pine_c.5e5fa2a6.glb",
+      "path": "/assets/models/trees_cherry_low.48c42476.glb",
       "format": "glb",
-      "bytes": 853592,
+      "bytes": 478468,
       "role": "model",
       "textures": [
         {
           "width": 512,
-          "height": 512
+          "height": 512,
+          "format": "ktx2"
         },
         {
-          "width": 512,
-          "height": 512
+          "width": 256,
+          "height": 512,
+          "format": "ktx2"
         },
         {
-          "width": 512,
-          "height": 512
+          "width": 256,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 512,
+          "format": "ktx2"
         }
       ],
       "source": {
-        "site": "poly.pizza",
-        "name": "Pine",
-        "pageUrl": "https://poly.pizza/m/699sFuLCN2",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/c55b8641-4679-4a85-8bd8-2a20e79abecd.glb",
-        "sha256Source": "3a5db923999bd47281f1f38cf8451c1544acfad33d953892fa95ca74765be361"
+        "site": "Sketchfab",
+        "name": "Japanese Cherry Tree (low-Poly)",
+        "pageUrl": "https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209",
+        "licence": "CC-BY-4.0",
+        "author": "Sereib",
+        "authorUrl": "https://sketchfab.com/Sereib",
+        "url": "https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209",
+        "sha256Source": "eb76224cbdfb89b76abbf84b69de707d75548d74847f4497984e551a2e79a87b",
+        "miscPath": "trees/japanese_cherry_tree_low-poly.zip",
+        "licenceEvidence": "japanese_cherry_tree_low-poly.zip!license.txt"
       },
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (6 uastc, 1 etc1s)"
       ]
     },
-    "model/trees/pine_trees": {
+    "model/trees/cherry_medium": {
       "kind": "model",
-      "path": "/assets/models/trees_pine_trees.1a9f5414.glb",
+      "path": "/assets/models/trees_cherry_medium.0131c9e1.glb",
       "format": "glb",
-      "bytes": 26472,
-      "role": "model",
-      "textures": [],
-      "source": {
-        "site": "poly.pizza",
-        "name": "Pine Trees",
-        "pageUrl": "https://poly.pizza/m/oYtDty0fR6",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/1d499f8b-5a1b-4966-9a35-10c0d3841e91.glb",
-        "sha256Source": "aea959025a31b0d250d7c94c96cf9456f9fcdaf9fb269790029d85adae3703c4"
-      },
-      "modified": true,
-      "modifications": [
-        "meshopt compression (gltfpack -cc)"
-      ]
-    },
-    "model/trees/trees": {
-      "kind": "model",
-      "path": "/assets/models/trees_trees.f69eda0e.glb",
-      "format": "glb",
-      "bytes": 1206052,
+      "bytes": 1261844,
       "role": "model",
       "textures": [
         {
-          "width": 512,
-          "height": 512
+          "width": 256,
+          "height": 1024,
+          "format": "ktx2"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 1024,
+          "format": "ktx2"
         },
         {
           "width": 512,
-          "height": 512
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
         }
       ],
       "source": {
-        "site": "poly.pizza",
-        "name": "Trees",
-        "pageUrl": "https://poly.pizza/m/etFGNvsiFv",
-        "licence": "CC0-1.0",
-        "author": "Quaternius",
-        "authorUrl": "https://poly.pizza/u/Quaternius",
-        "url": "https://static.poly.pizza/53a83125-e16a-4024-b8f6-1e72679c7ddf.glb",
-        "sha256Source": "2dc587f401a3a86e0e1ee0bb95b4a0293b620b445a26278fcf55b5b68b40b097"
+        "site": "Sketchfab",
+        "name": "Japanese Cherry Tree (medium-Poly)",
+        "pageUrl": "https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c",
+        "licence": "CC-BY-4.0",
+        "author": "Sereib",
+        "authorUrl": "https://sketchfab.com/Sereib",
+        "url": "https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c",
+        "sha256Source": "47979101d60ac88655468be6059b7e67b940f2eb72321fd698f198cc516597bc",
+        "miscPath": "trees/japanese_cherry_tree_medium-poly.zip",
+        "licenceEvidence": "japanese_cherry_tree_medium-poly.zip!license.txt"
       },
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "textures resized to ≤ 1024 px",
+        "textures GPU-compressed to KTX2 (6 uastc, 1 etc1s)"
       ]
     },
-    "model/veg/shrub_03": {
+    "model/trees/fir_pack": {
       "kind": "model",
-      "path": "/assets/models/veg_shrub_03.94276e46.glb",
+      "path": "/assets/models/trees_fir_pack.addf55ad.glb",
       "format": "glb",
-      "bytes": 1447428,
+      "bytes": 2928888,
       "role": "model",
       "textures": [
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "ktx2"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "ktx2"
         },
         {
           "width": 1024,
-          "height": 1024
+          "height": 1024,
+          "format": "ktx2"
         }
       ],
       "source": {
-        "site": "Poly Haven",
-        "name": "Shrub 03",
-        "pageUrl": "https://polyhaven.com/a/shrub_03",
-        "licence": "CC0-1.0",
-        "author": "Rico Cilliers",
-        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_03/shrub_03_1k.gltf",
-        "sha256Source": "b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea"
+        "site": "Sketchfab",
+        "name": "Realistic Fir Trees Pack (LODS, gameready)",
+        "pageUrl": "https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7",
+        "licence": "CC-BY-4.0",
+        "author": "LOLIPOP",
+        "authorUrl": "https://sketchfab.com/lolipop_1707",
+        "url": "https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7",
+        "sha256Source": "1c33a07ac50f2cfa6018b3712da11afacaac74c15d7f9deaf4532d1796204ea8",
+        "miscPath": "trees/realistic_fir_trees_pack_lods_gameready.zip",
+        "licenceEvidence": "realistic_fir_trees_pack_lods_gameready.zip!license.txt"
       },
       "modified": true,
       "modifications": [
-        "meshopt compression (gltfpack -cc)"
+        "meshopt compression (gltfpack -cc)",
+        "3 mesh nodes dropped (drop /LOD3|Billboard/)",
+        "textures resized to ≤ 1024 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 2 etc1s)"
+      ]
+    },
+    "model/trees/oak_pack": {
+      "kind": "model",
+      "path": "/assets/models/trees_oak_pack.df91ee0e.glb",
+      "format": "glb",
+      "bytes": 4785196,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "pageUrl": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393",
+        "licence": "CC-BY-4.0",
+        "author": "LOLIPOP",
+        "authorUrl": "https://sketchfab.com/lolipop_1707",
+        "url": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393",
+        "sha256Source": "6d56acfd5dfb910bd6a17221b67a5fc2e1c87814693ff79898792ef6daf7d6b1",
+        "miscPath": "trees/oak_trees_pack_17var_lods_seasons_gameready.zip",
+        "licenceEvidence": "oak_trees_pack_17var_lods_seasons_gameready.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "107 mesh nodes dropped (keep /(^|\\/)Large_oak_tree_00[1-4]\\//, drop /Billboard|Ground|Man ref|Seasons|Checker/)",
+        "textures resized to ≤ 1024 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
+      ]
+    },
+    "model/trees/oak_spring": {
+      "kind": "model",
+      "path": "/assets/models/trees_oak_spring.d8cd1d8d.glb",
+      "format": "glb",
+      "bytes": 2962600,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "pageUrl": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393",
+        "licence": "CC-BY-4.0",
+        "author": "LOLIPOP",
+        "authorUrl": "https://sketchfab.com/lolipop_1707",
+        "url": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393",
+        "sha256Source": "6d56acfd5dfb910bd6a17221b67a5fc2e1c87814693ff79898792ef6daf7d6b1",
+        "miscPath": "trees/oak_trees_pack_17var_lods_seasons_gameready.zip",
+        "licenceEvidence": "oak_trees_pack_17var_lods_seasons_gameready.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "95 mesh nodes dropped (keep /(^|\\/)(Medium|Small)_oak_tree__00[1-3]\\//, drop /Billboard|Ground|Man ref|Seasons|Checker/)",
+        "images replaced (Cluster_Mat_baseColor ← Cluster_Mat_Spring_EX_baseColor, Cluster_Mat_metallicRoughness ← Cluster_Mat_Spring_EX_metallicRoughness, Cluster_Mat_normal ← Cluster_Mat_Spring_EX_normal)",
+        "textures resized to ≤ 1024 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
+      ]
+    },
+    "model/trees/oak_winter": {
+      "kind": "model",
+      "path": "/assets/models/trees_oak_winter.5392d27d.glb",
+      "format": "glb",
+      "bytes": 3664924,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "pageUrl": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393",
+        "licence": "CC-BY-4.0",
+        "author": "LOLIPOP",
+        "authorUrl": "https://sketchfab.com/lolipop_1707",
+        "url": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393",
+        "sha256Source": "6d56acfd5dfb910bd6a17221b67a5fc2e1c87814693ff79898792ef6daf7d6b1",
+        "miscPath": "trees/oak_trees_pack_17var_lods_seasons_gameready.zip",
+        "licenceEvidence": "oak_trees_pack_17var_lods_seasons_gameready.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "89 mesh nodes dropped (keep /(^|\\/)(Big|Medium)_oak_tree__00[1-4]\\//, drop /Billboard|Ground|Man ref|Seasons|Checker/)",
+        "images replaced (Cluster_Mat_baseColor ← Cluster_Mat_Winter_EX_baseColor, Cluster_Mat_metallicRoughness ← Cluster_Mat_Winter_EX_metallicRoughness, Cluster_Mat_normal ← Cluster_Mat_Winter_EX_normal)",
+        "textures resized to ≤ 1024 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
+      ]
+    },
+    "model/trees/pine_pack": {
+      "kind": "model",
+      "path": "/assets/models/trees_pine_pack.118dba8b.glb",
+      "format": "glb",
+      "bytes": 4299388,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Pine trees pack (lowpoly, game ready, LODs)",
+        "pageUrl": "https://sketchfab.com/3d-models/pine-trees-pack-lowpoly-game-ready-lods-e1e9c07b8e2e445c943fec660beefba2",
+        "licence": "CC-BY-4.0",
+        "author": "LOLIPOP",
+        "authorUrl": "https://sketchfab.com/lolipop_1707",
+        "url": "https://sketchfab.com/3d-models/pine-trees-pack-lowpoly-game-ready-lods-e1e9c07b8e2e445c943fec660beefba2",
+        "sha256Source": "e0809443c5a2d573b6b7fcde2220c2f29429a4238c085e547944a07ad97a94f0",
+        "miscPath": "trees/pine_trees_pack_lowpoly_game_ready_lods.zip",
+        "licenceEvidence": "pine_trees_pack_lowpoly_game_ready_lods.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "35 mesh nodes dropped (drop /Billboard|(^|\\/)Back(\\/|$)|Ref_plane|Checker|Pine_sapling/)",
+        "textures resized to ≤ 1024 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)"
       ]
     },
     "tex/asphalt_04/arm": {
@@ -1927,6 +2201,46 @@
         "licence": "CC0-1.0",
         "author": "Dimitrios Savva, Rico Cilliers",
         "sha256Source": "d6edfa39844a4ef480ae2bfcf1c3cce549d8ce6080edd58c4493845aca9ce92d"
+      },
+      "modified": true
+    },
+    "tex/tree_atlas/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/tree_atlas_diff.4d0b188e.ktx2",
+      "format": "ktx2",
+      "bytes": 1220652,
+      "width": 4096,
+      "height": 4096,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "source": {
+        "site": "Sketchfab (baked by suzuka-3d)",
+        "name": "Tree impostor atlas — pine / fir / oak / bush / cherry / bamboo packs",
+        "pageUrl": "https://github.com/noribento/suzuka-3d",
+        "url": "bake://tree-atlas/diff",
+        "licence": "CC-BY-4.0",
+        "author": "lolipop_1707, Sereib, evolveduk",
+        "sha256Source": "d77373cd5a8900c00da6c0b77ce14f7222e5e555d1cb004c6c146cffa2604d84"
+      },
+      "modified": true
+    },
+    "tex/tree_atlas/mask": {
+      "kind": "texture",
+      "path": "/assets/tex/tree_atlas_mask.d068e176.ktx2",
+      "format": "ktx2",
+      "bytes": 455425,
+      "width": 4096,
+      "height": 4096,
+      "colorSpace": "linear",
+      "role": "mask",
+      "source": {
+        "site": "Sketchfab (baked by suzuka-3d)",
+        "name": "Tree impostor atlas — pine / fir / oak / bush / cherry / bamboo packs",
+        "pageUrl": "https://github.com/noribento/suzuka-3d",
+        "url": "bake://tree-atlas/mask",
+        "licence": "CC-BY-4.0",
+        "author": "lolipop_1707, Sereib, evolveduk",
+        "sha256Source": "b99a8d858aedb35a37ec6bf2699a5dde25ee48ab4b178f0565977e9aee482d34"
       },
       "modified": true
     },

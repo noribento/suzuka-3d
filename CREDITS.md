@@ -42,31 +42,12 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/preconcrete_wall_001_long/arm`, `tex/preconcrete_wall_001_long/diff`, `tex/preconcrete_wall_001_long/nor_gl`
 - "Security Camera 01" by Alexander Otterbeck, Yann Kervran (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/security_camera_01`
-- "Shrub 03" by Rico Cilliers (Poly Haven, https://polyhaven.com/a/shrub_03), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc))
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/veg/shrub_03`
 - "Street Lamp 02" by Josh Dean (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/street_lamp_02`
 - "White Plaster 02" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/white_plaster_02), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/white_plaster_02/arm`, `tex/white_plaster_02/diff`, `tex/white_plaster_02/nor_gl`
 - "Withered Grass" by Charlotte Baglioni (Poly Haven, https://polyhaven.com/a/withered_grass), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/withered_grass/arm`, `tex/withered_grass/diff`, `tex/withered_grass/nor_gl`
-
-### poly.pizza
-
-- "Autumn Tree" by Quaternius (poly.pizza, https://poly.pizza/m/2lRubrT6Na), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc))
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/autumn_tree`
-- "Bush" by Quaternius (poly.pizza, https://poly.pizza/m/ooG6CkLyE8), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc))
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/bush`
-- "Pine" by Quaternius (poly.pizza, https://poly.pizza/m/igSu0cPoBz), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/pine_a`
-- "Pine" by Quaternius (poly.pizza, https://poly.pizza/m/79gmlLnweB), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/pine_b`
-- "Pine" by Quaternius (poly.pizza, https://poly.pizza/m/699sFuLCN2), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/pine_c`
-- "Pine Trees" by Quaternius (poly.pizza, https://poly.pizza/m/oYtDty0fR6), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc))
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/pine_trees`
-- "Trees" by Quaternius (poly.pizza, https://poly.pizza/m/etFGNvsiFv), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/trees/trees`
 
 ### Quaternius (baked by suzuka-3d)
 
@@ -75,15 +56,29 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 ### Sketchfab
 
+- This work is based on "bamboo" (https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59) by evolveduk (https://sketchfab.com/evolveduk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bamboo`
 - This work is based on "Bleacher" (https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b) by JanStano (https://sketchfab.com/JanStano) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px)
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/seats/bleacher`
+- This work is based on "Bush models pack (gameready, LODs)" (https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 17 mesh nodes dropped (drop /Billboard|Ground|Man ref/), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bush_pack`
+- This work is based on "Japanese Cherry Tree (low-Poly)" (https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209) by Sereib (https://sketchfab.com/Sereib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (6 uastc, 1 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/cherry_low`
+- This work is based on "Japanese Cherry Tree (medium-Poly)" (https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c) by Sereib (https://sketchfab.com/Sereib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (6 uastc, 1 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/cherry_medium`
 - This work is based on "Low poly stadium/sports arena seats" (https://sketchfab.com/3d-models/low-poly-stadiumsports-arena-seats-6bbe4c85d2a4489dbe5918831be5d886) by anDDDres (https://sketchfab.com/anDDDres) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/seats/arena_seat`
+- This work is based on "Oak trees pack (17var, LODs, seasons, gameready)" (https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 107 mesh nodes dropped (keep /(^|\/)Large_oak_tree_00[1-4]\//, drop /Billboard|Ground|Man ref|Seasons|Checker/), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s), 95 mesh nodes dropped (keep /(^|\/)(Medium|Small)_oak_tree__00[1-3]\//, drop /Billboard|Ground|Man ref|Seasons|Checker/), images replaced (Cluster_Mat_baseColor ← Cluster_Mat_Spring_EX_baseColor, Cluster_Mat_metallicRoughness ← Cluster_Mat_Spring_EX_metallicRoughness, Cluster_Mat_normal ← Cluster_Mat_Spring_EX_normal), 89 mesh nodes dropped (keep /(^|\/)(Big|Medium)_oak_tree__00[1-4]\//, drop /Billboard|Ground|Man ref|Seasons|Checker/), images replaced (Cluster_Mat_baseColor ← Cluster_Mat_Winter_EX_baseColor, Cluster_Mat_metallicRoughness ← Cluster_Mat_Winter_EX_metallicRoughness, Cluster_Mat_normal ← Cluster_Mat_Winter_EX_normal))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/oak_pack`, `model/trees/oak_spring`, `model/trees/oak_winter`
+- This work is based on "Pine trees pack (lowpoly, game ready, LODs)" (https://sketchfab.com/3d-models/pine-trees-pack-lowpoly-game-ready-lods-e1e9c07b8e2e445c943fec660beefba2) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 35 mesh nodes dropped (drop /Billboard|(^|\/)Back(\/|$)|Ref_plane|Checker|Pine_sapling/), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/pine_pack`
+- This work is based on "Realistic Fir Trees Pack (LODS, gameready)" (https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 3 mesh nodes dropped (drop /LOD3|Billboard/), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (3 uastc, 2 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/fir_pack`
 
 ### suzuka-3d (own bake)
 
 - "Parked-car impostor atlas — procedural low-poly bodies" by suzuka-3d (suzuka-3d (own bake), https://github.com/noribento/suzuka-3d), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
-  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/car_atlas/diff`, `tex/car_atlas/mask`
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/car_atlas/diff`, `tex/car_atlas/mask`, `tex/tree_atlas/diff`, `tex/tree_atlas/mask`
 
 ## Data
 
@@ -98,4 +93,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-11T11:42:24.749Z · 83 files · 32.65 MB
+Generated 2026-09-11T14:05:47.228Z · 86 files · 50.08 MB

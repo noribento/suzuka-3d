@@ -33,6 +33,12 @@ export interface ImpostorOptions {
   camPos: { value: THREE.Vector3 }
   /** default 0.9 */
   roughness?: number
+  /**
+   * the fake shading normal in the card's frame (x right, y up, z towards the camera), default
+   * (0, 0.55, 1) — a rounded body facing the camera. A tree crown is lit from ABOVE: with the
+   * default a wood seen against the sun reads as black silhouettes, so the trees pass (0, 1, 0.3)
+   */
+  normal?: [number, number, number]
 }
 
 /** the instanced attributes `impostorMaterial` reads (name, item size) */
@@ -126,7 +132,7 @@ export function impostorMaterial(atlas: { map: THREE.Texture; mask?: THREE.Textu
         vMapUv = vec2((col + ${inset} + ${layout.quadW.toFixed(2)} * uv.x) / ${lit(layout.cols)}, (row + (1.0 - uv.y)) / ${lit(layout.rows)});`)
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
         // lit as a rounded shape facing the camera, a little upwards, not as a flat card
-        objectNormal = normalize(vec3(0.0, 0.55, 1.0));
+        objectNormal = normalize(vec3(${(opts.normal ?? [0, 0.55, 1]).map((v) => v.toFixed(2)).join(', ')}));
         { float cy = cos(bbYaw), sy = sin(bbYaw); objectNormal.xz = vec2(objectNormal.x * cy + objectNormal.z * sy, -objectNormal.x * sy + objectNormal.z * cy); }`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>${sway}
         { float cy = cos(bbYaw), sy = sin(bbYaw); transformed.xz = vec2(transformed.x * cy + transformed.z * sy, -transformed.x * sy + transformed.z * cy); }`)

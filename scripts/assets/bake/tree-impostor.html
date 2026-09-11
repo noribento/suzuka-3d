@@ -1,0 +1,240 @@
+<!doctype html>
+<!--
+  Tree impostor bake page (driven by scripts/assets/bake-tree-atlas.mjs on bake/serve.mjs).
+
+  Renders the first variant's LOD0 of every species in app/data/tree-species.ts — the SAME
+  prototype extraction app/three/trees.ts does (model-proto.ts, served transpiled), on the SAME
+  imported GLBs (public/assets-manifest.json) — from 8 yaws × 2 camera elevations into 256 px
+  cells of one 4096² canvas: one atlas row per species (`TreeSpecies.row`), columns 0–7 the low
+  camera, 8–15 the high one; yaw 0 faces the camera and increases clockwise seen from above,
+  the convention app/three/impostor.ts reads with `rel = bbYaw − aInfo.z`. Two images come out
+  of the same geometry:
+    colour  — lit, RGBA: the pack materials as the runtime draws them (cutout at 0.5)
+    mask    — unlit, R = the foliage (what the runtime tints per tree), black = the bark
+  A tree is NOT baked at true scale (a species spans 4–20 m): it is fitted to BAKE_M tall
+  inside the CELL_M cell unless its reach from the trunk would cross the cell edge, in which
+  case the width rules and the row is shorter — the row's height goes to layout.json and
+  TREE_CARD_ROW_HEIGHT_M, and the runtime scales the card by the tree's height / that. The
+  trunk base sits PAD_M above the cell's bottom edge like the other atlases.
+  The mask pass also reads the colour pass back and reports each row's mean foliage colour
+  (sRGB hex) for `TreeSpecies.crown`.
+-->
+<meta charset="utf-8">
+<style>body{margin:0;background:#000}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/","~/":"/app/"}}</script>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
+import { TREE_SPECIES } from '/app/data/tree-species.ts'
+import { modelPrototype } from '/app/three/model-proto.ts'
+
+const params = new URLSearchParams(location.search)
+const CELL = Number(params.get('cell') ?? 256)
+const CELL_M = Number(params.get('cellM') ?? 24)    // metres covered by one cell edge
+const PAD_M = Number(params.get('padM') ?? 0.5)     // trunk base above the cell's bottom edge
+const BAKE_M = Number(params.get('bakeM') ?? 20)    // the height a tree is fitted to (unless too wide)
+const YAWS = Number(params.get('yaws') ?? 8)
+const ELEVS = [Number(params.get('elev0') ?? 10), Number(params.get('elev1') ?? 45)] // camera pitch (deg, looking down)
+const COLS = YAWS * ELEVS.length                    // 16 → one row per species
+const SIZE_W = Number(params.get('w') ?? 4096)
+const SIZE_H = Number(params.get('h') ?? 4096)
+// a subset of roles (comma list) for a quick check, and a probe: every species' first LOD0
+// replaced by one GLB key (`probe`) with its own leaf regex (`probeLeaf`) — for a dry run of the
+// page on any model in the manifest before the tree packs are imported
+const ONLY = params.get('only') ? new Set(params.get('only').split(',')) : null
+const PROBE = params.get('probe')
+const PROBE_LEAF = params.get('probeLeaf') ? new RegExp(params.get('probeLeaf'), 'i') : null
+
+const canvas = document.getElementById('c')
+canvas.width = SIZE_W
+canvas.height = SIZE_H
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true, premultipliedAlpha: false })
+renderer.setPixelRatio(1)
+renderer.setClearColor(0x000000, 0)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.setScissorTest(true)
+
+// Neutral, view-independent studio light as bake/impostor.html: a hemisphere plus a key from the
+// camera's side, so the baked shading never contradicts the runtime sun too strongly (the
+// runtime card is a MeshStandardMaterial the scene lights again).
+const scene = new THREE.Scene()
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.6))
+const key = new THREE.DirectionalLight(0xffffff, 1.1)
+scene.add(key)
+const cam = new THREE.OrthographicCamera(-CELL_M / 2, CELL_M / 2, CELL_M, 0, -80, 160)
+
+// the loaders of app/three/assets.ts: KTX2 (the transcoder from public/basis; SwiftShader has no
+// GPU formats, so the textures come back RGBA) and meshopt
+const ktx2 = new KTX2Loader().setTranscoderPath('/public/basis/').detectSupport(renderer)
+const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder)
+const manifest = await fetch('/public/assets-manifest.json').then((r) => r.json())
+const models = new Map()
+async function loadModel (key) {
+  if (models.has(key)) return models.get(key)
+  const entry = manifest.assets[key]
+  let model = null
+  if (entry) {
+    try {
+      const g = await gltf.loadAsync('/public' + entry.path)
+      model = { scene: g.scene, primitives: [] }
+    } catch (e) {
+      console.warn(`${key}: ${e.message ?? e}`)
+    }
+  } else console.warn(`${key}: not in the manifest`)
+  models.set(key, model)
+  return model
+}
+/** the registry app/three/model-proto.ts expects: just `model(key)` */
+const reg = { model: (key) => models.get(key) ?? null }
+
+/**
+ * The species' subject: the first variant whose LOD0 yields both a bark and a foliage part
+ * (exactly trees.ts's rule), fitted into the cell. Cached per role: the two passes share it.
+ */
+const subjects = new Map()
+async function subjectOf (species) {
+  if (subjects.has(species.role)) return subjects.get(species.role)
+  let found = null
+  const variants = PROBE ? [{ lods: [{ key: PROBE, nodes: /./ }] }] : species.variants
+  const leafRe = PROBE_LEAF ?? species.leafRe
+  for (let i = 0; i < variants.length && !found; i++) {
+    const lod = variants[i].lods[0]
+    if (!(await loadModel(lod.key))) continue
+    const proto = modelPrototype(reg, lod.key, { nodes: lod.nodes, partOf: (m) => (leafRe.test(m.name) ? 'leaf' : 'bark'), origin: { part: 'bark' } })
+    // trees.ts's rule: the foliage part is required, the bark may be missing (the small bushes)
+    if (!proto?.parts.leaf) continue
+    const leaf = proto.parts.leaf
+    const bark = proto.parts.bark ?? { geometry: null, source: null, triangles: 0 }
+    // the fit: BAKE_M tall, unless the farthest vertex from the trunk axis would cross the cell
+    // edge (the yaw columns turn the tree, so the reach in any horizontal direction counts)
+    const box = new THREE.Box3()
+    for (const g of [bark.geometry, leaf.geometry]) { if (!g) continue; g.computeBoundingBox(); box.union(g.boundingBox) }
+    const h = box.max.y - box.min.y
+    const reach = Math.max(Math.abs(box.min.x), Math.abs(box.max.x), Math.abs(box.min.z), Math.abs(box.max.z))
+    const fit = Math.min(BAKE_M / h, (CELL_M / 2 - PAD_M) / Math.max(reach, 1e-6))
+    found = {
+      variant: i, key: lod.key, bark, leaf, fit,
+      heightM: h * fit, reachM: reach * fit, tris: bark.triangles + leaf.triangles,
+      barkSrc: bark.source, leafSrc: leaf.source,
+    }
+  }
+  subjects.set(species.role, found)
+  return found
+}
+
+/** the pack materials as trees.ts draws them (cutout foliage, double sided; flat bark roughness) */
+function colourMaterials (s) {
+  const bark = new THREE.MeshStandardMaterial({ color: s.barkSrc?.color ?? 0x4a3a2a, map: s.barkSrc?.map ?? null, normalMap: s.barkSrc?.normalMap ?? null, roughness: 0.9, metalness: 0, side: s.barkSrc?.side ?? THREE.FrontSide })
+  const leaf = new THREE.MeshStandardMaterial({ color: s.leafSrc?.color ?? 0xffffff, map: s.leafSrc?.map ?? null, normalMap: s.leafSrc?.normalMap ?? null, alphaMap: s.leafSrc?.alphaMap ?? null, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.5, transparent: false })
+  return { bark, leaf }
+}
+/** the mask: bark black, foliage pure red cut by the leaf map's alpha (not modulated by its colour) */
+function maskMaterials (s) {
+  const bark = new THREE.MeshBasicMaterial({ color: 0x000000, side: s.barkSrc?.side ?? THREE.FrontSide })
+  const leaf = new THREE.MeshBasicMaterial({ color: 0xff0000, map: s.leafSrc?.map ?? null, side: THREE.DoubleSide, alphaTest: 0.5, transparent: false })
+  if (s.leafSrc?.map) {
+    leaf.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', 'diffuseColor.a *= texture2D( map, vMapUv ).a;')
+    }
+  }
+  return { bark, leaf }
+}
+
+function renderCell (col, row, yawDeg, pitchDeg) {
+  // camera on a circle around the tree at the given pitch, looking at mid-height of the cell
+  const yaw = THREE.MathUtils.degToRad(yawDeg)
+  const pitch = THREE.MathUtils.degToRad(pitchDeg)
+  const d = 60
+  cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d + CELL_M / 2, Math.cos(yaw) * Math.cos(pitch) * d)
+  cam.up.set(0, 1, 0)
+  cam.lookAt(0, CELL_M / 2, 0)
+  // frame: the cell spans CELL_M vertically; the look-at point is CELL_M/2 above the base, so in
+  // the camera's frame the base sits (CELL_M/2)·cos(pitch) below centre — shift the window so it
+  // lands PAD_M above the bottom edge regardless of pitch (the rule of bake/impostor.html)
+  cam.left = -CELL_M / 2
+  cam.right = CELL_M / 2
+  const groundOffset = (CELL_M / 2 - PAD_M) - (CELL_M / 2) * Math.cos(pitch)
+  cam.top = CELL_M / 2 + groundOffset
+  cam.bottom = -CELL_M / 2 + groundOffset
+  cam.updateProjectionMatrix()
+  key.position.copy(cam.position).add(new THREE.Vector3(-20, 40, 0))
+  key.target.position.set(0, CELL_M / 2, 0)
+  key.target.updateMatrixWorld()
+  const x = col * CELL
+  const y = SIZE_H - (row + 1) * CELL // GL rows count from the bottom, atlas rows from the top
+  renderer.setViewport(x, y, CELL, CELL)
+  renderer.setScissor(x, y, CELL, CELL)
+  renderer.render(scene, cam)
+}
+
+/** the whole drawing buffer, bottom row first (GL) */
+function readCanvas () {
+  const gl = renderer.getContext()
+  const buf = new Uint8Array(SIZE_W * SIZE_H * 4)
+  gl.readPixels(0, 0, SIZE_W, SIZE_H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+  return buf
+}
+const hex2 = (v) => Math.round(v).toString(16).padStart(2, '0')
+
+let colourPixels = null
+
+window.bakeTrees = async function (pass) {
+  // clear the WHOLE canvas between the passes: with the scissor test on, `clear` would only wipe
+  // the last cell, and the rows this bake never draws would keep the colour pass
+  renderer.setScissorTest(false)
+  renderer.clear()
+  renderer.setScissorTest(true)
+  const rows = []
+  for (const species of Object.values(TREE_SPECIES)) {
+    if (ONLY && !ONLY.has(species.role)) continue
+    const s = await subjectOf(species)
+    if (!s) {
+      rows.push({ role: species.role, row: species.row, missing: true })
+      continue
+    }
+    const mats = pass === 'mask' ? maskMaterials(s) : colourMaterials(s)
+    const pivot = new THREE.Group()
+    pivot.add(new THREE.Mesh(s.leaf.geometry, mats.leaf))
+    if (s.bark.geometry) pivot.add(new THREE.Mesh(s.bark.geometry, mats.bark))
+    pivot.scale.setScalar(s.fit)
+    scene.add(pivot)
+    for (let e = 0; e < ELEVS.length; e++) {
+      for (let k = 0; k < YAWS; k++) renderCell(e * YAWS + k, species.row, (k / YAWS) * 360, ELEVS[e])
+    }
+    scene.remove(pivot)
+    mats.bark.dispose()
+    mats.leaf.dispose()
+    rows.push({
+      role: species.role, row: species.row, variant: s.variant, key: s.key,
+      heightM: Number(s.heightM.toFixed(3)), reachM: Number(s.reachM.toFixed(3)), tris: s.tris,
+      bark: s.bark.triangles, leaf: s.leaf.triangles,
+    })
+  }
+  renderer.setScissorTest(false)
+  const dataUrl = canvas.toDataURL('image/png')
+  renderer.setScissorTest(true)
+  if (pass === 'colour') colourPixels = readCanvas()
+  else if (colourPixels) {
+    // the mean foliage colour per row: colour-pass pixels under the mask's red (sRGB, as displayed)
+    const mask = readCanvas()
+    for (const r of rows) {
+      if (r.missing) continue
+      let sr = 0, sg = 0, sb = 0, n = 0
+      const y0 = SIZE_H - (r.row + 1) * CELL, y1 = SIZE_H - r.row * CELL
+      for (let y = y0; y < y1; y++) {
+        for (let x = 0; x < COLS * CELL; x++) {
+          const i = (y * SIZE_W + x) * 4
+          if (mask[i] > 127 && mask[i + 3] > 127) { sr += colourPixels[i]; sg += colourPixels[i + 1]; sb += colourPixels[i + 2]; n++ }
+        }
+      }
+      r.crown = n ? `#${hex2(sr / n)}${hex2(sg / n)}${hex2(sb / n)}` : null
+      r.foliagePx = n
+    }
+  }
+  return { dataUrl, rows, cell: CELL, cellM: CELL_M, padM: PAD_M, bakeM: BAKE_M, yaws: YAWS, elevs: ELEVS, cols: COLS, rowsN: SIZE_H / CELL, width: SIZE_W, height: SIZE_H }
+}
+window.bakeReady = true
+</script>

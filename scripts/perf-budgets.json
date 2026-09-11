@@ -134,18 +134,18 @@
     "highNoAssets": {
       "triangles": 3310400,
       "meshes": 960,
-      "instancedMeshes": 616,
-      "farFieldEntries": 818,
+      "instancedMeshes": 755,
+      "farFieldEntries": 1018,
       "measured": true,
-      "measuredAt": "2026-09-11 scene-cost (Node, assets null), +10 %"
+      "measuredAt": "2026-09-11 R phase 2 scene-cost (Node, assets null): 686 InstancedMeshes / 925 entries (trees per far-field cell and species, hedges, cherry rows), +10 %; triangles/meshes from the S phase run"
     },
     "lowNoAssets": {
       "triangles": 1694500,
       "meshes": 803,
-      "instancedMeshes": 547,
-      "farFieldEntries": 671,
+      "instancedMeshes": 667,
+      "farFieldEntries": 843,
       "measured": true,
-      "measuredAt": "2026-09-11 scene-cost (Node, assets null), +10 %"
+      "measuredAt": "2026-09-11 R phase 2 scene-cost (Node, assets null): 606 InstancedMeshes / 766 entries, +10 %; triangles/meshes from the S phase run"
     }
   },
   "data": {

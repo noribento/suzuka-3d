@@ -24,6 +24,7 @@ import { buildStructures } from './structures'
 import { buildForest } from './forest'
 import { buildSurroundings } from './surroundings'
 import { FarField } from './farfield'
+import { buildTreeLibrary, tickTrees, type TreeLibrary } from './trees'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
 export { cameraSide } from './props'
@@ -938,6 +939,12 @@ export interface EnvBuildContext {
   farField: FarField
   /** the land-cover masks (landcover.ts); `classAt` / `weightAt` for the builders that place by land use */
   landCover: LandCover
+  /**
+   * The tree library (trees.ts): the species prototypes with their LODs and the impostor card,
+   * or the cone stand-ins without the pack. Built synchronously before the placers
+   * (`buildSurroundings`, `buildForest`, `buildTrees`) so its materials get the viewport's setup.
+   */
+  trees: TreeLibrary
 }
 
 export interface Environment {
@@ -954,6 +961,10 @@ export interface Environment {
   farField: FarField
   /** the land-cover masks and their build statistics */
   landCover: LandCover
+  /** the tree library the placers drew from (mode 'pack' / 'cone'); `update` advances its time and wind */
+  trees: TreeLibrary
+  /** the keep-outs the builders left in the context (discs and footprints) — read by the offline audits */
+  keepOuts: { discs: EnvBuildContext['keepOut']; polys: EnvBuildContext['keepOutPolys'] }
   /** the ring / skyline / water meshes' statistics (terrain-far.ts) */
   terrainFar: TerrainFarStats
   /** wall-clock ms per synchronous builder (also `group.userData.buildMs`); the deferred jobs report through `farField.stats().buildMs` */
@@ -964,8 +975,11 @@ export interface Environment {
    * `window.__suzuka.env.stats`, the e2e suite and scripts/perf-probe.mjs.
    */
   stats: { seats: StandsStats['seats']; roofs: string[]; pathStands: string[]; deckUp: Record<string, boolean>; banks: StandsStats['banks']; crowd: Crowd['stats'] }
-  /** per frame; `cameraPos` drives the crowd density LOD and yaw, and the far field's per-cell LOD */
-  update: (dt: number, cameraPos?: THREE.Vector3) => void
+  /**
+   * per frame; `cameraPos` drives the crowd density LOD and yaw, and the far field's per-cell
+   * LOD; `wind` is the gust factor 0–1 of the foliage sway (the viewport maps the store's m/s)
+   */
+  update: (dt: number, cameraPos?: THREE.Vector3, wind?: number) => void
 }
 
 export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Environment {
@@ -1033,7 +1047,14 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     keepOutPolys: [],
     farField,
     landCover,
+    // the library reads the context (assets, quality) and every placer reads the library: it is
+    // filled right below, before any builder runs
+    trees: null as unknown as TreeLibrary,
   }
+  // the species prototypes and their materials, synchronously (the viewport's material setup
+  // runs over `group` once, before the deferred placers use them)
+  ctx.trees = buildTreeLibrary(ctx)
+  lap('treeLibrary')
 
   // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
   const stands = buildStands(ctx)
@@ -1076,13 +1097,14 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   if (import.meta.dev) console.info(`[env] build: ${Object.entries(buildMs).map(([k, v]) => `${k} ${v.toFixed(0)} ms`).join(', ')}; ${farField.pending} far-field jobs deferred`)
 
   const wheel = ferrisWheel.getObjectByName('wheel')
-  const update = (dt: number, cameraPos?: THREE.Vector3) => {
+  const update = (dt: number, cameraPos?: THREE.Vector3, wind = 0) => {
     if (wheel) {
       wheel.rotation.z += dt * 0.05
       for (const g of wheel.children) if (g.name === 'gondola') g.rotation.z = -wheel.rotation.z
     }
     flagTime.value += dt
     crowd.time.value += dt
+    tickTrees(ctx.trees, dt, wind)
     if (cameraPos) {
       stands.update(cameraPos)
       crowd.update(cameraPos)
@@ -1092,5 +1114,5 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   }
 
   const stats = { ...stands.stats, crowd: crowd.stats }
-  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, terrainFar, buildMs, stats, update }
+  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, trees: ctx.trees, keepOuts: { discs: ctx.keepOut, polys: ctx.keepOutPolys }, terrainFar, buildMs, stats, update }
 }

@@ -714,7 +714,8 @@ function loop() {
     const inFront = (m.root.position.x - camPos.x) * _camFwd.x + (m.root.position.y - camPos.y) * _camFwd.y + (m.root.position.z - camPos.z) * _camFwd.z > 0
     labelVisible[i] = showLabels && inFront && (!farOut || car.position <= 3 || i === sel) ? 1 : 0
   }
-  env.update(simDt, rig.camera.position)
+  // the foliage sway takes the store's wind (m/s) as a 0–1 gust factor: 8 m/s (a fresh breeze) = full sway
+  env.update(simDt, rig.camera.position, Math.min(1, store.weather.wind / 8))
   if (PERF) { const far = env.farField.updateMs; markMs('far', far); markMs('cam', performance.now() - t0 - far); t0 = performance.now() }
 
   // audio: created on the first user gesture (a click that landed before setup() still counts —

@@ -42,6 +42,7 @@ pnpm perf       # dev サーバー（:3100）に対して perf-probe → perf-ga
 ```bash
 node scripts/assets/fetch.mjs                 # Poly Haven / ambientCG / poly.pizza から misc/dl/ へ取得（ハッシュ検証）
 node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアトラスを焼く（Playwright、SwiftShader で可）
+node scripts/assets/bake-tree-atlas.mjs       # 樹木インポスターアトラス（種ごと 1 行、8 方位 × 2 仰角）を焼く — 樹木パックの import 後に
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
 node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 200 MB）・VRAM 見積（≤ 512 MB）・KTX2 mip の検査
 node scripts/assets/inspect-model.mjs misc/trees/<zip>   # ドロップした GLB/zip のノードパス・三角形数・material 名・画像を表示（sources.mjs の正規表現を書くため）
@@ -179,6 +180,7 @@ app/
     dem-codec.ts               # DEM グリッドの形と復号（`DemGrid`、海の sentinel、双線形サンプル）
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対）
     credits.ts                 # アプリ内クレジット（生成物）
+    tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
   sim/
     track.ts                   # スプライン（5807 m 正規化）、曲率、幅・カント・勾配、最小曲率レーシングライン、立体交差、ピットレーン
@@ -211,18 +213,19 @@ app/
     far-lines.ts               # 遠景ビルダー共通の折れ線・立地ヘルパー（`resample`・`siteOk`・`KeepOutGrid`・`TriSink`）— outskirts / roads / forest / terrain-side が共用
     model-proto.ts             # GLB → インスタンス用プロトタイプ（int16 属性の拡張・material 分割・ノードパス選択・原点合わせ・頂点色の保持）— 樹木・小物・車体が共用
     surroundings.ts            # 柵の外のビルダーの入口（'paving' → 'buildings' → 'dressing' の順に roads / buildings / vehicles / outskirts を遅延登録）
-    forest.ts                  # 森（OSM の森ポリゴン）: 250 m セルの樹冠マス・森床・手続き幹・近景の GLB 幹の 3 段 LOD
+    forest.ts                  # 森（OSM の森ポリゴン）: 250 m セルの樹冠マス・森床、植林の等高線列／自然林の格子の配植（種は TREE_MIX）、生垣・竹の株、桜並木（サーキット道路とゲート周り）— 描画は trees.ts
+    trees.ts                   # 樹木ライブラリ: パック GLB → 種ごとの LOD0/1/2 プロトタイプ（model-proto）、風・逆光半透過・個体色の葉材質、インポスターカード、セルごとの emitTrees（ヒーロー LOD0/LOD1 → 一般 LOD1/LOD2 → カード → 樹冠マス、Node／低ティアはコーン）
     buildings.ts               # 柵の外の建物: 種別ごとのマッシング（寄棟瓦・パラペット＋金属屋根・窓帯・キャノピー）、7 層の facade 配列テクスチャ、モートピアのコースターとプール、キャンプ場
     vehicles.ts                # 駐車場の車: OSM の駐車場に枠を切り、車体 → インポスターカード → 俯瞰の点描の 3 段 LOD（車種と配色は car-bodies.ts）
     car-bodies.ts              # 低ポリの車体 6 種（ミニバン・軽・SUV・ハッチ・セダン・バス、頂点色の部位マスク）— インポスターのベイクにも使う
     outskirts.ts               # 郊外の設備: 太陽光アレイ、外周フェンス、照明柱、電柱と架線、県道のガードレール（Phase 3 で road-furniture.ts へ）
     structures.ts              # 立体交差の桁橋（スラブ・化粧板・鋼桁・橋台・翼壁・側道）、地下道の高欄、看板とピット出口信号
     lattice.ts                 # 鉄骨ラティスのプロトタイプ（送電鉄塔・リーダータワー・スタートゲートリーで共用、低ティアはブレース無し）
-    impostor.ts                # インポスターの共通実装（アトラスのレイアウト・方位セル・マスク着色）— 観客と車で共用
+    impostor.ts                # インポスターの共通実装（アトラスのレイアウト・方位セル・マスク着色・疑似法線）— 観客・車・樹木で共用
     stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場・裏方・案内板）、パスフレーム、座席数クランプ、地形リリーフ
     pit-complex.ts             # ピットビル（勾配追従スイープ、ガレージ、表彰台、ポッド、ビジョン）、リーダータワー、ピットウォール、パドック、水面
     props.ts                   # 距離看板、マーシャルポスト＋デジタルフラッグ、TV カメラ塔、送電線、OSM 建物のマッシング、二輪・カート舗装
-    vegetation.ts              # 樹木（季節の常緑／裸木／桜の配分）
+    vegetation.ts              # トラックサイドの樹木の散布（棄却サンプリング、桜ゾーン、キープアウト）と Node／低ティアのコーン原型
     boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
     crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD、占有抽選 → 誤差拡散の予算配分
     banks.ts                   # 芝土手の観客（クラスタ格子の立ち位置、レジャーシート、ポップアップテント）
@@ -389,6 +392,13 @@ scripts/
   橋（`bridge` タグ）は両端 `standY` の lerp + 0.30 m の剛体デッキに 0.9 m の高欄とフェイシア。中心線から 76 m 以内（G8 の 75 m 帯）はリボンを置かずマスクのまま。高ティアはリングにも tertiary+ を 2 行で（ノード高で drape）。
   各 way のサンプル対ごとの四角が `ctx.keepOutPolys` に入り（駐車場の通路は除く）、車の枠と樹木は `KeepOutGrid` で避けます。ガードは `surface-check` の P6s 行（DEM の曲率で上がった G3/G4 を実測で上げ直したもの）と
   `facilities-check` §11（ヘッダ・合計 ≤ 1 MB・輪郭の単純性）、`dem-profile --verify`（34 駅で ±2.5 m）、`scene-cost`（三角形と生成データの予算）です。
+- **樹木**（`app/data/tree-species.ts`・`app/three/trees.ts`・`forest.ts`・`vegetation.ts`）: 種の表（杉・檜・松・小松・欅の裸木・芽吹き・楠・桜 2 種・低木・竹）が Sketchfab CC-BY のパック
+  （lolipop_1707 の松・モミ・オーク・低木、Sereib の桜、evolveduk の竹。オークは作者の季節アトラスで冬＝欅、春＝芽吹き、夏＝楠として 3 回 import）のノードパスを LOD0/1/2 に割り当て、
+  `model-proto` で幹＋葉の 2 グループのプロトタイプに（高さ 1 に正規化、配置時に種の高さ範囲へスケール）。葉材質は A2C のカットアウト、高さ² × 風の 2 周波の揺れ、
+  逆光の半透過、`instanceColor` の個体色（種の色味範囲）。LOD はセル単位: ヒーロー（トラック最寄り 24 本／セル）LOD0 < 60 m → LOD1 < 130 m、一般樹 LOD1 → LOD2、
+  130 m から森の幹域（900 m）まではインポスターカード（`tex/tree_atlas`: 種ごと 1 行、8 方位 × 2 仰角、上向きの疑似法線で逆光でも黒くならない）、その先は樹冠マス。
+  配植: 植林（landuse=forest）は等高線の列、自然林は格子、森縁の生垣、集落縁の竹の株、サーキット道路と 4 ゲート周りの桜並木、トラックサイドの散布は桜ゾーン付き。
+  道路リボン・建物・駐車場のキープアウトと土地利用マスク（舗装・駐車場・水面）を避けます。Node と低ティアはコーンの原型のまま（静的予算はそれで測る）。
 - **白線** (`app/three/lines.ts`)：全周のエッジライン、ピット入口・出口の分離線と合流テーパー、ピットレーンの
   各線、グリッドとスタートラインは 1 メッシュのジオメトリです。15 cm の線は遠景で 1 px を切るので、
   頂点シェーダが視距離から m/px を求めて画面上の半幅が 0.6 px を下回る分だけ横に押し広げます
@@ -431,7 +441,8 @@ scripts/
 - 土地利用マスクの境界（森・田・舗装・集落）が区画の縁や地形チャンクとリングの継ぎ目で途切れないこと、ミップ／異方性でヘリからのちらつきが出ないこと（`?fx=1` で detail タイルも）
 - 山並み（`terrainFar`）の霞: 4 km から先のフォグの傾斜で 20 km の稜線にコントラストが残り、低い太陽で山に沈むこと（プローブが太陽を隠すこと）
 - 水面 `water-far` の反射（`scene.environment` の IBL とリップル法線）が濁った緑灰で、岸の 12 m の土手に対して平面が浮いて見えないこと
-- 森の樹冠のマス（`forest.ts` の `forest-<cell>`）と地形の z-fight、幹（900 m）・GLB 幹（260 m）へ切り替わるときの飛び、森床の落ち葉色
+- 森の樹冠のマス（`forest.ts` の `forest-<cell>`）と地形の z-fight、樹木の LOD 切替（60 m / 130 m のメッシュ → 130〜900 m のインポスターカード → 樹冠マス）の飛び、森床の落ち葉色
+- 樹木（`trees.ts`）: 葉の A2C の縁、GTAO のハロー（50 m 以内）、風の揺れの振幅（`store.weather.wind` / 8）と逆光の半透過、130 m 以内の葉影のアクネ、桜の色、カードの方位段（8 方位）と 10°/45° の仰角帯の切替、杉（モミのパック）の針葉の暖色化
 - 建物のファサード（`app/three/buildings.ts` の `DataArrayTexture`）: 7 層の sRGB デコードとミップが正しく出ること、瓦・リブ金属・窓帯が層ごとに入れ替わらないこと。おかしければ `FACADE_ARRAY_TEXTURE = false` で 4 枚の通常マテリアルに落とせる
 - 駐車場の車（`vehicles.ts`）: 500 m でのカードへの切替、カードの向きと着色（`tex/car_atlas` のマスク）、俯瞰の点描が地面に埋まらないこと
 - A2R・130R G 席の青いキャノピーの影と支柱の接地、芝土手のレジャーシートの z-fight（standY +2 mm）、焼き込みアトラスの座り姿が芝の上で 0.40 m 沈んで見えること

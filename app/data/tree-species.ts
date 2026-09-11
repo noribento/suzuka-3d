@@ -66,9 +66,17 @@ const CHERRY_M = 'model/trees/cherry_medium'
 const CHERRY_L = 'model/trees/cherry_low'
 const BAMBOO = 'model/trees/bamboo'
 
-/** a lolipop_1707 pack tree: `<name>_LOD0|1|2` under a node named `<name>` */
+/**
+ * A lolipop_1707 pack tree: `<name>_LOD0|1|2` under a node named `<name>`. The regex is written
+ * against the node names as THREE'S GLTFLoader reports them, not the glTF's: it sanitises every
+ * node name for animation bindings (PropertyBinding.sanitizeNodeName — whitespace becomes '_',
+ * the characters `[].:/` vanish), so the fir pack's 'Christmas tree_LOD0' is 'Christmas_tree_LOD0'
+ * at runtime and the oak pack's 'Large_oak_tree_002_LOD0.001' (its Seasons Example copies) is
+ * 'Large_oak_tree_002_LOD0001' — which the `(/|$)` tail keeps out.
+ */
 function packTree(key: string, name: string): TreeVariant {
-  const lod = (n: number): TreeLod => ({ key, nodes: new RegExp(`(^|/)${name.replace(/[.*+?^${}()|[\]\\ ]/g, '\\$&')}_LOD${n}(/|$)`) })
+  const safe = name.replace(/\s/g, '_').replace(/[[\].:/]/g, '')
+  const lod = (n: number): TreeLod => ({ key, nodes: new RegExp(`(^|/)${safe.replace(/[.*+?^${}()|[\]\\ ]/g, '\\$&')}_LOD${n}(/|$)`) })
   return { lods: [lod(0), lod(1), lod(2)] }
 }
 
