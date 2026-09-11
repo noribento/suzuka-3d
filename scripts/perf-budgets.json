@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseline": "after-s2-2026-09-11T04-21-56-777Z",
+  "baseline": "after-r6-2026-09-11T22-24-24-148Z",
   "comment": [
     "Render-cost ceilings for scripts/perf-gate.mjs (plan §0a). Every number here is a ceiling the SwiftShader probe",
     "(scripts/perf-probe.mjs, 1280×720, 90 frames per mode) must stay under; the per-area allocations of a phase must",
@@ -16,7 +16,6 @@
     "  errors[] must be empty on every row (FAIL otherwise).",
     "'static' and 'data' are consumed by scripts/audit/scene-cost.mjs (Node, no browser, no asset pack — hence the NoAssets",
     "suffix); measured +10 % since C5 (2026-09-11), so scene-cost runs --strict in pnpm check.",
-    "Re-based at the end of the S phase (2026-09-11, baseline after-s2): every tier/mode mean is that run's value +12.5 %",
     "(just under warnAt, so a re-measure of the same scene is 'ok' and growth over ≈ 1 % warns), rounded up (calls to 10,",
     "triangles to 10k, setupMs to 100); maxRatio is the documented formula over after-s2 and after-s. The C0 ceilings",
     "(after-phase6 + headroom) predated the ground partition P3–P6 and the far field: low setupMs is now ≈ 17–19 s under",
@@ -25,7 +24,8 @@
     "(an e2e run in parallel), which the 1.5× FAIL band absorbs. Draw calls on the high tier are 40–60 % shadow passes",
     "(3 cascades), of which the 22 cars alone are ≈ 250; the S phase adds ≈ 200 in the overview (forest lids, buildings/solar",
     "block merges, car-park speckle, scatter trees) — count per pass/group by wrapping renderer.renderBufferDirect.",
-    "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only."
+    "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only.",
+    "Re-based at the end of the R phase (2026-09-12, baseline after-r6): every tier/mode mean is that run's value +12.5 % (rounded up, calls to 10, triangles to 10k), maxRatio = max(previous, measuredMax / measuredMean × 1.1); programs = the measured max + 4 (high, the road ribbon / foliage / bark / tree impostor / GLB car / facade-normal programs) + 2 (low). The R phase adds the road ribbons (static per 1 km block), the road furniture, the pack trees (per-quadrant mesh entries, cards, mass), hero houses / cars, solar detail and the terrain-side overlays — in the overview ≈ +110 calls and +2 % triangles over after-s2, in the follow modes +10–17 % triangles from the tree meshes inside 110 m."
   ],
   "policy": {
     "band": {
@@ -37,94 +37,94 @@
   },
   "tiers": {
     "low": {
-      "setupMs": 18700,
+      "setupMs": 19400,
       "loadMs": 30000,
       "programs": 61,
       "modes": {
         "overview": {
-          "triangles": 1970000,
-          "calls": 630,
+          "triangles": 2110000,
+          "calls": 780,
           "maxRatio": {
             "triangles": 1.6,
             "calls": 1.6
           }
         },
         "heli": {
-          "triangles": 1300000,
-          "calls": 500,
+          "triangles": 1410000,
+          "calls": 530,
           "maxRatio": {
             "triangles": 1.73,
             "calls": 2.23
           }
         },
         "chase": {
-          "triangles": 1450000,
-          "calls": 520,
+          "triangles": 1600000,
+          "calls": 610,
           "maxRatio": {
             "triangles": 1.62,
             "calls": 2.01
           }
         },
         "onboard": {
-          "triangles": 1230000,
-          "calls": 480,
+          "triangles": 1340000,
+          "calls": 540,
           "maxRatio": {
             "triangles": 1.82,
             "calls": 2.22
           }
         },
         "tv": {
-          "triangles": 1160000,
-          "calls": 350,
+          "triangles": 1240000,
+          "calls": 370,
           "maxRatio": {
             "triangles": 1.94,
-            "calls": 2.53
+            "calls": 2.72
           }
         }
       }
     },
     "high": {
-      "setupMs": 26000,
-      "programs": 100,
+      "setupMs": 27500,
+      "programs": 106,
       "modes": {
         "overview": {
-          "triangles": 3340000,
-          "calls": 830,
+          "triangles": 3380000,
+          "calls": 950,
           "maxRatio": {
             "triangles": 1.6,
             "calls": 1.6
           }
         },
         "heli": {
-          "triangles": 2660000,
-          "calls": 820,
+          "triangles": 3120000,
+          "calls": 980,
           "maxRatio": {
-            "triangles": 1.76,
+            "triangles": 2.12,
             "calls": 2.39
           }
         },
         "chase": {
-          "triangles": 3350000,
-          "calls": 1000,
+          "triangles": 3800000,
+          "calls": 1050,
           "maxRatio": {
             "triangles": 1.69,
             "calls": 1.6
           }
         },
         "onboard": {
-          "triangles": 3410000,
-          "calls": 1030,
+          "triangles": 3580000,
+          "calls": 1050,
           "maxRatio": {
-            "triangles": 1.6,
+            "triangles": 1.9,
             "calls": 1.6
           }
         },
         "tv": {
-          "triangles": 2400000,
-          "calls": 550,
+          "triangles": 2460000,
+          "calls": 570,
           "maxRatio": {
-            "triangles": 1.76,
-            "calls": 2.82
+            "triangles": 2.11,
+            "calls": 2.86
           }
         }
       }
