@@ -259,9 +259,12 @@ test.describe('Suzuka 3D broadcast', () => {
     const row2 = page.locator('.bc-tower .row', { has: page.locator('.num', { hasText: /^2$/ }) })
     const code2 = (await row2.locator('.code').textContent())?.trim()
     await row2.click()
-    await expect(page.locator('.bc-name')).toBeVisible()
-    await expect(page.locator('.bc-name .pos')).toHaveText('2')
-    const last = (await page.locator('.bc-name .last').textContent())?.trim() ?? ''
+    // the scheduler may have an automatic lower third (the leader's) up at the same moment, so
+    // read the strap that names the driver we clicked, not whichever strap happens to be first
+    const strap = page.locator('.bc-name', { has: page.locator('.pos', { hasText: /^2$/ }) })
+    await expect(strap).toBeVisible()
+    await expect(strap.locator('.pos')).toHaveText('2')
+    const last = (await strap.locator('.last').textContent())?.trim() ?? ''
     expect(code2 && last.startsWith(code2.slice(0, 2))).toBeTruthy()
     await page.keyboard.press(' ')
 
