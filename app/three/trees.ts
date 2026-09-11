@@ -573,6 +573,35 @@ function cardMesh(lib: TreeLibrary, internals: Internals, list: TreePlacement[],
 export function emitTrees(lib: TreeLibrary, ctx: EnvBuildContext, name: string, cell: number, list: TreePlacement[], opts: EmitOptions): EmitCounts {
   const internals = INTERNALS.get(lib)
   if (!internals) throw new Error('[trees] emitTrees: the library was not built by buildTreeLibrary')
+  // A dense cell is split into quadrants (by the placements' median x and z), each with its own
+  // entries and sphere: the registry switches an entry as a whole, so with one sphere per 250 m
+  // cell a camera near a cell corner drew every tree of four cells as meshes — the perf probe
+  // read 5–6 M triangles a frame in the follow modes (2.4–3 M before the trees). A quadrant's
+  // sphere is half the size, so a wood the camera skirts stays on cards. Cone mode (Node, the
+  // low tier) never splits: its entries are what the static budgets count, and cones are cheap.
+  if (lib.mode === 'pack' && list.length >= SUBCELL_MIN) {
+    const xs = list.map((p) => p.x).sort((a, b) => a - b), zs = list.map((p) => p.z).sort((a, b) => a - b)
+    const mx = xs[xs.length >> 1]!, mz = zs[zs.length >> 1]!
+    const parts: TreePlacement[][] = [[], [], [], []]
+    for (const p of list) parts[(p.x < mx ? 0 : 1) + (p.z < mz ? 0 : 2)]!.push(p)
+    const total: EmitCounts = { entries: 0, triangles: 0, cards: 0, cones: 0 }
+    parts.forEach((part, k) => {
+      if (!part.length) return
+      const c = emitTreesPart(lib, internals, ctx, `${name}q${k}`, cell, part, opts)
+      total.entries += c.entries
+      total.triangles += c.triangles
+      total.cards += c.cards
+      total.cones += c.cones
+    })
+    return total
+  }
+  return emitTreesPart(lib, internals, ctx, name, cell, list, opts)
+}
+
+/** placements per cell from which `emitTrees` splits the cell into quadrants (pack mode only) */
+const SUBCELL_MIN = 40
+
+function emitTreesPart(lib: TreeLibrary, internals: Internals, ctx: EnvBuildContext, name: string, cell: number, list: TreePlacement[], opts: EmitOptions): EmitCounts {
   const { farField, quality: q } = ctx
   const t = q.farField.trees
   const counts: EmitCounts = { entries: 0, triangles: 0, cards: 0, cones: 0 }
