@@ -338,6 +338,50 @@ export const CAMPSITE = {
   vans: 6, van: { l: 5.4, w: 2.2, h: 2.6 }, vanColours: ['#f2f2f0', '#e8e6e0', '#d9dcdf'],
 } as const
 
+/**
+ * Hero replacements of the OSM house footprints (app/three/hero-buildings.ts, R フェーズ Phase 4):
+ * a footprint inside the terrain grid whose oriented bounding box matches a model's footprint
+ * (long ÷ short within `fit` of the model's, the ring filling at least `fill` of the box) is
+ * built from the pack model instead of the massing — scaled uniformly within `scale` so the
+ * model's long side equals the box's long side, its front (see hero-buildings.ts) turned to the
+ * nearest road, standing on a plaster plinth `plinth` m over the footprint's lowest ground. The
+ * tier's `Quality.farField.heroBuildings` caps the count, nearest the circuit first. `kinds` is
+ * the generator kind; `tag` restricts to one `building=*` value (apartments are `kind: 'house'`
+ * in the extract), `minLong` to boxes at least that long (m).
+ */
+export const HERO_BUILDINGS = {
+  models: [
+    { key: 'model/buildings/jp_house_01', kinds: ['house'] },
+    { key: 'model/buildings/jp_house_02', kinds: ['house'] },
+    { key: 'model/buildings/jp_house_03', kinds: ['house'] },
+    { key: 'model/buildings/jp_apartment_grey', kinds: ['house'], tag: 'apartments', minLong: 14 },
+  ] as readonly { key: string; kinds: readonly SurBuildingKind[]; tag?: string; minLong?: number }[],
+  /** aspect-ratio tolerance and the uniform scale range: the in-grid houses are elongated (1.5–3 : 1) while the models are compact, so 0.2 / ±15 % fitted only 5 sites — 0.35 / −20…+25 % fits about twelve without visible distortion */
+  fit: 0.35,
+  fill: 0.7,
+  scale: [0.8, 1.25] as readonly [number, number],
+  plinth: 0.05,
+} as const
+
+/**
+ * What dresses a house beyond its massing (app/three/buildings.ts, Phase 4): the ブロック塀
+ * around the footprint (`wall`: offset outside the footprint edges, height, thickness, the gate
+ * gap on the road-facing edge — all m), the rooftop PV array on the south-facing hip face (`pv`:
+ * share of the houses, inset from the face edges, how proud of the tiles), the props on the
+ * longest wall (`props`: aircon box l × d × h, LPG cylinder radius / height, water-heater box),
+ * the footprint area under which a dwelling is a corrugated shed (m²; the generator ships nothing
+ * under SUR_MIN_AREA 60 m², so today only the tagged huts / garages qualify) and the roller
+ * shutters on the road-facing side of the works / warehouses / shops (`shutter`: w × h, pitch
+ * along the edge, at most `max` per building).
+ */
+export const HOUSE_DRESS = {
+  wall: { offset: 1.8, h: 1.2, t: 0.12, gate: 3 },
+  pv: { share: 0.12, inset: 0.75, proud: 0.06 },
+  props: { aircon: [0.8, 0.3, 0.6] as readonly [number, number, number], lpg: { r: 0.18, h: 1.25 }, heater: [0.5, 0.3, 0.8] as readonly [number, number, number] },
+  shedMaxArea: 45,
+  shutter: { w: 3.2, h: 2.6, pitch: 8, max: 4 },
+} as const
+
 // TODO(plan §2d): car-body colour mix from the 2026 car-park photo (white pearl 38 / black 24 /
 // silver 20 / dark red 6 / blue 5 / other 7 %) and the body-type mix.
 export const CAR_COLOURS: { hex: string; weight: number }[] = []

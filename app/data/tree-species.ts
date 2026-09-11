@@ -136,14 +136,14 @@ export const TREE_SPECIES: Record<TreeRole, TreeSpecies> = {
     role: 'sakura', row: 7, height: [6, 9],
     variants: [{ lods: [{ key: CHERRY_M, nodes: /Object_/ }, { key: CHERRY_L, nodes: /Object_/ }, null] }],
     leafRe: /blossom/i, cone: 'deciduous',
-    tint: [[1.0, 1.08], [0.92, 1.0], [0.95, 1.05]], crown: '#e9b8c8', casts: true, wind: 0.7,
+    tint: [[1.08, 1.15], [1.0, 1.06], [1.02, 1.1]], crown: '#efc6d2', casts: true, wind: 0.7,
   },
   // the young roadside rows: the same tree, smaller and pinker
   sakuraB: {
     role: 'sakuraB', row: 8, height: [4, 6],
     variants: [{ lods: [{ key: CHERRY_L, nodes: /Object_/ }, { key: CHERRY_L, nodes: /Object_/ }, null] }],
     leafRe: /blossom/i, cone: 'deciduous',
-    tint: [[1.02, 1.1], [0.85, 0.95], [0.92, 1.02]], crown: '#efc0d0', casts: true, wind: 0.8,
+    tint: [[1.06, 1.12], [0.94, 1.0], [1.0, 1.06]], crown: '#f2cad6', casts: true, wind: 0.8,
   },
   // hedges and the forest edge: the bush pack (heights per size class come from the variant)
   bush: {

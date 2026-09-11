@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-11T16:03:29.278Z",
+  "generated": "2026-09-11T17:23:23.787Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -8,6 +8,199 @@
     "gltfTransform": "@gltf-transform/cli@4.5.0"
   },
   "assets": {
+    "model/buildings/jp_apartment_grey": {
+      "kind": "model",
+      "path": "/assets/models/buildings_jp_apartment_grey.2b4955fe.glb",
+      "format": "glb",
+      "bytes": 186496,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 128,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 32,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 64,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 128,
+          "format": "ktx2"
+        },
+        {
+          "width": 128,
+          "height": 128,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Grey Japanease Apartment",
+        "pageUrl": "https://sketchfab.com/3d-models/grey-japanease-apartment-8589efeb25284d709934497e02a25421",
+        "licence": "CC-BY-4.0",
+        "author": "Kasuga𓅂",
+        "authorUrl": "https://sketchfab.com/kasuga",
+        "url": "https://sketchfab.com/3d-models/grey-japanease-apartment-8589efeb25284d709934497e02a25421",
+        "sha256Source": "8969bd766b81998af72cb91d116fcb0c8f24250dbef3bd350b2afa5821c79295",
+        "miscPath": "buildings/grey_japanease_apartment.zip",
+        "licenceEvidence": "grey_japanease_apartment.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 7 etc1s)"
+      ]
+    },
+    "model/buildings/jp_house_01": {
+      "kind": "model",
+      "path": "/assets/models/buildings_jp_house_01.e0199099.glb",
+      "format": "glb",
+      "bytes": 308148,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Japanese Residential Home 01",
+        "pageUrl": "https://sketchfab.com/3d-models/japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595",
+        "licence": "CC-BY-4.0",
+        "author": "Morrissey Alexander",
+        "authorUrl": "https://sketchfab.com/reckzilla",
+        "url": "https://sketchfab.com/3d-models/japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595",
+        "sha256Source": "8788dc786017a99a931307f8adfd8c2c4961423b5470324dd80b2ff6837131f5",
+        "miscPath": "buildings/japanese_residential_home_01.zip",
+        "licenceEvidence": "japanese_residential_home_01.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/buildings/jp_house_02": {
+      "kind": "model",
+      "path": "/assets/models/buildings_jp_house_02.c76a9c90.glb",
+      "format": "glb",
+      "bytes": 305000,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Japanese Residential Home 02",
+        "pageUrl": "https://sketchfab.com/3d-models/japanese-residential-home-02-c31697f09152453cb3ed215482e7a810",
+        "licence": "CC-BY-4.0",
+        "author": "Morrissey Alexander",
+        "authorUrl": "https://sketchfab.com/reckzilla",
+        "url": "https://sketchfab.com/3d-models/japanese-residential-home-02-c31697f09152453cb3ed215482e7a810",
+        "sha256Source": "825aed04802350d83503e84d39a4012f8c34395da7a28d4ead74ace200edc9a9",
+        "miscPath": "buildings/japanese_residential_home_02.zip",
+        "licenceEvidence": "japanese_residential_home_02.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/buildings/jp_house_03": {
+      "kind": "model",
+      "path": "/assets/models/buildings_jp_house_03.891d5e86.glb",
+      "format": "glb",
+      "bytes": 340156,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Japanese Residential Home 03",
+        "pageUrl": "https://sketchfab.com/3d-models/japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48",
+        "licence": "CC-BY-4.0",
+        "author": "Morrissey Alexander",
+        "authorUrl": "https://sketchfab.com/reckzilla",
+        "url": "https://sketchfab.com/3d-models/japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48",
+        "sha256Source": "911b4a5d52872135e73136ffccaef7c4d30daabbbbfca3acfe128e547903404e",
+        "miscPath": "buildings/japanese_residential_home_03.zip",
+        "licenceEvidence": "japanese_residential_home_03.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
     "model/crowd/eclair/female_hairstyle_1": {
       "kind": "model",
       "path": "/assets/models/crowd_eclair_female_hairstyle_1.785638ef.glb",
@@ -2225,6 +2418,167 @@
       },
       "modified": true
     },
+    "tex/corrugatedsteel007a/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel007a_arm.e96fe7ba.webp",
+      "format": "webp",
+      "bytes": 152408,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1.5,
+      "packed": {
+        "ao": true,
+        "metal": true
+      },
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 007 A",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel007A",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel007A_1K-JPG.zip#CorrugatedSteel007A_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "c70ff5a3a182ab14a010105bcfbdf26617877ca6985f95ef5c6677d0c3175899"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/corrugatedsteel007a/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel007a_diff.cdee19b2.webp",
+      "format": "webp",
+      "bytes": 71534,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1.5,
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 007 A",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel007A",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel007A_1K-JPG.zip#CorrugatedSteel007A_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "c70ff5a3a182ab14a010105bcfbdf26617877ca6985f95ef5c6677d0c3175899"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/corrugatedsteel007a/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel007a_nor_gl.8e6ba4b7.webp",
+      "format": "webp",
+      "bytes": 294282,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1.5,
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 007 A",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel007A",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel007A_1K-JPG.zip#CorrugatedSteel007A_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "c70ff5a3a182ab14a010105bcfbdf26617877ca6985f95ef5c6677d0c3175899"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/corrugatedsteel009/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel009_arm.d59e80e8.webp",
+      "format": "webp",
+      "bytes": 111702,
+      "width": 512,
+      "height": 256,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1.5,
+      "aspect": 2,
+      "packed": {
+        "ao": true,
+        "metal": true
+      },
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 009",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel009",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel009_1K-JPG.zip#CorrugatedSteel009_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "fa917cba8bbf4ceb645cf27e4c1a4a17621d3b1ad44a4125997cdd05662711fb"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/corrugatedsteel009/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel009_diff.d3209faf.webp",
+      "format": "webp",
+      "bytes": 132898,
+      "width": 512,
+      "height": 256,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1.5,
+      "aspect": 2,
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 009",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel009",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel009_1K-JPG.zip#CorrugatedSteel009_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "fa917cba8bbf4ceb645cf27e4c1a4a17621d3b1ad44a4125997cdd05662711fb"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/corrugatedsteel009/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/corrugatedsteel009_nor_gl.f0851e3b.webp",
+      "format": "webp",
+      "bytes": 93638,
+      "width": 512,
+      "height": 256,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1.5,
+      "aspect": 2,
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Corrugated Steel 009",
+        "pageUrl": "https://ambientcg.com/view?id=CorrugatedSteel009",
+        "url": "https://ambientcg.com/get?file=CorrugatedSteel009_1K-JPG.zip#CorrugatedSteel009_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "fa917cba8bbf4ceb645cf27e4c1a4a17621d3b1ad44a4125997cdd05662711fb"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
     "tex/crowd_atlas/diff": {
       "kind": "texture",
       "path": "/assets/tex/crowd_atlas_diff.732eb65f.ktx2",
@@ -2268,6 +2622,31 @@
         "sha256Source": "03551fadf519f92314f0a51207768a21c26f0822cb1c3b28088c01c4370a6afe"
       },
       "modified": true
+    },
+    "tex/dry_mud_field_001/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/dry_mud_field_001_diff.8fb5969a.webp",
+      "format": "webp",
+      "bytes": 291570,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 3,
+      "pixels": true,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Dry Mud Field 001",
+        "pageUrl": "https://polyhaven.com/a/dry_mud_field_001",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_mud_field_001/dry_mud_field_001_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel, Rico Cilliers",
+        "sha256Source": "fa527aa4eb6151c7dab4f0a7b31722d0aa180f728af694594439d106e76f6c6d"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
     },
     "tex/facade001/arm": {
       "kind": "texture",
@@ -2496,6 +2875,81 @@
       },
       "modified": true
     },
+    "tex/grey_roof_tiles/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/grey_roof_tiles_arm.05579fc9.webp",
+      "format": "webp",
+      "bytes": 289850,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 3,
+      "pixels": true,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Grey Roof Tiles",
+        "pageUrl": "https://polyhaven.com/a/grey_roof_tiles",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grey_roof_tiles/grey_roof_tiles_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "cd00bc65d20defa8560adbe908bf9027e0e39b8ccf954eeab9fca7a3c5674281"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/grey_roof_tiles/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/grey_roof_tiles_diff.25865086.webp",
+      "format": "webp",
+      "bytes": 412142,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 3,
+      "pixels": true,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Grey Roof Tiles",
+        "pageUrl": "https://polyhaven.com/a/grey_roof_tiles",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grey_roof_tiles/grey_roof_tiles_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "f61107b70cf56074c9db09384a332620c94c678ed2baabfae78029a8242e49a3"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/grey_roof_tiles/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/grey_roof_tiles_nor_gl.2c5218a2.webp",
+      "format": "webp",
+      "bytes": 391384,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 3,
+      "pixels": true,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Grey Roof Tiles",
+        "pageUrl": "https://polyhaven.com/a/grey_roof_tiles",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grey_roof_tiles/grey_roof_tiles_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "99546fdc2978d0950a2c61fe94dbd4230bb7825944bb4e4e7ad586839fdc721d"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
     "tex/plaster_grey_04/arm": {
       "kind": "texture",
       "path": "/assets/tex/plaster_grey_04_arm.febfb8bb.ktx2",
@@ -2688,6 +3142,85 @@
         "sha256Source": "d6edfa39844a4ef480ae2bfcf1c3cce549d8ce6080edd58c4493845aca9ce92d"
       },
       "modified": true
+    },
+    "tex/roofingtiles015a/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/roofingtiles015a_arm.4e67eed1.webp",
+      "format": "webp",
+      "bytes": 204522,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.9,
+      "packed": {
+        "ao": true,
+        "metal": false
+      },
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Roofing Tiles 015 A",
+        "pageUrl": "https://ambientcg.com/view?id=RoofingTiles015A",
+        "url": "https://ambientcg.com/get?file=RoofingTiles015A_1K-JPG.zip#RoofingTiles015A_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "5bb040c4c08592b607bba47cbf7384c2769bea1b49d088c463fa296708c0f743"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/roofingtiles015a/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/roofingtiles015a_diff.42fbaf5e.webp",
+      "format": "webp",
+      "bytes": 104608,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.9,
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Roofing Tiles 015 A",
+        "pageUrl": "https://ambientcg.com/view?id=RoofingTiles015A",
+        "url": "https://ambientcg.com/get?file=RoofingTiles015A_1K-JPG.zip#RoofingTiles015A_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "5bb040c4c08592b607bba47cbf7384c2769bea1b49d088c463fa296708c0f743"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
+    },
+    "tex/roofingtiles015a/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/roofingtiles015a_nor_gl.6bf8a84c.webp",
+      "format": "webp",
+      "bytes": 191084,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.9,
+      "pixels": true,
+      "source": {
+        "site": "ambientCG",
+        "name": "Roofing Tiles 015 A",
+        "pageUrl": "https://ambientcg.com/view?id=RoofingTiles015A",
+        "url": "https://ambientcg.com/get?file=RoofingTiles015A_1K-JPG.zip#RoofingTiles015A_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "5bb040c4c08592b607bba47cbf7384c2769bea1b49d088c463fa296708c0f743"
+      },
+      "modified": true,
+      "modifications": [
+        "resized / repacked (lossless WebP)"
+      ]
     },
     "tex/tree_atlas/diff": {
       "kind": "texture",

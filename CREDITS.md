@@ -12,12 +12,18 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/concrete046/arm`, `tex/concrete046/diff`, `tex/concrete046/nor_gl`
 - "Corrugated Steel 003" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=CorrugatedSteel003), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/corrugatedsteel003/arm`, `tex/corrugatedsteel003/diff`, `tex/corrugatedsteel003/nor_gl`
+- "Corrugated Steel 007 A" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=CorrugatedSteel007A), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/corrugatedsteel007a/arm`, `tex/corrugatedsteel007a/diff`, `tex/corrugatedsteel007a/nor_gl`
+- "Corrugated Steel 009" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=CorrugatedSteel009), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/corrugatedsteel009/arm`, `tex/corrugatedsteel009/diff`, `tex/corrugatedsteel009/nor_gl`
 - "Facade 001" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Facade001), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/facade001/arm`, `tex/facade001/diff`, `tex/facade001/nor_gl`
 - "Fence 003" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Fence003), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/fence003/diff`, `tex/fence003/nor_gl`, `tex/fence003/opacity`
 - "Plastic 013 A" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Plastic013A), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plastic013a/arm`, `tex/plastic013a/diff`, `tex/plastic013a/nor_gl`
+- "Roofing Tiles 015 A" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=RoofingTiles015A), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/roofingtiles015a/arm`, `tex/roofingtiles015a/diff`, `tex/roofingtiles015a/nor_gl`
 
 ### Eclair Assets (itch.io)
 
@@ -32,10 +38,14 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_pit_lane/arm`, `tex/asphalt_pit_lane/diff`, `tex/asphalt_pit_lane/nor_gl`
 - "Concrete Road Barrier" by Amal Kumar (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/concrete_road_barrier`
+- "Dry Mud Field 001" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/dry_mud_field_001), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/dry_mud_field_001/diff`
 - "Grass Medium 01 (dry albedo + alpha)" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/grass_medium_01), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/grass_medium_01/diff`, `tex/grass_medium_01/opacity`
 - "Gravel Road" by Amal Kumar (Poly Haven, https://polyhaven.com/a/gravel_road), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/gravel_road/arm`, `tex/gravel_road/diff`, `tex/gravel_road/nor_gl`
+- "Grey Roof Tiles" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/grey_roof_tiles), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/grey_roof_tiles/arm`, `tex/grey_roof_tiles/diff`, `tex/grey_roof_tiles/nor_gl`
 - "Plaster Grey 04" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/plaster_grey_04), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plaster_grey_04/arm`, `tex/plaster_grey_04/diff`, `tex/plaster_grey_04/nor_gl`
 - "Preconcrete Wall 001 Long" by Dimitrios Savva, Rico Cilliers (Poly Haven, https://polyhaven.com/a/preconcrete_wall_001_long), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
@@ -64,12 +74,20 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/seats/bleacher`
 - This work is based on "Bush models pack (gameready, LODs)" (https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 17 mesh nodes dropped (drop /Billboard|Ground|Man ref/), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bush_pack`
+- This work is based on "Grey Japanease Apartment" (https://sketchfab.com/3d-models/grey-japanease-apartment-8589efeb25284d709934497e02a25421) by Kasuga𓅂 (https://sketchfab.com/kasuga) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 7 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/buildings/jp_apartment_grey`
 - This work is based on "Japanese Cherry Tree (low-Poly)" (https://sketchfab.com/3d-models/japanese-cherry-tree-low-poly-7c9e7c4e971f4953b06faf300cbb1209) by Sereib (https://sketchfab.com/Sereib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (6 uastc, 1 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/cherry_low`
 - This work is based on "Japanese Cherry Tree (medium-Poly)" (https://sketchfab.com/3d-models/japanese-cherry-tree-medium-poly-e0306a4402b44fa08f55aa58518dcb9c) by Sereib (https://sketchfab.com/Sereib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px, textures GPU-compressed to KTX2 (6 uastc, 1 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/cherry_medium`
 - This work is based on "Japanese Pole (Denchu)" (https://sketchfab.com/3d-models/japanese-pole-denchu-e46e33e8908f40dc99eb3e0849a15048) by Fumiya Funatsu (https://sketchfab.com/funatsu.fumiya) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, clipped to the model's own object (7789 triangles outside keepBox dropped), textures GPU-compressed to KTX2 (1 uastc, 4 etc1s), simplified to 0.25 of the triangles (gltfpack -si -sa))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/road/jp_denchu`
+- This work is based on "Japanese Residential Home 01" (https://sketchfab.com/3d-models/japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595) by Morrissey Alexander (https://sketchfab.com/reckzilla) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/buildings/jp_house_01`
+- This work is based on "Japanese Residential Home 02" (https://sketchfab.com/3d-models/japanese-residential-home-02-c31697f09152453cb3ed215482e7a810) by Morrissey Alexander (https://sketchfab.com/reckzilla) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/buildings/jp_house_02`
+- This work is based on "Japanese Residential Home 03" (https://sketchfab.com/3d-models/japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48) by Morrissey Alexander (https://sketchfab.com/reckzilla) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/buildings/jp_house_03`
 - This work is based on "Japanese Traffic Assets" (https://sketchfab.com/3d-models/japanese-traffic-assets-1a4833770ace4df6aecfdabb76e36d60) by Erik Kinč (https://sketchfab.com/erikkinc) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 2 mesh nodes dropped (drop /citylight|Citylight/), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (19 uastc, 54 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/road/jp_traffic_assets`
 - This work is based on "Low poly stadium/sports arena seats" (https://sketchfab.com/3d-models/low-poly-stadiumsports-arena-seats-6bbe4c85d2a4489dbe5918831be5d886) by anDDDres (https://sketchfab.com/anDDDres) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc))
@@ -99,4 +117,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-11T16:03:29.278Z · 89 files · 52.59 MB
+Generated 2026-09-11T17:23:23.787Z · 106 files · 56.29 MB

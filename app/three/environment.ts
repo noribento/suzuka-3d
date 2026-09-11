@@ -996,7 +996,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // rectangles are the grid's and the ring's (asserted against the built Terrain below).
   const innerRect = terrainRect(track)
   const outerRect = ringRect(innerRect, quality.terrain, quality.terrainRingCells)
-  const landCover = buildLandCover(track, quality, innerRect, outerRect)
+  const landCover = buildLandCover(track, quality, innerRect, outerRect, assets)
   lap('landCover')
   const terrain = new Terrain(track, quality.terrain, assets, quality.terrainRingCells, landCover.layer('inner'))
   group.add(terrain.group)

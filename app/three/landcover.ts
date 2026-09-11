@@ -3,6 +3,7 @@ import { worldRing } from '~/data/en-codec'
 import type { SurFeatureBase, SurPolygon } from '~/data/en-codec'
 import { SUR_BARE, SUR_BUILDINGS, SUR_FARMLAND, SUR_FOREST, SUR_GRASS, SUR_PARKING, SUR_RAIL, SUR_ROADS, SUR_SCRUB, SUR_SITES, SUR_SOLAR, SUR_STREAMS, SUR_WATER } from '~/data/suzuka-surroundings'
 import type { Track } from '~/sim/track'
+import type { AssetRegistry } from './assets'
 import type { Quality } from './quality'
 import { cached, groundAniso, mulberry, scaled } from './textures'
 
@@ -85,6 +86,8 @@ export interface CoverLayer {
   masks: CoverTextures
   /** sample the detail tile (Quality.coverDetail); false = flat class colours under the macro variation */
   detail: boolean
+  /** the detail tile the material binds (`coverDetailTile`, built once per land cover with the asset pack it was given); null when `detail` is off */
+  detailTile: THREE.DataTexture | null
 }
 
 export interface CoverStats {
@@ -128,8 +131,12 @@ export const COVER_COLOURS = {
   settle: '#8e8a80',
 } as const
 
-/** World period (m) of each detail-tile channel: R forest litter, G paddy stubble, B asphalt grain, A solar rows. */
-export const COVER_DETAIL_M = { forest: 4, farmland: 6, paved: 1.5, solar: 5.5 } as const
+/**
+ * World period (m) of each detail-tile channel: R forest litter, G paddy mud / stubble, B asphalt
+ * grain, A solar rows. Farmland is 3 m — the physical tile of the dry-mud scan the G channel
+ * carries with the pack (the painted furrows repeat at the same period without it).
+ */
+export const COVER_DETAIL_M = { forest: 4, farmland: 3, paved: 1.5, solar: 5.5 } as const
 
 // ---------------------------------------------------------------- tunables
 /** clearance around every centreline sample beyond the local half-width (m): G5's reach is 34 m */
@@ -656,12 +663,16 @@ function coverTextures(track: Track, rect: CoverRect, res: number, decoded: Deco
 /**
  * Build the land-cover masks for the inner terrain rectangle and the outer ring rectangle (both
  * `{x0, z0, w, d}` in world metres, the ring rectangle containing the inner one). Resolution from
- * `q.coverRes`, the detail flag from `q.coverDetail`. Cached per rectangle and resolution, so a
- * second build (HMR, a context restore) is free and the textures are covered by textures.ts's
+ * `q.coverRes`, the detail flag from `q.coverDetail`; `assets` (null on the low tier / in Node)
+ * only feeds the detail tile's paddy channel. Cached per rectangle and resolution, so a second
+ * build (HMR, a context restore) is free and the textures are covered by textures.ts's
  * markAllDirty / textureBytes.
  */
-export function buildLandCover(track: Track, q: Quality, inner: CoverRect, outer: CoverRect): LandCover {
+export function buildLandCover(track: Track, q: Quality, inner: CoverRect, outer: CoverRect, assets: AssetRegistry | null = null): LandCover {
   const t0 = performance.now()
+  // the detail tile once per build: the pack's dry-mud scan goes into its G channel when the
+  // registry has it (the materials bind the layer's tile rather than asking for one themselves)
+  const detailTile = q.coverDetail ? coverDetailTile(assets) : null
   const decoded = decodeAll(track)
   const innerPct = {} as Record<Exclude<CoverClass, 'none'>, number>
   const outerPct = {} as Record<Exclude<CoverClass, 'none'>, number>
@@ -697,7 +708,7 @@ export function buildLandCover(track: Track, q: Quality, inner: CoverRect, outer
     inner: innerTex,
     outer: outerTex,
     detail: q.coverDetail,
-    layer: (which) => ({ masks: which === 'inner' ? innerTex : outerTex, detail: q.coverDetail }),
+    layer: (which) => ({ masks: which === 'inner' ? innerTex : outerTex, detail: q.coverDetail, detailTile }),
     classAt(x, z) {
       for (const c of PRECEDENCE) if (sample(x, z, CH[c]) >= 0.5) return c
       return 'none'
@@ -749,21 +760,62 @@ function tileNoise(seed: number) {
 }
 
 /**
+ * The luminance of a pack texture as a `w` × `h` float tile (0..1), normalised to mean ½ with the
+ * deviation scaled by `contrast`, or null when the registry lacks the key or its image is not
+ * something a 2D canvas can draw (Node, KTX2, a texture that failed). The WebP the importer ships
+ * for `pixels: true` sources loads as an HTMLImageElement, which `drawImage` resamples for free.
+ */
+function luminanceTile(assets: AssetRegistry | null, key: string, w: number, h: number, contrast: number): Float32Array | null {
+  const img = assets?.texture(key)?.image as CanvasImageSource | undefined
+  const iw = (img as { width?: number } | undefined)?.width, ih = (img as { height?: number } | undefined)?.height
+  if (!img || typeof iw !== 'number' || typeof ih !== 'number' || !(iw > 0 && ih > 0) || (img as { data?: unknown }).data) return null
+  let bytes: Uint8ClampedArray
+  try {
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const ctx = c.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true })
+    if (!ctx) return null
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(img, 0, 0, w, h)
+    bytes = ctx.getImageData(0, 0, w, h).data
+  } catch {
+    return null
+  }
+  const out = new Float32Array(w * h)
+  let mean = 0
+  for (let i = 0; i < out.length; i++) {
+    const l = (0.2126 * bytes[i * 4]! + 0.7152 * bytes[i * 4 + 1]! + 0.0722 * bytes[i * 4 + 2]!) / 255
+    out[i] = l
+    mean += l
+  }
+  mean /= out.length
+  if (!(mean > 0)) return null
+  for (let i = 0; i < out.length; i++) out[i] = Math.min(1, Math.max(0, 0.5 + (out[i]! - mean) * contrast))
+  return out
+}
+
+/**
  * The one detail tile of the cover shader, 512² RGBA (tier-scaled), each channel sampled at its
  * own world period (COVER_DETAIL_M), mean ≈ ½ so it converges to a flat multiplier under
  * minification:
  *   R  forest floor — leaf litter and root shadow, 4 m;
- *   G  paddy stubble — furrows along u with the cut straw's speckle, 6 m (the 30 × 90 m bunds are
- *      in the mask's edge channel, rotated per field — a tile cannot rotate);
+ *   G  paddy — the dry-mud scan's luminance (tex/dry_mud_field_001, 3 m, mean ½ at contrast 1.2)
+ *      when the pack has it, else painted furrows along u with the cut straw's speckle (the
+ *      30 × 90 m bunds are in the mask's edge channel, rotated per field — a tile cannot rotate);
  *   B  asphalt grain, 1.5 m (the same aggregate as the road's detail, coarser);
  *   A  solar rows — one 5.5 m pitch along v: 0 = the gravel gap, 160 = panel glass, 255 = the
  *      aluminium frame line (the shader turns the frame into a glint).
  * A DataTexture rather than a canvas: a canvas stores premultiplied alpha, which would quantise
  * the RGB of every texel whose A channel is low; the byte array keeps all four channels exact.
+ * Cached per size and per source of the G channel (`|mud` with the scan), so a registry without
+ * the scan (Node, the low tier) gets the painted tile as before.
  */
-export function coverDetailTile(): THREE.DataTexture {
+export function coverDetailTile(assets: AssetRegistry | null = null): THREE.DataTexture {
   const [w, h] = scaled(512, 512)
-  return cached(`cover-detail-${w}`, () => {
+  const mud = luminanceTile(assets, 'tex/dry_mud_field_001/diff', w, h, 1.2)
+  return cached(`cover-detail-${w}${mud ? '|mud' : ''}`, () => {
     const litter = tileNoise(313)
     const straw = tileNoise(331)
     const grain = tileNoise(347)
@@ -790,9 +842,9 @@ export function coverDetailTile(): THREE.DataTexture {
         // R: dark floor with root / litter modulation, lifted by the leaf speckle
         const floor = litter(u, v, 8, 4, 0.55)
         const r = 0.35 + 0.35 * floor + 0.35 * leaves[i]!
-        // G: furrows along u — 20 rows per 6 m tile (30 cm) — with the straw's noise on top
-        const rows = 0.5 + 0.5 * Math.cos(v * Math.PI * 2 * 20)
-        const g = 0.32 + 0.28 * rows + 0.4 * straw(u, v, 32, 3, 0.5)
+        // G: the mud scan, else furrows along u — 10 rows per 3 m tile (30 cm) — with the straw's noise on top
+        const rows = 0.5 + 0.5 * Math.cos(v * Math.PI * 2 * 10)
+        const g = mud ? mud[i]! : 0.32 + 0.28 * rows + 0.4 * straw(u, v, 32, 3, 0.5)
         // B: aggregate, mean ½
         const b = 0.25 + 0.5 * grain(u, v, 32, 3, 0.55)
         // A: one row pitch along v — panel band (55 %), a frame line at each band edge, gravel gap

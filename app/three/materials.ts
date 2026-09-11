@@ -252,7 +252,8 @@ function addCoverSplat(shader: THREE.WebGLProgramParametersWithUniforms, cover: 
   shader.uniforms.uCoverInv = { value: cover.masks.invSize }
   shader.uniforms.uCoverCol = { value: coverColours() }
   if (cover.detail) {
-    shader.uniforms.uCoverTile = { value: coverDetailTile() }
+    // the layer's tile (built by buildLandCover with the pack it was given); the painted tile if a caller assembled a layer without one
+    shader.uniforms.uCoverTile = { value: cover.detailTile ?? coverDetailTile(null) }
     shader.uniforms.uCoverPeriod = { value: new THREE.Vector4(1 / COVER_DETAIL_M.forest, 1 / COVER_DETAIL_M.farmland, 1 / COVER_DETAIL_M.paved, 1 / COVER_DETAIL_M.solar) }
   }
   shader.vertexShader = shader.vertexShader

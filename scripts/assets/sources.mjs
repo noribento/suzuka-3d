@@ -62,10 +62,12 @@ export const LICENCES = {
 const PH_TEX = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg'
 
 /**
- * Poly Haven texture: predictable URL template, three maps (diff / nor_gl / arm). Smallest
- * published size is 1k, so a 512 entry sets `fetchRes: '1k'` (the default when `res` is 512).
+ * Poly Haven texture: predictable URL template, three maps (diff / nor_gl / arm) unless `maps`
+ * narrows the list (a texture only read for its colour ships diff alone: no download, no file,
+ * no VRAM for maps nobody samples). Smallest published size is 1k, so a 512 entry sets
+ * `fetchRes: '1k'` (the default when `res` is 512).
  */
-function polyhavenTexture (id, { name, author, res = '1k', fetchRes = RES_PX[res] < 1024 ? '1k' : res, tile, use, pixels }) {
+function polyhavenTexture (id, { name, author, res = '1k', fetchRes = RES_PX[res] < 1024 ? '1k' : res, tile, use, pixels, maps = ['diff', 'nor_gl', 'arm'] }) {
   const f = (map) => `${id}_${map}_${fetchRes}.jpg`
   return {
     key: `tex/${id}`,
@@ -82,8 +84,8 @@ function polyhavenTexture (id, { name, author, res = '1k', fetchRes = RES_PX[res
     ...(pixels ? { pixels: true } : {}),
     tile,
     use,
-    files: Object.fromEntries(['diff', 'nor_gl', 'arm'].map(m => [f(m), `${PH_TEX}/${fetchRes}/${id}/${f(m)}`])),
-    maps: { diff: f('diff'), nor_gl: f('nor_gl'), arm: f('arm') },
+    files: Object.fromEntries(maps.map(m => [f(m), `${PH_TEX}/${fetchRes}/${id}/${f(m)}`])),
+    maps: Object.fromEntries(maps.map(m => [m, f(m)])),
   }
 }
 
@@ -263,6 +265,38 @@ export const SOURCES = [
     name: 'Corrugated Steel 003', use: 'corrugated sheet: temporary stand backs, sheds',
     maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
   }),
+  // The photo layers of the building facade array (R Phase 4, buildings.ts facadeAtlas): the
+  // runtime draws these into a DataArrayTexture at load, which only works from decodable
+  // pixels, so they ship as 512² lossless WebP (`pixels`), not KTX2 — 512² is the layer size
+  // (a house roof is 8–12 m across and seen from ≥ 76 m). Tile sizes as the sites list them
+  // (api.polyhaven.com/info `dimensions` 3.0 m; ambientCG `dimensionX` 290 cm for the glazed
+  // tiles, the corrugated sets carry none — 1.5 m is one sheet width of 3 × 0.5 m ribs).
+  polyhavenTexture('grey_roof_tiles', {
+    name: 'Grey Roof Tiles', author: 'Rob Tuytel', res: '512', pixels: true, tile: 3.0,
+    use: 'kawara: the houses\' roof layer of the facade array (grey ceramic, mossy)',
+  }),
+  ambientcgTexture('RoofingTiles015A', {
+    name: 'Roofing Tiles 015 A', res: '512', pixels: true, tile: 2.9,
+    use: 'glazed kawara: the darker, glossier roof layer of the facade array (30 % of the houses)',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
+  ambientcgTexture('CorrugatedSteel009', {
+    name: 'Corrugated Steel 009', res: '512', pixels: true, tile: 1.5,
+    use: 'dark galvanised sheet: farm sheds, garages and huts (walls + roof)',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
+  ambientcgTexture('CorrugatedSteel007A', {
+    name: 'Corrugated Steel 007 A', res: '512', pixels: true, tile: 1.5,
+    use: 'painted light-blue sheet: works and warehouse walls (half of them)',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
+  // Only the colour: the land-cover detail tile packs its luminance into one channel of the
+  // grass shader's existing detail sampler (landcover.ts coverDetailTile), so nor_gl / arm
+  // would never be read.
+  polyhavenTexture('dry_mud_field_001', {
+    name: 'Dry Mud Field 001', author: 'Rob Tuytel, Rico Cilliers', res: '512', pixels: true, tile: 3.0, maps: ['diff'],
+    use: 'dry paddy mud: the farmland detail of the cover splat (late March, before flooding)',
+  }),
 
   // ---- trees (R Phase 2: Sketchfab CC-BY 4.0 drops in misc/trees/) --------------------------
   // The user downloads each model page's auto-converted glTF zip into misc/trees/ (the zip keeps
@@ -385,6 +419,46 @@ export const SOURCES = [
     keepBox: { min: [-5, null, 3], max: [4, null, 12] },
     simplify: 0.25,
     texEncode: { default: 'etc1s', normal: 'uastc' },
+  }),
+
+  // ---- houses (R Phase 4: Sketchfab CC-BY 4.0 drops in misc/buildings/) ---------------------
+  // Hero replacements for the OSM house footprints an OBB fit accepts (hero-buildings.ts,
+  // through modelPrototype): the massing is skipped there and one InstancedMesh per model
+  // carries every fitted footprint. The three reckzilla homes are one primitive each
+  // (`JapaneseResidentialHome_0N/JapaneseResidentialHome_0N_blinn1_0`, material `blinn1`)
+  // sharing one 2K trim sheet (baseColor / metallicRoughness identical across the three, the
+  // normal differs for 03) — capped at 512: a 10 m house at ≥ 76 m is ~100 px wide. Authors
+  // as license.txt spells them (the importer takes the credit line from that file).
+  sketchfabModel('model/buildings/jp_house_01', {
+    name: 'Japanese Residential Home 01', zip: 'japanese_residential_home_01*.zip', author: 'Morrissey Alexander', authorUrl: 'https://sketchfab.com/reckzilla',
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595',
+    use: 'hero house on a fitting footprint: two-storey, hipped kawara roof, 1.7 k tris',
+    maxTex: 512,
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  sketchfabModel('model/buildings/jp_house_02', {
+    name: 'Japanese Residential Home 02', zip: 'japanese_residential_home_02*.zip', author: 'Morrissey Alexander', authorUrl: 'https://sketchfab.com/reckzilla',
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-residential-home-02-c31697f09152453cb3ed215482e7a810',
+    use: 'hero house on a fitting footprint: two-storey with a carport, 2.0 k tris',
+    maxTex: 512,
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  sketchfabModel('model/buildings/jp_house_03', {
+    name: 'Japanese Residential Home 03', zip: 'japanese_residential_home_03*.zip', author: 'Morrissey Alexander', authorUrl: 'https://sketchfab.com/reckzilla',
+    pageUrl: 'https://sketchfab.com/3d-models/japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48',
+    use: 'hero house on a fitting footprint: L-shaped two-storey, 2.4 k tris',
+    maxTex: 512,
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
+  }),
+  // A Revit-style export: 256 nodes / 145 tiny primitives over 10 materials (`Building_…/Ground
+  // Floor_…/Wall_…`), 8 textures of ≤ 512 × 256 — merged per material by modelPrototype at
+  // runtime, so the node soup costs nothing; 256 px is already above the source's detail.
+  sketchfabModel('model/buildings/jp_apartment_grey', {
+    name: 'Grey Japanease Apartment', zip: 'grey_japanease_apartment*.zip', author: 'Kasuga𓅂', authorUrl: 'https://sketchfab.com/kasuga',
+    pageUrl: 'https://sketchfab.com/3d-models/grey-japanease-apartment-8589efeb25284d709934497e02a25421',
+    use: 'hero two-storey apartment block (アパート) on a fitting `building=apartments` footprint, 1.3 k tris',
+    maxTex: 256,
+    texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
   }),
 
   // ---- reference-only downloads (kept in misc/dl, never imported) ----------------------------
@@ -603,13 +677,19 @@ export const PINS = {
   'tex/asphalt_pit_lane/asphalt_pit_lane_nor_gl_1k.jpg': 'a215356a1180664fbbf94076f3720a4620a1121e137780ce98059621bf8b444e',
   'tex/concrete046/Concrete046_1K-JPG.zip': '72bf4321acbb39ddbc3b786f5996813b2a3cede12efefb47955e97ea9668985b',
   'tex/corrugatedsteel003/CorrugatedSteel003_1K-JPG.zip': '0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1',
+  'tex/corrugatedsteel007a/CorrugatedSteel007A_1K-JPG.zip': 'c70ff5a3a182ab14a010105bcfbdf26617877ca6985f95ef5c6677d0c3175899',
+  'tex/corrugatedsteel009/CorrugatedSteel009_1K-JPG.zip': 'fa917cba8bbf4ceb645cf27e4c1a4a17621d3b1ad44a4125997cdd05662711fb',
+  'tex/dry_mud_field_001/dry_mud_field_001_diff_1k.jpg': 'fa527aa4eb6151c7dab4f0a7b31722d0aa180f728af694594439d106e76f6c6d',
   'tex/facade001/Facade001_1K-JPG.zip': 'e804ad49d692ca60b260394db2ec05d8a274ad319759f536a042471b58d38ea9',
   'tex/fence003/Fence003_1K-JPG.zip': '235f74060d50f379ab0154d7130178fff65ceaf6a6f8e5615260d57ec0f3e1f2',
+  'tex/grass_medium_01/grass_medium_01_alpha_1k.png': '711a8e49af758d6a6ce1f610db858899a27be19da6d1866bd35c13bc7b8ffeff',
+  'tex/grass_medium_01/grass_medium_01_dry_diff_1k.png': 'da85639d6eb8f029b50e7920aaf7e649940541bb24fe6ad239dbae7400af2eb2',
   'tex/gravel_road/gravel_road_arm_1k.jpg': '1fa3f6f701df897975fcb2d8682acd8da949793d686b2be86320d7d3acd1858d',
   'tex/gravel_road/gravel_road_diff_1k.jpg': 'bccbb077a825bdd0eb6f607939578a6ee549822824278fb3a828f6eed3d05d45',
   'tex/gravel_road/gravel_road_nor_gl_1k.jpg': '0920996cab9f2d62a2eb73a3589804527aa0273c4ca61b9f526ce4cba37edebc',
-  'tex/grass_medium_01/grass_medium_01_alpha_1k.png': '711a8e49af758d6a6ce1f610db858899a27be19da6d1866bd35c13bc7b8ffeff',
-  'tex/grass_medium_01/grass_medium_01_dry_diff_1k.png': 'da85639d6eb8f029b50e7920aaf7e649940541bb24fe6ad239dbae7400af2eb2',
+  'tex/grey_roof_tiles/grey_roof_tiles_arm_1k.jpg': 'cd00bc65d20defa8560adbe908bf9027e0e39b8ccf954eeab9fca7a3c5674281',
+  'tex/grey_roof_tiles/grey_roof_tiles_diff_1k.jpg': 'f61107b70cf56074c9db09384a332620c94c678ed2baabfae78029a8242e49a3',
+  'tex/grey_roof_tiles/grey_roof_tiles_nor_gl_1k.jpg': '99546fdc2978d0950a2c61fe94dbd4230bb7825944bb4e4e7ad586839fdc721d',
   'tex/plaster_grey_04/plaster_grey_04_arm_1k.jpg': '9c4a6d0dc9d019ebc4c2cefea095ae413ebce078189bd641fab2bdac49bfc52c',
   'tex/plaster_grey_04/plaster_grey_04_diff_1k.jpg': 'e78df7d6e762fe767634278e14316564e0d4510031986239458994ec9fc5410d',
   'tex/plaster_grey_04/plaster_grey_04_nor_gl_1k.jpg': '9d0eb5299f797c07eb841737eb7164755a2c8a2363540e175a76188a2aa5a2dc',
@@ -617,6 +697,7 @@ export const PINS = {
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_arm_1k.jpg': '3c514c4f7983ab81ba4f715863c8f95945ecbf60f3a982780897835302b744cb',
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_diff_1k.jpg': 'da12ad78e4de12c0b38ca5c9fe2783a6b49c4362310844ded51b1acd8821fbe0',
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_nor_gl_1k.jpg': 'd6edfa39844a4ef480ae2bfcf1c3cce549d8ce6080edd58c4493845aca9ce92d',
+  'tex/roofingtiles015a/RoofingTiles015A_1K-JPG.zip': '5bb040c4c08592b607bba47cbf7384c2769bea1b49d088c463fa296708c0f743',
   'tex/white_plaster_02/white_plaster_02_arm_1k.jpg': '2bb1115821715dfd8bbd1c5a294a5bb43b97d5c46b1aa8aa8f744bcaf5eeeb10',
   'tex/white_plaster_02/white_plaster_02_diff_1k.jpg': 'a1ebbe091bd1ae93d2abd5de8d69f9003a8d0ee6532bcf9a87c2492c97051f23',
   'tex/white_plaster_02/white_plaster_02_nor_gl_1k.jpg': 'eb572ca3630d5bfde72e2601b1f02412da23ca005cd19384dced8690be4cb783',
