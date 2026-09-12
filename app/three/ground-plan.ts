@@ -101,6 +101,8 @@ export const RUNOFF_MAX_LAT = 55
  * rastered from both roads up to their bisector rather than triangulated as a world polygon.
  */
 export const EXTENT_MAX = 130
+/** How far the analytic terrain sits below the road plane next to the track (Terrain.heightAt). */
+export const ROAD_CUT = 0.12
 /** the flat strip on the road plane beside the asphalt (kerbs live here); the field blends beyond it */
 export const FLAT_STRIP = 2
 /** height of the field above the analytic terrain, and of the strip below the road plane */

@@ -4,7 +4,7 @@ import { Rng } from '~/sim/random'
 import { ROLL_CAP, type Track } from '~/sim/track'
 import { makeGround, settleGround, type Ground } from './ground'
 import { makeField, type GroundField } from './ground-field'
-import { buildGroundPlan, type GroundPlan } from './ground-plan'
+import { buildGroundPlan, ROAD_CUT, type GroundPlan } from './ground-plan'
 import { buildGroundMeshes, isGroundFace, type BuiltGround, type GroundFace } from './ground-mesh'
 import { groundMaterials } from './ground-materials'
 import { buildCrowd, type Crowd } from './crowd'
@@ -44,8 +44,6 @@ function softRamp(x: number, k: number): number {
   return t > 20 ? x : k * Math.log1p(Math.exp(t))
 }
 
-/** How far the terrain sits below the road plane next to the track. */
-const ROAD_CUT = 0.12
 /** Slope (rise per metre) of the embankment between a road and lower ground beside it. */
 const FILL_SLOPE = 0.35
 /** Radius of the road-plane blend, metres. */

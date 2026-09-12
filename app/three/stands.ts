@@ -1,11 +1,12 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { alongAt, COLOURS, SEAT_CAPACITY, SEAT_PITCH, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandRoof, type StandTier } from '~/data/suzuka-facilities-spec'
+import { alongAt, COLOURS, HELIPAD, SEAT_CAPACITY, SEAT_PITCH, STANDS, type AlongTrack, type SeatKind, type StandDef, type StandRoof, type StandTier } from '~/data/suzuka-facilities-spec'
 import { OSM_STANDS, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { BASINS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
 import type { Ground } from './ground'
+import { ROAD_CUT } from './ground-plan'
 import { bucketedInstancedMeshes } from './instancing'
 import { pbrFromAssets } from './materials'
 import { demFieldFor } from './dem'
@@ -2091,13 +2092,16 @@ interface TrackZone {
   /** the stand's own s range: outside it the claim fades out over `fade` metres (before, after) */
   core: [number, number]
   fade: [number, number]
+  /** which side of its road the zone claims: 1 = the left (lateral > 0, every stand), −1 = the right (the paddock) */
+  side?: 1 | -1
   /**
    * relief at |lateral| a; null = no effect. `g` is the real ground (dem.ts) at the point,
    * relative to the same reference the returned height is (the road at sample s): the outer
    * fades ramp onto it so the claim ends ON the DEM (plan §1a, |relief − DEM| ≤ 1.5 m at every
-   * zero-weight edge)
+   * zero-weight edge). `x, z` is the world point itself, for a profile whose claim stops at a
+   * polygon that has no (s, a) description (the paddock at the T1 pond's ring)
    */
-  profile: (s: number, a: number, g: number) => Relief | null
+  profile: (s: number, a: number, g: number, x: number, z: number) => Relief | null
   /** centreline samples of [from, to] and their bounding box padded by the zone's reach (lazy) */
   samples?: Int32Array
   box?: [number, number, number, number]
@@ -2182,8 +2186,8 @@ function reliefZones(track: Track): ReliefZone[] {
    * stand's end back under its first rows). No fade between the tiers of one stand, and
    * only a token one where another building stands right next door (B beside C's T2 end).
    */
-  const zone = (core: [number, number], fade: [number, number], profile: TrackZone['profile']): TrackZone =>
-    ({ kind: 'track', from: core[0] - fade[0], to: core[1] + fade[1], core, fade, profile })
+  const zone = (core: [number, number], fade: [number, number], profile: TrackZone['profile'], opts?: { side: 1 | -1 }): TrackZone =>
+    ({ kind: 'track', from: core[0] - fade[0], to: core[1] + fade[1], core, fade, profile, side: opts?.side })
   /** row-1 centre, front edge, platform height and structure back / top of a path stand at u */
   const chordSection = (local: StandDef, u: number) => {
     const t = local.tiers[0]!.tread
@@ -2386,7 +2390,110 @@ function reliefZones(track: Track): ReliefZone[] {
       if (a < 140) return fill(ramp(a, 110, 7.3, 140, g), 1 - (a - 110) / 30)
       return null
   }))
+  zones.push(paddockZone(track, zone, cut, ramp))
   return zones
+}
+
+/** the paddock's inner edge: the pit apron (a road-frame owner) reaches to lateral −24.9 */
+const PADDOCK_IN = 24.9
+/**
+ * The claim's weight rises over these metres inside the inner edge. The height is the plane
+ * the flat zone already draws there, so the weight is moot — but a claim that starts dead at
+ * one sample and not at its neighbour (the edge falls between their laterals where the road
+ * curves) is referenced to that sample's road height alone, a 15 mm tooth on the 2.8 % grade
+ */
+const PADDOCK_IN_FADE = 2
+/** the paddock's outer edge at full width (the GROUND_AREAS band ends at −125) */
+const PADDOCK_OUT = 125
+/** the outer fade lands on the DEM over this many metres */
+const PADDOCK_FADE = 15
+/**
+ * The band surface-check's G5 scans beside the NIPPO / S-curve road (hw 7 + 34 m): the fade's
+ * end stays outside it, so the core's outer edge stays this far plus the fade inside that
+ * road's centreline
+ */
+const NIPPO_G5_BAND = 41
+const PADDOCK_NIPPO_CLEAR = NIPPO_G5_BAND + PADDOCK_FADE
+/** the S-curve → NIPPO stretch the paddock wedge backs onto */
+const NIPPO_RANGE: [number, number] = [1000, 1650]
+/** the T1 infield pond (BASINS / GROUND_AREAS 'T1 インフィールドの池'): the zone claims nothing inside its ring */
+const T1_POND_WAY = 184005565
+/** the core's along-s fades: 25 m in from the T18 end, 12 m out at the T1 end (the pond ring starts at s 107.6) */
+const PADDOCK_S_FADE: [number, number] = [25, 12]
+const PADDOCK_CORE: [number, number] = [5536, 96]
+
+/**
+ * The paddock: the right side of the pit straight from the pit apron out to the A / B car
+ * parks is ONE plane, the pit straight's road plane − ROAD_CUT on its 2.8 % fall (the 2009
+ * dossier's 1,480 mm is the team offices' foundation depth, not a step; the pit / paddock step
+ * was removed in 2009). Terrain.flatZone draws that plane only where the pit straight is the
+ * globally nearest road: beyond its bisector with the S-curve / NIPPO leg (lateral −57 at
+ * s 5500, −85 at 5600, −100 at 5800–100) the IDW of THAT road's planes stood 2–4 m over the
+ * apron, and the helipad face sat +3.8 m above the plane its neighbours are drawn on.
+ *
+ * A cut, not a cap: at the T18 end the hump has to come down, at the T1 end (s 50–100, the DEM
+ * 1–4.6 m below the road) the ground has to come up. The core's outer edge A0(s) is the
+ * paddock's full width or, where the NIPPO road is nearer, PADDOCK_NIPPO_CLEAR inside its
+ * centreline, so the fade's end never enters the band G5 scans from that road; the helipad
+ * disc is kept inside the core. The core ends at s 96 and its 12 m fade at 108, where the T1
+ * pond's ring begins (a rank-1 cap: two claims of different mode meet nearest-wins, so the
+ * two never overlap — and inside the ring the profile claims nothing).
+ */
+function paddockZone(
+  track: Track,
+  zone: (core: [number, number], fade: [number, number], profile: TrackZone['profile'], opts?: { side: 1 | -1 }) => TrackZone,
+  cut: (h: number) => Relief,
+  ramp: (a: number, a0: number, h0: number, a1: number, h1: number) => number,
+): TrackZone {
+  const L = track.length, ds = track.ds, n = track.n
+  // A0 per centreline sample of the zone (fades included): the distance from the pit straight
+  // sample to the nearest NIPPO / S-curve sample, once per Track (reliefZones is cached per Track)
+  const j0 = Math.round(NIPPO_RANGE[0] / ds), j1 = Math.round(NIPPO_RANGE[1] / ds)
+  const from = track.wrap(PADDOCK_CORE[0] - PADDOCK_S_FADE[0])
+  const len = forwardDelta(from, track.wrap(PADDOCK_CORE[1] + PADDOCK_S_FADE[1]), L)
+  const a0 = new Float64Array(n).fill(PADDOCK_OUT)
+  for (let d = 0; d <= len + ds; d += ds) {
+    const i = Math.round(track.wrap(from + d) / ds) % n
+    const x = track.px[i]!, z = track.pz[i]!
+    let best = Infinity
+    for (let j = j0; j <= j1; j++) {
+      const dx = x - track.px[j]!, dz = z - track.pz[j]!
+      const d2 = dx * dx + dz * dz
+      if (d2 < best) best = d2
+    }
+    let a = Math.min(PADDOCK_OUT, Math.sqrt(best) - PADDOCK_NIPPO_CLEAR)
+    // the helipad disc (HELIPAD, r 8) lies inside the core: A0 ≥ its outer rim + 2 m, brought in
+    // over 12 m of s either side of the disc so the core's edge stays a line and not a step
+    const heli = HELIPAD.radius - HELIPAD.lateral + 2
+    const off = Math.max(0, Math.abs(signedDelta(HELIPAD.s, i * ds, L)) - HELIPAD.radius - 2)
+    a = Math.max(a, heli - off * 0.5)
+    a0[i] = a
+  }
+  // the T1 pond ring in world xz (the same ring the basin PolyZone caps)
+  const pond = BASINS.find((b) => b.osmWay === T1_POND_WAY)
+  const f = pond ? osmFeature(pond.osmWay) : undefined
+  const ring: [number, number][] = f && f.closed ? f.en.map(([e, nn]) => { track.enToWorld(e, nn, _p); return [_p.x, _p.z] }) : []
+  let rx0 = Infinity, rx1 = -Infinity, rz0 = Infinity, rz1 = -Infinity
+  for (const [x, z] of ring) { rx0 = Math.min(rx0, x); rx1 = Math.max(rx1, x); rz0 = Math.min(rz0, z); rz1 = Math.max(rz1, z) }
+  const inPond = (x: number, z: number) => {
+    if (x < rx0 || x > rx1 || z < rz0 || z > rz1) return false
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, zi] = ring[i]!, [xj, zj] = ring[j]!
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside
+    }
+    return inside
+  }
+  return zone(PADDOCK_CORE, PADDOCK_S_FADE, (s, a, g, x, z) => {
+    if (a < PADDOCK_IN - PADDOCK_IN_FADE) return null // the pit lane and the garage apron: road-frame owners
+    const edge = a0[Math.round(s / ds) % n]!
+    if (a >= edge + PADDOCK_FADE) return null
+    if (inPond(x, z)) return null
+    if (a < PADDOCK_IN) return [-ROAD_CUT, (a - PADDOCK_IN + PADDOCK_IN_FADE) / PADDOCK_IN_FADE, true]
+    if (a < edge) return cut(-ROAD_CUT)
+    // the outer fade: the plane runs out onto the DEM as the weight goes to zero
+    return [ramp(a, edge, -ROAD_CUT, edge + PADDOCK_FADE, g), 1 - (a - edge) / PADDOCK_FADE, true]
+  }, { side: -1 })
 }
 
 const zoneCache = new WeakMap<Track, ReliefZone[]>()
@@ -2530,46 +2637,56 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
     // Core samples are preferred over fade samples: on the inside of a bend (C's Esses end
     // faces T3) a point beside the stand's tail is also abreast of samples past the stand,
     // through the fold of the converging normals, and the nearer of those would only hand
-    // it a faded claim
+    // it a faded claim. Not over the fade sample NEXT to the core sample, though: the two
+    // hold the same claim (the s-fade is 1 at the core's end), and the nearer of them winning
+    // puts the switch on their bisector, where the blend below reads the same from both —
+    // the preference alone switched 2 m early, at a blend of 0.4 (a 30 mm step in the paddock)
     const L = track.length
     const coreLen = forwardDelta(zone.core[0], zone.core[1], L)
-    let best = Infinity, bi = -1, bestCore = false
+    let best = Infinity, bi = -1, bestFade = Infinity, bf = -1
     for (let k = 0; k < samples.length; k++) {
       const i = samples[k]!
       const dx = x - track.px[i]!, dz = z - track.pz[i]!
       const d2 = dx * dx + dz * dz
       const core = forwardDelta(zone.core[0], i * track.ds, L) <= coreLen
-      if (bestCore && !core) continue
-      if (d2 >= best && core === bestCore) continue
+      if (d2 >= (core ? best : bestFade)) continue
       if (Math.abs(dx * track.tx[i]! + dz * track.tz[i]!) > track.ds) continue
-      best = d2
-      bi = i
-      bestCore = core
+      if (core) { best = d2; bi = i } else { bestFade = d2; bf = i }
     }
+    if (bf >= 0 && (bi < 0 || (bestFade < best && Math.abs(signedDelta(bi * track.ds, bf * track.ds, L)) <= track.ds * 1.5))) { bi = bf; best = bestFade }
     if (bi < 0) continue
     const dx = x - track.px[bi]!, dz = z - track.pz[bi]!
-    // all relief zones lie on the left of their road
+    // a zone claims one side of its road: the left (every stand) unless it says `side: -1`
+    // (the paddock); the profile reads the unsigned offset either way
     const lateral = dx * track.nx[bi]! + dz * track.nz[bi]!
-    if (lateral <= 0) continue
+    if (lateral * (zone.side ?? 1) <= 0) continue
     const sBi = bi * track.ds
-    const r = zone.profile(sBi, lateral, demAt() - track.py[bi]!)
+    const r = zone.profile(sBi, Math.abs(lateral), demAt() - track.py[bi]!, x, z)
     if (!r) continue
     // the profile is read at a SAMPLE: between two samples the relief would step every 2 m (a
     // sawtooth the faces chord by 40 mm), so it is blended with the neighbouring sample the point
-    // lies towards, by its distance along the tangent; a neighbour with no claim fades it out
+    // lies towards; a neighbour with no claim fades it out. The blend parameter is the point's
+    // distance along bi's tangent over the sum of its distances along BOTH samples' tangents: 90 m
+    // out from a road that curves even gently, the two tangents disagree on those distances by a
+    // third of a sample, and the parameter measured at bi alone stepped 40–60 mm wherever the
+    // nearest sample switched (the paddock's fade band, every 2 m of s). The ratio is 0 abreast
+    // of bi, 1 abreast of the neighbour, and the same seen from either sample in between
     const along = dx * track.tx[bi]! + dz * track.tz[bi]!
     const bj = along >= 0 ? (bi + 1) % track.n : (bi - 1 + track.n) % track.n
-    const tt = Math.min(1, Math.abs(along) / track.ds)
+    const alongJ = Math.abs((x - track.px[bj]!) * track.tx[bj]! + (z - track.pz[bj]!) * track.tz[bj]!)
+    const den = Math.abs(along) + alongJ
+    const tt = den > 1e-9 ? Math.min(1, Math.abs(along) / den) : 0
     let h = track.py[bi]! + r[0]
     let w = r[1]
     if (tt > 0 && forwardDelta(zone.from, bj * track.ds, L) <= forwardDelta(zone.from, zone.to, L)) {
       const dxj = x - track.px[bj]!, dzj = z - track.pz[bj]!
-      const rj = zone.profile(bj * track.ds, dxj * track.nx[bj]! + dzj * track.nz[bj]!, demAt() - track.py[bj]!)
+      const latJ = dxj * track.nx[bj]! + dzj * track.nz[bj]!
+      const rj = latJ * (zone.side ?? 1) > 0 ? zone.profile(bj * track.ds, Math.abs(latJ), demAt() - track.py[bj]!, x, z) : null
       if (rj && rj[2] === r[2]) { h += (track.py[bj]! + rj[0] - h) * tt; w += (rj[1] - w) * tt }
       else w *= 1 - tt
     }
     // fade the claim out past the stand's own ends
-    const sAt = track.wrap(sBi + along)
+    const sAt = track.wrap(sBi + (along >= 0 ? tt : -tt) * track.ds)
     if (forwardDelta(zone.core[0], sAt, L) > coreLen) {
       const before = forwardDelta(sAt, zone.core[0], L), after = forwardDelta(zone.core[1], sAt, L)
       const t = before < after ? before / Math.max(1e-6, zone.fade[0]) : after / Math.max(1e-6, zone.fade[1])

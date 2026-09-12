@@ -98,7 +98,6 @@ const ALLOWANCES = [
   { guard: 'G4', key: "ground:grassArea.steep", bound: 35, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:gravelArea.steep", bound: 65, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:gravelBand.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:helipad.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:lane.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:paddock.steep", bound: 2110, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
   { guard: 'G4', key: "ground:turf.steep", bound: 8, why: WHY.fieldCells, until: 'P7' },

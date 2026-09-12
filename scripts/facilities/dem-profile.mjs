@@ -767,7 +767,8 @@ async function verify() {
 // ---------------------------------------------------------------- --relief
 /**
  * facilityRelief (stands.ts) against the committed DEM. For each relief zone, every 10 m of s,
- * the lateral is scanned outward from the road and the report prints the relief height where the
+ * the lateral is scanned outward from the road on the zone's side (the left, or the right for
+ * the paddock's `side: -1`) and the report prints the relief height where the
  * claim is still at full weight (the outer fade's start) and where it reaches zero (its end),
  * against the DEM at the same world xz — the plan makes the far branch of Terrain.heightAt the
  * DEM, so the fade end is where the relief has to meet real ground.
@@ -793,9 +794,12 @@ async function reliefReport() {
     else zones.push({ name: id, range: def.sRange })
   }
   zones.push({ name: 'GP Square', range: [5560, 70] })
+  // the paddock claims the RIGHT of the pit straight (TrackZone side −1): its scan goes out at −a,
+  // and stops short of the NIPPO road (≥ 135 m out), whose D stands' zones lie beyond it
+  zones.push({ name: 'paddock', range: [5536, 100], side: -1, latMax: 140 })
   const p = new THREE.Vector3()
   const NEAR = 140, LAT_MAX = 220, PAD = 60
-  console.log(`\n--relief: facilityRelief vs DEM (proj m), lateral scan 0…${LAT_MAX} m every 1 m, s every 10 m (zone range ± ${PAD} m)`)
+  console.log(`\n--relief: facilityRelief vs DEM (proj m), lateral scan 0…${LAT_MAX} m every 1 m (to the zone's side: left, or right for side −1), s every 10 m (zone range ± ${PAD} m)`)
   console.log('  columns: s | full-weight edge: lat relief dem Δ | zero-weight edge: lat mode relief dem Δ eff | max w at near ≥ 140 m')
   console.log('  eff = the step the mode can leave at the edge: cut → |Δ|, fill → max(0, relief − dem), cap → max(0, dem − relief); ! = eff > 1.5 m')
   const summary = []
@@ -804,14 +808,17 @@ async function reliefReport() {
   const effOf = (m, delta) => (m === true ? Math.abs(delta) : m === 'cap' ? Math.max(0, -delta) : Math.max(0, delta))
   for (const zone of zones) {
     const [s0, s1] = zone.range
+    const side = zone.side ?? 1
+    const latMax = zone.latMax ?? LAT_MAX
     const len = (s1 - s0 + L) % L || L
-    console.log(`\n  zone ${zone.name} s [${s0}, ${s1}]:`)
+    console.log(`\n  zone ${zone.name} s [${s0}, ${s1}]${side < 0 ? ' (right side)' : ''}:`)
     let worstEnd = 0, worstEndS = 0, worstFull = 0, over = 0, rowsN = 0, maxWFar = 0, maxWFarAt = ''
     for (let ds = -PAD; ds <= len + PAD; ds += 10) {
       const s = track.wrap(s0 + ds)
       let wFar = 0, wFarAt = -1, any = false
-      for (let a = 0; a <= LAT_MAX; a++) {
-        track.pointAt(s, a, p)
+      wArr.fill(0)
+      for (let a = 0; a <= latMax; a++) {
+        track.pointAt(s, side * a, p)
         const r = stands.facilityRelief(p.x, p.z, track)
         const w = r ? r[1] : 0
         wArr[a] = w
@@ -827,15 +834,15 @@ async function reliefReport() {
       // the run of the claim: the contiguous w > 0 interval holding the outermost full-weight
       // point (the stand's own platform), else the first interval
       let aFull = -1
-      for (let a = LAT_MAX; a >= 0; a--) if (wArr[a] >= 0.999) { aFull = a; break }
+      for (let a = latMax; a >= 0; a--) if (wArr[a] >= 0.999) { aFull = a; break }
       let aEnd
-      if (aFull >= 0) { aEnd = aFull; while (aEnd < LAT_MAX && wArr[aEnd + 1] > 0) aEnd++ }
-      else { let a = 0; while (wArr[a] === 0) a++; aEnd = a; while (aEnd < LAT_MAX && wArr[aEnd + 1] > 0) aEnd++ }
+      if (aFull >= 0) { aEnd = aFull; while (aEnd < latMax && wArr[aEnd + 1] > 0) aEnd++ }
+      else { let a = 0; while (wArr[a] === 0) a++; aEnd = a; while (aEnd < latMax && wArr[aEnd + 1] > 0) aEnd++ }
       rowsN++
       const hFull = aFull >= 0 ? hArr[aFull] : NaN, hEnd = hArr[aEnd], mode = mArr[aEnd]
-      track.pointAt(s, aFull, p)
+      track.pointAt(s, side * aFull, p)
       const dFull = aFull >= 0 ? demProj(p.x, p.z) : NaN
-      track.pointAt(s, aEnd, p)
+      track.pointAt(s, side * aEnd, p)
       const dEnd = demProj(p.x, p.z)
       const eFull = hFull - dFull
       const eEnd = hEnd - dEnd
