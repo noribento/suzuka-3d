@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { CIRCUIT, SECTIONS, TV_CAMERA_SPOTS } from '~/data/suzuka'
+import { CIRCUIT, SECTIONS } from '~/data/suzuka'
 import { forwardDelta, type Track } from '~/sim/track'
 import { overviewDirection } from '~/sim/projection'
 import type { CameraMode } from '~/composables/useRaceStore'
-import { cameraSide } from './environment'
+import { cameraSide, tvLensRows } from './tv-lens'
 
 export interface CameraTarget {
   position: THREE.Vector3
@@ -32,6 +32,14 @@ interface TvCamera {
   s: number
   position: THREE.Vector3
   name: string
+}
+
+/** a lens point the towers publish (tv-lens.ts `TvLens`, `env.group.userData.tvLenses`): what `setTvCameras` needs of it */
+export interface TvLensPoint {
+  s: number
+  x: number
+  y: number
+  z: number
 }
 
 const _v = new THREE.Vector3()
@@ -90,12 +98,26 @@ export class CameraRig {
     this.controls.minDistance = 20
     this.controls.maxDistance = 5000
     this.controls.screenSpacePanning = false
-    for (const s of TV_CAMERA_SPOTS) {
-      const side = cameraSide(track, s)
-      const p = track.pointAt(s, side * (track.halfWidth + 9), new THREE.Vector3(), 7.9)
-      this.tvCams.push({ s, position: p, name: sectionShort(s) })
-    }
+    // the fallback lenses until the towers publish theirs (`setTvCameras`): the v1 formula —
+    // the outside of the nearest corner, 9 m off the road edge, 7.9 m above the road plane
+    this.setTvCameras(tvLensRows().map((row) => {
+      const side = cameraSide(track, row.s)
+      const p = track.pointAt(row.s, side * (track.halfWidth + 9), new THREE.Vector3(), 7.9)
+      return { s: row.s, x: p.x, y: p.y, z: p.z }
+    }))
     this.resetOverview()
+  }
+
+  /**
+   * The trackside cameras: one per lens point, in the order given (the TV_CAMERAS lens rows in
+   * s order — the CAM numbers and the section names of `tvCamName` follow it). Called by the
+   * viewport with `env.group.userData.tvLenses` right after the environment is built, so the
+   * rig looks from the platforms tv-towers.ts drew; the constructor's fallback stands in before.
+   */
+  setTvCameras(list: readonly TvLensPoint[]) {
+    this.tvCams.length = 0
+    for (const l of list) this.tvCams.push({ s: l.s, position: new THREE.Vector3(l.x, l.y, l.z), name: sectionShort(l.s) })
+    if (this.tvIndex >= this.tvCams.length) this.tvIndex = -1
   }
 
   resetOverview() {

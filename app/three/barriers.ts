@@ -227,15 +227,7 @@ export function barrierRun(id: string): BarrierRun {
   return run
 }
 
-/** Lateral offset of the barrier line on `side` at s, or null where the lap has none there. */
-export function barrierLateralAt(track: Track, s: number, side: 1 | -1): number | null {
-  const L = track.length
-  for (const run of BARRIERS) {
-    if (run.side !== side) continue
-    if (forwardDelta(run.sRange[0], s, L) > forwardDelta(run.sRange[0], run.sRange[1], L)) continue
-    return resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6).lat(s)
-  }
-  return null
-}
+/** Lateral offset of the barrier line on `side` at s, or null where the lap has none there (trackside.ts — the TV lenses read it without this module). */
+export { barrierLateralAt } from './trackside'
 
 export type { BarrierRun }

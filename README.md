@@ -260,13 +260,14 @@ app/
     ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー（支柱・梁・腕・信号灯・ホースのホイールガン）、タイヤスタック、ジャッキ、燃料台車、モニター台、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2、固定プラットホームの TV カメラ（ops-spec C `pitEquipmentPlacements()` / `PIT_EQUIPMENT`、registerPropSet 'ops-pitEquipment' / 'ops-perches' / 'ops-cones' / 'ops-cables'。「運営レイヤー」参照）
     ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ 298 体 + I4-a のトラックサイドマーシャル 90（ops-spec D `figuresAt()` → `figureToWorld` → figures.ts buildOpsFigures、役割毎の 'ops-figures-crew' / '-officials' / '-marshals' / '-photographers' / '-staff'）と E パドック縁の旗 8（`flagPlacements()` → registerPropSet 'ops-flags'、静止）。「人物配置」参照
     marshal-posts.ts           # マーシャルポスト v2（I4-a）: 架台上のキャビン 28 + 低ポスト 3（`registerPropSet 'infield-marshal-cabins'`、GLB の警備ブース／消火器が近景）、番号板 29（`marshalNumbers` メッシュ、8 × 4 アトラス）、消灯 EM パネル 30（`emPanels` IM、発光無し）、PTZ CCTV 42（`cctvPoles` / `cctvHeads`）、旗架・消火器・キャビネット。「マーシャルポスト v2」参照
-    tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
+    tv-towers.ts               # TV カメラ塔（I4-b: TV_CAMERAS の行ごとに足場塔／格子塔／黄クレーン柱／ポール、天板・手摺・梯子・三脚・カメラヘッド（security_camera_01 の glbOr）、操作者 1 人、registerPropSet 'infield-towers' / 'infield-tower-cams'、group.userData.tvLenses。「TV タワーとレンズ」参照）
+    tv-lens.ts                 # TV レンズ点の唯一の解決（純関数）: cameraSide、'auto' 横位置 = バリア線 + 2.5、tvLensAt（塔中心・レンズ・世界座標）、TV_LENS / TV_TOWER_FOOTPRINT — 塔ビルダー・カメラリグ・facilities-check O7・smoke が同じ数を読む
     infield-ground.ts          # インフィールドの施設・壁・柵・池の岸・西／南コースのピット・車・街灯（I5。地面そのものは GROUND_AREAS の行が描く。I0 は入口のみ）
     cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
     infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
     figures.ts                 # 人物の共通部（crowd.ts から昇格）: 焼き込み／手続きインポスター、GLB の 3D プロトタイプ（部位 id、白ヘルメットの第 5 部位）、部位着色材質、運営レイヤーの姿勢・役割（marshal / official / crew / photographer / staff / guest、座り姿 sit / sitF）と buildOpsFigures（kind 'ops'、観客予算とは別勘定）、ピットビル 2F/3F テラスの座席スロット terraceSlots
-    props.ts                   # 距離看板、TV カメラ塔（I4-b で tv-towers.ts へ）、送電線（鉄塔はトラス腕・碍子連・架空地線の頂部、7 本目のケーブル）、二輪・カート舗装のキープアウト（マーシャルポストとデジタルフラッグは I4-a で marshal-posts.ts へ、'SECTOR 2 / 3' 板は削除 — 鈴鹿に実在しない）
+    props.ts                   # 距離看板、送電線（鉄塔はトラス腕・碍子連・架空地線の頂部、7 本目のケーブル）、二輪・カート舗装のキープアウト（マーシャルポストとデジタルフラッグは I4-a で marshal-posts.ts へ、TV カメラ塔は I4-b で tv-towers.ts へ、'SECTOR 2 / 3' 板は削除 — 鈴鹿に実在しない）
     vegetation.ts              # トラックサイドの樹木の散布（棄却サンプリング、桜ゾーン、キープアウト）と Node／低ティアのコーン原型
     boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
     crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD、占有抽選 → 誤差拡散の予算配分（インポスター・プロトタイプ・材質は figures.ts）
@@ -279,7 +280,7 @@ app/
     sky-extras.ts              # 雲ドーム（半径 38 km、Sky と同じく far plane に固定。太陽ディスクは scene.ts の Sky パッチ、レンズフレアは post.ts のグレードが描く）
     sun-model.ts               # 太陽の数値モデル（空の輝度の膝、ディスク・光輪、太陽に向いたときの露出適応、フレア表）— three 非依存で Node から検証可能
     audio.ts                   # WebAudio 合成のエンジン音（次数スタック、ターボ、MGU-K、シフト／オーバーラン、ドップラー）、風切り音、群衆、スタートシグナルの電子音、オフラインプローブ
-    cameras.ts                 # カメラリグ（オンボードの振動・G、TV カメラの操作者モデル、ヘリのバンク）
+    cameras.ts                 # カメラリグ（オンボードの振動・G、TV カメラの操作者モデル — レンズ位置は setTvCameras で塔から受け取る、ヘリのバンク）
     textures.ts                # ノイズ生成の PBR テクスチャ（カラー／ノーマル／ラフネス）— 低負荷ティアと、アセットが無いときのフォールバック
 scripts/
   sim-harness.mjs              # Node 用シミュレーションハーネス（pnpm sim、--brakes でディスク温度表、--pit-trace でピット包絡の実測、--envelope で 5 m ビンを書き出し）
@@ -903,6 +904,45 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
   `scripts/audit/trackside-smoke.mjs checkPosts`（stats = 表、架台の床 + 階段の世界隅が最寄り run の観客側 ≥ 0.6 m、階段の向き、
   番号板 29 が一意・単調・2.4 m、`emPanels` 30 の材質に emissive 無し、パネルが柱ピッチ内・線から 0.35–0.75 m、カメラ 42 が線の裏、
   スロット 90 が包絡の外、`--glb` で警備ブース 686 tris / 1.87 m と L1 の手続き段）。低ティア（fence 無し）は板・パネルが自前の柱に。
+#### TV タワーとレンズ
+
+`app/three/tv-towers.ts`（I4-b）が `TV_CAMERAS`（suzuka-barriers-spec.ts、16 行: レンズ行 13 + `lens: false` の塔 3）を塔にし、
+`app/three/tv-lens.ts` がレンズ点を解決します。旧 `TV_CAMERA_SPOTS`（suzuka.ts）と `TV_MAST_OVERRIDES` は廃止 — v1 では
+cameras.ts のレンズ（`cameraSide · (hw + 9)`、路面 +7.9）と props.ts のマスト（override 3 本）が別の場所に立っていた
+（inv-camera-coverage）。今はビルダー・カメラリグ・ガード・smoke が `tvLensAt(track, row, standAt?)` ひとつを読みます。
+
+- **行**: `{ id, s, lateral: number | 'auto', height, tower: scaffold | lattice | crane | pole, lens?: false, unverified }`。
+  レンズ行は放送ディレクターが切ってきた 13 の s（250 / 640 / 1180 / 1500 / 1960 / 2230 / 2640 / 3100 / 3650 / 4350 / 4900 / 5250 /
+  5560、s 順 = CAM 番号順、height 7.9 = 旧レンズ高）。`'auto'` = `cameraSide` 側の解決した BARRIERS 線 + 2.5 m（`TV_LENS.autoSetback`、
+  観客側、グラベルに塔を立てない）。3650 −40 / 4350 −24 は旧 override の明示値。塔だけの行: `b-tower`（590, +82, 22 m 格子塔 —
+  計画の (520, +70) は sports_centre リング（そこで +61 まで）の外、航空写真 03 の (575, +70) は B2 の足跡（背面 +76）の中なので
+  B2 の背後へ）、`hairpin-column`（2680, +14, 6 m 黄クレーン柱、hairpin.jpg）、`t1-crane`（455, −24, 6 m）。FOM の実位置は全部 unverified。
+- **レンズ点**: 塔中心 `towerLateralAt` の地面 `ground.standAt` + `height`、トラック側へ `TV_LENS.forward` 0.65 m（前手摺の内側の三脚）。
+  天板の上面はレンズの `deckDrop` 0.6 m 下、手摺 1.1 m（前手摺はレンズの 0.55 m 前 — リグの NEAR 0.5 の外）。
+  `RaceViewport` は `buildEnvironment` の直後に `rig.setTvCameras(env.group.userData.tvLenses)`（13、表順）；未設定時は
+  cameras.ts のコンストラクタが旧式で埋める（フォールバック）。**旧レンズとの差**（smoke の表）: 200R 0.2 m のほかは 1.1–22.9 m
+  移動 — v1 の hw + 9 は 9 本でバリア線の手前（グラベル・ランオフの中）に立っていて、'auto' 規則が塔を線の後ろへ出す。
+  計画の「override 3 本以外 ≤ 1 m」は成り立たない（規則はデータのもの、smoke は表を note として出す）。距離は自動ズームが吸収。
+- **幾何**（手続き、`registerPropSet(ctx, 'infield', 'infield-towers', …)` 段 [700 m, 空]、L0 の影は `farField.shadows`）:
+  scaffold = `latticeParts({ height: h − 0.65, baseHalf 1.2, topHalf 1.2, panel 2, leg 0.06, ring 0.05, brace 0.04, braces: quality.fence })`
+  + 天板 2.4² × 0.05（`MetalWalkway012` PBR、パック無しは鋼色）+ 手摺（柱・上下レール・幅木）+ 背面梯子 + 三脚；lattice（b-tower）=
+  `latticeParts({ 21.35, 1.6, 1.0, 3, 0.12, 0.08, 0.06 })` + アウトリガー + 3 × 3 天板；crane = 台座 1.5² × 0.3 + 黄柱 φ0.5（0xf0b400）
+  + ジブ 0.25² × 4 m 25° + 尾部 + 平衡錘 + ヨークで吊るカメラ；pole = 旧円柱（行なし）。カメラヘッド（箱 0.5 × 0.35 × 0.6 + フード）は
+  別セット `infield-tower-cams`（`security_camera_01` を glbOr、近段 `propsNearM`）。塔ごとにキープアウト円（樹木散布）。
+  program +0（plain 色は `propMaterial` の共有、天板は `pbrFromAssets` の既存組合せ）。
+- **人物**: ops-spec A 区画 `cameraSlots(tower)` — 天板上（三脚の 0.05 m 後ろ）／クレーン台座上（柱の 0.5 m 後ろ）に 1 人、
+  役割 photographer（黒）、mount 'roof'（`y` = 床の路面基準高、`figureToWorld`）。`figuresAt({ towers })` で同じ行を付けられる
+  （既定の `figuresAt()` は変えない: O9 の窓はピット・パドックのもの）。`infield-towers-crew` 16。
+- **検査**: `facilities-check §16 O7`（レンズ行 13 が CAM 順の s に 1:1、id 一意、足跡 `TV_TOWER_FOOTPRINT`（2.4 / 3.2 / 1.5 / 0.5）
+  の縁が hw + 1.5 の外・バリア線の観客側 0.6 m 外・スタンド足跡と `pavedApronAt` の外・リングの中、'auto' = 線 + 2.5、
+  天板 ≤ y_lens − 0.5 と前手摺 ≥ 0.5 m、操作者が足跡上）；`scripts/audit/trackside-smoke.mjs checkTowers`（両ティア + `--glb`:
+  towers 16、tvLenses 13 = `tvLensAt`、各塔が行の位置 ± 5 cm、線からの距離、天板／手摺／レンズ前進量、フェンス天端 + 1.5 以上、
+  影の有無、カメラヘッド 14 = 天板の塔数、操作者 16 が床上 ± 5 cm、`--glb` は近段が `tv-camera-glb`）。
+  静的コスト（Node）: 高 3,960,909 → 3,982,181 tris / IM 924 → 959 / エントリ 1,044 → 1,079（`farField/infield` 20,204 → 42,048、
+  props.ts の tvMasts 2 IM は消えた）、低 2,114,627 / 733 / 755 / 815 — 予算内、再ベース無し。
+- GPU で確認すること: 黄クレーン柱（0xf0b400、無発光）が bloom で光らないこと、天板の `MetalWalkway012` の法線の向きと目地、
+  TV カメラで前手摺・三脚が画角に掛からないこと（レンズは手摺の 0.55 m 後ろ・0.5 m 上）、700 m の LOD 切替、22 m 格子塔の影が
+  B2 の屋根に落ちること、カメラヘッドの GLB ↔ 手続き切替（120 m）。
 
 ## GPU で確認すること
 

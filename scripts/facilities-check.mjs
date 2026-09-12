@@ -1313,9 +1313,12 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *   O6  no row that is not interior / roof inside PIT_BUILDING (shutter line → back), the centre
  *       house 184430907, the former medical room 184429429 (course_vehicle_base), PADDOCK_BUILDINGS,
  *       INFIELD_FACILITIES.
- *   O7  TV_CAMERAS: lens rows 1:1 with TV_CAMERA_SPOTS; the tower footprint on the spectator
- *       side of the barrier line and 0.6 m outside it, |lateral| ≥ hw + 1.5, outside stands and
- *       paved aprons; platform / rails clear of the lens point (r 0.5, or below y_lens − 0.5).
+ *   O7  TV_CAMERAS (tv-lens.ts resolves every row): the 13 lens rows at the rig's CAM positions
+ *       in order, unique ids; the tower footprint (TV_TOWER_FOOTPRINT) on the spectator side of
+ *       the barrier line and 0.6 m outside it, its edge ≥ hw + 1.5, outside stands, paved aprons
+ *       and inside the circuit ring; 'auto' = the line + TV_LENS.autoSetback; the lens
+ *       TV_LENS.forward inside the front rail, the deck ≤ y_lens − 0.5 and the rails ≥ 0.5 m from
+ *       the lens (the rig's NEAR); the operator (cameraSlots) on the footprint, off the road.
  *   O8  MARSHAL_POSTS v2 (I4-a): |lateral| ≥ hw + 2; `marshalNumbers()` unique, monotonic in
  *       s and equal to every `number` anchor; `type 'building'` carries osmWay or size; the
  *       cabin's stand + stair / the low box / a sized building under O1 / O2 / O4, ≥ 0.6 m on
@@ -1590,46 +1593,65 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   }
 
   // --- O7 TV_CAMERAS ---------------------------------------------------------------------------------
-  if (bar.TV_CAMERAS) {
-    const { TV_CAMERA_SPOTS } = await import('../app/data/suzuka.ts')
+  // tv-lens.ts is the one resolver of a row (the 'auto' lateral behind the barrier line, the lens
+  // TV_LENS.forward towards the track, the deck TV_LENS.deckDrop under it): the guard reads the
+  // same numbers the builder and the rig read, at the road plane (no ground here).
+  {
+    const tvLens = await import('../app/three/tv-lens.ts')
+    /** the broadcast director's 13 lens positions (the former TV_CAMERA_SPOTS): the rig's CAM order — a change here is a deliberate one */
+    const LENS_S = [250, 640, 1180, 1500, 1960, 2230, 2640, 3100, 3650, 4350, 4900, 5250, 5560]
     const lensRows = bar.TV_CAMERAS.filter((c) => c.lens !== false)
-    const spots = new Set(TV_CAMERA_SPOTS)
-    if (lensRows.length !== spots.size) fail(`TV_CAMERAS: ${lensRows.length} lens rows for ${spots.size} TV_CAMERA_SPOTS — O7`)
-    for (const c of lensRows) if (!spots.has(c.s)) fail(`TV_CAMERAS ${c.id ?? c.s}: s ${c.s} is not a TV_CAMERA_SPOTS entry — O7`)
-    for (const sp of spots) if (!lensRows.some((c) => c.s === sp)) fail(`TV_CAMERAS: TV_CAMERA_SPOTS ${sp} has no lens row — O7`)
+    if (lensRows.length !== LENS_S.length) fail(`TV_CAMERAS: ${lensRows.length} lens rows for the ${LENS_S.length} broadcast positions — O7`)
+    lensRows.forEach((c, i) => { if (c.s !== LENS_S[i]) fail(`TV_CAMERAS ${c.id}: lens row ${i} is at s ${c.s}, the rig's CAM ${i + 1} is ${LENS_S[i]} — O7`) })
+    const ids = new Set()
+    const { deckDrop, forward, rail, autoSetback } = tvLens.TV_LENS
+    // the platform vs the lens: the deck top must be ≤ y_lens − 0.5 and the rails ≥ 0.5 m from the lens (the rig's NEAR)
+    if (deckDrop < 0.5) fail(`TV_LENS.deckDrop ${deckDrop} puts the deck inside 0.5 m of the lens — O7`)
+    for (const kind of ['scaffold', 'lattice']) {
+      const half = tvLens.TV_TOWER_FOOTPRINT[kind] / 2
+      if (half - forward < 0.5 && rail > deckDrop - 0.5) fail(`${kind}: the front rail (${fmt(half - forward, 2)} m ahead of the lens, top ${fmt(rail - deckDrop, 2)} m above it) is inside the lens's 0.5 m — O7`)
+    }
     for (const c of bar.TV_CAMERAS) {
-      const id = `TV_CAMERAS ${c.id ?? c.s}`
+      const id = `TV_CAMERAS ${c.id}`
+      if (ids.has(c.id)) fail(`${id}: duplicate id — O7`)
+      ids.add(c.id)
+      let lateral
+      try { lateral = tvLens.towerLateralAt(track, c) } catch (e) { fail(`${id}: ${e.message} — O7`); continue }
+      const half = tvLens.TV_TOWER_FOOTPRINT[c.tower] / 2
       const hw = track.halfWidthAt(c.s)
-      if (Math.abs(c.lateral) < hw + 1.5) fail(`${id}: lateral ${fmt(c.lateral)} is inside hw + 1.5 — O7`)
-      const [x, z] = worldOf(c.s, c.lateral)
+      if (Math.abs(lateral) - half < hw + 1.5) fail(`${id}: footprint edge at lateral ${fmt(Math.abs(lateral) - half)} is inside hw + 1.5 (${fmt(hw + 1.5)}) — O7 / O2`)
+      const [x, z] = worldOf(c.s, lateral)
       const inStand = standFootprintAt(x, z)
       if (inStand) fail(`${id}: tower inside the footprint of stand ${inStand} — O7`)
       const paved = pavedApronAt(x, z)
       if (paved) fail(`${id}: tower on the paved apron "${paved}" — O7`)
-      const side = Math.sign(c.lateral)
-      const half = (c.footprint ?? c.size?.[0] ?? 2.4) / 2
+      if (!ring.insideRing(x, z)) fail(`${id}: tower outside the circuit ring — O7`)
+      const side = Math.sign(lateral)
+      let covered = false
       for (const { run, line } of barrierLines) {
         if (run.side !== side) continue
         const len = arcLen(run.sRange[0], run.sRange[1])
         const d = arcLen(run.sRange[0], c.s)
         if (d > len) continue
+        covered = true
         const lineLat = line.lat(c.s)
-        if (Math.sign(c.lateral - lineLat) !== side) fail(`${id}: tower on the track side of barrier run ${run.id} (line ${fmt(lineLat)}, tower ${fmt(c.lateral)}) — O7`)
-        else if (Math.abs(c.lateral - lineLat) < half + 0.6) fail(`${id}: tower ${fmt(Math.abs(c.lateral - lineLat) - half, 2)} m from barrier run ${run.id} (needs 0.6) — O7`)
+        if (Math.sign(lateral - lineLat) !== side) fail(`${id}: tower on the track side of barrier run ${run.id} (line ${fmt(lineLat)}, tower ${fmt(lateral)}) — O7`)
+        else if (Math.abs(lateral - lineLat) - half < 0.6) fail(`${id}: tower ${fmt(Math.abs(lateral - lineLat) - half, 2)} m from barrier run ${run.id} (needs 0.6) — O7`)
+      }
+      if (c.lateral === 'auto' && !covered) fail(`${id}: lateral 'auto' with no BARRIERS run on side ${side} at s ${c.s} — O7`)
+      if (c.lateral === 'auto' && Math.abs(Math.abs(lateral) - Math.abs(trackside.barrierLateralAt(track, c.s, side)) - autoSetback) > 1e-9) fail(`${id}: 'auto' lateral ${fmt(lateral)} is not the line + ${autoSetback} — O7`)
+      if (c.lens !== false) {
+        const lens = tvLens.tvLensAt(track, c)
+        if (Math.abs(lens.lateral - (lateral - side * forward)) > 1e-9) fail(`${id}: lens lateral ${fmt(lens.lateral)} is not the tower's ${fmt(lateral)} − ${forward} towards the track — O7`)
+        if (c.height < deckDrop + rail + 1.0) fail(`${id}: height ${c.height} leaves no platform under the lens (needs ≥ ${deckDrop + rail + 1.0}) — O7`)
+      }
+      // the camera operator (ops-spec cameraSlots): on the tower's footprint, off the road
+      for (const f of ops.cameraSlots({ id: c.id, s: c.s, lateral, tower: c.tower, floorY: 0 })) {
+        if (Math.abs(f.lateral - lateral) > half) fail(`${id}: operator at lateral ${fmt(f.lateral)} is off the tower's footprint — O7`)
+        if (Math.abs(f.lateral) < hw + 1.5) fail(`${id}: operator at lateral ${fmt(f.lateral)} is inside hw + 1.5 — O7 / O2`)
       }
     }
-    let tvLens = null
-    try { tvLens = await import('../app/three/tv-lens.ts') } catch { /* I4-b adds tv-lens.ts */ }
-    if (tvLens?.tvLensAt && typeof tvLens.tvLensAt === 'function') {
-      for (const c of lensRows) {
-        const lens = tvLens.tvLensAt(track, c)
-        for (const part of c.parts ?? []) {
-          const dx = part.x - lens.x, dz = part.z - lens.z
-          if (Math.hypot(dx, dz) < 0.5 && part.top > lens.y - 0.5) fail(`TV_CAMERAS ${c.id ?? c.s}: ${part.name} within 0.5 m of the lens point and above y_lens − 0.5 — O7`)
-        }
-      }
-    } else notes.push('O7: tvLensAt (app/three/tv-lens.ts) absent — the platform / rail vs lens rule is skipped')
-  } else skip('O7 TV_CAMERAS')
+  }
 
   // --- O8 MARSHAL_POSTS -------------------------------------------------------------------------------
   /**

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { APEX_SPEED_TARGETS, OVERTAKE_ZONES, TV_CAMERA_SPOTS } from '~/data/suzuka'
+import { APEX_SPEED_TARGETS, OVERTAKE_ZONES } from '~/data/suzuka'
 import { signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
 import { LAYER, markDecal } from './ground'
@@ -8,9 +8,9 @@ import type { DecalQuad } from './ground-mesh'
 import { brakingRubberTexture, labelTexture } from './textures'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
 import { GROUND_AREAS } from '~/data/suzuka-facilities-spec'
-import { TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
 import { osmWay } from './trackside'
 import { barGeometry, latticeParts } from './lattice'
+import { cameraSide } from './tv-lens'
 
 type Fn = (s: number) => number
 
@@ -19,19 +19,18 @@ const _m = new THREE.Matrix4()
 const _q = new THREE.Quaternion()
 
 /**
- * Trackside props: braking-distance boards, the rubbered-in braking zones, the TV camera masts
- * and the overhead power lines behind the circuit. (The OSM buildings of the surroundings used
- * to be massed here too; app/three/buildings.ts owns them since plan §2c. The marshal posts,
- * their flags and light panels moved to app/three/marshal-posts.ts at I4-a, and the 'SECTOR 2 /
- * 3' boards went with them — Suzuka has no sector boards, `CIRCUIT.sectors` is timing only.)
- * `hutRoofMat` is the pit building's roof material (unused since I4-a; kept for the call site
- * until the TV masts move too, I4-b). Returns the flag-wave clock (also left on
+ * Trackside props: braking-distance boards, the rubbered-in braking zones and the overhead
+ * power lines behind the circuit. (The OSM buildings of the surroundings used to be massed here
+ * too; app/three/buildings.ts owns them since plan §2c. The marshal posts, their flags and light
+ * panels moved to app/three/marshal-posts.ts at I4-a, and the 'SECTOR 2 / 3' boards went with
+ * them — Suzuka has no sector boards, `CIRCUIT.sectors` is timing only. The TV camera towers are
+ * tv-towers.ts since I4-b.) `hutRoofMat` is the pit building's roof material (unused since
+ * I4-a; kept for the call site). Returns the flag-wave clock (also left on
  * `group.userData.flagTime`), advanced per frame — the caller's when given (buildEnvironment
  * shares one clock with the paddock's flags).
  */
 export function buildTracksideProps(ctx: EnvBuildContext, _hutRoofMat: THREE.Material, flagTime: { value: number } = { value: 0 }): { flagTime: { value: number } } {
   const { track, ground, group } = ctx
-  const hw = track.halfWidth
 
   // --- trackside furniture: the distance boards ---------------------------------------------
   {
@@ -122,27 +121,6 @@ export function buildTracksideProps(ctx: EnvBuildContext, _hutRoofMat: THREE.Mat
       markDecal(rubber, LAYER.road.rubber, built.stats)
       group.add(rubber)
     }
-  }
-
-  // --- TV camera masts -------------------------------------------------------------------------
-  {
-    const mastMat = new THREE.MeshStandardMaterial({ color: 0x2c2f35, roughness: 0.6, metalness: 0.5 })
-    const mastGeo = new THREE.CylinderGeometry(0.18, 0.25, 9, 8)
-    const camGeo = new THREE.BoxGeometry(0.7, 0.5, 1.1)
-    const masts = new THREE.InstancedMesh(mastGeo, mastMat, TV_CAMERA_SPOTS.length)
-    const cams = new THREE.InstancedMesh(camGeo, mastMat, TV_CAMERA_SPOTS.length)
-    TV_CAMERA_SPOTS.forEach((s, i) => {
-      // a few of the generated spots land in a gravel trap or a run-off; those carry an override
-      const lat = TV_MAST_OVERRIDES[s] ?? cameraSide(track, s) * (hw + 9)
-      track.pointAt(s, lat, _p, ground.standAt(s, lat))
-      masts.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 3.5, _p.z))
-      cams.setMatrixAt(i, _m.makeTranslation(_p.x, _p.y + 8.3, _p.z))
-    })
-    masts.instanceMatrix.needsUpdate = true
-    cams.instanceMatrix.needsUpdate = true
-    masts.castShadow = true
-    masts.name = 'tvMasts'
-    group.add(masts, cams)
   }
 
   buildPowerLines(ctx)
@@ -334,10 +312,5 @@ function buildPowerLines(ctx: EnvBuildContext) {
   }
 }
 
-/** Which side of the track a trackside camera should stand on (outside of the nearest corner). */
-export function cameraSide(track: Track, s: number): 1 | -1 {
-  let k = 0
-  for (let d = -40; d <= 40; d += 10) k += track.kappaAt(s + d)
-  if (Math.abs(k) < 1e-4) return 1
-  return k > 0 ? -1 : 1
-}
+/** Which side of the track a trackside camera stands on — lives with the TV lenses (tv-lens.ts) since I4-b; re-exported for the boards and signs. */
+export { cameraSide }

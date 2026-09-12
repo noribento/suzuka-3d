@@ -447,6 +447,41 @@ export function marshalPostFigures(): OpsFigure[] {
   return MARSHAL_POSTS.flatMap((m) => marshalSlots(m))
 }
 
+/** What `cameraSlots` needs of a TV tower: a TV_CAMERAS row resolved by tv-lens.ts (the centre lateral is a number here, never 'auto'). */
+export interface TvTowerSlotInput {
+  id: string
+  s: number
+  /** the tower's centre, metres from the centreline (+ = the driver's left) */
+  lateral: number
+  tower: 'scaffold' | 'lattice' | 'crane' | 'pole'
+  /** the operator's floor above the road plane: the platform's deck top, the crane's base plate */
+  floorY: number
+}
+
+/** where the camera operator stands on a tower, metres from its centre away from the track (the local −z of tv-towers.ts) */
+export const CAMERA_OPERATOR = {
+  /** on a platform: behind the tripod at the front rail (tv-lens.ts TV_LENS.forward 0.65 − 0.6) */
+  deckBack: 0.05,
+  /** at a crane: on the base plate behind the column (base 1.5, column r 0.25) */
+  craneBack: 0.5,
+} as const
+
+/**
+ * The camera operator of a TV tower (plan I4-b): one figure on a scaffold / lattice platform's
+ * deck or on a crane's base plate — a 'roof' row (`y` = the floor in the road frame, like the
+ * platform officials), facing the track; a bare pole offers none. tv-towers.ts feeds one
+ * resolved row per tower and draws the result through `buildOpsFigures`; `figuresAt({ towers })`
+ * appends the same rows for a reader that has the resolved towers (the smoke). Photographer
+ * look (black): the broadcast crews dress dark.
+ */
+export function cameraSlots(t: TvTowerSlotInput): OpsFigure[] {
+  if (t.tower === 'pole') return []
+  const side = t.lateral < 0 ? -1 : 1
+  const back = t.tower === 'crane' ? CAMERA_OPERATOR.craneBack : CAMERA_OPERATOR.deckBack
+  // away from the track = further out on the tower's side; facing the track = looking to −side
+  return [{ s: wrapS(t.s), lateral: t.lateral + side * back, role: 'photographer', pose: t.tower === 'crane' ? 'hips' : 'stand', yawDeg: -side * 90, y: t.floorY, mount: 'roof' }]
+}
+
 /** Every static object the ops layer places: sections B + C (+ the non-figure rows of D). */
 export function opsPlacements(): OpsPlacement[] {
   return [...vehiclePlacements(), ...pitEquipmentPlacements(), ...flagPlacements()]
@@ -1129,8 +1164,15 @@ function staffFigures(): OpsFigure[] {
   return out
 }
 
-export function figuresAt(): OpsFigure[] {
-  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...marshalPostFigures(), ...photographerFigures(), ...staffFigures()]
+/**
+ * Every figure of the ops layer. `towers` (the TV_CAMERAS rows resolved by tv-lens.ts /
+ * tv-towers.ts, section A `cameraSlots`) appends the camera operators for a reader that has
+ * them; the builder (ops-people.ts) and the guard (§16 O9 — its OPS_WINDOWS are the pit and the
+ * paddock, not the trackside) read the list without them, and tv-towers.ts draws the operators
+ * itself. The post marshals (`marshalPostFigures`, I4-a) are always in the list.
+ */
+export function figuresAt(opts: { towers?: readonly TvTowerSlotInput[] } = {}): OpsFigure[] {
+  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...marshalPostFigures(), ...photographerFigures(), ...staffFigures(), ...(opts.towers ?? []).flatMap(cameraSlots)]
 }
 
 /** the flags' [upper band, lower band] colours (fictional tricolours: the middle band is white) */

@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import { OSM_FEATURES, type OsmFeature } from '~/data/suzuka-facilities'
 import type { PatchNode, Side } from '~/data/suzuka-facilities-spec'
-import { KERBS } from '~/data/suzuka-barriers-spec'
+import { BARRIERS, KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 
 /** [s, lateral] sample, s in driving order inside the owning window */
@@ -265,6 +265,21 @@ export function resolveLineCached(track: Track, source: LineSource, sRange: [num
   let hit = cache.get(key)
   if (!hit) cache.set(key, (hit = resolveLine(track, source, sRange, side, minGap)))
   return hit
+}
+
+/**
+ * Lateral offset of the BARRIERS line on `side` at s (metres from the centreline), or null where
+ * the lap has no run there. The first run whose window holds s answers (the table has one run
+ * per side and stretch). Read by the barrier builder, the marshal posts and the TV lenses.
+ */
+export function barrierLateralAt(track: Track, s: number, side: Side): number | null {
+  const L = track.length
+  for (const run of BARRIERS) {
+    if (run.side !== side) continue
+    if (forwardDelta(run.sRange[0], s, L) > forwardDelta(run.sRange[0], run.sRange[1], L)) continue
+    return resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6).lat(s)
+  }
+  return null
 }
 
 export function resolveLine(track: Track, source: LineSource, sRange: [number, number], side: Side, minGap = 0.6): ResolvedLine {

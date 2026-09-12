@@ -30,10 +30,14 @@
  *
  *   node scripts/audit/trackside-smoke.mjs [--tier high|low|both] [--glb]
  *
+ *  I4-b `checkTowers` (tv-towers.ts / tv-lens.ts ← TV_CAMERAS): see its header. `--glb` builds
+ *  the high tier once more with the pack's `props_security_camera_01` (the tower cameras' near
+ *  level, the procedural head its far level) behind the same stub registry (stub-registry.mjs,
+ *  like furniture-smoke --glb).
  * Exit 1 on any failure.
  */
 import { buildScene, THREE } from './app-runtime.mjs'
-import { commonChecks, fmt, infieldRoots, smokeArgs } from './smoke-common.mjs'
+import { commonChecks, fmt, infieldRoots, smokeArgs, trisOf } from './smoke-common.mjs'
 import { buildSceneWith, stubRegistry } from './stub-registry.mjs'
 
 const { tiers, check, finish, glb } = smokeArgs('trackside-smoke')
@@ -49,14 +53,17 @@ for (const tier of tiers) {
   console.log(`  built + drained in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
   await commonChecks(scene, check, { buildKeys: ['trackside'], rootPrefix: /^(ops|infield|trackside)-/ })
   checkPosts(scene, check, { glb: false })
+  await checkTowers(scene, check, { tier, glb: false })
 }
 
 if (glb) {
   console.log('\ntrackside-smoke: tier high with the trackside drops (stub registry)')
-  const reg = await stubRegistry(/^model\/(trackside\/guard_booth|props\/(korean_fire_extinguisher_01|security_camera_02))$/)
+  const reg = await stubRegistry(/^model\/(trackside\/guard_booth|props\/(korean_fire_extinguisher_01|security_camera_0[12]))$/)
   console.log(`  loaded: ${reg.loaded.join(', ') || 'nothing (no drops in the manifest)'}`)
   const scene = await buildSceneWith('high', reg)
+  await commonChecks(scene, check, { buildKeys: ['trackside'], rootPrefix: /^(ops|infield|trackside)-/ })
   checkPosts(scene, check, { glb: true, reg })
+  await checkTowers(scene, check, { tier: 'high', glb: true })
 }
 
 // ===== I4-a: checkPosts (marshal-posts.ts) ==========================================================
@@ -254,3 +261,152 @@ function checkPosts(scene, check, { glb: withGlb, reg }) {
 }
 
 finish()
+
+// ===== I4-b: checkTowers (tv-towers.ts / tv-lens.ts / cameras.ts) =================================
+/**
+ * The TV towers and lenses (plan §I4-b):
+ *  - `stats.trackside.towers` = TV_CAMERAS.length (16), `group.userData.tvLenses` = the 13 lens
+ *    rows in table order (the rig's CAM order), each equal to `tvLensAt(track, row,
+ *    ground.standAt)` (the rig and the builder read one function);
+ *  - each lens against the v1 formula (`cameraSide · (hw + 9)`, road plane + 7.9): a table of
+ *    the lateral moves with their reason (the 'auto' rule puts the tower 2.5 m behind the
+ *    barrier line; the v1 spot stood in the run-off or further back) — a note, not a check —
+ *    and the height differs by the tower's ground only (checked);
+ *  - every tower instance (`infield-towers-*`) stands where its row resolves (± 5 cm), its
+ *    footprint edge ≥ 0.6 m behind the resolved BARRIERS line on the spectator side and
+ *    ≥ hw + 1.5 from the centreline; the lens is `TV_LENS.forward` towards the track from the
+ *    tower and `TV_LENS.deckDrop` above the deck (`towers[].deckY`), i.e. the deck is
+ *    ≤ y_lens − 0.5 and the rails ≥ 0.5 m from the lens (the rig's NEAR);
+ *  - the lens height clears the fence: ≥ BARRIER_KIND[kind].top + fence + 1.5 over the run's base;
+ *  - one camera operator per platform / crane (`infield-towers-crew` = 16 − poles), each on
+ *    its tower's deck (y = deckY ± 5 cm in the road frame) — `figuresAt({ towers })` lists the
+ *    same rows;
+ *  - the towers cast only with the tier's far-field shadows; `--glb`: the tower cameras' near
+ *    level is `tv-camera-glb`, the procedural head behind it.
+ */
+async function checkTowers(scene, check, { tier, glb: withGlb }) {
+  const { env, track } = scene
+  const { TV_CAMERAS } = await import('../../app/data/suzuka-barriers-spec.ts')
+  const ops = await import('../../app/data/ops-spec.ts')
+  const tvLens = await import('../../app/three/tv-lens.ts')
+  const { BARRIER_KIND, BARE_FENCE_HEIGHT } = await import('../../app/three/barriers.ts')
+  const trackside = await import('../../app/three/trackside.ts')
+  const { BARRIERS } = await import('../../app/data/suzuka-barriers-spec.ts')
+  const { TV_LENS, TV_TOWER_FOOTPRINT } = tvLens
+  const L = track.length
+  const arcLen = (a, b) => (((b - a) % L) + L) % L
+  const lensRows = TV_CAMERAS.filter((c) => c.lens !== false)
+  const st = env.stats.trackside
+  check(st && st.towers === TV_CAMERAS.length, `stats.trackside.towers ${st?.towers} = TV_CAMERAS.length ${TV_CAMERAS.length}`)
+  const lenses = env.group.userData.tvLenses
+  const towers = env.group.userData.trackside?.towers
+  check(Array.isArray(lenses) && lenses.length === lensRows.length && lenses.every((l, i) => l.id === lensRows[i].id), `group.userData.tvLenses: ${lenses?.length} lenses in TV_CAMERAS order (${lensRows.length} lens rows)`)
+  check(Array.isArray(towers) && towers.length === TV_CAMERAS.length, `group.userData.trackside.towers: ${towers?.length} of ${TV_CAMERAS.length}`)
+  if (!Array.isArray(lenses) || !Array.isArray(towers)) return
+  // --- the lenses: one function, the v1 formula only where the barrier line forced the move -------------
+  let sameAsFn = 0, moved = [], heightOff = 0
+  const v = new THREE.Vector3()
+  console.log('  lens          s   v1 lateral → now   Δlat  reason                 Δy (ground)')
+  lensRows.forEach((row, i) => {
+    const lens = lenses[i]
+    const ref = tvLens.tvLensAt(track, row, env.ground.standAt)
+    if (Math.hypot(lens.x - ref.x, lens.y - ref.y, lens.z - ref.z) < 1e-6 && lens.lateral === ref.lateral) sameAsFn++
+    const side = tvLens.cameraSide(track, row.s)
+    const old = side * (track.halfWidth + 9)
+    track.pointAt(row.s, old, v, 7.9)
+    const dLat = Math.abs(lens.lateral - old)
+    const line = trackside.barrierLateralAt(track, row.s, side)
+    const oldInFront = line !== null && Math.abs(old) < Math.abs(line) + TV_LENS.autoSetback
+    const explicit = row.lateral !== 'auto'
+    const reason = dLat <= 1 ? 'kept' : explicit ? 'explicit lateral (v1 override)' : oldInFront ? `v1 spot in front of the line (${line.toFixed(1)})` : `'auto': 2.5 m behind the line (${line.toFixed(1)})`
+    if (dLat > 1) moved.push(`${row.id} ${dLat.toFixed(1)}`)
+    const dY = lens.y - v.y
+    if (Math.abs(dY - lens.base) > 0.3) heightOff++
+    console.log(`  ${row.id.padEnd(12)} ${String(row.s).padStart(4)}   ${old.toFixed(1).padStart(6)} → ${lens.lateral.toFixed(1).padStart(6)}  ${dLat.toFixed(1).padStart(4)}  ${reason.padEnd(38)} ${dY >= 0 ? '+' : ''}${dY.toFixed(2)} (${lens.base >= 0 ? '+' : ''}${lens.base.toFixed(2)})`)
+  })
+  check(sameAsFn === lensRows.length, `every published lens equals tvLensAt(track, row, ground.standAt) (${sameAsFn} of ${lensRows.length})`)
+  // the plan expected ≤ 1 m except the three v1 overrides; the 'auto' rule (2.5 m behind the barrier
+  // line, never in the run-off) moves most lenses — the v1 spots at hw + 9 stood in the gravel or
+  // further back than the towers stand now. Reported, not failed: the rule is the data's.
+  console.log(`  note ${moved.length} of ${lensRows.length} lenses > 1 m from the v1 formula (${moved.join(', ')} m)`)
+  check(heightOff === 0, `every lens height = v1 height + the tower's ground (${heightOff} off by > 0.3 m)`)
+  // --- the tower instances -----------------------------------------------------------------------------
+  // the far-field group hangs under env.group: one traversal, every L0 InstancedMesh of the tower sets once
+  const seen = new Set()
+  const meshes = []
+  env.group.traverse((o) => { if (o.isInstancedMesh && /^infield-towers?-/.test(o.name) && /-L0-/.test(o.name) && !seen.has(o)) { seen.add(o); meshes.push(o) } })
+  const towerMeshes = meshes.filter((m) => m.name.startsWith('infield-towers-tower-'))
+  const camMeshes = meshes.filter((m) => m.name.startsWith('infield-tower-cams-'))
+  const m4 = new THREE.Matrix4(), p = new THREE.Vector3()
+  const instances = []
+  for (const m of towerMeshes) {
+    m.updateWorldMatrix(true, false)
+    for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); p.setFromMatrixPosition(m4); instances.push({ x: p.x, y: p.y, z: p.z, name: m.name }) }
+  }
+  check(instances.length === TV_CAMERAS.length, `infield-towers L0 instances: ${instances.length} (${towerMeshes.length} InstancedMeshes: ${[...new Set(towerMeshes.map((m) => m.name.replace(/^infield-towers-/, '').replace(/-L0-\d+$/, '')))].join(', ')})`)
+  let placed = 0, offLine = [], onRoad = [], deckBad = [], fenceLow = [], kinds = { scaffold: 0, lattice: 0, crane: 0, pole: 0 }
+  for (const row of TV_CAMERAS) {
+    const t = towers.find((x) => x.id === row.id)
+    kinds[row.tower]++
+    const lateral = tvLens.towerLateralAt(track, row)
+    track.pointAt(row.s, lateral, v, env.ground.standAt(row.s, lateral))
+    const inst = instances.find((q) => Math.hypot(q.x - v.x, q.y - v.y, q.z - v.z) < 0.05)
+    if (inst && t && Math.abs(t.lateral - lateral) < 1e-9) placed++
+    const half = TV_TOWER_FOOTPRINT[row.tower] / 2
+    const side = Math.sign(lateral)
+    const hw = track.halfWidthAt(row.s)
+    if (Math.abs(lateral) - half < hw + 1.5) onRoad.push(row.id)
+    const line = trackside.barrierLateralAt(track, row.s, side)
+    if (line !== null && (Math.sign(lateral - line) !== side || Math.abs(lateral - line) - half < 0.6)) offLine.push(`${row.id} (${(Math.abs(lateral - line) - half).toFixed(2)} m)`)
+    if (row.lens !== false) {
+      const lens = lenses.find((l) => l.id === row.id)
+      // the deck ≤ y_lens − 0.5 and the front rail ≥ 0.5 m ahead of the lens
+      if (!(lens.y - (v.y - env.ground.standAt(row.s, lateral) + t.deckY) >= 0.5)) deckBad.push(`${row.id} deck`)
+      if (!(half - TV_LENS.forward >= 0.5)) deckBad.push(`${row.id} rail`)
+      if (Math.abs(Math.abs(lens.lateral - lateral) - TV_LENS.forward) > 1e-9 || Math.sign(lateral - lens.lateral) !== side) deckBad.push(`${row.id} lens offset`)
+      // the fence under the lens: the run's kind top + its fence, over the run's base (the barrier's own MAX_RISE cap is ≤ the tower ground)
+      const run = BARRIERS.find((r) => r.side === side && arcLen(r.sRange[0], row.s) <= arcLen(r.sRange[0], r.sRange[1]))
+      if (run) {
+        const top = (run.kind === 'fence' ? BARE_FENCE_HEIGHT : BARRIER_KIND[run.kind].top + (run.fence ?? 0))
+        const fenceBase = env.ground.standAt(row.s, line)
+        if (lens.base + row.height < fenceBase + top + 1.5) fenceLow.push(`${row.id} (${run.id}: lens ${(lens.base + row.height).toFixed(1)} vs fence top ${(fenceBase + top).toFixed(1)} + 1.5)`)
+      }
+    }
+  }
+  check(placed === TV_CAMERAS.length, `every tower stands where its row resolves (± 5 cm), towers[].lateral agrees (${placed} of ${TV_CAMERAS.length}: ${Object.entries(kinds).map(([k, n]) => `${n} ${k}`).join(', ')})`)
+  check(onRoad.length === 0, `every footprint edge ≥ hw + 1.5 (${onRoad.length}${onRoad.length ? `: ${onRoad.join(', ')}` : ''})`)
+  check(offLine.length === 0, `every footprint ≥ 0.6 m behind its barrier line on the spectator side (${offLine.length}${offLine.length ? `: ${offLine.join(', ')}` : ''})`)
+  check(deckBad.length === 0, `deck ≤ y_lens − 0.5, front rail ≥ 0.5 m ahead, lens ${TV_LENS.forward} m towards the track (${deckBad.length}${deckBad.length ? `: ${deckBad.join(', ')}` : ''})`)
+  check(fenceLow.length === 0, `every lens ≥ 1.5 m over the fence top in front of it (${fenceLow.length}${fenceLow.length ? `: ${fenceLow.join('; ')}` : ''})`)
+  const shadows = env.farField ? scene.quality?.farField?.shadows : undefined
+  const casting = towerMeshes.filter((m) => m.castShadow).length
+  check(shadows === undefined || (shadows ? casting === towerMeshes.length : casting === 0), `tower L0 casts only with farField.shadows (${casting} of ${towerMeshes.length} cast, shadows ${shadows})`)
+  // --- the cameras and the operators ---------------------------------------------------------------------
+  const camCount = camMeshes.reduce((a, m) => a + m.count, 0)
+  const platforms = TV_CAMERAS.filter((c) => c.tower === 'scaffold' || c.tower === 'lattice').length
+  check(camCount === platforms, `infield-tower-cams L0: ${camCount} camera heads = ${platforms} platforms`)
+  const glbCams = camMeshes.filter((m) => /-glb-/.test(m.name))
+  if (withGlb) check(glbCams.length > 0 && camMeshes.every((m) => /-glb-/.test(m.name)), `--glb: the camera heads' near level is tv-camera-glb (${glbCams.length} of ${camMeshes.length} meshes)`)
+  else check(glbCams.length === 0, `no -glb- camera mesh without the pack (${glbCams.length})`)
+  const crewN = env.stats.infield['infield-towers-crew'] ?? 0
+  const slotInputs = towers.map((t) => ({ id: t.id, s: t.s, lateral: t.lateral, tower: t.tower, floorY: t.deckY }))
+  const slots = slotInputs.flatMap(ops.cameraSlots)
+  check(crewN === slots.length && slots.length === TV_CAMERAS.length - kinds.pole, `infield-towers-crew: ${crewN} operators = cameraSlots ${slots.length} = ${TV_CAMERAS.length} towers − ${kinds.pole} poles`)
+  const all = ops.figuresAt({ towers: slotInputs })
+  check(all.length === ops.figuresAt().length + slots.length, `figuresAt({ towers }) appends the operators (${all.length} = ${ops.figuresAt().length} + ${slots.length})`)
+  const crewMeshes = []
+  env.farField.group.traverse((o) => { if (o.isInstancedMesh && o.name.startsWith('infield-towers-crew-') && o.count > 0) crewMeshes.push(o) })
+  let onDeck = 0
+  for (const s of slots) {
+    track.pointAt(s.s, s.lateral, v, s.y)
+    let hit = false
+    for (const m of crewMeshes) {
+      m.updateWorldMatrix(true, false)
+      for (let i = 0; i < m.count && !hit; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); p.setFromMatrixPosition(m4); if (Math.hypot(p.x - v.x, p.z - v.z) < 0.05 && Math.abs(p.y - v.y) < 0.06) hit = true }
+    }
+    if (hit) onDeck++
+  }
+  check(onDeck === slots.length, `every operator drawn on its deck / base plate (± 5 cm of the slot, y = floor: ${onDeck} of ${slots.length})`)
+  const tris = towerMeshes.reduce((a, m) => a + trisOf(m), 0) + camMeshes.reduce((a, m) => a + trisOf(m), 0)
+  console.log(`  note ${tier}: towers + cameras ${fmt(tris)} triangles in ${towerMeshes.length + camMeshes.length} L0 InstancedMeshes; lattice braces ${scene.quality?.fence ?? '?'}`)
+}

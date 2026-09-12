@@ -266,11 +266,6 @@ export const OVERTAKE_ZONES: { s: number; name: string }[] = [
   { s: 5134, name: 'Chicane' },
 ]
 
-/** Trackside broadcast cameras: s position; side is resolved from the corner direction. */
-export const TV_CAMERA_SPOTS: number[] = [
-  250, 640, 1180, 1500, 1960, 2230, 2640, 3100, 3650, 4350, 4900, 5250, 5560,
-]
-
 export const CENTERLINE_EN: [number, number][] = [
   [681.79, -137.77], [802.93, -283.6], [944.63, -457.26], [957.6, -475.63], [964.82, -494.77],
   [968.57, -512.03], [968.29, -528.95], [966.19, -541.97], [949.66, -593.07], [941.8, -606.43],

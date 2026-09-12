@@ -417,8 +417,64 @@ export const TRACKSIDE_CCTV: TracksideCctvDef[] = [
   { s: 4780, side: 1, note: '130R inside verge' },
   { s: 5000, side: 1, note: 'chicane approach' },
 ]
-/** TV camera masts whose default (outside of the nearest corner, hw + 9) lands in a run-off. */
-export const TV_MAST_OVERRIDES: Record<number, number> = { 1960: 12, 3650: -40, 4350: -24 }
+
+// ---------------------------------------------------------------- TV cameras (I4-b)
+
+export type TvTowerKind = 'scaffold' | 'lattice' | 'crane' | 'pole'
+
+/**
+ * One broadcast camera position = one tower (plan I4-b, `app/three/tv-towers.ts`) and, for the
+ * `lens` rows, one camera of the rig (`app/three/cameras.ts` reads the lens points the towers
+ * publish through `tvLensAt`, `app/three/tv-lens.ts`). The lens is `height` metres above the
+ * ground the tower stands on (`ground.standAt`), `TV_LENS.forward` metres towards the track from
+ * the tower's centre. `lateral: 'auto'` puts the tower `TV_LENS.autoSetback` (2.5 m) behind the
+ * resolved BARRIERS line on the spectator side (`cameraSide`: the outside of the nearest corner)
+ * — never in the run-off — so the towers move with the barrier table. The real FOM tower
+ * positions are not surveyed: every row is an estimate (`unverified`).
+ */
+export interface TvCameraDef {
+  id: string
+  /** metres along the lap */
+  s: number
+  /** metres from the centreline (+ = the driver's left), or 'auto' (see above) */
+  lateral: number | 'auto'
+  /** the lens (or the crane's camera head) above the tower's ground (m) */
+  height: number
+  tower: TvTowerKind
+  /** false = a tower with no camera of the rig behind it (the landmark towers, the cranes) */
+  lens?: false
+  unverified?: string[]
+  note?: string
+}
+
+/**
+ * The 13 lens rows keep the s values the broadcast director has cut between since the first
+ * TV mode (the former TV_CAMERA_SPOTS), in s order — the rig's CAM numbers and section names
+ * follow that order. `height` 7.9 = the former lens height above the road plane; the towers
+ * stand behind the barrier line now, so the lens is where the tower is (inv-camera-coverage:
+ * the v1 masts at TV_MAST_OVERRIDES did not stand where the rig looked from).
+ */
+export const TV_CAMERAS: TvCameraDef[] = [
+  { id: 'main-straight', s: 250, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot, not the FOM plan'] },
+  { id: 't1-crane', s: 455, lateral: -24, height: 6, tower: 'crane', lens: false, unverified: ['a TV crane on the T1 infield is usual on race weekends; position ±10 m'] },
+  // the aerial reads the lattice at ≈ (520, +70) / (575, +70) (truth-aerial 02 / 03); (520, +70) is outside the
+  // sports_centre ring (which reaches +61 there) and (575, +70) is inside B2's footprint (back edge +76), so it
+  // stands behind B2's back edge where the 03 mosaic shows it "east of B": inside the ring, off the stands
+  { id: 'b-tower', s: 590, lateral: 82, height: 22, tower: 'lattice', lens: false, note: 'the lattice camera tower behind the B stands (aerial: the one tower certain from above)', unverified: ['position ±10 m', 'height (25–30 m by shadow)'] },
+  { id: 't2-exit', s: 640, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'esses', s: 1180, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'esses-exit', s: 1500, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'dunlop', s: 1960, lateral: 'auto', height: 7.9, tower: 'scaffold', note: 'the v1 override (+12) stood on the inside, across the track from the lens; now behind the Dunlop exit tyres', unverified: ['tower position: generated spot'] },
+  { id: 'degner2', s: 2230, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'hairpin', s: 2640, lateral: 'auto', height: 7.9, tower: 'scaffold', note: 'behind the hairpin outside tyres', unverified: ['tower position: generated spot'] },
+  { id: 'hairpin-column', s: 2680, lateral: 14, height: 6, tower: 'crane', lens: false, note: 'the yellow camera column on the hairpin infield (hairpin.jpg)', unverified: ['position ±5 m'] },
+  { id: '200r', s: 3100, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'spoon', s: 3650, lateral: -40, height: 7.9, tower: 'scaffold', note: 'behind the Spoon 1 outside tyres (the v1 override)', unverified: ['tower position'] },
+  { id: 'back-straight', s: 4350, lateral: -24, height: 7.9, tower: 'scaffold', note: 'behind the west straight trap wall (the v1 override)', unverified: ['tower position'] },
+  { id: '130r', s: 4900, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'chicane', s: 5250, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'start-line', s: 5560, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+]
 
 // ---------------------------------------------------------------- signs
 
