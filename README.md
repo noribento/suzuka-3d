@@ -193,6 +193,7 @@ app/
     credits.ts                 # アプリ内クレジット（生成物）
     tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
+    ops-spec.ts                # 運営レイヤーのデータ（行の形 OpsPlacement / OpsMount と `opsPlacements()`。three 非依存、ops-check と ops.ts が同じ行を読む。表は I3 で）
   sim/
     track.ts                   # スプライン（5807 m 正規化）、曲率、幅・カント・勾配、最小曲率レーシングライン、立体交差、ピットレーン
     race.ts                    # 車両モデル（ライン曲率のキャリブレーション、グリップサークル、勾配、燃料/レースモード、タイヤ、追い越し、ピット、計時、ギア）
@@ -230,7 +231,7 @@ app/
     hero-buildings.ts          # 足跡に合う家屋を Sketchfab の GLB（reckzilla の日本家屋 3 種、kasuga のアパート）で置換: OBB の適合、正面は道路側、台座の上に、モデルごと 1 InstancedMesh
     vehicles.ts                # 駐車場の車: OSM の駐車場に枠を切り、近景は Sketchfab の軽ワゴン・軽トラ・ハイエース・路線バスの GLB（260 m、輝度マスクで塗装だけ着色）→ 手続き車体（500 m）→ インポスターカード → 俯瞰の点描（車種と配色は car-bodies.ts）
     car-glb.ts                 # GLB 車体の抽出（鼻を +z、CAR_DIMS の長さに）と輝度マスクの材質（明るいテクセル = 塗装が instanceColor を受ける、ガラス・タイヤは受けない）— インポスター焼きと共用
-    car-bodies.ts              # 低ポリの車体 7 種（ミニバン・軽・軽トラ・SUV・ハッチ・セダン・バス、頂点色の部位マスク、軽 ≈ 33 %）— インポスターのベイクにも使う
+    car-bodies.ts              # 低ポリの車体 7 種（ミニバン・軽・軽トラ・SUV・ハッチ・セダン・バス、頂点色の部位マスク、軽 ≈ 33 %）— インポスターのベイクにも使う。運営レイヤー用の箱トラック 'truck'（アトラス行なし、CAR_MIX 外）
     outskirts.ts               # 郊外の設備: 太陽光アレイ（SolarPanel003 のパネル面、600 m 以内は架台の支柱・レール・インバータ小屋・外周フェンス）、外周フェンス、照明柱、JIS 12 m 級の電柱（8 角テーパー、高圧腕金＋低圧腕、6 本の架線、道路網に沿って交差点の口は避ける）
     terrain-side.ts            # 地形系のオーバーレイ（'dressing'、1 km ブロック static）: 田の畦（マスクと同じ 30×90 m 格子）と用水路、伊勢鉄道（バラスト道床＋枕木テクスチャ、盛土、高架の桁と橋脚、2 本のレール、踏切）、小川（集落内はコンクリート護岸、他は土手、川は堤防、水面帯、道路との交差は暗渠）
     road-furniture.ts          # 道路脇の設備（'dressing'、1 km ブロックごとに材質別 1 メッシュ、700 m）: Gr-C ガードレール（W ビーム＋φ114 支柱、県道は両側、市道は急カーブ外側と盛土）、視線誘導標、カーブミラー、止まれ／速度／警戒標識（erikkinc のパック、無ければ手続き板）、信号機と制御箱、電柱の変圧器
@@ -239,10 +240,21 @@ app/
     impostor.ts                # インポスターの共通実装（アトラスのレイアウト・方位セル・マスク着色・疑似法線）— 観客・車・樹木で共用
     stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場・裏方・案内板）、パスフレーム、座席数クランプ、地形リリーフ
     pit-complex.ts             # ピットビル（勾配追従スイープ、ガレージ、表彰台、ポッド、ビジョン）、リーダータワー、ピットウォール、パドック、水面
+    infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
+    pit-lane.ts                # ピットレーン（I1: 断面の塗装、ガレージ前の機材、ピットウォールの什器。I0 は入口のみ）
+    paddock.ts                 # パドック（I2: チームオフィス列、センターハウス、フェンスと門、駐車場。I0 は入口のみ）
+    ops.ts                     # 運営レイヤー（I3: トランスポーター、ホスピタリティ、ピット機材、人物、SC／メディカル／コース車両、クレーン。ops-spec の行を置き ctx.ops に積む。I0 は入口のみ）
+    marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
+    tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
+    infield-ground.ts          # インフィールドの施設・壁・柵・池の岸・西／南コースのピット・車・街灯（I5。地面そのものは GROUND_AREAS の行が描く。I0 は入口のみ）
+    cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
+    props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
+    infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
+    figures.ts                 # 人物の共通部（crowd.ts から昇格）: 焼き込み／手続きインポスター、GLB の 3D プロトタイプ（部位 id、白ヘルメットの第 5 部位）、部位着色材質、運営レイヤーの姿勢・役割（marshal / official / crew / photographer / staff / guest）と buildOpsFigures（kind 'ops'、観客予算とは別勘定）
     props.ts                   # 距離看板、マーシャルポスト＋デジタルフラッグ、TV カメラ塔、送電線（鉄塔はトラス腕・碍子連・架空地線の頂部、7 本目のケーブル）、OSM 建物のマッシング、二輪・カート舗装
     vegetation.ts              # トラックサイドの樹木の散布（棄却サンプリング、桜ゾーン、キープアウト）と Node／低ティアのコーン原型
     boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
-    crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD、占有抽選 → 誤差拡散の予算配分
+    crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD、占有抽選 → 誤差拡散の予算配分（インポスター・プロトタイプ・材質は figures.ts）
     banks.ts                   # 芝土手の観客（クラスタ格子の立ち位置、レジャーシート、ポップアップテント）
     assets.ts                  # アセットパックのローダー（manifest、KTX2 / meshopt、404 フォールバック、進捗）
     materials.ts               # 実写 PBR マテリアルのファクトリ（ARM パック、hand-built UV の法線規約、芝の緑化ムラ）
@@ -268,7 +280,8 @@ scripts/
   facilities/                  # build-facilities（Overpass → TS、--add-ways-from でキャッシュから役割付きの way を網なしで splice）、build-power、build-surroundings（柵の外の OSM → suzuka-surroundings.ts）、osm-common（Overpass 取得・EN 投影・DP・int16 デルタの共通部）、
                                #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
-                               #   surface-check（面のガード）、scene-cost（三角形／メッシュ／遠景の静的コスト）、app-runtime（アプリのビルダーを Node で走らせる土台）
+                               #   surface-check（面のガード）、scene-cost（三角形／メッシュ／遠景の静的コスト）、app-runtime（アプリのビルダーを Node で走らせる土台）、
+                               #   stub-registry（manifest の GLB をテクスチャ無しで読むスタブ登録簿と buildSceneWith — *-smoke の --glb が使う）
 ```
 
 ## Rendering notes

@@ -270,7 +270,7 @@ function hash01(id: number, s: number): number {
 // ---------------------------------------------------------------------------------------------
 // materials and prototypes
 
-interface PackMaterial {
+export interface PackMaterial {
   material: THREE.MeshStandardMaterial
   /** identity of the pack's texture set — one material (one mesh per block) per set */
   key: string
@@ -334,7 +334,7 @@ function makeMaterials(): Materials {
 }
 
 /** the pack's material for a prototype part: its base colour + normal maps on a fresh Standard (one per texture set, so a block draws each set once) */
-function packMaterial(mats: Materials, src: THREE.MeshStandardMaterial | null, sided: THREE.Side): PackMaterial {
+export function packMaterial(mats: { packMats: Map<string, PackMaterial> }, src: THREE.MeshStandardMaterial | null, sided: THREE.Side): PackMaterial {
   const key = `${src?.map?.uuid ?? '-'}|${src?.normalMap?.uuid ?? '-'}|${sided}`
   let pm = mats.packMats.get(key)
   if (!pm) {
@@ -355,7 +355,7 @@ function packMaterial(mats: Materials, src: THREE.MeshStandardMaterial | null, s
  * (`moreArea`); `none` keeps the PCA sign (a tube, a box). Works on the widened, world-baked
  * geometry, so the import's node transforms and quantisation do not matter.
  */
-function orientPack(geo: THREE.BufferGeometry, front: 'uvTop' | 'moreArea' | 'none') {
+export function orientPack(geo: THREE.BufferGeometry, front: 'uvTop' | 'moreArea' | 'none') {
   const pos = geo.getAttribute('position'), nrm = geo.getAttribute('normal'), uv = geo.getAttribute('uv')
   let mx = 0, mz = 0
   for (let i = 0; i < pos.count; i++) {

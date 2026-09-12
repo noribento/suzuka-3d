@@ -27,12 +27,12 @@ const _q = new THREE.Quaternion()
  * too; app/three/buildings.ts owns them since plan §2c.) The marshal huts go through the shared
  * `boxes` placer (the caller flushes it); `hutRoofMat` is the pit building's roof material, so
  * the hut roofs merge into the same mesh as the rest of that material.
- * Returns the flag-wave clock (also left on `group.userData.flagTime`), advanced per frame.
+ * Returns the flag-wave clock (also left on `group.userData.flagTime`), advanced per frame —
+ * the caller's when given (buildEnvironment shares one clock with the infield's marshal posts).
  */
-export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Material): { flagTime: { value: number } } {
+export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Material, flagTime: { value: number } = { value: 0 }): { flagTime: { value: number } } {
   const { track, ground, group, boxes } = ctx
   const hw = track.halfWidth
-  const flagTime = { value: 0 }
 
   // --- trackside furniture: distance boards, marshal posts, sector boards -------------------------
   {

@@ -25,6 +25,10 @@ import { buildForest } from './forest'
 import { buildSurroundings } from './surroundings'
 import { FarField } from './farfield'
 import { buildTreeLibrary, tickTrees, type TreeLibrary } from './trees'
+import { makePropCache, type PropCache } from './props-pack'
+import { buildFigureLibrary, type FigureLibrary } from './figures'
+import { buildInfield, type InfieldStats } from './infield'
+import type { OpsPlacement } from '~/data/ops-spec'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
 export { cameraSide } from './props'
@@ -945,6 +949,18 @@ export interface EnvBuildContext {
    * (`buildSurroundings`, `buildForest`, `buildTrees`) so its materials get the viewport's setup.
    */
   trees: TreeLibrary
+  /** the infield's prop prototypes and their shared materials (props-pack.ts), one cache for every I-phase builder */
+  props: PropCache
+  /**
+   * The figure library (figures.ts): the tier's impostor and, with the pack, the 3D prototypes
+   * of the operations layer's figures. Built synchronously right after the trees (its
+   * materials get the viewport's setup); its `time` / `camPos` are ticked by `update`.
+   */
+  figures: FigureLibrary | null
+  /** what the operations layer placed (ops.ts pushes every row it built; also `group.userData.ops`) */
+  ops: OpsPlacement[]
+  /** instances per infield prop set (`registerPropSet` / `buildOpsFigures` name → count) — `Environment.stats.infield` */
+  infieldStats: Record<string, number>
 }
 
 export interface Environment {
@@ -971,10 +987,11 @@ export interface Environment {
   buildMs: Record<string, number>
   /**
    * What the spectator builders measured — seats and their capacity clamp, the stands that built
-   * a roof or a path frame, the deck-normal check, the banks, and the crowd's budget. Read by
-   * `window.__suzuka.env.stats`, the e2e suite and scripts/perf-probe.mjs.
+   * a roof or a path frame, the deck-normal check, the banks, and the crowd's budget — and what
+   * the infield builders did (`ops` / `trackside` / `infield`, infield.ts). Read by
+   * `window.__suzuka.env.stats`, the e2e suite, the smokes and scripts/perf-probe.mjs.
    */
-  stats: { seats: StandsStats['seats']; roofs: string[]; pathStands: string[]; deckUp: Record<string, boolean>; banks: StandsStats['banks']; crowd: Crowd['stats'] }
+  stats: { seats: StandsStats['seats']; roofs: string[]; pathStands: string[]; deckUp: Record<string, boolean>; banks: StandsStats['banks']; crowd: Crowd['stats'] } & InfieldStats
   /**
    * per frame; `cameraPos` drives the crowd density LOD and yaw, and the far field's per-cell
    * LOD; `wind` is the gust factor 0–1 of the foliage sway (the viewport maps the store's m/s)
@@ -1050,11 +1067,18 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     // the library reads the context (assets, quality) and every placer reads the library: it is
     // filled right below, before any builder runs
     trees: null as unknown as TreeLibrary,
+    props: makePropCache(),
+    figures: null,
+    ops: [],
+    infieldStats: {},
   }
   // the species prototypes and their materials, synchronously (the viewport's material setup
   // runs over `group` once, before the deferred placers use them)
   ctx.trees = buildTreeLibrary(ctx)
   lap('treeLibrary')
+  // the figures' impostor and prototypes, likewise (the ops layer instances them)
+  ctx.figures = buildFigureLibrary(ctx)
+  lap('figureLibrary')
 
   // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
   const stands = buildStands(ctx)
@@ -1066,11 +1090,16 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
   const { buildingRoofMat } = buildPitComplex(ctx)
   lap('pit')
+  // --- the infield (infield.ts): pit lane, paddock, ops layer, marshal posts + TV towers, ground, cuttings ---
+  // one flag-wave clock for the marshal posts here and the trackside props below
+  const flagTime = { value: 0 }
+  const infield = buildInfield(ctx, { buildingRoofMat, flagTime, lap })
+  group.userData.ops = ctx.ops
   // --- the two-wheel chicanes / slip roads, in the lap's own frame ---------------------------
   group.add(buildLanes(track, ground))
   lap('lanes')
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
-  const { flagTime } = buildTracksideProps(ctx, buildingRoofMat)
+  buildTracksideProps(ctx, buildingRoofMat, flagTime)
   lap('props')
   // --- crossover bridge, underpass parapets, screens, signs, lamps (plan §3) -------------------
   const structures = buildStructures(ctx, { buildingRoofMat })
@@ -1104,15 +1133,17 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     }
     flagTime.value += dt
     crowd.time.value += dt
+    if (ctx.figures) ctx.figures.time.value += dt
     tickTrees(ctx.trees, dt, wind)
     if (cameraPos) {
       stands.update(cameraPos)
       crowd.update(cameraPos)
+      if (ctx.figures) ctx.figures.camPos.value.copy(cameraPos)
       structures.update(cameraPos)
       farField.update(cameraPos)
     }
   }
 
-  const stats = { ...stands.stats, crowd: crowd.stats }
+  const stats = { ...stands.stats, crowd: crowd.stats, ...infield }
   return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, trees: ctx.trees, keepOuts: { discs: ctx.keepOut, polys: ctx.keepOutPolys }, terrainFar, buildMs, stats, update }
 }

@@ -20,9 +20,13 @@ import * as THREE from 'three'
  * `patchCarVertexColour` installs the vertex-shader line that reads it in each of its three
  * modes — the same rule the bake's mask pass renders into the atlas's R channel.
  */
-export type CarBody = 'minivan' | 'kei' | 'suv' | 'hatch' | 'sedan' | 'coach' | 'keitruck'
+export type CarBody = 'minivan' | 'kei' | 'suv' | 'hatch' | 'sedan' | 'coach' | 'keitruck' | 'truck'
 
-/** atlas-row order (CAR_LAYOUT in ~/data/impostor-atlas.ts): the row of a body is its index here */
+/**
+ * atlas-row order (CAR_LAYOUT in ~/data/impostor-atlas.ts): the row of a body is its index here.
+ * The 'truck' (the teams' transporters, plan I-phase) is not a car-park body: no atlas row, no
+ * place in CAR_MIX — the ops layer instances it directly.
+ */
 export const CAR_BODIES: readonly CarBody[] = ['minivan', 'kei', 'suv', 'hatch', 'sedan', 'coach', 'keitruck']
 
 /** overall length × width × height (m) */
@@ -35,6 +39,8 @@ export const CAR_DIMS: Record<CarBody, { l: number; w: number; h: number }> = {
   coach: { l: 12, w: 2.5, h: 3.5 },
   /** the 軽トラ: the kei class's 3.4 × 1.48 m box, a cab-over cab 1.8 m tall over a flat bed */
   keitruck: { l: 3.4, w: 1.48, h: 1.8 },
+  /** a 大型 box truck (the transporters photographed in the paddock): 12.0 m cab-over, 2.5 m wide, 3.9 m box */
+  truck: { l: 12.0, w: 2.5, h: 3.9 },
 }
 
 /**
@@ -229,7 +235,7 @@ interface CarSpec {
   tyre: number
 }
 
-const SPECS: Record<Exclude<CarBody, 'coach' | 'keitruck'>, CarSpec> = {
+const SPECS: Record<Exclude<CarBody, 'coach' | 'keitruck' | 'truck'>, CarSpec> = {
   minivan: { belt: 1.0, sill: 0.26, zb: 1.45, zw: 0.7, zt: -2.25, ztb: -2.3, hood: 0.1, cabinW: 0.94, axles: [1.45, -1.45], tyre: 0.32 },
   kei: { belt: 0.92, sill: 0.24, zb: 0.95, zw: 0.45, zt: -1.6, ztb: -1.65, hood: 0.08, cabinW: 0.95, axles: [1.15, -1.15], tyre: 0.28 },
   suv: { belt: 1.06, sill: 0.34, zb: 1.0, zw: 0.3, zt: -1.9, ztb: -2.15, hood: 0.14, cabinW: 0.92, axles: [1.35, -1.35], tyre: 0.36 },
@@ -237,7 +243,7 @@ const SPECS: Record<Exclude<CarBody, 'coach' | 'keitruck'>, CarSpec> = {
   sedan: { belt: 0.9, sill: 0.2, zb: 1.15, zw: 0.2, zt: -0.95, ztb: -1.6, hood: 0.16, cabinW: 0.9, axles: [1.4, -1.4], tyre: 0.32 },
 }
 
-function carShell(kind: Exclude<CarBody, 'coach' | 'keitruck'>): THREE.BufferGeometry {
+function carShell(kind: Exclude<CarBody, 'coach' | 'keitruck' | 'truck'>): THREE.BufferGeometry {
   const { l, w, h } = CAR_DIMS[kind]
   const p = SPECS[kind]
   const s = new Soup()
@@ -356,6 +362,52 @@ function keitruckShell(): THREE.BufferGeometry {
   return s.geometry()
 }
 
+/**
+ * The box truck (a Japanese 大型 transporter as photographed in the paddock, plan I-phase): a
+ * cab-over cab on the front 2.3 m — vertical front, raked windscreen, flat roof, glass sides
+ * above the belt, body colour below — a box body behind it a step taller than the cab with a
+ * tail-lift platform folded against its rear, a dark chassis under everything, three axles
+ * (front under the cab, tandem under the rear of the box). ≈ 120 triangles; the body panels take
+ * the instance tint like every other shell (A = 1), so a plain white truck is the default.
+ */
+function truckShell(): THREE.BufferGeometry {
+  const { l, w, h } = CAR_DIMS.truck
+  const s = new Soup()
+  const zf = l / 2, zr = -l / 2
+  const sill = 0.45, belt = 1.45, cabH = 3.0, cabRear = zf - 2.3, boxFront = cabRear - 0.15, boxFloor = 1.05
+  // the cab below the belt line: bumper, the vertical front, the belt, the cab's back wall
+  const lower: Profile = [
+    [zf - 0.1, sill],
+    [zf, sill + 0.3],
+    [zf, belt],
+    [cabRear, belt],
+    [cabRear, sill],
+  ]
+  loft(s, lower, w / 2, BODY, () => BODY, true)
+  // the cab above the belt: the raked windscreen, the flat roof, the back wall (body); side glass
+  const cab: Profile = [
+    [zf - 0.02, belt - 0.01],
+    [zf - 0.35, cabH],
+    [cabRear + 0.05, cabH],
+    [cabRear, belt - 0.01],
+  ]
+  loft(s, cab, (w / 2) * 0.96, GLASS, (ny, nz) => (ny > 0.8 || nz < -0.5 ? BODY : GLASS), true)
+  // the box body: floor at boxFloor, roof at h, from just behind the cab to the rear
+  const hw = w / 2
+  box(s, -hw, hw, boxFloor, h, zr, boxFront, BODY, ['-y'])
+  // the tail-lift platform, folded up against the rear doors, and the chassis rail with the fuel tank's bulk
+  box(s, -hw + 0.15, hw - 0.15, boxFloor - 0.05, boxFloor + 1.5, zr - 0.06, zr, UNDER, ['+z'])
+  box(s, -hw + 0.3, hw - 0.3, sill, boxFloor, zr + 0.3, boxFront, UNDER, ['+y'])
+  axleBlock(s, zf - 1.5, hw - 0.05, 0.5, 0.75)
+  axleBlock(s, zr + 2.3, hw - 0.05, 0.5, 0.75)
+  axleBlock(s, zr + 1.0, hw - 0.05, 0.5, 0.75)
+  lamp(s, -w * 0.36, sill + 0.55, zf - 0.02, 0.4, 0.2, true, HEADLAMP)
+  lamp(s, w * 0.36, sill + 0.55, zf - 0.02, 0.4, 0.2, true, HEADLAMP)
+  lamp(s, -w * 0.4, boxFloor - 0.2, zr - 0.05, 0.2, 0.3, false, TAILLAMP)
+  lamp(s, w * 0.4, boxFloor - 0.2, zr - 0.05, 0.2, 0.3, false, TAILLAMP)
+  return s.geometry()
+}
+
 const cache = new Map<CarBody, THREE.BufferGeometry>()
 
 /**
@@ -365,7 +417,7 @@ const cache = new Map<CarBody, THREE.BufferGeometry>()
 export function carBodyGeometry(kind: CarBody): THREE.BufferGeometry {
   let g = cache.get(kind)
   if (!g) {
-    g = kind === 'coach' ? coachShell() : kind === 'keitruck' ? keitruckShell() : carShell(kind)
+    g = kind === 'coach' ? coachShell() : kind === 'keitruck' ? keitruckShell() : kind === 'truck' ? truckShell() : carShell(kind)
     g.computeBoundingSphere()
     cache.set(kind, g)
   }

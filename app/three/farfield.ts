@@ -8,7 +8,11 @@ import type { Quality } from './quality'
  * (forest, buildings, car parks, solar farms, roads and their furniture, poles, fences,
  * structures, water, the railway, the streams, the paddy relief), one
  * deferred build queue that assembles it after the loading screen, and one per-cell LOD pass in
- * `Environment.update`.
+ * `Environment.update`. The kinds 'ops' and 'infield' are the exception to "outside": the
+ * operations layer and the infield props (infield-lod.ts `registerPropSet`, figures.ts) are
+ * built synchronously inside the fences and only borrow the registry for their per-cell LOD —
+ * registering before `start()` is fine, the level objects land in `group` and get the
+ * viewport's one-off freezeStatic / setupMaterials with everything else.
  *
  * Why one registry: each of these builders used to be its own frustum-culled InstancedMesh set
  * with its own distance rule. Here every entry is placed in a 250 m cell of the terrain
@@ -30,7 +34,7 @@ import type { Quality } from './quality'
  * `freezeStatic` in the viewport), so the materials get their tier setup and the matrices are
  * computed once.
  */
-export type FarKind = 'forest' | 'floor' | 'buildings' | 'carPark' | 'solar' | 'roads' | 'furniture' | 'poles' | 'fence' | 'structure' | 'water' | 'rail' | 'stream' | 'paddy'
+export type FarKind = 'forest' | 'floor' | 'buildings' | 'carPark' | 'solar' | 'roads' | 'furniture' | 'poles' | 'fence' | 'structure' | 'water' | 'rail' | 'stream' | 'paddy' | 'ops' | 'infield'
 
 /** Build stages, run in this order: the keep-out producers (paving, buildings) before the forest that avoids them. */
 export type FarStage = 'paving' | 'buildings' | 'forest' | 'dressing'
@@ -74,6 +78,8 @@ export interface FarBucketLevel {
   /** defaults to the geometry / material the buckets were registered with (an array of materials draws the geometry's groups) */
   geometry?: THREE.BufferGeometry
   material?: THREE.Material | THREE.Material[]
+  /** this level's InstancedMeshes cast shadows (defaults to the bucket options' `castShadow`): the near level of a prop set casts, its far level does not */
+  castShadow?: boolean
 }
 
 export interface FarStats {
@@ -303,7 +309,7 @@ export class FarField {
     const bucketOf = (_i: number, m: THREE.Matrix4) => this.cellOf(m.elements[12]!, m.elements[14]!)
     // the same matrices in the same order give the same bucket order for every level
     const perLevel = levels.map((l, k) =>
-      bucketedInstancedMeshes(l.geometry ?? geometry, l.material ?? material, matrices, colors, bucketOf, { ...opts, name: `${name}-L${k}` }),
+      bucketedInstancedMeshes(l.geometry ?? geometry, l.material ?? material, matrices, colors, bucketOf, { ...opts, castShadow: l.castShadow ?? opts.castShadow, name: `${name}-L${k}` }),
     )
     const out: FarEntry[] = []
     const first = perLevel[0]!

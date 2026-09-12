@@ -124,6 +124,47 @@ export interface Quality {
   coverDetail: boolean
   /** the far field (farfield.ts): everything outside the fences that only stands on the ground */
   farField: FarFieldQuality
+  /** the infield (infield.ts and its sub-builders): the pit lane, the paddock, the operations layer, the trackside and the infield ground */
+  infield: InfieldQuality
+}
+
+/**
+ * Budgets of the infield — everything inside the perimeter fence that the I-phase builders
+ * (pit-lane, paddock, ops, marshal-posts, tv-towers, infield-ground, cuttings) place. Distances
+ * are metres before `farField.lodScale`, which multiplies them like every other level range.
+ */
+export interface InfieldQuality {
+  /**
+   * use the pack's GLB prototypes (props-pack.ts `glbOr`) as the near level of a prop set; false =
+   * the procedural prototype is the only level (the low tier and Node, which have no pack)
+   */
+  glb: boolean
+  /** a GLB prop's near level (props-pack.ts) is drawn inside this; 0 = never (the procedural level from 0) */
+  propsNearM: number
+  /** the far (procedural) level of a prop set is drawn out to this, then nothing */
+  propsFarM: number
+  /** the ops / paddock vehicles' GLB level (the same rule as `farField.heroCars`' CAR_PARK.lod.hero); 0 = procedural bodies only */
+  vehiclesNearM: number
+  /** the 3D figures (figures.ts) inside this, impostors beyond; 0 = impostors only */
+  figures3dM: number
+  /** the figure impostors are drawn out to this */
+  figuresFarM: number
+  /** the impostor counts ramp down to 0 over the last this many metres before `figuresFarM` */
+  figuresRamp: number
+  /** the infield's building-class meshes (≥ 2.5 m tall: trucks, hospitality, cabins, towers) cast shadows */
+  shadows: boolean
+  /** chain-link fences and gates (cutout cards) */
+  fences: boolean
+  /** the sub-metre detail (cables, brackets, equipment on the pit apron, signage) */
+  detail: boolean
+  /**
+   * split every prop set into 250 m far-field cells (one InstancedMesh per prototype and cell,
+   * cells skipped by distance); false = one bucket per set (fewer InstancedMeshes for the
+   * software rasteriser, whose cost is per draw)
+   */
+  cells: boolean
+  /** parked cars across the paddock car parks (A / B / E) */
+  paddockCars: number
 }
 
 /**
@@ -258,6 +299,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     coverRes: [1024, 512],
     coverDetail: true,
     farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 24, midTrees: 6000, canopy: true, buildingsDetailM: 700, heroBuildings: 48, parkedCars: 4000, heroCars: 400, carImpostors: true, lightPoles: 350, solarDetail: true, paddyRelief: true, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 }, trees: { lodM: [50, 110], cards: true, leafShadowM: 50, shrubs: 2500 } },
+    infield: { glb: true, propsNearM: 120, propsFarM: 600, vehiclesNearM: 260, figures3dM: 80, figuresFarM: 600, figuresRamp: 150, shadows: true, fences: true, detail: true, cells: true, paddockCars: 320 },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -308,6 +350,8 @@ export const QUALITY: Record<QualityTier, Quality> = {
     // a 30 ms tick: SwiftShader's main thread is the renderer too, and the drain must finish in
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
     farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, heroBuildings: 0, parkedCars: 1000, heroCars: 0, carImpostors: false, lightPoles: 120, solarDetail: false, paddyRelief: false, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 }, trees: { lodM: [0, 0], cards: false, leafShadowM: 0, shrubs: 600 } },
+    // no pack, no 3D figures, no cell split: the procedural level of every prop set from 0 to 600 m (× lodScale = 330 m) in one bucket
+    infield: { glb: false, propsNearM: 0, propsFarM: 600, vehiclesNearM: 0, figures3dM: 0, figuresFarM: 600, figuresRamp: 150, shadows: false, fences: false, detail: false, cells: false, paddockCars: 140 },
   },
 }
 

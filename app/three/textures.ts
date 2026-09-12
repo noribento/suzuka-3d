@@ -1105,6 +1105,97 @@ export function spectatorAtlas(): THREE.Texture {
   })
 }
 
+/** the marshal atlas' cell of a team's crew: cells 0–3 marshals, 4 officials, 5–15 the crews in `TEAMS` order */
+export const MARSHAL_ATLAS = { cols: 4, rows: 4, marshals: [0, 1, 2, 3], official: 4, crewBase: 5 } as const
+
+/**
+ * 4×4 atlas of standing operations figures for the procedural (no pack) impostors of
+ * figures.ts, laid out like `spectatorAtlas` (same 128-px cell recipe, same 8 px padding, same
+ * ±35° card shader): cells 0–3 marshals in orange overalls with a white helmet (four arm poses:
+ * down, one raised, a flag, arms crossed), cell 4 an official (white shirt, dark trousers, white
+ * cap), cells 5–15 the eleven teams' crews (team-colour shirt, dark trousers, white helmet) in
+ * `TEAMS` order. Scaled with textureScale like every generated texture.
+ */
+export function marshalAtlas(): THREE.Texture {
+  return cached(`marshals-${textureScale}`, () => {
+    const [w, h] = scaled(512, 512)
+    const cell = w / 4
+    const k = cell / 128
+    const { c, ctx } = canvas(w, h)
+    ctx.clearRect(0, 0, w, h)
+    const rng = mulberry(4321)
+    const teams = Object.values(TEAMS)
+    const HELMET = '#f4f4f2', SKIN = '#e0ac7e', DARK = '#1e2126'
+    for (let i = 0; i < 16; i++) {
+      const x0 = (i % 4) * cell
+      const y0 = Math.floor(i / 4) * cell
+      const marshal = i < MARSHAL_ATLAS.crewBase - 1
+      const official = i === MARSHAL_ATLAS.official
+      const team = official || marshal ? null : teams[i - MARSHAL_ATLAS.crewBase]
+      const shirt = marshal ? '#f07020' : official ? '#f2f2f0' : team?.body ?? '#9a9ea2'
+      const pants = marshal ? '#f07020' : DARK
+      // draw in the 128-px cell frame of spectatorAtlas, scaled to this cell, 8 px padded top and bottom
+      ctx.save()
+      ctx.translate(x0, y0)
+      ctx.scale(k, k)
+      ctx.translate(0, 8)
+      ctx.scale(1, 112 / 128)
+      const cx = 64
+      // legs
+      ctx.fillStyle = pants
+      ctx.fillRect(cx - 18, 78, 15, 46)
+      ctx.fillRect(cx + 3, 78, 15, 46)
+      // torso (overall / shirt)
+      ctx.fillStyle = shirt
+      ctx.beginPath()
+      ctx.roundRect(cx - 24, 40, 48, 50, 10)
+      ctx.fill()
+      // arms: the overall's sleeves are long, a shirt shows the forearms
+      const pose = marshal ? i : Math.floor(rng() * 2)
+      const sleeve = marshal ? shirt : team ? shirt : '#f2f2f0'
+      ctx.fillStyle = sleeve
+      if (pose === 1) ctx.fillRect(cx - 34, 8, 10, 40)
+      else if (pose === 3) ctx.fillRect(cx - 30, 52, 60, 10)
+      else ctx.fillRect(cx - 34, 44, 10, 36)
+      if (pose !== 3) ctx.fillRect(cx + 24, 44, 10, 36)
+      if (!marshal) {
+        ctx.fillStyle = SKIN
+        if (pose !== 1) ctx.fillRect(cx - 34, 66, 10, 14)
+        ctx.fillRect(cx + 24, 66, 10, 14)
+      }
+      // a flag in the raised hand of the second marshal (green: the panel is what signals, the flag is the backup)
+      if (marshal && i === 1) {
+        ctx.fillStyle = '#e8e6e0'
+        ctx.fillRect(cx - 31, 0, 2, 50)
+        ctx.fillStyle = '#27a05a'
+        ctx.fillRect(cx - 29, 2, 22, 16)
+      }
+      // face
+      ctx.fillStyle = SKIN
+      ctx.beginPath()
+      ctx.arc(cx, 26, 14, 0, Math.PI * 2)
+      ctx.fill()
+      // white helmet (a dome over the head) or the official's cap
+      ctx.fillStyle = HELMET
+      if (official) {
+        ctx.beginPath()
+        ctx.arc(cx, 22, 14, Math.PI, Math.PI * 2)
+        ctx.fill()
+        ctx.fillRect(cx - 16, 20, 32, 5)
+      } else {
+        ctx.beginPath()
+        ctx.arc(cx, 24, 16, Math.PI * 0.95, Math.PI * 2.05)
+        ctx.fill()
+        ctx.fillRect(cx - 16, 24, 32, 6)
+      }
+      ctx.restore()
+    }
+    const tex = makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
+    tex.flipY = true
+    return tex
+  })
+}
+
 /** Pit building façade: 11 garages with team-coloured fascias, one texture spans the whole building. */
 export function garageTexture(): THREE.Texture {
   return cached('garage', () => {

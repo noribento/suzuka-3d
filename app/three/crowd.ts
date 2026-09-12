@@ -1,15 +1,12 @@
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CROWD_ATLAS, CROWD_CHEER_PAIRS, CROWD_FIGURES } from '~/data/crowd-atlas'
-import { CROWD_LAYOUT } from '~/data/impostor-atlas'
 import { SPECTATOR_BANKS, STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { forwardDelta, type Track } from '~/sim/track'
 import type { AssetRegistry } from './assets'
-import { IMPOSTOR_ATTRIBUTES, impostorGeometry, impostorMaterial } from './impostor'
+import { bakedImpostor, figureMaterial, figurePrototypes, PANTS, pickWeighted as pick, proceduralImpostor, SHIRTS, SKINS, type FigureLook, type Weighted } from './figures'
 import { cutoutParams } from './materials'
 import type { Quality } from './quality'
-import { spectatorAtlas } from './textures'
 import { STAND_BAY, type SeatSlot } from './stands'
 
 const _p = new THREE.Vector3()
@@ -48,63 +45,20 @@ const OCCUPANCY_BY_STAND: Record<string, number> = { L: 0.55, M: 0.6, N: 0.55, O
 const NEAR_LOD = 55
 /** how far a seated figure from the baked (on-a-seat) atlas drops when its place is a lawn */
 const LAWN_SINK = 0.40
+const lin = (hex: string) => new THREE.Color(hex)
 /** the density ramp reaches zero at 380 m; beyond 420 m the bay is not visited at all */
 const FAR_CUT = 420
 const RAMP_END = 380
 const RAMP_LEN = 100
 
 // ---------------------------------------------------------------------------------------------
-// who sits where: figure, cap, clothing colours
+// who sits where: figure, cap, clothing colours (the impostors, the 3D prototypes and their
+// material live in figures.ts, shared with the operations layer)
 
-type Weighted<T> = [T, number][]
+type Look = FigureLook
 
-function pick<T>(rng: Rng, items: Weighted<T>): T {
-  let total = 0
-  for (const [, w] of items) total += w
-  let r = rng.next() * total
-  for (const [v, w] of items) {
-    r -= w
-    if (r <= 0) return v
-  }
-  return items[items.length - 1]![0]
-}
-
-const lin = (hex: string) => new THREE.Color(hex)
-
-/**
- * Clothing from the 2024–2026 race photos: black / navy team jackets (Red Bull, Mercedes,
- * Haas), red (Ferrari, Honda), orange (McLaren), plenty of white, and scattered brights.
- */
-const SHIRTS: Weighted<THREE.Color> = [
-  [lin('#1a1a1e'), 15], [lin('#1c2745'), 15], [lin('#c8102e'), 13], [lin('#e8621a'), 7],
-  [lin('#f2f2f0'), 15], [lin('#b9bcc0'), 7], [lin('#2f5fb8'), 6], [lin('#2a8f7a'), 3],
-  [lin('#e6c231'), 3], [lin('#e07aa8'), 3], [lin('#7fc0e6'), 3], [lin('#2e5e3a'), 3], [lin('#6d4a3a'), 3],
-]
 /** C stand 2026: every seat a Honda support seat with a white poncho, red vertical stripes */
 const SHIRTS_C: Weighted<THREE.Color> = [[lin('#f4f4f2'), 50], [lin('#c8102e'), 22], ...SHIRTS.map(([c, w]) => [c, w * 0.35] as [THREE.Color, number])]
-const PANTS: Weighted<THREE.Color> = [[lin('#17181c'), 30], [lin('#1f2a44'), 25], [lin('#3b5a8a'), 20], [lin('#5f6266'), 15], [lin('#8a7a5a'), 10]]
-/** skin multiplier on the atlas' baked #d9a884 */
-const SKINS: Weighted<number> = [[1.12, 30], [1.0, 40], [0.86, 15], [0.66, 10], [0.5, 5]]
-
-interface Look {
-  /** atlas row of the rest pose (cap block included) and of the cheer pose (−1 = none) */
-  row: number
-  cheerRow: number
-  /** figure index (bare row) for the 3D prototype */
-  fig: number
-  shirt: THREE.Color
-  pants: THREE.Color
-  skin: number
-  scale: number
-  phase: number
-  /**
-   * How far to drop this figure below the place it was given (m). The baked atlas was rendered
-   * from people sitting ON A SEAT, hips ≈ 0.4 m up; on a grass bank there is no seat, so a seated
-   * lawn figure sinks by that much. Only the baked atlas: the procedural one has standing poses
-   * in every cell, and sinking those buries their feet.
-   */
-  sink: number
-}
 
 const cheerOf = new Map<number, number>(CROWD_CHEER_PAIRS)
 
@@ -129,165 +83,6 @@ function lookFor(rng: Rng, standId: string, lawn: boolean, baked: boolean): Look
     phase: rng.next(),
     sink: baked && seated && lawn ? LAWN_SINK : 0,
   }
-}
-
-// ---------------------------------------------------------------------------------------------
-// impostors
-
-interface Impostor {
-  geo: THREE.BufferGeometry
-  mat: THREE.MeshStandardMaterial
-  /** instanced attributes (name, item size) filled per spectator */
-  attrs: { name: string; size: number }[]
-  fill: (arrays: Float32Array[], k: number, slot: SeatSlot, look: Look, rng: Rng) => void
-  /** whether the instance matrix carries the seat facing (procedural) or the shader billboards (baked) */
-  rotateInstances: boolean
-}
-
-/**
- * The baked atlas (scripts/assets/bake-crowd-atlas.mjs, layout in ~/data/crowd-atlas.ts →
- * CROWD_LAYOUT): one row per figure, 8 yaw columns × 2 camera pitches, drawn by the shared
- * impostor shader (impostor.ts) with the crowd defaults — both pitch bands, the cheer flipbook,
- * a 2 cm sway, and shirt / pants / skin tinted per spectator through the mask texture.
- */
-function bakedImpostor(diff: THREE.Texture, mask: THREE.Texture, time: { value: number }, camPos: { value: THREE.Vector3 }, cut: { alphaTest: number; alphaToCoverage: boolean }): Impostor {
-  const mat = impostorMaterial({ map: diff, mask }, CROWD_LAYOUT, { pitchBands: 2, cheer: true, sway: 0.02, maskMode: 'crowd', cutout: cut, cacheKey: 'crowd|baked', time, camPos })
-  return {
-    geo: impostorGeometry(CROWD_LAYOUT),
-    mat,
-    attrs: [...IMPOSTOR_ATTRIBUTES],
-    fill: (arrays, k, slot, look) => {
-      const info = arrays[0]!, t0 = arrays[1]!, t1 = arrays[2]!
-      info[k * 4] = look.row
-      info[k * 4 + 1] = look.cheerRow
-      info[k * 4 + 2] = slot.yaw
-      info[k * 4 + 3] = look.phase
-      t0[k * 4] = look.shirt.r
-      t0[k * 4 + 1] = look.shirt.g
-      t0[k * 4 + 2] = look.shirt.b
-      t0[k * 4 + 3] = look.skin
-      t1[k * 3] = look.pants.r
-      t1[k * 3 + 1] = look.pants.g
-      t1[k * 3 + 2] = look.pants.b
-    },
-    rotateInstances: false,
-  }
-}
-
-/**
- * The procedural 16-figure atlas (low tier / no asset pack): the quad carries the seat facing
- * in its instance matrix and turns up to ±35° towards the camera in the shader.
- */
-function proceduralImpostor(time: { value: number }, camPos: { value: THREE.Vector3 }, cut: { alphaTest: number; alphaToCoverage: boolean }): Impostor {
-  const geo = new THREE.PlaneGeometry(0.5, 0.95)
-  geo.translate(0, 0.42, 0)
-  const mat = new THREE.MeshStandardMaterial({ map: spectatorAtlas(), alphaTest: cut.alphaTest, alphaToCoverage: cut.alphaToCoverage, side: THREE.DoubleSide, roughness: 0.9 })
-  mat.customProgramCacheKey = () => 'crowd|procedural'
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = time
-    shader.uniforms.uCamPos = camPos
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-        attribute vec3 aCell;
-        uniform float uTime;
-        uniform vec3 uCamPos;`)
-      // the atlas cell is padded 8 px top and bottom (of 128): inset the v range to match
-      .replace('#include <uv_vertex>', `#include <uv_vertex>
-        vMapUv = (vMapUv * vec2(1.0, 0.875) + vec2(0.0, 0.0625)) * 0.25 + aCell.xy;`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-        // turn the figure towards the camera, at most 0.6 rad away from the seat's facing
-        vec3 iPos = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        vec3 toCam = uCamPos - iPos;
-        float yaw = atan(toCam.x, toCam.z) - aCell.z;
-        yaw = mod(yaw + PI, PI2) - PI;
-        yaw = clamp(yaw, -0.6, 0.6);
-        float cy = cos(yaw), sy = sin(yaw);
-        transformed.xz = vec2(transformed.x * cy + transformed.z * sy, -transformed.x * sy + transformed.z * cy);
-        float ph = aCell.x * 37.0 + aCell.y * 91.0 + float(gl_InstanceID) * 0.37;
-        transformed.x += sin(uTime * 1.6 + ph) * 0.02 * uv.y;`)
-  }
-  return {
-    geo,
-    mat,
-    attrs: [{ name: 'aCell', size: 3 }],
-    fill: (arrays, k, slot, _look, rng) => {
-      const cells = arrays[0]!
-      cells[k * 3] = Math.floor(rng.next() * 4) * 0.25
-      cells[k * 3 + 1] = Math.floor(rng.next() * 4) * 0.25
-      cells[k * 3 + 2] = slot.yaw
-    },
-    rotateInstances: true,
-  }
-}
-
-// ---------------------------------------------------------------------------------------------
-// near-field 3D figures (high tier): the CC0 posed humans the atlas was baked from
-
-const PART_ID: Record<string, number> = { Shoes: 0, Pants: 1, Shirt: 2, Skin: 3 }
-
-/**
- * One merged geometry per figure (shoes / pants / shirt / skin as a per-vertex part id), at the
- * atlas' metric scale, facing +Z like the bake. null when any figure is missing from the pack.
- */
-function figurePrototypes(reg: AssetRegistry): THREE.BufferGeometry[] | null {
-  const out: THREE.BufferGeometry[] = []
-  for (const f of CROWD_FIGURES) {
-    const m = reg.model(`model/crowd/eclair/${f.id}`)
-    if (!m) return null
-    m.scene.updateMatrixWorld(true)
-    const parts: THREE.BufferGeometry[] = []
-    m.scene.traverse((o) => {
-      const mesh = o as THREE.Mesh
-      if (!mesh.isMesh) return
-      // gltfpack quantised the positions to int16 (KHR_mesh_quantization, the node scale
-      // restores metres): applyMatrix4 on the integer attribute would truncate every vertex to
-      // whole metres, so the attributes are widened to floats first
-      const src = mesh.geometry
-      const g = new THREE.BufferGeometry()
-      for (const name of ['position', 'normal'] as const) {
-        const a = src.getAttribute(name) as THREE.BufferAttribute | undefined
-        if (!a) continue
-        const f = new THREE.Float32BufferAttribute(a.count * 3, 3)
-        for (let i = 0; i < a.count; i++) f.setXYZ(i, a.getX(i), a.getY(i), a.getZ(i))
-        g.setAttribute(name, f)
-      }
-      if (src.index) g.setIndex(src.index.clone())
-      g.applyMatrix4(mesh.matrixWorld)
-      const n = (g.attributes.position as THREE.BufferAttribute).count
-      const part = PART_ID[mesh.name] ?? PART_ID[mesh.parent?.name ?? ''] ?? 2
-      g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(n).fill(part), 1))
-      parts.push(g.index ? g.toNonIndexed() : g)
-    })
-    if (!parts.length) return null
-    const merged = mergeGeometries(parts, false)
-    for (const g of parts) g.dispose()
-    if (!merged) return null
-    merged.scale(CROWD_ATLAS.modelScale, CROWD_ATLAS.modelScale, CROWD_ATLAS.modelScale)
-    merged.computeBoundingSphere()
-    out.push(merged)
-  }
-  return out
-}
-
-function figureMaterial(): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.85 })
-  mat.customProgramCacheKey = () => 'crowd|figure'
-  mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-        attribute float aPart;
-        attribute vec4 aTint0;
-        attribute vec3 aTint1;
-        varying vec3 vTint;`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vTint = aPart < 0.5 ? vec3(0.02, 0.018, 0.016) : aPart < 1.5 ? aTint1 : aPart < 2.5 ? aTint0.rgb : vec3(0.68, 0.39, 0.24) * aTint0.a;`)
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-        varying vec3 vTint;`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        diffuseColor.rgb *= vTint;`)
-  }
-  return mat
 }
 
 // ---------------------------------------------------------------------------------------------

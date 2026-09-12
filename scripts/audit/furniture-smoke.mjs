@@ -22,7 +22,7 @@
  *   node scripts/audit/furniture-smoke.mjs [--tier high|low|both] [--sample 2000] [--glb] [--fake-signal]
  *
  * `--glb` builds the high tier once more with the imported GLBs of the manifest (jp_traffic_assets,
- * jp_denchu, utility_box_02) behind a stub asset registry — the geometry through GLTFLoader +
+ * jp_denchu, utility_box_02) behind a stub asset registry (scripts/audit/stub-registry.mjs) — the geometry through GLTFLoader +
  * meshopt, every texture an empty stand-in — and checks the pack path: the plates / head / poles
  * come from the pack (`packUsed`), the `utilityHero-*` entries exist with the procedural poles'
  * instance counts, and the same vertex rules hold. `--fake-signal` builds the high tier once
@@ -32,9 +32,9 @@
  *
  * Exit 1 on any failure.
  */
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { buildScene, ROOT, THREE } from './app-runtime.mjs'
+import { buildSceneWith, stubRegistry } from './stub-registry.mjs'
 
 const args = process.argv.slice(2)
 const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : d }
@@ -55,56 +55,11 @@ const fmt = (n) => n.toLocaleString('en-US')
 /** the smoke's own deterministic sampler (mulberry32) */
 const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
 
-/**
- * The manifest's road / props GLBs behind the smallest registry the builders accept: models load
- * (GLTFLoader + meshopt, textures stubbed — the geometry is what the smoke measures), every
- * texture query answers null so the other builders keep their procedural maps.
- */
-async function stubRegistry() {
-  const { GLTFLoader } = await import(path.join(ROOT, 'node_modules/three/examples/jsm/loaders/GLTFLoader.js'))
-  const { MeshoptDecoder } = await import(path.join(ROOT, 'node_modules/three/examples/jsm/libs/meshopt_decoder.module.js'))
-  globalThis.self ??= globalThis
-  globalThis.URL.createObjectURL ??= () => 'blob:stub'
-  globalThis.URL.revokeObjectURL ??= () => {}
-  const manifest = JSON.parse(readFileSync(path.join(ROOT, 'public/assets-manifest.json'), 'utf8'))
-  const stubTex = { load: (url, onLoad) => { const t = new THREE.Texture(); onLoad(t); return t }, detectSupport() { return this }, setPath() { return this }, setCrossOrigin() { return this }, setRequestHeader() { return this }, setWithCredentials() { return this } }
-  const loader = new GLTFLoader()
-  loader.setMeshoptDecoder(MeshoptDecoder)
-  loader.setKTX2Loader(stubTex)
-  loader.manager.getHandler = () => stubTex
-  loader.textureLoader = stubTex
-  const models = new Map()
-  for (const key of ['model/road/jp_traffic_assets', 'model/road/jp_denchu', 'model/props/utility_box_02']) {
-    const a = manifest.assets[key]
-    if (!a) { console.log(`  note: ${key} is not in the manifest`); continue }
-    const buf = readFileSync(path.join(ROOT, 'public', a.path))
-    const gltf = await new Promise((res, rej) => loader.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), '', res, rej))
-    const primitives = []
-    gltf.scene.traverse((o) => { if (o.isMesh) primitives.push({ geometry: o.geometry, material: o.material }) })
-    models.set(key, { scene: gltf.scene, primitives })
-  }
-  return {
-    has: (k) => models.has(k), entry: () => null, keys: () => [...models.keys()], texture: () => null,
-    model: (k) => models.get(k) ?? null, bytes: () => 0, dispose() {}, markAllDirty() {}, progress: { value: 1 },
-    loaded: [...models.keys()],
-  }
-}
-
-/** `buildScene` with a registry (app-runtime's builds with none) */
-async function buildSceneWith(tier, reg) {
-  const { Track } = await import(path.join(ROOT, 'app/sim/track.ts'))
-  const suz = await import(path.join(ROOT, 'app/data/suzuka.ts'))
-  const envMod = await import(path.join(ROOT, 'app/three/environment.ts'))
-  const quality = await import(path.join(ROOT, 'app/three/quality.ts'))
-  const track = new Track(suz.CIRCUIT)
-  const q = quality.QUALITY[tier]
-  const env = envMod.buildEnvironment(track, q, 7, reg)
-  env.farField.drain()
-  return { track, env, terrain: env.terrain, ground: env.ground, quality: q }
-}
+/** the manifest's road / props GLBs behind the stub registry (scripts/audit/stub-registry.mjs) */
+const FURNITURE_KEYS = ['model/road/jp_traffic_assets', 'model/road/jp_denchu', 'model/props/utility_box_02']
 
 const runs = tiers.map((tier) => ({ label: `tier ${tier}`, tier, reg: null, fake: false }))
-if (withGlb) runs.push({ label: 'tier high + GLB pack (stub registry)', tier: 'high', reg: await stubRegistry(), fake: false })
+if (withGlb) runs.push({ label: 'tier high + GLB pack (stub registry)', tier: 'high', reg: await stubRegistry(FURNITURE_KEYS), fake: false })
 if (withFakeSignal) runs.push({ label: 'tier high + fake gate signal', tier: 'high', reg: null, fake: true })
 /** the junction the fake gate is put on: the first run's network decides, the fake run's network flags it */
 let fakeJunction = null
