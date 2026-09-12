@@ -1017,26 +1017,40 @@ export const HELIPAD = { s: 5566, lateral: -78, radius: 8 }
 
 /** Pit-lane face of the pit building (m from the centreline, right side). OSM way 184422099. */
 export const PIT_GARAGE_FRONT = -25.1
-/** One F1 garage = 4 boxes × 7.083 m. */
-export const PIT_GARAGE_PITCH = 28.33
-/** Centre of garage 1 (the Turn-1 / pit-exit end); garage G centre = PIT_GARAGE1_S − (G−1)·pitch. */
-export const PIT_GARAGE1_S = 5887.6
+/**
+ * Garage row from the Mobilityland 2009 pit / paddock dossier (pitpad-5: pit 4.75 × 23.3 m, plan
+ * widths 7,000 | 19,000 | 19,000 | 7,000): 48 pits in 12 blocks of 4 (19 m) with a 7 m pit-room /
+ * stair core between every two blocks — [4][core][8][core][8][core][8][core][8][core][8][core][4]
+ * = 12 × 19 + 6 × 7 = 270 m. One F1 team takes one block.
+ */
+export const PIT_BOX = 4.75
+export const PIT_BLOCK = 19
+export const PIT_CORE = 7
 /** 11 team garages + 1 empty bay under the podium (FIA / Pirelli). */
 export const PIT_GARAGE_COUNT = 12
 /**
- * Planned CIRCUIT.pit values (phase 4 updates suzuka.ts; facilities-check compares them).
- * `stopLateral` / `stopSwitchM` (I phase, §横断 2): the pit-stop position keyed to the working
- * area in front of the garage (shutter −28.3 + 3.85 m, unverified ±1.0) and the distance before
- * boxS at which the sim starts steering to it. race.ts still stops at laneOffset − 2.5 (−17.1)
- * until I0-b adopts these; everything static (ops-check, crew tables, box paint) derives from
- * `PIT_ENVELOPE.stop` so the fallback (stopLateral −17.1) changes numbers only.
+ * Block centres from the T1 end (garage 1 = pits 1–4) to the final-corner end (garage 12 = pits
+ * 45–48), wrapped through s = 0. Derived from the dossier: the row starts 11 m from the T1 nose
+ * (s ≈ 88) and runs 270 m toward the final corner; the absolute s is UNVERIFIED (±10 m).
+ * Adjacent differences are 19 (two blocks of one 8-pit group) or 26 (across a 7 m core).
  */
-export const PIT_PLANNED = { garageFront: PIT_GARAGE_FRONT, boxSpacing: PIT_GARAGE_PITCH, laneOffset: -14.6, laneWidth: 9, wallOffset: -9.4, stopLateral: -23.5, stopSwitchM: 100 } as const
+export const GARAGE_CENTRES = [78.5, 52.5, 33.5, 7.5, 5795.5, 5769.5, 5750.5, 5724.5, 5705.5, 5679.5, 5660.5, 5634.5] as const
+/** The six 7 m cores (pit rooms + stair towers) between the 8-pit groups, [from, to] in s. */
+export const PIT_CORES: [number, number][] = [[62, 69], [17, 24], [5779, 5786], [5734, 5741], [5689, 5696], [5644, 5651]]
+/**
+ * Planned CIRCUIT.pit values (facilities-check compares them). `garageFront` is the OSM building
+ * outline = the 2F terrace drip line; the shutters stand 2.8 m + 0.35 m behind it (dossier
+ * section, 2,800 overhang + 350 wall). `stopLateral` / `stopSwitchM` (I phase, §横断 2): the
+ * pit-stop position keyed to the working area in front of the shutter (−28.3 + 4.8, unverified
+ * ±1.0) and the distance before boxS at which the sim starts steering to it. Everything static
+ * (ops-check, crew tables, box paint) derives from `PIT_ENVELOPE.stop`, so the fallback
+ * (stopLateral −17.1) changes numbers only.
+ */
+export const PIT_PLANNED = { garageFront: PIT_GARAGE_FRONT, shutter: -28.3, boxSpacing: PIT_BLOCK, laneOffset: -14.6, laneWidth: 9, wallOffset: -9.4, stopLateral: -23.5, stopSwitchM: 100 } as const
 
 /** Centre s of the garage at `index` (0 = McLaren at the T1 end), wrapped to [0, L). */
 export function garageS(index: number): number {
-  const L = CIRCUIT.officialLength
-  return (((PIT_GARAGE1_S - index * PIT_GARAGE_PITCH) % L) + L) % L
+  return GARAGE_CENTRES[index]!
 }
 
 /**
@@ -1052,13 +1066,18 @@ export function garageIndexOf(team: TeamId): number {
   return GARAGE_ORDER.indexOf(team)
 }
 
-/** The garage row: from the final-corner edge of the last block to the T1 edge of block 1 (wraps through s = 0). */
-export const PIT_BOX_STRIP: [number, number] = [garageS(PIT_GARAGE_COUNT - 1) - PIT_GARAGE_PITCH / 2, garageS(0) + PIT_GARAGE_PITCH / 2]
+/** The garage row: from the final-corner edge of the last block to the T1 edge of block 1 (wraps through s = 0) = [5625, 88], 270 m. */
+export const PIT_BOX_STRIP: [number, number] = [garageS(PIT_GARAGE_COUNT - 1) - PIT_BLOCK / 2, garageS(0) + PIT_BLOCK / 2]
 
 /**
  * The envelope the moving cars need in the pit lane, for the static ops layer (facilities-check
- * §16 O1 / O3 / O9) — measured in gap_Sim (seed 12345, 22 stops): entering cars lag
- * `Track.pitLateralAt` by up to 5.08 m toward the track, exiting cars sit up to 1 m right of it.
+ * §16 O1 / O3 / O9) — measured with `pnpm sim -- --laps 8 --seeds 3 --pit-trace` (I0-b; all 22
+ * cars pit on one lap, the crowded case): an entering car sits up to 4.3 m left of
+ * `Track.pitLateralAt` at the entry point (still on its racing line) and within 1.7 m of it from
+ * s 5300 on; on the exit ramp a car that had to yield to lane traffic after its box can still be
+ * 2 m right of the centreline (an unobstructed car is back within 1 m 30 m after the box, then
+ * lags the inward ramp by ≤ 1 m). `entryLag` / `exitLag` are those maxima + 0.5 and gate the
+ * harness; `keepOut` covers them with the half-width and a margin.
  *  - keepOut: nothing static inside [c − back, max(c + front, −hw)] over the whole entry → exit span;
  *  - lanes: the fast + working lane band, used along the whole box strip;
  *  - workArea: the concrete apron between the working lane and the shutter line, where crew and
@@ -1068,8 +1087,8 @@ export const PIT_BOX_STRIP: [number, number] = [garageS(PIT_GARAGE_COUNT - 1) - 
  * Every ops coordinate is computed from `stop`; no literal stop lateral anywhere else.
  */
 export const PIT_ENVELOPE = {
-  entryLag: 5.5,
-  exitLag: 1.0,
+  entryLag: 4.8,
+  exitLag: 2.5,
   carHalf: 0.95,
   stop: PIT_PLANNED.stopLateral,
   keepOut: { back: 6.5, front: 5.5 },

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { CIRCUIT } from '~/data/suzuka'
-import { GROUND_AREAS, RUNOFF_ZONES, type GroundArea, type GroundFootprint, type Side } from '~/data/suzuka-facilities-spec'
+import { GROUND_AREAS, PIT_PLANNED, RUNOFF_ZONES, type GroundArea, type GroundFootprint, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS, OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, ROLL_CAP, signedDelta, type Track } from '~/sim/track'
 import { laneWorldPath, osmWay, patchOutline, simplifyRing } from './trackside'
@@ -1805,7 +1805,9 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
 /**
  * The pit lane [in, out] and the garage apron's outer edge (metres beyond the right road edge) at
  * s, all continuous in s: the lane centreline ramps in and out with `pitLateralAt`, and the ends
- * of the lane window and of the apron window taper over PIT_TAPER instead of stepping.
+ * of the lane window and of the apron window taper over PIT_TAPER instead of stepping. The apron
+ * runs to 0.4 m past the shutter line (PIT_PLANNED.shutter, 3.2 m behind the OSM outline = the
+ * 2F terrace drip line), so the working area in front of the garages is one road-frame face.
  */
 function pitLaneSpan(track: Track, pit: typeof CIRCUIT.pit): (s: number, hw: number) => [number, number, number] {
   return (s, hw) => {
@@ -1815,7 +1817,7 @@ function pitLaneSpan(track: Track, pit: typeof CIRCUIT.pit): (s: number, hw: num
     const pin = Math.max(0, -c - half - hw)
     const pout = Math.max(pin, -c + half - hw)
     const wApron = windowRamp(track, s, pit.limitStartS - 40, pit.limitEndS, PIT_TAPER)
-    const aout = Math.max(pout, pout + (-pit.garageFront - 0.4 - hw - pout) * wApron)
+    const aout = Math.max(pout, pout + (-PIT_PLANNED.shutter - 0.4 - hw - pout) * wApron)
     return [pin, pout, aout]
   }
 }

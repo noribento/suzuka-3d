@@ -12,7 +12,13 @@
  *   2. STANDS vs RUNOFF_ZONES: no stand front lies inside an asphalt or gravel band.
  *   3. CIRCUIT.pit: laneOffset + laneWidth/2 < wallOffset − 0.5 and laneOffset − laneWidth/2 >
  *      garageFront + 1, with the current values and with the planned ones (PIT_PLANNED);
- *      garageS(0) sits inside the pit building.
+ *      every garage block (c ± PIT_BLOCK / 2) sits inside the pit building.
+ *   3b. The 2009-dossier garage row: GARAGE_CENTRES monotonic toward the final corner with
+ *      steps of 19 (same 8-pit group) or 26 (across a 7 m core); PIT_BOX_STRIP = 12 × 19 + 6 × 7
+ *      = 270 m; PIT_CORES are exactly the 7 m gaps between blocks; the podium sits over garage
+ *      12 (±9.5 m) and the control pod ends before the strip; PIT_ENVELOPE.stop ± carHalf lies
+ *      inside the work area (or, on the fallback, inside the auxiliary lane); the shutter line
+ *      is ≥ 2.8 m behind the OSM front (the terrace overhang).
  *   4. GARAGE_ORDER ⊂ TEAM_ORDER and the same size.
  *   5. Track.enScale equals an independent re-computation of the centreline pipeline, and the
  *      OSM raceway loop maps onto the app centreline within the registration tolerance.
@@ -180,11 +186,57 @@ if (!('boxStartS' in pit) || Math.abs(wrap(pit.boxStartS - spec.garageS(0))) > 0
 const bld = spec.PIT_BUILDING.sRange
 for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
   const c = spec.garageS(g)
-  if (!inArc(wrap(c - spec.PIT_GARAGE_PITCH / 2), bld) || !inArc(wrap(c + spec.PIT_GARAGE_PITCH / 2), bld)) fail(`garage ${g + 1} (s ${fmt(c)}) is outside the pit building ${bld[0]}→${bld[1]}`)
+  if (!inArc(wrap(c - spec.PIT_BLOCK / 2), bld) || !inArc(wrap(c + spec.PIT_BLOCK / 2), bld)) fail(`garage ${g + 1} (s ${fmt(c)}) is outside the pit building ${bld[0]}→${bld[1]}`)
 }
 if (osm.OSM_PIT_BUILDING) {
   const f = osm.OSM_PIT_BUILDING
   if (Math.abs(f.lateral[1] - spec.PIT_GARAGE_FRONT) > 1.5) fail(`PIT_GARAGE_FRONT ${spec.PIT_GARAGE_FRONT} vs OSM pit-lane face ${f.lateral[1]}`)
+}
+
+// ---------------------------------------------------------------- 3b. the 2009 garage row
+{
+  const G = spec.GARAGE_CENTRES
+  const near = (a, b, tol = 0.01) => Math.abs(a - b) <= tol
+  if (G.length !== spec.PIT_GARAGE_COUNT) fail(`GARAGE_CENTRES has ${G.length} blocks, PIT_GARAGE_COUNT ${spec.PIT_GARAGE_COUNT}`)
+  for (let i = 0; i < G.length; i++) if (!near(spec.garageS(i), G[i])) fail(`garageS(${i}) ${spec.garageS(i)} ≠ GARAGE_CENTRES[${i}] ${G[i]}`)
+  // monotonic toward the final corner (wrapping through s = 0), steps of one block or one block + core
+  const steps = []
+  for (let i = 1; i < G.length; i++) {
+    const d = arcLen(G[i], G[i - 1])
+    steps.push(d)
+    if (d <= 0 || d > L / 2) fail(`GARAGE_CENTRES[${i}] ${G[i]} is not toward the final corner from [${i - 1}] ${G[i - 1]}`)
+    else if (!near(d, spec.PIT_BLOCK) && !near(d, spec.PIT_BLOCK + spec.PIT_CORE)) fail(`GARAGE_CENTRES step ${i - 1}→${i} is ${fmt(d, 2)} m, not ${spec.PIT_BLOCK} or ${spec.PIT_BLOCK + spec.PIT_CORE}`)
+  }
+  const strip = arcLen(spec.PIT_BOX_STRIP[0], spec.PIT_BOX_STRIP[1])
+  const expected = spec.PIT_GARAGE_COUNT * spec.PIT_BLOCK + spec.PIT_CORES.length * spec.PIT_CORE
+  if (!near(strip, expected, 0.5)) fail(`PIT_BOX_STRIP is ${fmt(strip, 2)} m, expected ${expected} (${spec.PIT_GARAGE_COUNT} × ${spec.PIT_BLOCK} + ${spec.PIT_CORES.length} × ${spec.PIT_CORE})`)
+  if (!near(spec.PIT_BOX * 4, spec.PIT_BLOCK)) fail(`PIT_BLOCK ${spec.PIT_BLOCK} ≠ 4 × PIT_BOX ${spec.PIT_BOX}`)
+  // the cores are exactly the 7 m gaps between adjacent blocks
+  const gaps = []
+  for (let i = 1; i < G.length; i++) if (near(steps[i - 1], spec.PIT_BLOCK + spec.PIT_CORE)) gaps.push([wrap(G[i] + spec.PIT_BLOCK / 2), wrap(G[i - 1] - spec.PIT_BLOCK / 2)])
+  if (gaps.length !== spec.PIT_CORES.length) fail(`PIT_CORES has ${spec.PIT_CORES.length} cores, the garage row has ${gaps.length} gaps`)
+  for (const core of spec.PIT_CORES) {
+    if (!near(arcLen(core[0], core[1]), spec.PIT_CORE)) fail(`PIT_CORE ${core[0]}→${core[1]} is ${fmt(arcLen(core[0], core[1]))} m, not ${spec.PIT_CORE}`)
+    if (!gaps.some(([a, b]) => near(a, core[0]) && near(b, core[1]))) fail(`PIT_CORE ${core[0]}→${core[1]} is not a gap between two garage blocks`)
+  }
+  // podium over the final-corner block, the control pod before the strip
+  const pod = spec.PIT_BUILDING
+  const podiumOff = signedDelta(spec.garageS(spec.PIT_GARAGE_COUNT - 1), pod.podium.s, L)
+  // TODO(I1): PIT_BUILDING.podium.s is still the v1 estimate (5579); the dossier puts the podium
+  // over pits 45–47 (garage 12, s ≈ 5632) — I1 rebuilds the building and moves it, then this
+  // becomes an error.
+  if (Math.abs(podiumOff) > 9.5) fail(`PIT_BUILDING.podium.s ${pod.podium.s} is ${fmt(podiumOff)} m from garage 12 (${spec.garageS(spec.PIT_GARAGE_COUNT - 1)}); the dossier podium is over pits 45–47 (until I1)`, true)
+  if (arcLen(pod.controlPod.sRange[1], spec.PIT_BOX_STRIP[0]) > L / 2) fail(`PIT_BUILDING.controlPod ends at ${pod.controlPod.sRange[1]}, past the start of the garage row ${spec.PIT_BOX_STRIP[0]}`)
+  // the stop line: the car (stop ± carHalf) inside the work area, or on the fallback inside the auxiliary lane
+  const E = spec.PIT_ENVELOPE
+  const carL = [E.stop - E.carHalf, E.stop + E.carHalf]
+  const inWork = carL[0] >= planned.shutter + 0.6 && carL[1] <= E.workArea[1]
+  const auxLane = [E.lanes[0], -16.05]
+  const inAux = carL[0] >= auxLane[0] && carL[1] <= auxLane[1]
+  if (!inWork && !inAux) fail(`PIT_ENVELOPE.stop ${E.stop} ± ${E.carHalf} is neither inside the work area [${planned.shutter + 0.6}, ${E.workArea[1]}] nor the auxiliary lane [${auxLane.join(', ')}]`)
+  if (!near(E.workArea[0], planned.shutter)) fail(`PIT_ENVELOPE.workArea starts at ${E.workArea[0]}, the shutter line is ${planned.shutter}`)
+  if (planned.shutter > planned.garageFront - 2.8) fail(`PIT_PLANNED.shutter ${planned.shutter} is less than 2.8 m behind the front ${planned.garageFront} (the 2F terrace overhang)`)
+  console.log(`garage row: ${G.length} blocks of ${spec.PIT_BLOCK} m, ${spec.PIT_CORES.length} cores of ${spec.PIT_CORE} m, strip ${fmt(strip)} m ${spec.PIT_BOX_STRIP[0]}→${spec.PIT_BOX_STRIP[1]}; stop ${E.stop} ${inWork ? 'in the work area' : 'in the auxiliary lane (fallback)'}; podium ${fmt(podiumOff)} m from garage 12`)
 }
 
 // ---------------------------------------------------------------- 4. garage order

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { CIRCUIT } from '~/data/suzuka'
 import { EDGE_LINE_GAPS, LINES, OFFSET_LANES, type LineDef } from '~/data/suzuka-barriers-spec'
-import { alongAt, garageS, type Side } from '~/data/suzuka-facilities-spec'
+import { GARAGE_ORDER, PIT_ENVELOPE, alongAt, garageS, type Side } from '~/data/suzuka-facilities-spec'
 import { forwardDelta, type Track } from '~/sim/track'
 import { laneWorldPath, type LanePoint } from './trackside'
 import { LAYER, markDecal, type Ground } from './ground'
@@ -126,9 +126,10 @@ export function buildLines(track: Track, ground: Ground): THREE.Mesh {
 
   // --- pit lane: the two speed-limit lines and the box outlines ------------------------------
   for (const s of [pit.limitStartS, pit.limitEndS]) across(s, pitLat(s) + halfLane, pitLat(s) - halfLane, 0.6)
-  for (let t = 0; t < 11; t++) {
+  // box outlines: one per team block (GARAGE_CENTRES), around the stopped car at PIT_ENVELOPE.stop
+  for (let t = 0; t < GARAGE_ORDER.length; t++) {
     const s = garageS(t)
-    const lat = pit.laneOffset - 2.5
+    const lat = PIT_ENVELOPE.stop
     stripe(s - 3.5, s + 3.5, () => lat + 2.05, 0.3, 3.5)
     stripe(s - 3.5, s + 3.5, () => lat - 2.05, 0.3, 3.5)
     across(s - 3.35, lat + 2.2, lat - 2.2, 0.3)

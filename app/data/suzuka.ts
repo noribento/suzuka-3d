@@ -32,10 +32,11 @@ export const CIRCUIT = {
    * apron 20–24.7 → garages 25.1–56.7 → paddock beyond.
    *
    * Garage positions: `garageS(index)` in ~/data/suzuka-facilities-spec is authoritative
-   * (12 garages of 28.33 m, garage 1 at the T1 / pit-exit end, allocated in GARAGE_ORDER).
-   * `boxStartS` is kept for backwards compatibility as garage 1's centre; the garages run
-   * TOWARDS the final corner from it (garageS(i) = boxStartS − i·boxSpacing), so the old
-   * `boxStartS + i·boxSpacing` formula must not be used.
+   * (GARAGE_CENTRES from the 2009 Mobilityland dossier: 12 blocks of 4 pits × 4.75 m = 19 m
+   * with a 7 m core between every two blocks, 270 m in all; garage 1 at the T1 / pit-exit end,
+   * allocated in GARAGE_ORDER). `boxStartS` is kept for backwards compatibility as garage 1's
+   * centre and `boxSpacing` as the block length; the garages run TOWARDS the final corner from
+   * it with 19 / 26 m steps, so neither `boxStartS ± i·boxSpacing` formula must be used.
    */
   pit: {
     entryS: 5290, // pit lane starts diverging here (OSM Pit Lane way: the split is at s 5291)
@@ -48,8 +49,8 @@ export const CIRCUIT = {
     laneWidth: 9, // fast lane + working lane (OSM edges −10.1 / −19.1)
     wallOffset: -9.4, // pit wall (between track and pit lane)
     garageFront: -25.1, // pit-lane face of the pit building (OSM)
-    boxStartS: 5887.6, // garage 1 centre at the T1 end = garageS(0); see the note above
-    boxSpacing: 28.33, // one F1 garage = 4 boxes × 7.083 m
+    boxStartS: 78.5, // garage 1 centre at the T1 end = garageS(0); see the note above
+    boxSpacing: 19, // one F1 garage = one 4-pit block = 4 × 4.75 m (PIT_BLOCK)
     speedLimit: 80 / 3.6,
   },
   /** Default overview camera azimuth (degrees, east = 0, counter-clockwise). -90 = camera south of the circuit, north up. */

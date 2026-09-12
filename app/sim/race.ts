@@ -1,6 +1,6 @@
 import { APEX_SPEED_TARGETS, CIRCUIT, SECTIONS } from '~/data/suzuka'
 import { DRIVERS, TEAMS, TEAM_ORDER, type Compound, type Driver } from '~/data/drivers'
-import { GARAGE_ORDER, garageIndexOf, garageS } from '~/data/suzuka-facilities-spec'
+import { GARAGE_ORDER, PIT_PLANNED, garageIndexOf, garageS } from '~/data/suzuka-facilities-spec'
 import { Rng } from './random'
 import { forwardDelta, signedDelta, type Track } from './track'
 
@@ -90,6 +90,21 @@ const C_DRAG = 0.00118
 const CP_LEN = 20
 const CAR_HALF_WIDTH = 1.0
 const LANE_STEP = 3.4
+/**
+ * Pit lane steering. The car leaves the lane centreline (`Track.pitLateralAt`) for the working
+ * area in front of its garage (PIT_PLANNED.stopLateral, switched PIT_PLANNED.stopSwitchM before
+ * boxS). The track steering rate (0.6 + 0.07 v m/s, tuned for racing speeds) is PIT_STEER_BOOST ×
+ * faster where a car is far from its grip limit: peeling off into the pit entry (so it follows
+ * the entry ramp instead of lagging it by 5 m toward the track and clipping the T18 separator
+ * wall), over the last PIT_STEER_BOOST_M before the box (a queued car creeping in after its
+ * team-mate still reaches the stop line), and on the way out until it is back within
+ * PIT_STEER_REJOIN of the lane centreline. Measured with `pnpm sim -- --pit-trace` (8 laps, all
+ * 22 cars on one lap): every stop at −23.5 ± 0.1, an unobstructed car back within c(s) + 2 m
+ * 30 m after the box (40 m is the gate), entry-ramp lag ≤ 1.7 m past the first 10 m.
+ */
+const PIT_STEER_BOOST = 2.0
+const PIT_STEER_BOOST_M = 40
+const PIT_STEER_REJOIN = 1
 /** Minimum nose-to-nose spacing (m) for cars in the same lateral band. */
 const MIN_GAP = 5.2
 /** Fuel load at the start (kg) and its cornering-speed cost per kg. */
@@ -564,6 +579,9 @@ export class RaceSim {
     let nearestAheadD = Infinity
     let blocker: CarSim | null = null
     let blockerD = Infinity
+    /** the nearest car ahead in our current band (ignoring the target band; pit-lane following) */
+    let bandBlocker: CarSim | null = null
+    let bandBlockerD = Infinity
     const lookahead = 70
     const inPit = car.pitState !== 'none'
     const myLat = car.lateral
@@ -582,6 +600,10 @@ export class RaceSim {
       if (Math.min(latDiff, latDiffT) < 2 * CAR_HALF_WIDTH + 0.4 && d < blockerD) {
         blockerD = d
         blocker = o
+      }
+      if (inPit && latDiff < 2 * CAR_HALF_WIDTH + 0.4 && d < bandBlockerD) {
+        bandBlockerD = d
+        bandBlocker = o
       }
     }
     car.gapAheadSec = nearestAhead ? nearestAheadD / Math.max(car.v, 5) : Infinity
@@ -670,8 +692,21 @@ export class RaceSim {
           this.events.push({ type: 'pitOut', car: car.idx, position: car.position, entryPosition: car.pitEntryPos, total: this.time - car.pitEntryTime, t: this.time })
         }
       }
-      // simple following inside the pit lane
+      // following inside the pit lane: back off inside 9 m as on the track, and never run faster
+      // than lets us stop MIN_GAP behind a car in our band — or, on the box approach, behind a
+      // car standing where we are heading (a queued car used to brake only inside 9 m and pull
+      // up alongside its stopped team-mate, off the stop line)
       if (blocker && blockerD < 9) target = Math.min(target, blocker.v * 0.9)
+      {
+        const toBox = forwardDelta(s, box, L)
+        let ahead = bandBlocker
+        let aheadD = bandBlockerD
+        if (blocker && blockerD < aheadD && car.pitState !== 'exiting' && toBox < PIT_PLANNED.stopSwitchM && blockerD < toBox + 1) {
+          ahead = blocker
+          aheadD = blockerD
+        }
+        if (ahead) target = Math.min(target, ahead.v * 0.9 + Math.sqrt(2 * 12 * Math.max(0, aheadD - MIN_GAP)))
+      }
     }
 
     // --- following / passing --------------------------------------------
@@ -722,9 +757,9 @@ export class RaceSim {
     } else {
       const pl = this.pitLateralAt(s)
       car.lateralTarget = pl ?? car.lateralTarget
-      if (car.pitState === 'lane') {
+      if (car.pitState === 'entering' || car.pitState === 'lane') {
         const toBox = forwardDelta(s, this.boxS(car), L)
-        if (toBox < 40) car.lateralTarget = CIRCUIT.pit.laneOffset - 2.5
+        if (toBox < PIT_PLANNED.stopSwitchM) car.lateralTarget = PIT_PLANNED.stopLateral
       }
     }
 
@@ -745,7 +780,13 @@ export class RaceSim {
     }
 
     // --- integrate lateral ------------------------------------------------
-    const rate = Math.min(5, 0.6 + car.v * 0.07)
+    let rate = Math.min(5, 0.6 + car.v * 0.07)
+    if (inPit) {
+      const boost = car.pitState === 'exiting'
+        ? car.lateralTarget - car.lateral > PIT_STEER_REJOIN
+        : car.pitState === 'entering' || (car.lateralTarget === PIT_PLANNED.stopLateral && forwardDelta(s, this.boxS(car), L) < PIT_STEER_BOOST_M)
+      if (boost) rate *= PIT_STEER_BOOST
+    }
     const diff = car.lateralTarget - car.lateral
     let stepL = Math.sign(diff) * Math.min(Math.abs(diff) * Math.min(1, h * 3), rate * h)
     // never steer into a band that another car occupies right beside us

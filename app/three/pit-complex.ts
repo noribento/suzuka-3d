@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { DRIVERS, TEAMS } from '~/data/drivers'
 import {
-  BUILDINGS, COLOURS, GARAGE_ORDER, LEADER_TOWER, PIT_BUILDING, PIT_GARAGE_COUNT, PIT_GARAGE_PITCH, PIT_WALL, PRAT_PERCH, SCREENS, garageS,
+  BUILDINGS, COLOURS, GARAGE_ORDER, LEADER_TOWER, PIT_BLOCK, PIT_BOX_STRIP, PIT_BUILDING, PIT_GARAGE_COUNT, PIT_WALL, PRAT_PERCH, SCREENS, garageS,
 } from '~/data/suzuka-facilities-spec'
 import { OSM_BUILDINGS, OSM_PIT_BUILDING, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
@@ -56,7 +56,12 @@ const ROOF = PIT_BUILDING.roofTop // 15.5
 const DOOR_H = PIT_BUILDING.garage.doorHeight // 4.1
 const PIER = PIT_BUILDING.garage.pier // 0.95
 const BOX = PIT_BUILDING.garage.boxPitch // 7.083
-const PITCH = PIT_GARAGE_PITCH // 28.33
+// One team block of the 2009 dossier (4 pits × 4.75 m); the 7 m cores between the 8-pit groups
+// are not modelled yet — the swept body, doors and interiors below still assume a uniform pitch
+// (I1 rebuilds the section from the dossier).
+const PITCH = PIT_BLOCK // 19
+/** half a bay of terrace seating either side of the block centre */
+const BAY_HALF = PITCH / 2 - 0.5
 const GARAGE_BACK = FRONT - PIT_BUILDING.garage.depth // −40.5
 const GARAGE_CEIL = 4.5
 /** the fascia band is 0.7 m proud of the door line, its soffit doubles as the door head */
@@ -680,9 +685,9 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     return mesh
   }
 
-  // --- extents: the box strip (48 × 7.083 m) sets the swept body, the caps take the rest -------
-  const S0 = track.wrap(garageS(PIT_GARAGE_COUNT - 1) - PITCH / 2) // 5561.8, final-corner end
-  const S1 = track.wrap(garageS(0) + PITCH / 2) // 94.8, T1 end
+  // --- extents: the box strip (12 blocks + 6 cores, 270 m) sets the swept body, the caps take the rest
+  const S0 = track.wrap(PIT_BOX_STRIP[0]) // 5625, final-corner end
+  const S1 = track.wrap(PIT_BOX_STRIP[1]) // 88, T1 end
   const podS0 = track.wrap(PIT_BUILDING.podium.s - PODIUM_HALF)
   const podS1 = track.wrap(PIT_BUILDING.podium.s + PODIUM_HALF)
   const stripLen = forwardDelta(S0, S1, L)
@@ -903,12 +908,14 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
     const plateGeo = new THREE.PlaneGeometry(0.4, 0.4)
     plateGeo.rotateY(Math.PI / 2)
     const m = new THREE.Matrix4()
-    // 48 boxes, number 1 at the T1 end; box k (from the final-corner end) starts at S0 + k·7.083
-    for (let kk = 0; kk <= 48; kk++) {
+    // boxes at the old uniform pitch over the strip, number 1 at the T1 end; box k (from the
+    // final-corner end) starts at S0 + k·BOX (placeholder until I1 lays out the 4.75 m pits and cores)
+    const nBoxes = Math.floor(stripLen / BOX)
+    for (let kk = 0; kk <= nBoxes; kk++) {
       const sb = S0 + kk * BOX
       boxes.place(sb, FRONT - 0.3, PIER, 0.6, DOOR_H, pierMat, 0, true)
-      if (kk === 48) break
-      const num = 48 - kk
+      if (kk === nBoxes) break
+      const num = nBoxes - kk
       const garage = Math.floor((num - 1) / 4) // 0 = McLaren
       // team garages stand open on a race weekend; the spare bay under the podium keeps its doors
       if (garage >= teams.length) {
@@ -1020,7 +1027,7 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
       const c = garageS(g)
       // ≈100 seats per hospitality room: 4 rows of 26 centred on the bay, none in the podium recess
       // bay 12 is the pod up to the podium recess: only the T1-side sliver of terrace remains
-      const spans: [number, number][] = g === PIT_GARAGE_COUNT - 1 ? [[podS1 + 0.6, c + 13.5]] : [[c - 7.2, c + 7.2]]
+      const spans: [number, number][] = g === PIT_GARAGE_COUNT - 1 ? [[podS1 + 0.6, c + BAY_HALF]] : [[c - 7.2, c + 7.2]]
       for (const [a, b] of spans) {
         for (let r = 0; r < ROWS; r++) {
           const lat = STEPS_BACK + r * TREAD + 0.42
@@ -1028,8 +1035,8 @@ export function buildPitComplex(ctx: EnvBuildContext): { buildingRoofMat: THREE.
         }
       }
       // 3F: two rows along the open terrace (none in the pod)
-      const a3 = signedDelta(podS0, c - 13.5, L) < 0 ? podS0 + 0.5 : c - 13.5
-      if (signedDelta(a3, c + 13.5, L) > 2) for (const lat of [-23.1, -24.1]) seatRow(a3, c + 13.5, lat, F3)
+      const a3 = signedDelta(podS0, c - BAY_HALF, L) < 0 ? podS0 + 0.5 : c - BAY_HALF
+      if (signedDelta(a3, c + BAY_HALF, L) > 2) for (const lat of [-23.1, -24.1]) seatRow(a3, c + BAY_HALF, lat, F3)
     }
     for (const inst of bucketedInstancedMeshes(seatGeo, seatMat, seatMatrices, null, (i) => Math.floor(seatS[i]! / 60), { name: 'pitSeats', receiveShadow: true })) group.add(inst)
 

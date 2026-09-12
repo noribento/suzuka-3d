@@ -5,10 +5,23 @@
  *   pnpm sim                      # 3 laps, one seed, human-readable report
  *   pnpm sim -- --laps 53 --seeds 5
  *   pnpm sim -- --laps 53 --seeds 20 --json > out.json
+ *   pnpm sim -- --laps 8 --seeds 3 --pit-trace [--envelope out.json]
  *
  * Runs the same RaceSim the browser uses (at thousands of × realtime) and reports the
  * numbers that matter for realism: track geometry, corner apex speeds vs targets, lap
  * time distribution, overtakes, physical overlaps, pit loss and pit windows.
+ *
+ * --pit-trace records every car with pitState ≠ 'none' in 5 m bins of s (min / max lateral)
+ * and reports the measured pit envelope against PIT_ENVELOPE (app/data/suzuka-facilities-spec):
+ * the entry lag (how far toward the track an entering car sits from `Track.pitLateralAt` on the
+ * entry ramp), the exit lag (the same on the exit ramp, once the car has rejoined the lane after
+ * its box), the lateral of every stopped car vs PIT_ENVELOPE.stop, the distance after the box at
+ * which an exiting car is back within c(s) + 2 m (median = the unobstructed car; the max is
+ * traffic — a car yielding to one passing in the lane), the distance before the box at which an
+ * entering car reaches stop + 0.5, and overlap samples between two pit-lane cars. Exit code 1
+ * when a lag exceeds the envelope, a stop misses PIT_ENVELOPE.stop by more than 0.5 m or the
+ * median rejoin takes more than 40 m. --envelope <json> writes the bins (the ops-check can verify
+ * against a measured envelope instead of the analytic one).
  */
 import './ts-hooks.mjs'
 
@@ -26,6 +39,9 @@ const SEEDS = Number(opt('seeds', 1))
 const SEED0 = Number(opt('seed', 12345))
 const JSON_OUT = args.includes('--json')
 const VERBOSE = args.includes('--verbose')
+const PIT_TRACE = args.includes('--pit-trace')
+const ENVELOPE_OUT = opt('envelope', null)
+const spec = PIT_TRACE || ENVELOPE_OUT ? await import('../app/data/suzuka-facilities-spec.ts') : null
 
 const log = (...a) => { if (!JSON_OUT) console.log(...a) }
 const kmh = (v) => v * 3.6
@@ -121,6 +137,7 @@ for (let k = 0; k < SEEDS; k++) {
   const pitLog = new Map() // idx -> { tIn, dIn }
   const pitLosses = []
   const pitLaps = []
+  const trace = PIT_TRACE || ENVELOPE_OUT ? pitTracer(track, race) : null
   const wall0 = performance.now()
   const lapTimes = []
   let evCursor = 0
@@ -129,6 +146,7 @@ for (let k = 0; k < SEEDS; k++) {
     simSeconds += h
     if (simSeconds > 3 * 3600) break
     if (race.status !== 'racing' && race.status !== 'finished') continue
+    trace?.sample()
     for (const c of race.cars) {
       if (!Number.isFinite(c.s) || !Number.isFinite(c.v) || !Number.isFinite(c.lateral)) nan = true
       maxLat = Math.max(maxLat, Math.abs(c.lateral))
@@ -195,6 +213,13 @@ for (let k = 0; k < SEEDS; k++) {
   log(`  overtakes total ${overtakes.length}, racing (lap>1, not pit) ${racing.length} ${JSON.stringify(zones)}`)
   log(`  pit loss mean ${res.pitLossMean == null ? 'n/a' : res.pitLossMean.toFixed(1) + ' s'} (${pitLosses.length} stops), pit laps ${pitLaps.sort((a, b) => a - b).join(' ')}`)
   log(`  fastest ${res.fastest ? `${res.fastest.code} ${formatLapTime(res.fastest.time)}` : '—'}, events ${JSON.stringify(evCounts)}`)
+  if (trace) {
+    res.pitTrace = trace.report()
+    const p = res.pitTrace
+    log(`  pit trace: entry lag ${p.entryLag.toFixed(2)} m @s ${p.entryLagS.toFixed(0)} (envelope ${p.envelope.entryLag}), exit lag ${p.exitLag.toFixed(2)} m @s ${p.exitLagS.toFixed(0)} (envelope ${p.envelope.exitLag}), pit-car overlaps ${p.pitOverlaps}`)
+    log(`  pit trace: stopped lateral ${p.stop.min.toFixed(2)}…${p.stop.max.toFixed(2)} (${p.stop.n} stops, target ${p.envelope.stop}); back within c + 2 m after the box: median ${p.exitRecovery.median.toFixed(1)} m, max ${p.exitRecovery.max.toFixed(1)} m, ${p.exitRecovery.over} of ${p.exitRecovery.n} over 40 m; at stop + 0.5 before the box: median ${p.entryRecovery.median.toFixed(1)} m, max ${p.entryRecovery.max.toFixed(1)} m, ${p.entryRecovery.over} never`)
+    if (p.failures.length) for (const f of p.failures) log(`  pit trace FAIL: ${f}`)
+  }
   if (VERBOSE || SEEDS === 1) {
     for (const o of res.order) {
       log(`  ${String(o.pos).padStart(2)} ${o.code} laps ${String(o.laps).padStart(2)} best ${formatLapTime(o.best)} last ${formatLapTime(o.last)} ${o.pos === 1 ? '    LEADER' : ('+' + o.gap.toFixed(3)).padStart(10)} ${o.compound} age ${String(o.age).padStart(2)} stops ${o.stops}`)
@@ -216,6 +241,138 @@ if (SEEDS > 1) {
 }
 
 if (JSON_OUT) console.log(JSON.stringify(report, null, 2))
+
+if (ENVELOPE_OUT) {
+  const fs = await import('node:fs')
+  const bins = new Map()
+  for (const r of report.seeds) for (const b of r.pitTrace?.bins ?? []) {
+    const cur = bins.get(b.s)
+    if (!cur) bins.set(b.s, { ...b })
+    else { cur.min = Math.min(cur.min, b.min); cur.max = Math.max(cur.max, b.max); cur.n += b.n }
+  }
+  const out = {
+    generated: new Date().toISOString(),
+    seeds: report.seeds.map((r) => r.seed),
+    laps: LAPS,
+    envelope: spec.PIT_ENVELOPE,
+    stop: spec.PIT_ENVELOPE.stop,
+    summary: report.seeds.map((r) => ({ seed: r.seed, ...r.pitTrace, bins: undefined })),
+    bins: [...bins.values()].sort((a, b) => forwardDelta(suzuka.CIRCUIT.pit.entryS, a.s, track.length) - forwardDelta(suzuka.CIRCUIT.pit.entryS, b.s, track.length)),
+  }
+  fs.writeFileSync(ENVELOPE_OUT, JSON.stringify(out, null, 1))
+  log(`\nenvelope written to ${ENVELOPE_OUT} (${out.bins.length} bins)`)
+}
+if (PIT_TRACE && report.seeds.some((r) => r.pitTrace?.failures.length)) {
+  console.error('pit trace: the measured envelope exceeds PIT_ENVELOPE / the stop target')
+  process.exitCode = 1
+}
+
+// ---------------------------------------------------------------- pit trace (--pit-trace)
+/**
+ * Samples every car in the pit lane each step: 5 m bins of (min, max) lateral, the lag from
+ * `Track.pitLateralAt` on the entry / exit ramps, the lateral of every stopped car, and the
+ * distance after the box at which an exiting car is back within c(s) + 2 m.
+ */
+function pitTracer(track, race) {
+  const E = spec.PIT_ENVELOPE
+  const pit = suzuka.CIRCUIT.pit
+  const L = track.length
+  const BIN = 5
+  const bins = new Map()
+  const entryEnd = pit.entryS + pit.entryRamp + 40 // the lag has decayed by here; the box switch starts later
+  const exitStart = pit.exitS - pit.exitRamp
+  let entryLag = 0, entryLagS = 0, exitLag = 0, exitLagS = 0
+  const stops = [] // lateral of every car while pitState === 'box'
+  const stopped = new Set()
+  const exiting = new Map() // idx -> recovered distance (m after the box) or null while not yet within c + 2
+  const rejoined = new Set() // cars whose exit lag counts (back within c + 2 after the box)
+  const entryRec = new Map() // idx -> distance before the box at which lateral first reached stop − 0.5
+  const recoveries = []
+  const entryRecoveries = []
+  let pitOverlaps = 0
+  let tick = 0
+  const sample = () => {
+    tick++
+    for (const c of race.cars) {
+      if (c.pitState === 'none') {
+        if (exiting.has(c.idx)) { recoveries.push(exiting.get(c.idx) ?? Infinity); exiting.delete(c.idx); rejoined.delete(c.idx) }
+        if (entryRec.has(c.idx)) { entryRecoveries.push(entryRec.get(c.idx) ?? Infinity); entryRec.delete(c.idx) }
+        stopped.delete(c.idx)
+        continue
+      }
+      const s = track.wrap(c.s)
+      const k = Math.floor(s / BIN) * BIN
+      const b = bins.get(k)
+      if (!b) bins.set(k, { s: k, min: c.lateral, max: c.lateral, n: 1 })
+      else { b.min = Math.min(b.min, c.lateral); b.max = Math.max(b.max, c.lateral); b.n++ }
+      const pl = track.pitLateralAt(s)
+      const box = race.boxS(c)
+      if (pl !== null) {
+        const dEntry = forwardDelta(pit.entryS, s, L)
+        if ((c.pitState === 'entering' || c.pitState === 'lane') && dEntry <= entryEnd - pit.entryS) {
+          const lag = c.lateral - pl
+          if (lag > entryLag) { entryLag = lag; entryLagS = s }
+        }
+        if (c.pitState === 'exiting') {
+          const d = forwardDelta(box, s, L) < L / 2 ? forwardDelta(box, s, L) : 0 // still short of the box line: 0
+          if (!exiting.has(c.idx)) exiting.set(c.idx, null)
+          if (exiting.get(c.idx) === null && c.lateral >= pl - 2) { exiting.set(c.idx, d); rejoined.add(c.idx) }
+          if (rejoined.has(c.idx) && forwardDelta(exitStart, s, L) <= pit.exitRamp) {
+            const lag = Math.abs(c.lateral - pl)
+            if (lag > exitLag) { exitLag = lag; exitLagS = s }
+          }
+        }
+        if (c.pitState === 'entering' || c.pitState === 'lane') {
+          const toBox = forwardDelta(s, box, L)
+          if (!entryRec.has(c.idx)) entryRec.set(c.idx, null)
+          if (entryRec.get(c.idx) === null && toBox < L / 2 && c.lateral <= E.stop + 0.5) entryRec.set(c.idx, toBox)
+        }
+      }
+      if (c.pitState === 'box' && c.v === 0 && !stopped.has(c.idx)) { stopped.add(c.idx); stops.push(c.lateral) }
+    }
+    if (tick % 10 === 0) {
+      const inPit = race.cars.filter((c) => c.pitState !== 'none' && c.pitState !== 'box')
+      for (let i = 0; i < inPit.length; i++) for (let j = i + 1; j < inPit.length; j++) {
+        const a = inPit[i], b = inPit[j]
+        let d = Math.abs(a.s - b.s); d = Math.min(d, L - d)
+        if (d < 4.6 && Math.abs(a.lateral - b.lateral) < 1.9) pitOverlaps++
+      }
+    }
+  }
+  const report = () => {
+    const stat = (xs, over = Infinity) => {
+      const sorted = [...xs].sort((a, b) => a - b)
+      const finite = sorted.filter((x) => Number.isFinite(x))
+      return {
+        n: xs.length,
+        min: sorted[0] ?? NaN,
+        max: sorted[sorted.length - 1] ?? NaN,
+        mean: finite.length ? finite.reduce((a, b) => a + b, 0) / finite.length : NaN,
+        median: sorted.length ? sorted[Math.floor((sorted.length - 1) / 2)] : NaN,
+        over: sorted.filter((x) => x > over).length,
+      }
+    }
+    const stop = stat(stops)
+    const exitRecovery = stat(recoveries, 40)
+    const entryRecovery = stat(entryRecoveries, Infinity)
+    entryRecovery.over = entryRecoveries.filter((x) => !Number.isFinite(x)).length
+    const failures = []
+    if (entryLag > E.entryLag) failures.push(`entry lag ${entryLag.toFixed(2)} m > PIT_ENVELOPE.entryLag ${E.entryLag}`)
+    if (exitLag > E.exitLag) failures.push(`exit lag ${exitLag.toFixed(2)} m > PIT_ENVELOPE.exitLag ${E.exitLag}`)
+    if (stops.length && (Math.abs(stop.min - E.stop) > 0.5 || Math.abs(stop.max - E.stop) > 0.5)) failures.push(`stopped lateral ${stop.min.toFixed(2)}…${stop.max.toFixed(2)} outside PIT_ENVELOPE.stop ${E.stop} ± 0.5`)
+    if (recoveries.length && exitRecovery.median > 40) failures.push(`median rejoin ${exitRecovery.median.toFixed(1)} m after the box > 40 m`)
+    return {
+      envelope: { entryLag: E.entryLag, exitLag: E.exitLag, stop: E.stop },
+      entryLag, entryLagS, exitLag, exitLagS, pitOverlaps,
+      stop,
+      exitRecovery,
+      entryRecovery,
+      failures,
+      bins: [...bins.values()].sort((a, b) => a.s - b.s),
+    }
+  }
+  return { sample, report }
+}
 
 // ---------------------------------------------------------------- brake disc temperatures (--brakes)
 // Print-only tuning table for app/sim/brake-thermal.ts: runs its own race (same seed, separate
