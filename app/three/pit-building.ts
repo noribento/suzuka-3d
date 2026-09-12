@@ -31,16 +31,23 @@ import {
  *   rows behind the drip-line glass rail, the lounge glass on −28.6), the 3F terrace (five rows
  *   from 8.15 behind the −28.0 parapet up to the 9.85 deck) under the curved canopy (13.4 at the
  *   back wall −52 → 15.3 at the front lip −22.0, round columns every pit on −28.0);
- * - along s: the control pod 5554.5 → 5590 (silver aluminium `podLoft`, its glass band as a
- *   `podBand` ring, a dark-blue sign band under it, the dark-glass race-control corner and the
- *   portholes) on the OSM cap prism of the 1F (the medical centre), the media section 5590 →
+ * - along s: the control pod 5554.5 → 5590 (silver aluminium `podLoft`, top 12.5 under the
+ *   canopy, which starts over its shoulder at 5566.5; its glass band as a `podBand` ring, a
+ *   dark-blue sign band under it, the dark-glass race-control corner and the portholes) on the
+ *   OSM cap prism of the 1F (the medical centre), the media section 5590 →
  *   5625 (a straight 2F / 3F glass body, no terraces), block 12 with the flat podium terrace,
  *   the eleven team blocks with their stepped terraces, the 88 → 92 paddock-information box and
  *   the T1 nose 92 → 103.3 (the same loft mirrored, top 11); seven stair towers on the paddock
- *   side; the garage row's piers, folded glass door leaves (team blocks), ribbed shutters
+ *   side (0.3 m proud of the tiled wall); the garage row's piers, folded white-framed glass door leaves (team blocks), ribbed shutters
  *   (block 12 and the 49–55 caps), odd number plates, the podium bay's concrete backdrop;
  * - the seven screens (three on the canopy, one facing the paddock, four trackside on posts —
  *   SCREENS.mount).
+ *
+ * The down-facing white surfaces (canopy soffit, 3F soffit, beam and door-head undersides, the
+ * rear canopy) are their own merge `pitShellSoffit` on `soffitShellMat` = shellMat plus the
+ * `EMISSIVE.soffitBounce` stand-in for the apron bounce (a downward normal gets no sun and only
+ * the dark lower hemisphere, so they rendered olive-khaki); the 2F drip-line balustrade's plates
+ * are `pitRailGlass` on the transparent `railGlassMat`.
  *
  * Everything static and single-material is merged; repeated pieces (terrace seats, rail posts,
  * 3F columns, door leaves) are instanced per 60 m bay so the follow cameras can cull them.
@@ -56,9 +63,9 @@ import {
  *   instanceColor, 12 mm above the floor), the white pit-room wall at the back with a rear door
  *   per pit — open on the team blocks (a rolled shutter under the header, the paddock visible
  *   through the garage), a closed ribbed shutter on block 12 and the caps — and the WASH: the
- *   floor, mesh and pit-room materials carry `EMISSIVE.garageWash` (luminance 0.72, under the
- *   bloom threshold, no halo), so the shaded pit-side facade of the reproduced 14:00 still reads
- *   as lit interiors. The equipment is a prop set (`registerPropSet('ops', 'ops-garage')`: one
+ *   mesh and pit-room materials carry `EMISSIVE.garageWash` (luminance 0.11, a lift over the
+ *   shade, no halo; the floor reads its concrete map unlit), so the shaded pit-side facade of
+ *   the reproduced 14:00 still reads as lit interiors. The equipment is a prop set (`registerPropSet('ops', 'ops-garage')`: one
  *   InstancedMesh per prototype and 250 m cell, receive-only, every piece at
  *   lateral ≤ `interior.equipmentFront` so the chase-lens column and the car box stay clear):
  *   tool-wall units, roll cabinets (metal_tool_chest), shelves (steel_frame_shelves_01), tyre
@@ -361,7 +368,7 @@ function rearUpperTexture(k: number): THREE.Texture {
   return tex(c)
 }
 
-/** Procedural facade tiles (the fallback for rectangular_facade_tiles): 4 × 8 warm-grey tiles with dark joints per 2 m tile. */
+/** Procedural facade tiles (the fallback for rectangular_facade_tiles): 4 × 8 light-grey panels with dark joints per 2 m tile. */
 function facadeTilesTexture(k: number): THREE.Texture {
   const w = 256, h = 256
   const { c, ctx } = canvas(w, h, k)
@@ -374,7 +381,7 @@ function facadeTilesTexture(k: number): THREE.Texture {
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const v = 0.92 + rnd() * 0.12
-      ctx.fillStyle = `rgb(${Math.round(190 * v)}, ${Math.round(186 * v)}, ${Math.round(178 * v)})`
+      ctx.fillStyle = `rgb(${Math.round(214 * v)}, ${Math.round(216 * v)}, ${Math.round(213 * v)})`
       ctx.fillRect(i * tw + 2, j * th + 2, tw - 4, th - 4)
     }
   }
@@ -416,6 +423,19 @@ function podiumTexture(k: number): THREE.Texture {
   return tex(c, THREE.ClampToEdgeWrapping)
 }
 
+/** The scrutineering band over the 49–55 caps' fascia (PIT_BUILDING.v2.plates.capText): a white strip, the word in dark letters between two red rules. */
+function capBandTexture(k: number): THREE.Texture {
+  const w = 1024, h = 96
+  const { c, ctx } = canvas(w, h, k)
+  ctx.fillStyle = '#f8f8f6'
+  ctx.fillRect(0, 0, w, h)
+  ctx.fillStyle = COLOURS.circuitRed.lit
+  ctx.fillRect(0, 6, w, 6)
+  ctx.fillRect(0, h - 12, w, 6)
+  label(ctx, PIT_BUILDING.v2.plates.capText, w / 2, h / 2, 56, '#141414', 900, 'center', w - 80)
+  return tex(c, THREE.ClampToEdgeWrapping)
+}
+
 /** The garages' monitor wall: 3 × 2 dark screens in a black frame (map) and their glow alone (emissiveMap, EMISSIVE.opsMonitor). */
 function monitorTextures(k: number): { map: THREE.Texture; emissive: THREE.Texture } {
   const w = 256, h = 160
@@ -452,11 +472,13 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
   const { track, ground, group, boxes, quality, assets: reg } = ctx
   const L = track.length
   const k = quality.textureScale
-  const { plasterTile, shellMat, podMat, pierMat, buildingRoofMat, glassMat, darkMat, interiorMat, railMat, seatMat, lampMat, boardMat, concreteMat } = pitMaterials(ctx)
+  const { plasterTile, shellMat, soffitShellMat, podMat, pierMat, buildingRoofMat, glassMat, railGlassMat, darkMat, interiorMat, railMat, seatMat, lampMat, boardMat, concreteMat } = pitMaterials(ctx)
   const fasciaMat = new THREE.MeshStandardMaterial({ map: fasciaTexture(k), roughness: 0.55 })
   const doorMat = new THREE.MeshStandardMaterial({ map: doorAtlas(k), roughness: 0.6 })
   // the garage-interior wash (EMISSIVE.garageWash): an emissive colour changes no program, the
-  // floor / mesh / pit-room materials below carry it so the shaded fronts read as lit interiors
+  // mesh / pit-room materials below carry it so the shaded fronts read as lit interiors; the
+  // floor is lit by the sky alone and reads its concrete map (the photo's floor is darker than
+  // the apron — I1 review V3)
   const wash = { emissive: EMISSIVE.garageWash.color, emissiveIntensity: EMISSIVE.garageWash.intensity * emissiveScale() }
   const soffit = soffitTextures(k)
   const soffitMat = new THREE.MeshStandardMaterial({ map: soffit.map, roughness: 0.7, emissive: 0xffffff, emissiveMap: soffit.emissive, emissiveIntensity: EMISSIVE.terraceDownlight.intensity * emissiveScale() })
@@ -466,8 +488,8 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
   // procedural fallback so the Node / low-tier build has the same geometry
   const floorTile = tileMetres(reg, 'tex/concrete_floor_03/diff', 2.5)
   const floorMat = reg
-    ? pbrFromAssets(reg, 'concrete_floor_03', { fallback: () => new THREE.MeshStandardMaterial({ map: garageFloorTexture(k), roughness: 0.35, ...wash }), handBuiltUv: true, normalScale: 0.6, extra: wash })
-    : new THREE.MeshStandardMaterial({ map: garageFloorTexture(k), roughness: 0.35, ...wash })
+    ? pbrFromAssets(reg, 'concrete_floor_03', { fallback: () => new THREE.MeshStandardMaterial({ map: garageFloorTexture(k), roughness: 0.35 }), handBuiltUv: true, normalScale: 0.6 })
+    : new THREE.MeshStandardMaterial({ map: garageFloorTexture(k), roughness: 0.35 })
   // the garages' side walls: white expanded metal (the fence003 cutout tinted white; the chain-link canvas without the pack), metre UVs both ways
   const meshMat = cutoutFromAssets(reg, 'fence003', {
     quality, tile: 2, handBuiltUv: true, normalScale: 0.4, extra: { color: 0xf4f4f2, metalness: 0.4, ...wash },
@@ -479,10 +501,13 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
   })
   // the pit-room wall at the back of the garages, seen from both sides through the rear doors
   const pitRoomMat = new THREE.MeshStandardMaterial({ color: 0xe8eae8, roughness: 0.85, side: THREE.DoubleSide, ...wash })
-  // the 2F / 3F paddock wall (rectangular_facade_tiles) and its window bands
+  // the 2F / 3F paddock wall: light panels (pphi-4, padoc.jpg) with the joints from the
+  // rectangular_facade_tiles normal / ARM under a flat albedo — the tile photo's own albedo is
+  // a dark warm grey (mean sRGB 88,86,79) and rendered as a brown wall in full sun (I1 review
+  // V5); the window bands are their own canvas
   const tilesTile = tileMetres(reg, 'tex/rectangular_facade_tiles/diff', 2)
   const tilesMat = reg
-    ? pbrFromAssets(reg, 'rectangular_facade_tiles', { fallback: () => new THREE.MeshStandardMaterial({ map: facadeTilesTexture(k), roughness: 0.7 }), handBuiltUv: true, normalScale: 0.6 })
+    ? pbrFromAssets(reg, 'rectangular_facade_tiles', { fallback: () => new THREE.MeshStandardMaterial({ map: facadeTilesTexture(k), roughness: 0.7 }), handBuiltUv: true, normalScale: 0.6, noMap: true, extra: { color: 0xdcdedb } })
     : new THREE.MeshStandardMaterial({ map: facadeTilesTexture(k), roughness: 0.7 })
   const windowMat = new THREE.MeshStandardMaterial({ map: rearUpperTexture(k), roughness: 0.25, metalness: 0.5 })
   const podiumMat = boardMat(podiumTexture(k))
@@ -513,6 +538,8 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
   const S1 = track.wrap(PIT_BOX_STRIP[1]) // 88: block 1's T1 edge
   const POD0 = track.wrap(POD.sRange[0]) // 5554.5
   const ROW0 = track.wrap(MEDIA.sRange[0]) // 5590: the 1F garage row and the 2F / 3F body start here
+  /** the canopy starts over the control pod's shoulder (pphi-4: the canopy line runs above the pod, its nose protrudes) */
+  const CANOPY0 = track.wrap(POD0 + 12) // ≈ 5566.5
   const BLOCK12_END = track.wrap(S0 + PIT_BLOCK) // 5644: the podium terrace ends, the stepped terraces begin
   const LINK1 = track.wrap(T1.info.sRange[1]) // 92: the paddock-information box ends, the T1 nose begins
   const NOSE1 = track.wrap(T1.sRange[1]) // 103.3
@@ -522,8 +549,12 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
   const canopyUnder = (lat: number) => canopyTopAt(lat) - CANOPY_T
 
   const shell: THREE.BufferGeometry[] = []
+  /** the down-facing white surfaces (canopy soffit, 3F soffit, beam and door-head undersides, rear canopy soffit): soffitShellMat, see pitMaterials */
+  const downShell: THREE.BufferGeometry[] = []
   const roof: THREE.BufferGeometry[] = []
   const glass: THREE.BufferGeometry[] = []
+  /** the 2F drip-line balustrade's clear plates: railGlassMat (transparent), see pitMaterials */
+  const railGlass: THREE.BufferGeometry[] = []
   const bandGlass: THREE.BufferGeometry[] = []
   const darkGlass: THREE.BufferGeometry[] = []
   const floor: THREE.BufferGeometry[] = []
@@ -548,9 +579,15 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
     // the pit-room wall's header over the rear doors (its garage face) and the front header's inner face over the openings
     pitRoom.push(sweep(track, [[GARAGE_BACK, CEIL], [GARAGE_BACK, REAR_DOOR.h]], ROW0, S1, 4))
     interior.push(sweep(track, [[SHUTTER, DOOR_H], [SHUTTER, CEIL]], ROW0, S1, 4))
-    // the header's lane face over the openings, then the beam underside, its inner face and the soffit
+    // the header's lane face over the openings, its underside (the door head at 3.0, faces down)
+    // and its top (4.6, faces up into the slab void) — the 0.35 m band between the door plane
+    // and the pier face would otherwise be a see-through slot up to the 3F soffit (I1 review F2)
     shell.push(sweep(track, [[PIER_FACE, CEIL], [PIER_FACE, DOOR_H]], ROW0, S1, plasterTile))
-    shell.push(sweep(track, [[DRIP, FASCIA_LO], [DRIP - BEAM_DEPTH, FASCIA_LO], [DRIP - BEAM_DEPTH, CEIL]], ROW0, S1, plasterTile))
+    downShell.push(sweep(track, [[PIER_FACE, DOOR_H], [SHUTTER, DOOR_H]], ROW0, S1, plasterTile))
+    shell.push(sweep(track, [[SHUTTER, CEIL], [PIER_FACE, CEIL]], ROW0, S1, plasterTile))
+    // the fascia beam: its underside (faces down, bounce-lit) and its inner face
+    downShell.push(sweep(track, [[DRIP, FASCIA_LO], [DRIP - BEAM_DEPTH, FASCIA_LO]], ROW0, S1, plasterTile))
+    shell.push(sweep(track, [[DRIP - BEAM_DEPTH, FASCIA_LO], [DRIP - BEAM_DEPTH, CEIL]], ROW0, S1, plasterTile))
     soffits.push(sweep(track, [[DRIP - BEAM_DEPTH, CEIL], [PIER_FACE, CEIL]], ROW0, S1, soffitTile))
     // the fascia: one atlas row per segment — blocks alternate the two panel variants, cores and the media 1F are plain
     const fascia: THREE.BufferGeometry[] = []
@@ -569,7 +606,7 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
     // the 2F wall — and its end plates; the round columns under its edge are instanced below
     rearLower.push(sweep(track, [[WALL_OUT, REAR_DOOR.h], [WALL_OUT, RC.soffit[0]]], ROW0, S1, plasterTile))
     rearLower.push(sweep(track, [[GARAGE_BACK, REAR_DOOR.h], [WALL_OUT, REAR_DOOR.h]], ROW0, S1, plasterTile))
-    rearLower.push(sweep(track, [[GARAGE_BACK, RC.soffit[0]], [RC.to, RC.soffit[1]]], ROW0, S1, plasterTile))
+    downShell.push(sweep(track, [[GARAGE_BACK, RC.soffit[0]], [RC.to, RC.soffit[1]]], ROW0, S1, plasterTile))
     rearLower.push(sweep(track, [[RC.to, RC.soffit[1]], [RC.to, RC.soffit[1] + RC_T]], ROW0, S1, plasterTile))
     roof.push(sweep(track, [[RC.to, RC.soffit[1] + RC_T], [REAR_WALL, REAR_BASE]], ROW0, S1, 4))
     const rcOutline: Pt[] = [[GARAGE_BACK, RC.soffit[0]], [RC.to, RC.soffit[1]], [RC.to, RC.soffit[1] + RC_T], [REAR_WALL, REAR_BASE]]
@@ -600,11 +637,11 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
     const lipBack = CANOPY_FRONT - CANOPY_LIP
     const top: Pt[] = [...CANOPY.filter(([x]) => x < lipBack - 0.05), [lipBack, canopyTopAt(lipBack)], [lipBack, canopyTopAt(CANOPY_FRONT) + CANOPY_LIP], [CANOPY_FRONT, canopyTopAt(CANOPY_FRONT) + CANOPY_LIP], [CANOPY_FRONT, canopyUnder(CANOPY_FRONT)]]
     const underCurve: Pt[] = [...CANOPY].reverse().map(([x, y]) => [x, y - CANOPY_T] as Pt)
-    const under: Pt[] = [...underCurve, [REAR_WALL, canopyTopAt(REAR_WALL)]]
-    roof.push(sweep(track, top, ROW0, LINK1, 4))
-    shell.push(sweep(track, under, ROW0, LINK1, plasterTile))
+    roof.push(sweep(track, top, CANOPY0, LINK1, 4))
+    downShell.push(sweep(track, underCurve, CANOPY0, LINK1, plasterTile))
+    shell.push(sweep(track, [[REAR_WALL, canopyUnder(REAR_WALL)], [REAR_WALL, canopyTopAt(REAR_WALL)]], CANOPY0, LINK1, plasterTile))
     const canopyOutline: Pt[] = [...top, ...underCurve.slice(1)]
-    shell.push(sectionPlate(track, ROW0, canopyOutline, false), sectionPlate(track, LINK1, canopyOutline, true))
+    shell.push(sectionPlate(track, CANOPY0, canopyOutline, false), sectionPlate(track, LINK1, canopyOutline, true))
 
     // 3F terrace 5625 → 88: the wall's inner face, the deck, five rows, the parapet, the 3F soffit
     const t3: Pt[] = [[REAR_WALL + REAR_WALL_T, canopyUnder(REAR_WALL + REAR_WALL_T)], [REAR_WALL + REAR_WALL_T, F3], [T3.deck.lateral, F3]]
@@ -613,8 +650,9 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
       const y = T3.frontRow.y + r * ROW3_RISER
       t3.push([lat - ROW3_TREAD, y], [lat, y])
     }
-    t3.push([T3.frontRow.lateral, PARAPET_TOP], [T3.parapet.lateral, PARAPET_TOP], [T3.parapet.lateral, SOFFIT3], [LOUNGE, SOFFIT3])
+    t3.push([T3.frontRow.lateral, PARAPET_TOP], [T3.parapet.lateral, PARAPET_TOP], [T3.parapet.lateral, SOFFIT3])
     shell.push(sweep(track, t3, S0, S1, plasterTile))
+    downShell.push(sweep(track, [[T3.parapet.lateral, SOFFIT3], [LOUNGE, SOFFIT3]], S0, S1, plasterTile))
     // 2F: the flat podium terrace on block 12, the stepped terraces from 5644 (3 rows), the front walk to the drip line
     const t2flat: Pt[] = [[LOUNGE, F2], [DRIP, F2]]
     const t2: Pt[] = [[LOUNGE, STEP_TOP], [T2.steps[1], STEP_TOP]]
@@ -637,8 +675,9 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
     shell.push(sectionPlate(track, BLOCK12_END, stepEnd, false))
     // the lounge glass: from the landing (the terraces) or the deck (block 12) up to the 3F soffit
     glass.push(sweep(track, [[LOUNGE, SOFFIT3], [LOUNGE, STEP_TOP]], BLOCK12_END, S1, 3), sweep(track, [[LOUNGE, SOFFIT3], [LOUNGE, F2]], S0, BLOCK12_END, 3))
-    // the 2F drip-line glass rail: two-faced plates, a top tube, posts every 1.5 m
-    glass.push(sweep(track, [[DRIP, F2 + RAIL_H], [DRIP, F2 + 0.1]], ROW0, S1, 3), sweep(track, [[DRIP, F2 + 0.1], [DRIP, F2 + RAIL_H]], ROW0, S1, 3))
+    // the 2F drip-line glass rail: two-faced clear plates (railGlassMat, transparent — the seated
+    // guests show through, pitph-12 / podium.jpg), a top tube, posts every 1.5 m
+    railGlass.push(sweep(track, [[DRIP, F2 + RAIL_H - 0.05], [DRIP, F2 + 0.1]], ROW0, S1, 3), sweep(track, [[DRIP, F2 + 0.1], [DRIP, F2 + RAIL_H - 0.05]], ROW0, S1, 3))
     rails.push(tube(track, ROW0, S1, DRIP, F2 + RAIL_H + 0.02, 0.02))
 
     // the media section 5590 → 5625: a straight glass body behind the 2F ledge, its slab edge and end walls
@@ -689,13 +728,14 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
   // --- the pods: the control tower (final corner) and the T1 nose --------------------------------------
   {
     // The control pod is the whole final-corner end of the 2F / 3F volume: a bullet nose rounded
-    // in plan and elevation, its tip on the glass band's mid line, sitting on the 1F cap, its top
-    // easing down to the canopy lip over the last 6 m so the tail meets the media section.
+    // in plan and elevation, its tip on the glass band's mid line, sitting on the 1F cap. Its
+    // top (POD.top 12.5, pphi-4 / ct-13) stays UNDER the canopy, which runs over the pod's
+    // shoulder from CANOPY0 — the nose protrudes — so there is no tail easing (I1 review V6).
     const bandY = POD.band
     const pod: PodLoftParams = {
       track, s0: POD0, s1: ROW0 - 0.02, front: DRIP + 0.9, back: BACK + 1.2,
       bottom: F2, mid: (bandY[0] + bandY[1]) / 2, top: POD.top,
-      nose: { plan: 18, top: 18, bottom: 9 }, tail: { top: canopyTopAt(CANOPY_FRONT), ease: 6 }, tile: plasterTile, band: null,
+      nose: { plan: 18, top: 9, bottom: 6 }, tail: null, tile: plasterTile, band: null,
     }
     const podMesh = new THREE.Mesh(podLoft(pod), podMat)
     podMesh.name = 'controlPod'
@@ -790,12 +830,20 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
         shutters.push(g)
       }
     }
-    for (const inst of bucketedInstancedMeshes(leafGeo, [darkMat, glassMat], leafM, null, (i) => Math.floor(leafS[i]! / 60), { name: 'pitDoorLeaves', receiveShadow: true })) group.add(inst)
-    // number plates (odd scheme, PIT_BUILDING.v2.plates): plate n on the +s pier of pit n, on the header just right of the pier
+    // white frames and a pale, barely metallic pane (pitbox.jpg / podium.jpg: white-framed,
+    // near-clear leaves — the dark frame + reflective glassMat read as black slabs beside the
+    // light piers, I1 review V10); a plain colour, so the same program as glassMat
+    const leafPaneMat = new THREE.MeshStandardMaterial({ color: 0xc9d5dc, roughness: 0.15, metalness: 0.2, envMapIntensity: 1.2 })
+    for (const inst of bucketedInstancedMeshes(leafGeo, [railMat, leafPaneMat], leafM, null, (i) => Math.floor(leafS[i]! / 60), { name: 'pitDoorLeaves', receiveShadow: true })) group.add(inst)
+    // number plates (odd scheme, PIT_BUILDING.v2.plates): plate n centred on the +s pier of pit
+    // n, on the pier's lane face at y 2.3 — below the fascia beam (FASCIA_LO 2.85 on the drip
+    // line) so the TV / onboard / grandstand lenses see it (podium.jpg puts the plates on the
+    // piers; on the header at 3.55 they were hidden behind the beam from every camera)
     const plateGeo = new THREE.PlaneGeometry(0.35, 0.35).rotateY(Math.PI / 2)
+    const PLATE_Y = 2.3
     const plate = (n: number, pierS: number) => {
       const p = atlasUv(plateGeo.clone(), n)
-      p.applyMatrix4(frameAt(track, pierS - 0.4, PIER_FACE + 0.02, DOOR_H + 0.55, m4()))
+      p.applyMatrix4(frameAt(track, pierS, PIER_FACE + 0.02, PLATE_Y, m4()))
       plates.push(p)
     }
     const P = V2.plates
@@ -810,7 +858,7 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
     const door = atlasUv(new THREE.PlaneGeometry(0.9, 2.1).rotateY(Math.PI / 2), 57)
     door.applyMatrix4(frameAt(track, cores[5]![0] + 1.5, PIER_FACE + 0.02, 1.05, m4()))
     const doorPlate = atlasUv(new THREE.PlaneGeometry(0.35, 0.35).rotateY(Math.PI / 2), 56)
-    doorPlate.applyMatrix4(frameAt(track, cores[5]![0] + 1.5, PIER_FACE + 0.02, 2.45, m4()))
+    doorPlate.applyMatrix4(frameAt(track, cores[5]![0] + 1.5, PIER_FACE + 0.02, PLATE_Y, m4()))
     add([door, doorPlate], doorMat, 'pitPodiumDoor', false)
     // the chequered backdrop on the concrete wall's terrace face, the three black steps in front
     // of it (P1 centre, P2 / P3 either side) and the event banner over the bay's fascia
@@ -822,6 +870,11 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
     const banner = remapV(new THREE.PlaneGeometry(podium.width, FASCIA_HI - FASCIA_LO - 0.1).rotateY(Math.PI / 2), 0.004, 0.5 - 0.004)
     banner.applyMatrix4(frameAt(track, podium.s, DRIP + 0.03, (FASCIA_LO + FASCIA_HI) / 2, m4()))
     podiumGeos.push(banner)
+    // the scrutineering band on the caps' plain fascia (plan I1-b: PIT_TEXTS' cap band, PIT_BUILDING.v2.plates.capText)
+    const capMid = track.wrap(ROW0 + forwardDelta(ROW0, S0, L) / 2)
+    const capBand = new THREE.PlaneGeometry(10, 0.8).rotateY(Math.PI / 2)
+    capBand.applyMatrix4(frameAt(track, capMid, DRIP + 0.03, (FASCIA_LO + FASCIA_HI) / 2, m4()))
+    add([capBand], boardMat(capBandTexture(k)), 'pitCapBand', false)
 
     // --- the interiors (PIT_BUILDING.v2.interior, pitbox.jpg) ------------------------------------
     // side walls: one expanded-metal plate on every block boundary (DoubleSide cutout, metre UVs
@@ -1095,8 +1148,10 @@ export function buildPitBuilding(ctx: EnvBuildContext): { buildingRoofMat: THREE
 
   // --- merge the building's meshes --------------------------------------------------------------------
   add(shell, shellMat, 'pitShell', true)
+  add(downShell, soffitShellMat, 'pitShellSoffit', true)
   add(roof, buildingRoofMat, 'pitCanopy', true)
   add(glass, glassMat, 'pitGlass', false)
+  add(railGlass, railGlassMat, 'pitRailGlass', false)
   add(bandGlass, bandGlassMat, 'controlPodGlass', false)
   add(darkGlass, darkGlassMat, 'pitDarkGlass', false)
   add(floor, floorMat, 'pitInterior', false)

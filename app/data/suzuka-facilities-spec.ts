@@ -1156,14 +1156,19 @@ export const PIT_BUILDING = {
     terrace3F: { rows: 5, frontRow: { y: 8.15, lateral: -28.3 }, deck: { y: 9.85, lateral: -32.55 }, parapet: { lateral: -28.0, h: 1.1 }, columns: { d: 0.35, lateral: -28.0, pitch: PIT_BOX } },
     /** the podium over pits 45–47 (block 12's 2F, podium.jpg): backdrop 7 × 4 m */
     podium: { s: 5632, width: 9.5, backdrop: [7, 4] as [number, number], level: 1 },
-    /** the control-tower pod (ct-13, pp4t-4): the final-corner end up to the media section, top 19, the glass band 9.6 → 11.4 (its mid line is the nose tip) */
-    controlPod: { sRange: [5554.5, 5590] as [number, number], top: 19, band: [9.6, 11.4] as [number, number] },
+    /**
+     * The control-tower pod (ct-13, pp4t-4, pphi-4): the final-corner end up to the media
+     * section, the glass band 9.6 → 11.4 (its mid line is the nose tip). Top 12.5: pphi-4 (both
+     * elevations) and the ct-13 / padoc.jpg photos show the pod's rounded top UNDER the canopy
+     * line, level with the 3F — the canopy runs over the pod's shoulder and the nose protrudes.
+     */
+    controlPod: { sRange: [5554.5, 5590] as [number, number], top: 12.5, band: [9.6, 11.4] as [number, number] },
     /** 2F / 3F straight glass body between the pod and the garage row, no terraces */
     mediaSection: { sRange: [5590, 5625] as [number, number] },
     /** the T1 nose: a 1F + 2F bullet pod (top 11, the 2F glass band 5.2 → 7.4, 8 portholes) past the paddock-information box 88 → 92 (pitbld.jpg) */
     t1Nose: { sRange: [92, 103.3] as [number, number], top: 11, band: [5.2, 7.4] as [number, number], portholes: 8, info: { sRange: [88, 92] as [number, number] } },
-    /** seven stair towers (pp4t-4): the six core centres and the control-tower core, 5 (s) × 6 (lateral) at −46 … −52, top 17.0 */
-    stairTowers: { s: [5587, 5647.5, 5692.5, 5737.5, 5782.5, 20.5, 65.5], size: [5, 6] as [number, number], lateral: [-46, -52] as [number, number], top: 17.0 },
+    /** seven stair towers (pp4t-4): the six core centres and the control-tower core, 5 (s) × 6.3 (lateral) at −46 … −52.3 — 0.3 m proud of the tiled paddock wall at −52 (no coplanar faces), top 17.0 */
+    stairTowers: { s: [5587, 5647.5, 5692.5, 5737.5, 5782.5, 20.5, 65.5], size: [5, 6.3] as [number, number], lateral: [-46, -52.3] as [number, number], top: 17.0 },
     /** the rear spur (pphi-3): the tunnel hall on the paddock face and the 2F bridge over the paddock road */
     spur: { hall: { sRange: [5771.5, 5778.9] as [number, number], lateral: [-56.7, -66] as [number, number], h: 5.0 }, bridge: { sRange: [5773, 5777] as [number, number], lateral: [-52, -84] as [number, number], y: [5.05, 8.55] as [number, number] } },
     /**
@@ -1193,7 +1198,7 @@ export const PIT_BUILDING = {
      * bay and the media section stay empty.
      */
     guests: { seatPitch: 0.55, seats2F: 26, seats3F: 20, occupancy: 0.85, inset: 0.42 },
-    unverified: ['shutter line (OSM = drip line, ±0.8)', 'plate numbering', '3F row geometry', 'stair tower size', 'pod colour 2026', 'rear door width', 'rear window bands', 'roof plant layout', 'equipment layout'],
+    unverified: ['shutter line (OSM = drip line, ±0.8)', 'plate numbering', '3F row geometry', 'stair tower size', 'pod colour 2026', 'pod height 12.5 (pphi-4 read)', 'rear door width', 'rear window bands', 'roof plant layout', 'equipment layout'],
   },
 } as const
 
@@ -1283,9 +1288,10 @@ export const SCREENS: ScreenDef[] = [
   { id: 'pit_t1', s: 23, lateral: -33, base: 17.5, width: 9, height: 5, mount: 'roof', faces: 1, unverified: ['s (±5)', 'size'] },
   { id: 'pit_centre', s: 5742, lateral: -33, base: 17.5, width: 9, height: 5, mount: 'roof', faces: 2, unverified: ['s (±5)', 'size'] },
   { id: 'pit_final', s: 5652, lateral: -33, base: 17.5, width: 9, height: 5, mount: 'roof', faces: 1, unverified: ['s (±5)', 'size'] },
-  // the paddock screen on the rear edge of the canopy, facing the team offices (paddockrow.jpg);
-  // its base sits on the v2 canopy (13.4 at −52), so the v1 builder skips it until I1-b
-  { id: 'pit_paddock', s: 5738, lateral: -50, base: 15.0, width: 9, height: 4, mount: 'roof', faces: 1, facing: 'paddock', unverified: ['s (±10)', 'size'] },
+  // the paddock screen on the rear edge of the canopy, facing the team offices (paddockrow.jpg),
+  // east of the centre core so its panel and pylons clear the stair tower at 5737.5 (s 5735–5740,
+  // up to 17.0); its base sits on the v2 canopy (13.4 at −52)
+  { id: 'pit_paddock', s: 5748, lateral: -50, base: 15.0, width: 9, height: 4, mount: 'roof', faces: 1, facing: 'paddock', unverified: ['s (±10)', 'size'] },
   // the four trackside visions on two posts (the West-straight photo shows the type: a dark box
   // on two square legs); H / P stand on the relief hills behind the tyre walls
   { id: 'H', s: 2560, lateral: -50, base: 4, width: 8, height: 4.5, mount: 'ground', faces: 1, unverified: ['position'] },
@@ -1548,6 +1554,11 @@ export const GROUND_AREAS: GroundArea[] = [
   { name: 'シケイン内側 人工芝', kind: 'turf', layer: 1, source: 'osm', footprint: { sRange: [5150, 5270], osm: [467152470], straight: true }, unverified: ['hex'] },
   // --- the pit complex ground (pit-complex.ts used to hard-code these) ---------------------------
   { name: 'パドック（ピットビル裏）', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [5536, 100], lat: [-125, -57.3] }, note: 'the flat zone behind the pit building; the garage apron in front of it is a road-frame owner' },
+  // the covered walkway behind the garages (pp4s2-4): the 1F rear is an open shutter row under
+  // the 3.8 m canopy on its columns, paved at the paddock level up to the garage back wall
+  // (PIT_BUILDING.v2.garageBack) — the same kind, so no PRECEDENCE change; kept to the garage
+  // row 5590→88 so the T1 pond's rings (s ≥ 90) are not re-cut
+  { name: 'ピットビル裏の歩廊', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [5590, 88], lat: [-57.3, -51.6] }, note: 'the rear canopy row: open rear doors, φ0.30 columns at −55.6 and the stair towers stand on it' },
   { name: 'ピット出口ヤード', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [103, 205], lat: [-52, -24.9] }, note: 'around the former medical room (course_vehicle_base, way 184429429)' },
   { name: 'ヘリパッド', kind: 'helipad', layer: 1, source: 'osm', footprint: { disc: { s: HELIPAD.s, lateral: HELIPAD.lateral, r: HELIPAD.radius } }, note: 'GSI z18 aerial: the H sits beside the former medical room (course_vehicle_base) at the final-corner end' },
   // --- secondary paving: OSM raceways that are not the lap (props.ts used to filter OSM_RACEWAY at runtime)

@@ -117,7 +117,8 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       f.applyMatrix4(frameAt(track, s, lat + 0.02, yBase + 8.3, new THREE.Matrix4()))
       flagsByMat[i % flagColours.length]!.push(f)
     }
-    for (let i = 0; i < 5; i++) pole(track.wrap(S1 - 1.5 - i * 1.5), -36 - i * 4, canopyTopAt(-36 - i * 4) + 0.3, i)
+    // the canopy poles stand on the canopy's top (their base sunk 5 cm into the 0.4 m slab, no gap)
+    for (let i = 0; i < 5; i++) pole(track.wrap(S1 - 1.5 - i * 1.5), -36 - i * 4, canopyTopAt(-36 - i * 4) - 0.05, i)
     for (let i = 0; i < 6; i++) pole(5548, -62 - i * 5, ground.standAt(5548, -62 - i * 5), i)
     add(flagGeos, railMat, 'flagPoles', false)
     flagsByMat.forEach((geos, i) => add(geos, flagMats[i]!, `flags${i}`, false))

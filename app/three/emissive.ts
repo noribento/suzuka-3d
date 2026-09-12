@@ -82,12 +82,22 @@ export const EMISSIVE = {
    */
   pitExitLight: { color: 0x22d05a, intensity: 5 },
   /**
-   * Garage-interior wash (I1-b): the floor / side-wall / back-wall materials of the team garages
-   * carry a warm emissive so the pit-side facade, in shade all afternoon at the reproduced
-   * 14:00 (sun az 51° behind the building), still reads as a lit interior. Luminance ≈ 0.72:
-   * lit, no halo — listed in sun-model-check's sub-threshold set.
+   * Garage-interior wash (I1-b): the side-wall / back-wall materials of the team garages carry
+   * a cool fluorescent emissive so the pit-side facade, in shade all afternoon at the reproduced
+   * 14:00 (sun az 51° behind the building), still reads as a lit interior. Luminance ≈ 0.11: a
+   * lift over the shade, not a light source — at 0.72 (I1 review V3) the openings were a flat
+   * cream plateau that swamped the floor map and the equipment. Listed in sun-model-check's
+   * sub-threshold set with its own floor.
    */
-  garageWash: { color: 0xfff2dd, intensity: 0.8 },
+  garageWash: { color: 0xf4f6ff, intensity: 0.12 },
+  /**
+   * Stand-in for the apron / fascia bounce on the pit building's down-facing white soffits (the
+   * curved canopy underside, the 3F soffit, the beam and door-head undersides, the rear canopy):
+   * a downward normal receives only the hemisphere ground colour and the dark lower dome, so
+   * the biggest surface in the onboard and S/F frames rendered olive-khaki. Not a lamp, never
+   * blooms, NOT tier-scaled (it models bounce, which the low tier lacks just the same).
+   */
+  soffitBounce: { color: 0xf4f4f0, intensity: 0.18 },
   /** the monitor walls in the garages and on the pit wall (I1-b / I3): a cool screen glow, luminance ≈ 0.8, no halo */
   opsMonitor: { color: 0x9fc4ff, intensity: 0.9 },
   /**

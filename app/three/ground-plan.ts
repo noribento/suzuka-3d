@@ -1817,7 +1817,7 @@ function pitLaneSpan(track: Track, pit: typeof CIRCUIT.pit): (s: number, hw: num
     const pin = Math.max(0, -c - half - hw)
     const pout = Math.max(pin, -c + half - hw)
     const wApron = windowRamp(track, s, pit.limitStartS - 40, pit.limitEndS, PIT_TAPER)
-    const aout = Math.max(pout, pout + (-PIT_PLANNED.shutter - 0.4 - hw - pout) * wApron)
+    const aout = Math.max(pout, pout + (-PIT_PLANNED.shutter + 0.4 - hw - pout) * wApron)
     return [pin, pout, aout]
   }
 }

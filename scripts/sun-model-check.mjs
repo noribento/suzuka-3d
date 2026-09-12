@@ -80,8 +80,14 @@ const subThreshold = {
 }
 for (const [k, v] of Object.entries(subThreshold)) {
   ok(v < em.BLOOM_THRESHOLD, `${k} (luminance ${v.toFixed(2)}) must stay below BLOOM_THRESHOLD ${em.BLOOM_THRESHOLD}: it is lit, not a lamp`)
-  ok(v > 0.3, `${k} (luminance ${v.toFixed(2)}) must still read as lit`)
+  // garageWash is a wash over shaded albedo, not a panel: 0.3 already swamps the floor map and
+  // flattens the openings to a cream plateau (I1 review V3), so its floor is lower
+  const floor = k === 'garageWash' ? 0.05 : 0.3
+  ok(v > floor, `${k} (luminance ${v.toFixed(2)}) must still read as lit (> ${floor})`)
 }
+// the soffit bounce stand-in is neither an emitter nor a lit panel: a dim lift on down-facing
+// white surfaces that never reads as a lamp
+ok(em.luminance(E.soffitBounce.color, E.soffitBounce.intensity) < 1.0 && em.luminance(E.soffitBounce.color, E.soffitBounce.intensity) > 0.05, `soffitBounce (luminance ${em.luminance(E.soffitBounce.color, E.soffitBounce.intensity).toFixed(2)}) is a bounce stand-in: dim, never a lamp`)
 
 // --- firefly clamp ----------------------------------------------------------------------------
 // HDR_MAX clamps the sanitized scene copy PER CHANNEL, so the bound to clear is the brightest

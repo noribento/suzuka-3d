@@ -85,14 +85,15 @@ console.log('\npit-smoke: tables')
   const roof = spec.SCREENS.filter((s) => s.mount === 'roof' && s.facing !== 'paddock')
   const pad = spec.SCREENS.find((s) => s.id === 'pit_paddock')
   check(roof.length === 3 && roof.every((s) => s.lateral === -33) && roof.map((s) => s.s).join() === '23,5742,5652', `three roof screens at s ${roof.map((s) => s.s).join(' / ')}, lateral −33`)
-  check(pad?.facing === 'paddock' && pad.s === 5738 && pad.lateral === -50 && pad.base === 15 && pad.width === 9 && pad.height === 4 && pad.faces === 1, `pit_paddock: 9 × 4 at (5738, −50), base 15, facing the paddock`)
+  check(pad?.facing === 'paddock' && pad.s === 5748 && pad.lateral === -50 && pad.base === 15 && pad.width === 9 && pad.height === 4 && pad.faces === 1, `pit_paddock: 9 × 4 at (5748, −50), base 15, facing the paddock, east of the centre core's stair tower`)
   // the medical centre row became the course-vehicle base
   const cvb = spec.BUILDINGS.find((b) => b.id === 'course_vehicle_base')
   check(!!cvb && cvb.osmWay === 184429429 && cvb.height === 5 && cvb.builder === 'paddock' && !spec.BUILDINGS.some((b) => b.id === 'medical_centre'), `BUILDINGS course_vehicle_base (way ${cvb?.osmWay}, h ${cvb?.height}) replaces medical_centre`)
   // emissive rows
   const E = em.EMISSIVE
   const lum = (row) => em.luminance(row.color, row.intensity)
-  check(E.garageWash?.color === 0xfff2dd && Math.abs(E.garageWash.intensity - 0.8) < 1e-9, `EMISSIVE.garageWash 0xfff2dd × 0.8 (luminance ${lum(E.garageWash).toFixed(2)})`)
+  check(!!E.garageWash && lum(E.garageWash) > 0.05 && lum(E.garageWash) < 0.3, `EMISSIVE.garageWash: a lift over the shaded albedo, luminance ${lum(E.garageWash).toFixed(2)} in (0.05, 0.3) — not a cream plateau (I1 review V3)`)
+  check(!!E.soffitBounce && lum(E.soffitBounce) > 0.05 && lum(E.soffitBounce) < 1.0, `EMISSIVE.soffitBounce: the soffits' bounce stand-in, luminance ${lum(E.soffitBounce).toFixed(2)} in (0.05, 1.0)`)
   check(E.opsMonitor?.color === 0x9fc4ff && Math.abs(E.opsMonitor.intensity - 0.9) < 1e-9, `EMISSIVE.opsMonitor 0x9fc4ff × 0.9 (luminance ${lum(E.opsMonitor).toFixed(2)})`)
   check(lum(E.garageWash) < em.BLOOM_THRESHOLD && lum(E.opsMonitor) < em.BLOOM_THRESHOLD, `both under the bloom threshold ${em.BLOOM_THRESHOLD} (lit, no halo)`)
 }
@@ -155,6 +156,21 @@ function checkBuilding(scene, check, byName) {
     }
   }
   check(towerOk === v2.stairTowers.s.length, `pitStairTowers: ${towerOk} of ${v2.stairTowers.s.length} towers top out at ${v2.stairTowers.top} ± 0.1 above the road plane`)
+  // ... and no tower face is coplanar with the tiled 2F / 3F paddock wall (REAR_WALL = the canopy profile's back, I1 review F3)
+  {
+    const REAR_WALL = v2.canopy.profile[0][0]
+    let coplanar = 0, n = 0
+    if (towers) {
+      const p = towers.geometry.attributes.position
+      for (let i = 0; i < p.count; i++) {
+        const hit = track.nearestOnRange(p.getX(i), p.getZ(i), 5540, 110)
+        if (!hit) continue
+        n++
+        if (Math.abs(hit.lateral - REAR_WALL) <= 0.008) coplanar++
+      }
+    }
+    check(n > 0 && coplanar === 0, `pitStairTowers: ${n} vertices, none within 8 mm (LAYER_MIN_STEP) of the paddock wall at ${REAR_WALL} (${coplanar})`)
+  }
   // the chase-lens column: nothing of the building below the 2F soffit inside
   // s ∈ [boxS − columnS[0], boxS − 3] × lateral stop ± halfLat (PIT_ENVELOPE.chaseLens)
   const SOFFIT = v2.garage.ceiling
@@ -216,6 +232,25 @@ function checkBuilding(scene, check, byName) {
   const faces = spec.SCREENS.reduce((a, s) => a + s.faces, 0)
   const screens = byName.get('pitScreens')?.[0]
   check(!!screens && trisOf(screens) === faces * 2, `pitScreens: ${screens ? trisOf(screens) : 0} tris = ${faces} faces × 2 (all ${spec.SCREENS.length} rows)`)
+  // the roof screens' faces clear the stair towers (the paddock screen sat inside the centre core's tower, I1 review F4)
+  {
+    let inTower = 0
+    if (screens) {
+      const p = screens.geometry.attributes.position
+      const [tLo, tHi] = [Math.min(...v2.stairTowers.lateral), Math.max(...v2.stairTowers.lateral)]
+      for (let i = 0; i < p.count; i++) {
+        const hit = track.nearestOnRange(p.getX(i), p.getZ(i), 5540, 110)
+        if (!hit || hit.d > 60) continue
+        track.pointAt(hit.s, hit.lateral, road, 0)
+        const y = p.getY(i) - road.y
+        for (const ts of v2.stairTowers.s) {
+          const ds = ((hit.s - ts) % L + L) % L
+          if (Math.min(ds, L - ds) <= v2.stairTowers.size[0] / 2 && hit.lateral >= tLo && hit.lateral <= tHi && y <= v2.stairTowers.top) inTower++
+        }
+      }
+    }
+    check(inTower === 0, `pit_paddock: the screen faces clear the stair towers (${inTower} vertices inside a tower box)`)
+  }
   // --- I1-b 3/4: interiors, rear, roof plant, podium, terrace guests ------------------------------
   const C3_NAMES = ['pitRearLower', 'pitRearUpper', 'pitRearWindows', 'pitInteriorRoom', 'pitInteriorMesh', 'pitPodium', 'pitScreenPylons']
   const c3Missing = C3_NAMES.filter((n) => (byName.get(n)?.length ?? 0) !== 1)
@@ -225,8 +260,13 @@ function checkBuilding(scene, check, byName) {
   check(!!bands?.isInstancedMesh && bands.count === spec.GARAGE_ORDER.length, `pitInteriorBands: ${bands?.count ?? 0} team-colour floor bands = ${spec.GARAGE_ORDER.length} team blocks`)
   // the pit-room / floor / mesh wash: on the built materials, under the bloom threshold
   const room = byName.get('pitInteriorRoom')?.[0], floor = byName.get('pitInterior')?.[0], mesh = byName.get('pitInteriorMesh')?.[0]
-  const washOk = [room, floor, mesh].every((m) => m && m.material.emissive && m.material.emissiveIntensity > 0 && em.luminanceLinear(m.material.emissive.r, m.material.emissive.g, m.material.emissive.b, m.material.emissiveIntensity) < em.BLOOM_THRESHOLD)
-  check(washOk, `garage wash on pitInteriorRoom / pitInterior / pitInteriorMesh: emissive set, luminance under ${em.BLOOM_THRESHOLD}`)
+  const washOk = [room, mesh].every((m) => m && m.material.emissive && m.material.emissiveIntensity > 0 && em.luminanceLinear(m.material.emissive.r, m.material.emissive.g, m.material.emissive.b, m.material.emissiveIntensity) < em.BLOOM_THRESHOLD)
+  const floorUnlit = !!floor && (!floor.material.emissive || floor.material.emissiveIntensity === 0 || floor.material.emissive.getHex() === 0)
+  check(washOk && floorUnlit, `garage wash on pitInteriorRoom / pitInteriorMesh: emissive set, luminance under ${em.BLOOM_THRESHOLD}; pitInterior (the floor) unwashed, lit by the sky alone`)
+  // the soffits: the down-facing white surfaces are their own merge on the bounce stand-in, the rail plates transparent
+  const soffitShell = byName.get('pitShellSoffit')?.[0], railGlass = byName.get('pitRailGlass')?.[0]
+  check(!!soffitShell && soffitShell.material.emissiveIntensity > 0 && soffitShell.material !== byName.get('pitShell')?.[0]?.material, `pitShellSoffit: ${soffitShell ? trisOf(soffitShell) : 0} tris on soffitShellMat (emissive ${soffitShell?.material.emissive?.getHexString()} × ${soffitShell?.material.emissiveIntensity})`)
+  check(!!railGlass && railGlass.material.transparent === true && railGlass.material.depthWrite === false && railGlass.material.opacity < 0.5, `pitRailGlass: ${railGlass ? trisOf(railGlass) : 0} tris, transparent (opacity ${railGlass?.material.opacity}), no depth write`)
   // the equipment: every near-level instance inside the garages' equipment zone
   const stats = env.stats?.infield ?? {}
   const garageMeshes = []
@@ -335,7 +375,7 @@ async function checkBuildingGlb(check) {
 /** the v1 meshes the three builders leave under env.group, by name → expected count */
 const V1_NAMES = {
   // pit-building.ts (v2, I1-b): the names the plan lists, plus the 1F paddock face kept from v1 until commit 3
-  pitShell: 1, pitCanopy: 1, pitGlass: 1, pitInterior: 1, pitInteriorCeiling: 1, pitInteriorWalls: 1, pitFascia: 1, pitSoffit: 1, pitShutters: 1, pitPlates: 1, pitPodiumDoor: 1, pitStairTowers: 1,
+  pitShell: 1, pitShellSoffit: 1, pitCanopy: 1, pitGlass: 1, pitRailGlass: 1, pitInterior: 1, pitInteriorCeiling: 1, pitInteriorWalls: 1, pitFascia: 1, pitSoffit: 1, pitShutters: 1, pitPlates: 1, pitPodiumDoor: 1, pitStairTowers: 1,
   controlPod: 1, controlPodGlass: 1, controlPodSign: 1, pitDarkGlass: 1, t1Nose: 1, t1NoseGlass: 1, pitScreens: 1,
   // pit-lane.ts
   pitWall: 1, pitWallBoards: 1, pitWallBoardsLane: 1, pitDebrisFence: 1, leaderTowerLattice: 1, leaderTowerName: 1, leaderTowerBoard: 1,
@@ -406,6 +446,22 @@ for (const tier of tiers) {
     }
   }
   check(boardsOnWall === 0, `no free-standing sign box above the wall top at s 5554–5565 (structures.ts skips mount pitWallTop; ${boardsOnWall} vertices)`)
+  // the apron reaches 0.4 m past the shutter line: no grass between the blue band and the garage
+  // floor at any pit station (the apron edge sat 0.4 m BEFORE the shutters, I1 review F1)
+  {
+    const { plan } = scene
+    const shutter = spec.PIT_PLANNED.shutter
+    const bad = []
+    for (let s = 5590; s <= 5807 + 88; s += 7) {
+      const ss = track.wrap(s)
+      const hw = track.halfWidthAt(ss)
+      for (const lat of [spec.PIT_WALL.blueBand.lat[0] - 0.1, shutter + 0.1, shutter - 0.1, shutter - 0.35]) {
+        const o = plan.ownerAtSL(ss, -1, -lat - hw).name
+        if (o !== 'pitApron') bad.push(`s ${ss.toFixed(0)} lat ${lat.toFixed(2)}: ${o}`)
+      }
+    }
+    check(bad.length === 0, `pitApron owns lateral ${spec.PIT_WALL.blueBand.lat[0]} → ${shutter - 0.4} along the garage row 5590→88 (${bad.length} misses${bad.length ? `: ${bad.slice(0, 3).join('; ')}` : ''})`)
+  }
   checkLane(scene, check, byName)
 }
 
@@ -507,6 +563,24 @@ function checkLane(scene, check, byName) {
       ok = ok && lo >= W.wallTop + W.signPost - 1e-3 && sMin >= W.concrete[0] - 1 && sMax <= W.concrete[0] + W.whiteBlock + 1
     }
     check(ok, `pitWallSigns: over the white block s ${sMin.toFixed(1)}–${sMax.toFixed(1)} (${W.concrete[0]} + ${W.whiteBlock}), y ${lo.toFixed(2)}–${hi.toFixed(2)} above the road (wall top ${W.wallTop} + posts ${W.signPost})`)
+    // ... and their posts stand ON the wall: every pitSteel vertex at the wall top's height in
+    // s 5554–5566 lies inside the wall's footprint (the FIRE STATION posts hung 0.6 m outside it, I1 review F5)
+    const steelM = byName.get('pitSteel')?.[0]
+    let postN = 0, postOff = 0
+    if (steelM) {
+      const p = steelM.geometry.attributes.position
+      const half = W.wallWidth / 2
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(steelM.matrixWorld)
+        const hit = track.nearestOnRange(v.x, v.z, 5540, 5580)
+        if (!hit || hit.s < 5554 || hit.s > 5566 || Math.abs(hit.lateral - W.lateral) > 2) continue
+        track.pointAt(hit.s, hit.lateral, road, 0)
+        if (Math.abs(v.y - road.y - W.wallTop) > 0.02) continue
+        postN++
+        if (Math.abs(hit.lateral - W.lateral) > half) postOff++
+      }
+    }
+    check(postN > 0 && postOff === 0, `pitWallSigns posts: ${postN} base vertices at the wall top in s 5554–5566, all inside lateral ${W.lateral} ± ${W.wallWidth / 2} (${postOff} outside)`)
   }
   // the W-beams stay in their sections
   {

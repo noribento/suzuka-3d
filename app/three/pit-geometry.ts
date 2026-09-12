@@ -616,6 +616,8 @@ export interface PitMaterials {
   concreteTile: number
   /** white panels (white_plaster_02 normal / ARM under a flat albedo): the building shells, caps, backdrop wall */
   shellMat: THREE.MeshStandardMaterial
+  /** shellMat plus `EMISSIVE.soffitBounce` (same program: an emissive colour, no map) for the building's down-facing white soffits */
+  soffitShellMat: THREE.MeshStandardMaterial
   /** the pods' silver-grey aluminium panels (PIT_BUILDING.v2.podMat; the photos show them silver, not white) */
   podMat: THREE.MeshStandardMaterial
   /** concrete046: the pit wall */
@@ -625,6 +627,13 @@ export interface PitMaterials {
   /** the flat roof colour — returned by buildPitComplex, reused by the marshal huts and the paddock */
   buildingRoofMat: THREE.MeshStandardMaterial
   glassMat: THREE.MeshStandardMaterial
+  /**
+   * The 2F drip-line balustrade's clear glass: transparent (opacity 0.3, no depth write) so
+   * the seated guests show through it. Built as `map + alphaMap` on a 2 × 2 white canvas — the
+   * program of props.ts' braking-rubber decal (the only transparent MeshStandardMaterial in
+   * the scene), so no new program combination.
+   */
+  railGlassMat: THREE.MeshStandardMaterial
   /** the near-black of the Leader Tower, screens, perches, props */
   darkMat: THREE.MeshStandardMaterial
   interiorMat: THREE.MeshStandardMaterial
@@ -655,6 +664,7 @@ export function pitMaterials(ctx: EnvBuildContext): PitMaterials {
       ? pbrFromAssets(reg, 'white_plaster_02', { fallback: () => new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra }), handBuiltUv: true, normalScale: 0.5, noMap: true, extra: { color: 0xe4e6e3, ...extra } })
       : new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra })
   const shellMat = plaster()
+  const soffitShellMat = plaster({ emissive: new THREE.Color(EMISSIVE.soffitBounce.color), emissiveIntensity: EMISSIVE.soffitBounce.intensity })
   const podMat = new THREE.MeshStandardMaterial({ color: PIT_BUILDING.v2.podMat.color, metalness: PIT_BUILDING.v2.podMat.metalness, roughness: PIT_BUILDING.v2.podMat.roughness })
   const concreteMat = reg
     ? pbrFromAssets(reg, 'concrete046', { fallback: () => new THREE.MeshStandardMaterial({ color: COLOURS.concrete.mid, roughness: 0.9 }), handBuiltUv: true, normalScale: 0.6 })
@@ -664,6 +674,11 @@ export function pitMaterials(ctx: EnvBuildContext): PitMaterials {
     : new THREE.MeshStandardMaterial({ color: 0xa9acb0, roughness: 0.8 })
   const buildingRoofMat = new THREE.MeshStandardMaterial({ color: COLOURS.roofTop.mid, roughness: 0.85 })
   const glassMat = new THREE.MeshStandardMaterial({ color: PIT_BUILDING.glass, roughness: 0.12, metalness: 0.55, envMapIntensity: 1.3 })
+  const clear = canvas(8, 8, 1)
+  clear.ctx.fillStyle = '#ffffff'
+  clear.ctx.fillRect(0, 0, 8, 8)
+  const clearTex = tex(clear.c, THREE.ClampToEdgeWrapping)
+  const railGlassMat = new THREE.MeshStandardMaterial({ map: clearTex, alphaMap: clearTex, color: 0xbfd0dc, roughness: 0.1, metalness: 0, transparent: true, opacity: 0.3, depthWrite: false, envMapIntensity: 1.0 })
   const darkMat = new THREE.MeshStandardMaterial({ color: LEADER_TOWER.colour, roughness: 0.6, metalness: 0.2 })
   const interiorMat = new THREE.MeshStandardMaterial({ color: 0x33363b, roughness: 0.9, side: THREE.DoubleSide })
   const railMat = new THREE.MeshStandardMaterial({ color: COLOURS.mullionWhite.mid, roughness: 0.4, metalness: 0.3 })
@@ -672,7 +687,7 @@ export function pitMaterials(ctx: EnvBuildContext): PitMaterials {
   const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 })
   const boardMat = (map: THREE.Texture, emissive = 0) =>
     new THREE.MeshStandardMaterial({ map, roughness: 0.45, ...(emissive ? { emissive: 0xffffff, emissiveMap: map, emissiveIntensity: emissive * emissiveScale() } : {}) })
-  const mats: PitMaterials = { plasterTile, concreteTile, shellMat, podMat, concreteMat, pierMat, buildingRoofMat, glassMat, darkMat, interiorMat, railMat, seatMat, lampMat, whiteMat, boardMat }
+  const mats: PitMaterials = { plasterTile, concreteTile, shellMat, soffitShellMat, podMat, concreteMat, pierMat, buildingRoofMat, glassMat, railGlassMat, darkMat, interiorMat, railMat, seatMat, lampMat, whiteMat, boardMat }
   materialsByCtx.set(ctx, mats)
   return mats
 }

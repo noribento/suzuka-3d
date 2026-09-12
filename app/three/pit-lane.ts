@@ -91,7 +91,9 @@ function speedRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: numbe
  * every 64 m along the lane like the real ones.
  */
 function wallPanelTexture(k: number, laneFace = false): THREE.Texture {
-  const w = 2048, h = 128
+  // 64:1 for the 64 m × 0.9 m band it covers (eight 8 m slots); a 16:1 canvas stretched the
+  // lettering 4.4× along the wall (I1 review V9)
+  const w = 4096, h = 64
   const { c, ctx } = canvas(w, h, k)
   const slot = w / 8
   const styles: [string, string][] = [['#fbfbf9', '#141414'], ['#141414', '#ffffff'], ['#fbfbf9', COLOURS.circuitRed.lit], [COLOURS.circuitRed.lit, '#ffffff']]
@@ -101,14 +103,14 @@ function wallPanelTexture(k: number, laneFace = false): THREE.Texture {
     ctx.fillStyle = bg
     ctx.fillRect(x, 0, slot, h)
     if (i === 0) {
-      chequer(ctx, x + 10, 12, 60, h - 24, 15)
-      chequer(ctx, x + slot - 70, 12, 60, h - 24, 15)
+      chequer(ctx, x + 10, 8, 48, h - 16, 8)
+      chequer(ctx, x + slot - 58, 8, 48, h - 16, 8)
     }
     if (laneFace && i === 5) {
       ctx.fillStyle = '#fbfbf9'
       ctx.fillRect(x, 0, slot, h)
       speedRing(ctx, x + slot / 2, h / 2, h * 0.44)
-    } else label(ctx, PIT_TEXTS[i]!, x + slot / 2, h / 2, 60, fg, 900, 'center', i === 0 ? slot - 170 : slot - 40)
+    } else label(ctx, PIT_TEXTS[i]!, x + slot / 2, h / 2, 40, fg, 900, 'center', i === 0 ? slot - 150 : slot - 60)
     ctx.fillStyle = 'rgba(0,0,0,0.3)'
     ctx.fillRect(x, 0, 3, h)
   }
@@ -264,14 +266,18 @@ export function buildPitLane(ctx: EnvBuildContext): void {
   // --- the concrete wall, its bands, the white block and the wall-top signs ---------------------
   {
     // lane face (from the walkway top up), top, track face — FrontSide, so every face the eye
-    // can reach is explicit; the buried lane face below the walkway is left out
+    // can reach is explicit; the buried lane face below the walkway is left out. The track face
+    // runs FOOT_SINK under the road plane like the barriers' feet: the drawn asphalt band under
+    // it lies 2–3 cm below the plane and a face ending at 0 left a hairline gap (I1 review F8)
     const y0 = W.walkway.y
-    const edges: [Fn, Fn][] = [[K(lat - half), K(y0)], [K(lat - half), K(wallTop)], [K(lat - half), K(wallTop)], [K(lat + half), K(wallTop)], [K(lat + half), K(wallTop)], [K(lat + half), K(0)]]
-    const uAt = [0, (wallTop - y0) / concreteTile, (wallTop - y0) / concreteTile, (wallTop - y0 + 2 * half) / concreteTile, (wallTop - y0 + 2 * half) / concreteTile, (2 * wallTop - y0 + 2 * half) / concreteTile]
-    const wallEnd: Pt[] = [[lat - half, 0], [lat + half, 0], [lat + half, wallTop], [lat - half, wallTop]]
+    const FOOT_SINK = 0.1
+    const edges: [Fn, Fn][] = [[K(lat - half), K(y0)], [K(lat - half), K(wallTop)], [K(lat - half), K(wallTop)], [K(lat + half), K(wallTop)], [K(lat + half), K(wallTop)], [K(lat + half), K(-FOOT_SINK)]]
+    const uAt = [0, (wallTop - y0) / concreteTile, (wallTop - y0) / concreteTile, (wallTop - y0 + 2 * half) / concreteTile, (wallTop - y0 + 2 * half) / concreteTile, (2 * wallTop - y0 + 2 * half + FOOT_SINK) / concreteTile]
+    const wallEnd: Pt[] = [[lat - half, 0], [lat + half, -FOOT_SINK], [lat + half, wallTop], [lat - half, wallTop]]
     add([profileRibbonGeometry(track, c0, c1, edges, 4, concreteTile, uAt), sectionPlate(track, c1, wallEnd, true)], concreteMat, 'pitWall', true)
     // the white block at the entry end: a box a centimetre proud of the concrete on every face
-    add([sweep(track, [[lat - half - 0.01, y0], [lat - half - 0.01, wallTop + 0.01], [lat + half + 0.01, wallTop + 0.01], [lat + half + 0.01, 0]], c0, c0 + W.whiteBlock, 2, 2), sectionPlate(track, c0 + W.whiteBlock, [[lat - half - 0.01, 0], [lat + half + 0.01, 0], [lat + half + 0.01, wallTop + 0.01], [lat - half - 0.01, wallTop + 0.01]], true), sectionPlate(track, c0, [[lat - half - 0.01, 0], [lat + half + 0.01, 0], [lat + half + 0.01, wallTop + 0.01], [lat - half - 0.01, wallTop + 0.01]], false)], whiteMat, 'pitWallBlock', true)
+    const blockEnd: Pt[] = [[lat - half - 0.01, 0], [lat + half + 0.01, -FOOT_SINK], [lat + half + 0.01, wallTop + 0.01], [lat - half - 0.01, wallTop + 0.01]]
+    add([sweep(track, [[lat - half - 0.01, y0], [lat - half - 0.01, wallTop + 0.01], [lat + half + 0.01, wallTop + 0.01], [lat + half + 0.01, -FOOT_SINK]], c0, c0 + W.whiteBlock, 2, 2), sectionPlate(track, c0 + W.whiteBlock, blockEnd, true), sectionPlate(track, c0, blockEnd, false)], whiteMat, 'pitWallBlock', true)
     // the advertising band on both faces (y 0.9 → 1.8), one repeat per 64 m; the white block's
     // 10 m stay bare (the signs stand there)
     const [a0, a1] = W.adPanel
@@ -290,7 +296,10 @@ export function buildPitLane(ctx: EnvBuildContext): void {
       signUv(FACING_FACE[sign.facing], signCellOf(sign), sign.width / sign.boardHeight)(board.attributes.uv as THREE.BufferAttribute)
       board.applyMatrix4(frameAt(track, sign.s, sign.lateral, bottom + sign.boardHeight / 2, new THREE.Matrix4()))
       signs.push(board)
-      for (const o of [-sign.width * 0.4, sign.width * 0.4]) {
+      // the posts stand on the wall top: an across sign's posts are clamped inside the wall's
+      // footprint (±(half − 0.05)), not spread to ±0.4 × width over the lane and the walkway
+      const po = Math.min(sign.width * 0.4, across ? half - 0.05 : sign.width * 0.4)
+      for (const o of [-po, po]) {
         const post = postGeometry(0.05, W.signPost + sign.boardHeight * 0.3)
         post.applyMatrix4(frameAt(track, sign.s + (across ? 0 : o), sign.lateral + (across ? o : 0), wallTop, new THREE.Matrix4()))
         steel.push(post)
