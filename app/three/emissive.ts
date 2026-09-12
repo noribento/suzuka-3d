@@ -70,15 +70,11 @@ export const EMISSIVE = {
   /** ceiling strips in the pit garages */
   garageStrip: { color: 0xfff2dd, intensity: 8 },
   /**
-   * LED digital-flag panels at the marshal posts (EM Motorsport, 2018): green = track clear.
-   * Luminance ≈ 0.8 — a visible glow that stays well below the bloom threshold on purpose.
-   */
-  digitalFlag: { color: 0x27d17a, intensity: 1.6 },
-  /**
    * Pit-exit signal at the end of the pit wall (green = exit open). Luminance ≈ 2.3: a clearly
-   * lit lens, deliberately under the bloom threshold like the digital flags — it is a signal
-   * head seen from 50 m, not a lamp. Listed in sun-model-check's sub-threshold set, never among
-   * the emitters.
+   * lit lens, deliberately under the bloom threshold — it is a signal head seen from 50 m, not a
+   * lamp. Listed in sun-model-check's sub-threshold set, never among the emitters. (The marshal
+   * posts' EM light panels carry NO emissive since I4-a: under a green flag they are dark —
+   * lpfront.jpg — and a `state` hook will bring a lit row back with the flag states.)
    */
   pitExitLight: { color: 0x22d05a, intensity: 5 },
   /**

@@ -30,7 +30,8 @@
  *  exist and draw exactly `figuresAt().length` impostor instances (= stats.ops.figures, by
  *  role), every figure's drawn origin is `figureToWorld`'s point (matched within 5 cm) and its
  *  height over `ground.standY` sits in its mount's band (ground mounts −0.05 … 0.3 m, the
- *  perch / platform 'wall' rows 0.4 … 2.6 m, the podium 'roof' rows 4.5 … 5.5 m),
+ *  perch / platform 'wall' rows 0.4 … 2.6 m, the podium 'roof' rows 4.5 … 5.5 m, the marshal
+ *  posts' 'platform' rows 1.9 … 2.4 m — I4-a),
  *  `stats.ops.mode` is 'procedural' in Node, no figure stands in a stopped-car rectangle, a
  *  lens → car path, an ops footprint, a paddock building or beside a parked paddock car, the
  *  eight `ops-flags` poles stand on the ground; `--glb` loads the crowd's posed GLBs too and
@@ -312,7 +313,8 @@ async function checkPeople(scene, check, { glb, reg }) {
     m.updateWorldMatrix(true, false)
     for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); v.setFromMatrixPosition(m4); drawn.push([v.x, v.y, v.z]) }
   }
-  const BANDS = { wall: [0.4, 2.6], roof: [4.5, 5.5], ground: [-0.05, 0.3] }
+  // 'platform' (I4-a): the marshal on a post's stand deck, platform 2.0 + floor 0.12 over the ground
+  const BANDS = { wall: [0.4, 2.6], roof: [4.5, 5.5], platform: [1.9, 2.4], ground: [-0.05, 0.3] }
   let unmatched = 0, offBand = 0
   const worst = []
   const E = spec.PIT_ENVELOPE
@@ -341,7 +343,7 @@ async function checkPeople(scene, check, { glb, reg }) {
     let best = null, bd = Infinity
     for (const d of drawn) { const dd = Math.hypot(d[0] - w.x, d[2] - w.z); if (dd < bd) { bd = dd; best = d } }
     if (!best || bd > 0.05) { unmatched++; if (worst.length < 4) worst.push(`${r.role} at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): no drawn instance within 5 cm (nearest ${bd.toFixed(2)} m)`); continue }
-    const band = BANDS[r.mount === 'wall' ? 'wall' : r.mount === 'roof' ? 'roof' : 'ground']
+    const band = BANDS[r.mount === 'wall' ? 'wall' : r.mount === 'roof' ? 'roof' : r.mount === 'platform' ? 'platform' : 'ground']
     const dy = best[1] - 0.02 - ground.standY(w.x, w.z)
     if (dy < band[0] || dy > band[1]) { offBand++; if (worst.length < 4) worst.push(`${r.role} (${r.mount}) at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): ${dy.toFixed(2)} m over standY, band ${band.join('…')}`) }
     for (const c of carRects) if (inArc(r.s, c.s) && within(r.lateral, c.lat)) inCar++

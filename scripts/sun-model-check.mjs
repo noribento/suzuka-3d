@@ -67,12 +67,12 @@ for (const [k, v] of Object.entries(emitters)) {
 ok(minEmitter > em.BLOOM_THRESHOLD, `the dimmest emitter (${minEmitter.toFixed(2)}) still clears the threshold`)
 
 // --- lit, not glowing ---------------------------------------------------------------------------
-// Panels and signal heads that are documented as visibly lit but must NOT bloom: the marshal
-// posts' digital flags, the pit-exit signal, the garage-interior wash, the ops monitors and
-// the terrace downlights (I phase). They stay below the threshold on the high tier,
-// and above a token 0.3 so they still read as lit. Kept apart from `emitters` on purpose.
+// Panels and signal heads that are documented as visibly lit but must NOT bloom: the pit-exit
+// signal, the garage-interior wash, the ops monitors and the terrace downlights (I phase).
+// They stay below the threshold on the high tier, and above a token 0.3 so they still read as
+// lit. Kept apart from `emitters` on purpose. (The marshal posts' light panels left this set at
+// I4-a: they are dark under the green flag.)
 const subThreshold = {
-  digitalFlag: em.luminance(E.digitalFlag.color, E.digitalFlag.intensity),
   pitExitLight: em.luminance(E.pitExitLight.color, E.pitExitLight.intensity),
   garageWash: em.luminance(E.garageWash.color, E.garageWash.intensity),
   opsMonitor: em.luminance(E.opsMonitor.color, E.opsMonitor.intensity),

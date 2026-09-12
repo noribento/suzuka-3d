@@ -1316,11 +1316,11 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *   O7  TV_CAMERAS: lens rows 1:1 with TV_CAMERA_SPOTS; the tower footprint on the spectator
  *       side of the barrier line and 0.6 m outside it, |lateral| ≥ hw + 1.5, outside stands and
  *       paved aprons; platform / rails clear of the lens point (r 0.5, or below y_lens − 0.5).
- *   O8  MARSHAL_POSTS: |lateral| ≥ hw + 2 (existing), O1 / O2 / O5 on the hut footprint — errors
- *       on rows that carry `type` / `size` (the re-keyed ones: the pit-entry cabin at 5450 since
- *       I3-a), warnings on the remaining v1 aerial-read huts until I4-a re-keys them; v2:
- *       unique `number`, monotonic in s, `type 'building'` carries osmWay or size, the cabin /
- *       stair / panel / cabinet / figure-slot rectangles under O1 / O2 / O5.
+ *   O8  MARSHAL_POSTS v2 (I4-a): |lateral| ≥ hw + 2; `marshalNumbers()` unique, monotonic in
+ *       s and equal to every `number` anchor; `type 'building'` carries osmWay or size; the
+ *       cabin's stand + stair / the low box / a sized building under O1 / O2 / O4, ≥ 0.6 m on
+ *       the spectator side of the nearest barrier run's line (bare 'fence' runs excepted) and
+ *       ≥ 0.2 m off every other overlapping run's line; the marshal slots under O1 / O2.
  *   O9  every figure of figuresAt() passes O1–O4 (a 'wall' figure the walkway band instead, a
  *       'roof' one — the podium terrace — only O3 / O4) and stands inside the circuit ring,
  *       outside every ops footprint (a seated crew inside its own perch frame excepted, and
@@ -1331,7 +1331,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *   O12 windows: the lap is a figure-8, so a row is only projected back to s inside a window
  *       (ops-spec OPS_WINDOWS) — every apron / lane row's centre lies in PIT_BOX_STRIP ± 20 m or
  *       the pit-exit yard; every other row and every figure in some window (the paddock, the
- *       E paddock / compound, the yard, the strip).
+ *       E paddock / compound, the yard, the strip) — except the trackside posts' marshals
+ *       (mount 'trackside' / 'platform'), keyed by their MARSHAL_POSTS row.
  */
 {
   const ops = await import('../app/data/ops-spec.ts')
@@ -1418,6 +1419,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   const WINDOWS = Object.entries(ops.OPS_WINDOWS)
   const APRON_WINDOWS = ['pitStrip', 'entryApron', 'yard']
   const windowFaults = (id, s, mount) => {
+    // the trackside posts' marshals (I4-a) are keyed by MARSHAL_POSTS, not by a pit-side window
+    if (mount === 'trackside' || mount === 'platform') return []
     const names = WINDOWS.filter(([, r]) => inArc(s, r)).map(([n]) => n)
     if (!names.length) return [`${id}: s ${fmt(s, 0)} is in no OPS_WINDOWS window (${WINDOWS.map(([n, r]) => `${n} ${r.join('→')}`).join(', ')}) — O12`]
     if ((mount === 'apron' || mount === 'lane') && !names.some((n) => APRON_WINDOWS.includes(n))) return [`${id}: ${mount} row at s ${fmt(s, 0)} is outside the box strip ± 20 m / the yard (${names.join(', ')}) — O12`]
@@ -1629,53 +1632,90 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   } else skip('O7 TV_CAMERAS')
 
   // --- O8 MARSHAL_POSTS -------------------------------------------------------------------------------
+  /**
+   * MARSHAL_POSTS v2 (I4-a): every row's centre ≥ hw + 2 off the road; `marshalNumbers()` is
+   * unique, ascends with s (one wrap) and lands exactly on every `number` anchor; a 'building'
+   * row carries osmWay or size; the drawn rectangles — the cabin's floor with its deck and the
+   * stair on the `stair` side (ops-spec MARSHAL_STAND, what marshal-posts.ts builds), the low
+   * box, a hand-sized building — pass O1 / O2 / O4, and against the barrier lines of their own
+   * side: the NEAREST run's line (a bare 'fence' run — the car-park perimeter — excepted) has
+   * every corner ≥ 0.6 m on its spectator side, every other run that overlaps the rectangle's
+   * s span has every corner ≥ 0.2 m off its line (O5's rule, evaluated inside the run's own
+   * window — a run's clamped end value must not judge a hut standing before its start). The
+   * marshal slots (`marshalSlots`) pass O1 / O2 here and O9 below.
+   */
   {
-    // props.ts: the v1 hut (along s × across × high) — what every row without `size` draws today.
-    // NOTE(I4-a): the 2.5 m cabin at (5450, −22.3) reaches lateral −21.05, 5 cm inside the
-    // analytic keep-out's −21.1 (c − keepOut.back): give that row `size` and a lateral ≤ −22.4.
-    const HUT = [2.4, 1.8, 1.3]
-    const v2 = bar.MARSHAL_POSTS.some((m) => 'number' in m || 'size' in m || 'rects' in m)
-    const numbers = new Map()
-    let o1Warnings = 0
-    for (const m of bar.MARSHAL_POSTS) {
-      const id = `marshal post ${m.number ?? ''}@${m.s}`.replace(' @', ' s ')
-      const p = { s: m.s, lateral: m.lateral, yawDeg: m.yawDeg ?? 0, size: m.size ?? HUT, mount: 'free', kind: 'cabin' }
-      const corners = cornersOf(p)
-      // O1 and O5 on the v1 rows (no `type` / `size`) are WARNINGS for now: the huts at 650 /
-      // 4536 straddle their wall line — the v1 rows are only aerial-read hut centres and I4-a
-      // re-keys every post (plan-i §I4-a: MARSHAL_POSTS v2 with cabin / stair / panel
-      // rectangles outside the keep-out and off the barrier line). A row that has been re-keyed
-      // (`type` or `size`: the pit-entry cabin at 5450 since I3-a, formerly {5395, −11.5} in the
-      // pit-entry path) is an error like any placement. O2 (the road) is always an error.
-      const v1 = !m.size && !m.type
-      const soften = (f) => /— O[15]$/.test(f) && v1
-      const env = envelopeFaults(id, p, corners)
-      for (const f of [...env, ...gridFaults(id, corners), ...barrierFaults(id, p, corners)]) {
-        if (soften(f)) { fail(`${f} (warning until I4-a re-keys the post)`, true); o1Warnings++ }
-        else fail(f)
+    const S = ops.MARSHAL_STAND
+    const numbers = bar.marshalNumbers()
+    const byNumber = new Map()
+    for (const [m, n] of numbers) {
+      if (m.number !== undefined && m.number !== n) fail(`marshal post s ${m.s}: the ascending count gives ${n}, its anchor says ${m.number} — O8`)
+      if (byNumber.has(n)) fail(`marshal post s ${m.s}: duplicate post number ${n} (also s ${byNumber.get(n)}) — O8`)
+      byNumber.set(n, m.s)
+    }
+    const byS = [...numbers.entries()].sort((a, b) => a[0].s - b[0].s)
+    let descents = 0
+    for (let i = 1; i < byS.length; i++) if (byS[i][1] < byS[i - 1][1]) descents++
+    if (descents > 1) fail(`MARSHAL_POSTS: post numbers are not monotonic in s (${descents} descents) — O8`)
+    /** the barrier lines of one side that overlap the s span [sa, sb] (forward arc), with their line evaluated inside the run's window */
+    const linesOver = (side, sa, sb) => barrierLines.filter(({ run }) => run.side === side && (inArc(run.sRange[0], [sa, sb]) || inArc(sa, run.sRange)))
+    const clampS = (run, s) => {
+      const len = arcLen(run.sRange[0], run.sRange[1])
+      const d = arcLen(run.sRange[0], s)
+      return d <= len ? s : arcLen(s, run.sRange[0]) < arcLen(run.sRange[1], s) ? run.sRange[0] : run.sRange[1]
+    }
+    const postBarrierFaults = (id, side, centre, corners) => {
+      const out = []
+      let s0 = Infinity, s1 = -Infinity
+      const ds = corners.map(([cs]) => signedDelta(centre.s, cs, L))
+      for (const d of ds) { if (d < s0) s0 = d; if (d > s1) s1 = d }
+      const over = linesOver(side, wrap(centre.s + s0), wrap(centre.s + s1)).filter(({ run }) => run.kind !== 'fence')
+      if (!over.length) return out
+      let nearest = null, nd = Infinity
+      for (const r of over) {
+        const d = Math.abs(centre.lateral - r.line.lat(clampS(r.run, centre.s)))
+        if (d < nd) { nd = d; nearest = r }
       }
-      if (v2) {
-        if (m.number !== undefined) {
-          if (numbers.has(m.number)) fail(`${id}: duplicate post number ${m.number} — O8`)
-          numbers.set(m.number, m.s)
+      for (const { run, line } of over) {
+        let minSpec = Infinity, minAbs = Infinity
+        for (const [cs, cl] of corners) {
+          const l = line.lat(clampS(run, cs))
+          minSpec = Math.min(minSpec, side * (cl - l))
+          minAbs = Math.min(minAbs, Math.abs(cl - l))
         }
-        if (m.type === 'building' && !m.osmWay && !m.size) fail(`${id}: type 'building' needs osmWay or size — O8`)
-        for (const [name, rect] of Object.entries(m.rects ?? {})) {
-          const sub = { s: rect.s ?? m.s, lateral: rect.lateral ?? m.lateral, yawDeg: rect.yawDeg ?? p.yawDeg, size: rect.size, mount: 'free', kind: name === 'panel' ? 'board' : 'cabin' }
-          const sc = cornersOf(sub)
-          for (const f of [...envelopeFaults(`${id} ${name}`, sub, sc), ...barrierFaults(`${id} ${name}`, sub, sc)]) fail(f)
-        }
-        for (const slot of m.figureSlots ?? []) for (const f of pointFaults(`${id} figure slot`, slot.s ?? m.s, slot.lateral)) fail(f)
+        if (run === nearest.run) {
+          if (minSpec < 0.6) out.push(`${id}: ${fmt(minSpec, 2)} m ${minSpec < 0 ? 'on the track side of' : 'off'} the resolved line of its barrier run ${run.id} (needs ≥ 0.6 m on the spectator side) — O8`)
+        } else if (minAbs < 0.2) out.push(`${id}: ${fmt(minAbs, 2)} m from the resolved line of barrier run ${run.id} (needs 0.2) — O5`)
+      }
+      return out
+    }
+    let slotsChecked = 0
+    for (const m of bar.MARSHAL_POSTS) {
+      const n = numbers.get(m)
+      const type = m.type ?? 'cabin'
+      const id = `marshal post ${n !== undefined ? n : m.secondary ? '(secondary)' : `(${type})`} s ${m.s}`
+      const side = m.lateral >= 0 ? 1 : -1
+      if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + 2) fail(`${id}: lateral ${fmt(m.lateral)} is inside hw + 2 — O8`)
+      if (type === 'building' && !m.osmWay && !m.size) fail(`${id}: type 'building' needs osmWay or size — O8`)
+      if (m.secondary && (m.number !== undefined || type === 'building')) fail(`${id}: a secondary hut carries no number and is not a building — O8`)
+      const rects = []
+      if (type === 'cabin') {
+        const Ls = ops.marshalStairSign(m)
+        rects.push({ name: 'stand', s: wrap(m.s + (Ls * S.deckS) / 2), lateral: m.lateral, size: [S.body + S.deckS + 0.2, S.across] })
+        rects.push({ name: 'stair', s: wrap(m.s + Ls * (S.body / 2 + S.deckS + 0.1 + S.stairLen / 2)), lateral: m.lateral, size: [S.stairLen, S.stairW] })
+      } else if (type === 'low') rects.push({ name: 'low', s: m.s, lateral: m.lateral, size: [S.low[0], S.low[1]] })
+      else if (m.size) rects.push({ name: 'building', s: m.s, lateral: m.lateral, size: m.size })
+      for (const r of rects) {
+        const p = { s: r.s, lateral: r.lateral, yawDeg: 0, size: r.size, mount: 'free', kind: 'cabin' }
+        const corners = cornersOf(p)
+        for (const f of [...envelopeFaults(`${id} ${r.name}`, p, corners), ...gridFaults(`${id} ${r.name}`, corners), ...postBarrierFaults(`${id} ${r.name}`, side, p, corners)]) fail(f)
+      }
+      for (const f of ops.marshalSlots(m)) {
+        slotsChecked++
+        for (const msg of pointFaults(`${id} slot (${f.mount})`, f.s, f.lateral)) fail(msg)
       }
     }
-    if (v2) {
-      // numbers ascend with s around the lap: sorted by s, the sequence descends at most once (the wrap)
-      const byS = [...numbers.entries()].sort((a, b) => a[1] - b[1])
-      let descents = 0
-      for (let i = 1; i < byS.length; i++) if (byS[i][0] < byS[i - 1][0]) descents++
-      if (descents > 1) fail(`MARSHAL_POSTS: post numbers are not monotonic in s (${descents} descents) — O8`)
-    } else skip('O8 MARSHAL_POSTS v2 fields (number / type / size / rects / figureSlots)')
-    if (o1Warnings) notes.push(`O8: ${o1Warnings} v1 marshal post hut(s) in the pit keep-out or on a barrier line — warnings until I4-a`)
+    notes.push(`O8: ${bar.MARSHAL_POSTS.length} marshal posts, ${numbers.size} numbered (${[...numbers.values()].sort((a, b) => a - b).join(', ')}), ${slotsChecked} marshal slots`)
   }
 
   // --- O9 figures --------------------------------------------------------------------------------------

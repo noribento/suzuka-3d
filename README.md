@@ -192,7 +192,7 @@ app/
     suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム（DEM5A）、レーシングラインのピン、コーナー速度目標、DRS、ピット
     suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ・柵内の硬地 apron／駐車場 parking／歩行者トンネル tunnel／歩道橋 footbridge、ODbL、生成物）
     suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット（手書き）
-    suzuka-barriers-spec.ts    # 全周のバリア run・実在する縁石／緑帯・白線・二輪路・マーシャルポスト・調整池（手書き、OSM way id 参照）
+    suzuka-barriers-spec.ts    # 全周のバリア run・実在する縁石／緑帯・白線・二輪路・マーシャルポスト v2（`MARSHAL_POSTS` 32 行 + `marshalNumbers()` + `TRACKSIDE_CCTV`）・調整池（手書き、OSM way id 参照）
     suzuka-power.ts            # 送電鉄塔・架線（OSM、生成物）
     suzuka-dem.ts              # 柵の外の標高: 30 m 汎化グリッド（DEM5A σ20 m、±3.3×2.9 km）と 500 m 遠景グリッド（DEM10B、±35 km）。国土地理院、生成物、ASL 整数の int16 デルタ
     suzuka-surroundings.ts     # 柵の外の土地利用（森・田・草地・水面・小川・駐車場・太陽光・建物・道路・鉄道・サイト。OSM、ODbL、生成物）
@@ -202,7 +202,7 @@ app/
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対；`CROWD_HELMET_ROWS` = 行 28–31 の白ヘルメット姿勢、運営レイヤー用）
     credits.ts                 # アプリ内クレジット（生成物）
     tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
-    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（three 非依存。ops.ts の 3 ビルダー、facilities-check §16、ops-smoke が同じ行を読む）。4 区画: A 型と配置 `OPS_LAYOUT`（全座標を PIT_ENVELOPE.stop / GARAGE_CENTRES / PADDOCK_* から導く、停止位置のリテラル無し）+ 共有ヘルパー `stoppedCarRect(block)` / `lensColumns()` / `inWorkArea` / `crewSlots(block)` / `perchSeats(block)` / `coreEdges()` / `OPS_WINDOWS` / `OPS_TEXTS`（I3-a）、B `vehiclePlacements()`（I3-b）、C `pitEquipmentPlacements()` + `PIT_EQUIPMENT` / `fromStop` / `KEEP_OUT_EDGE` / `perchCentreS` / `perchOnPlatform`（I3-c）、D `figuresAt()` / `flagPlacements()`（I3-d）。`opsPlacements()` = B + C + D の連結
+    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（three 非依存。ops.ts の 3 ビルダー、facilities-check §16、ops-smoke が同じ行を読む）。4 区画: A 型と配置 `OPS_LAYOUT`（全座標を PIT_ENVELOPE.stop / GARAGE_CENTRES / PADDOCK_* から導く、停止位置のリテラル無し）+ 共有ヘルパー `stoppedCarRect(block)` / `lensColumns()` / `inWorkArea` / `crewSlots(block)` / `perchSeats(block)` / `coreEdges()` / `OPS_WINDOWS` / `OPS_TEXTS`（I3-a）、B `vehiclePlacements()`（I3-b）、C `pitEquipmentPlacements()` + `PIT_EQUIPMENT` / `fromStop` / `KEEP_OUT_EDGE` / `perchCentreS` / `perchOnPlatform`（I3-c）、D `figuresAt()` / `flagPlacements()`（I3-d）。A には I4-a の `MARSHAL_STAND` / `marshalStairSign` / `marshalSlots(post)` / `marshalPostFigures()` も（トラックサイドのマーシャル、mount 'trackside' / 'platform'、D の `figuresAt()` に含まれる）。`opsPlacements()` = B + C + D の連結
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
   sim/
     track.ts                   # スプライン（5807 m 正規化）、曲率、幅・カント・勾配、最小曲率レーシングライン、立体交差、ピットレーン
@@ -258,15 +258,15 @@ app/
     ops.ts                     # 運営レイヤーの傘（I3-a）: ops-vehicles → ops-pit → ops-people を順に呼び、部分統計を `stats.ops`（figures / byRole / impostors / near3d / mode は people、vehicles は vehicles、equipment は pit + vehicles）に併合し、全配置を ctx.ops（= group.userData.ops）に積む
     ops-vehicles.ts            # 運営レイヤー (I3-b): 白箱トラックのトランスポーター（チーム色帯）、2 t トラック・バン、航空コンテナ、ホスピタリティ、ガゼボ／マーキー、放送コンパウンド、SC／メディカル／コース車両・クレーン（ops-spec B `vehiclePlacements()` 105 行 → registerPropSet 'ops-vehicles' / 'ops-hospitality' / 'ops-tents' / 'ops-containers' / 'ops-compound'；GLB 車両は部位毎 `carGlb|tint` + 共有白 map、遠段は手続き車体）
     ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー（支柱・梁・腕・信号灯・ホースのホイールガン）、タイヤスタック、ジャッキ、燃料台車、モニター台、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2、固定プラットホームの TV カメラ（ops-spec C `pitEquipmentPlacements()` / `PIT_EQUIPMENT`、registerPropSet 'ops-pitEquipment' / 'ops-perches' / 'ops-cones' / 'ops-cables'。「運営レイヤー」参照）
-    ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ 298 体（ops-spec D `figuresAt()` → `figureToWorld` → figures.ts buildOpsFigures、役割毎の 'ops-figures-crew' / '-officials' / '-marshals' / '-photographers' / '-staff'）と E パドック縁の旗 8（`flagPlacements()` → registerPropSet 'ops-flags'、静止）。「人物配置」参照
-    marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
+    ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ 298 体 + I4-a のトラックサイドマーシャル 90（ops-spec D `figuresAt()` → `figureToWorld` → figures.ts buildOpsFigures、役割毎の 'ops-figures-crew' / '-officials' / '-marshals' / '-photographers' / '-staff'）と E パドック縁の旗 8（`flagPlacements()` → registerPropSet 'ops-flags'、静止）。「人物配置」参照
+    marshal-posts.ts           # マーシャルポスト v2（I4-a）: 架台上のキャビン 28 + 低ポスト 3（`registerPropSet 'infield-marshal-cabins'`、GLB の警備ブース／消火器が近景）、番号板 29（`marshalNumbers` メッシュ、8 × 4 アトラス）、消灯 EM パネル 30（`emPanels` IM、発光無し）、PTZ CCTV 42（`cctvPoles` / `cctvHeads`）、旗架・消火器・キャビネット。「マーシャルポスト v2」参照
     tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
     infield-ground.ts          # インフィールドの施設・壁・柵・池の岸・西／南コースのピット・車・街灯（I5。地面そのものは GROUND_AREAS の行が描く。I0 は入口のみ）
     cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
     infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
     figures.ts                 # 人物の共通部（crowd.ts から昇格）: 焼き込み／手続きインポスター、GLB の 3D プロトタイプ（部位 id、白ヘルメットの第 5 部位）、部位着色材質、運営レイヤーの姿勢・役割（marshal / official / crew / photographer / staff / guest、座り姿 sit / sitF）と buildOpsFigures（kind 'ops'、観客予算とは別勘定）、ピットビル 2F/3F テラスの座席スロット terraceSlots
-    props.ts                   # 距離看板、マーシャルポスト＋デジタルフラッグ、TV カメラ塔、送電線（鉄塔はトラス腕・碍子連・架空地線の頂部、7 本目のケーブル）、二輪・カート舗装
+    props.ts                   # 距離看板、TV カメラ塔（I4-b で tv-towers.ts へ）、送電線（鉄塔はトラス腕・碍子連・架空地線の頂部、7 本目のケーブル）、二輪・カート舗装のキープアウト（マーシャルポストとデジタルフラッグは I4-a で marshal-posts.ts へ、'SECTOR 2 / 3' 板は削除 — 鈴鹿に実在しない）
     vegetation.ts              # トラックサイドの樹木の散布（棄却サンプリング、桜ゾーン、キープアウト）と Node／低ティアのコーン原型
     boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
     crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD、占有抽選 → 誤差拡散の予算配分（インポスター・プロトタイプ・材質は figures.ts）
@@ -299,7 +299,7 @@ scripts/
                                #   surface-check（面のガード）、scene-cost（三角形／メッシュ／遠景の静的コスト）、app-runtime（アプリのビルダーを Node で走らせる土台）、
                                #   stub-registry（manifest の GLB をテクスチャ無しで読むスタブ登録簿と buildSceneWith — *-smoke の --glb が使う）、
                                #   ring（サーキットのリング 775428456 の復号と内外判定、Node 用）、smoke-common（I フェーズの smoke 共通部: 遠景の失敗 0・ops-*/infield-* の頂点有限とリング内・buildMs）、
-                               #   pit-smoke / paddock-smoke / ops-smoke / trackside-smoke / infield-smoke（各フェーズの smoke 雛形、`--tier high|low|both`、check には入れない）
+                               #   pit-smoke / paddock-smoke / ops-smoke / trackside-smoke / infield-smoke（各フェーズの smoke、`--tier high|low|both`、check には入れない。trackside-smoke `checkPosts` = I4-a の事実、`--glb` で警備ブース／消火器／カメラのドロップ）
 ```
 
 ## Rendering notes
@@ -806,7 +806,7 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
 
 #### 人物配置
 
-`app/three/ops-people.ts`（I3-d）が ops-spec **D 区画** `figuresAt()`（298 体）を描きます。行は `(s, lateral, yawDeg, pose, role, team?,
+`app/three/ops-people.ts`（I3-d）が ops-spec **D 区画** `figuresAt()`（298 体、I4-a のトラックサイドマーシャル 90 を足して 388）を描きます。行は `(s, lateral, yawDeg, pose, role, team?,
 y?, mount)` の純データで、座標はすべて `PIT_ENVELOPE.stop`（A 区画 `crewSlots`）、C 区画の `perchCentreS` / `perchOnPlatform` /
 `PIT_EQUIPMENT.perch`（`perchSeats` はスツールの位置に座らせる: 縁石側の縁から 0.3 m、トラック向き、原点 = 台床 + 0.05 — 座り姿のアトラスは腰 0.4 m
 の座席上で焼いてあるので原点は床）、`coreEdges()`、`PIT_WALL.platform`、`PIT_BUILDING.v2.podium / rostrum / floors`、`OPS_LAYOUT.officials /
@@ -825,9 +825,9 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
   × −10.2、デッキ +1.3 — ペルチ 2 基・ボード・キャビネット・TV カメラの空き）、表彰台テラス 4（5632 ± 1.6 / 3.2 × −27.8: 黒ステップ
   −27.2 と背景壁 −28.3 の間、mount 'roof'）、出口灯 2（129 / 130.3 × −21.7: 灯柱 (128, −21.5) と `pit-exit-outer` 壁面 −22.3 の間、
   解析キープアウト縁 −21.0 の外 — 計画の (127, −22.5) は壁の中）、入口 3（5539…5542 × −21.7: 縁 −21.1 の外。計画の −20.5 は中）。
-- **マーシャル 18**（橙 0xf07020 上下 + 白ヘルメット）: コア面 12（面から 0.5 m 外、−26.6 — 計画の −27.5 はコア脇ピットの消火器
+- **マーシャル 18 + 90**（橙 0xf07020 上下 + 白ヘルメット）: コア面 12（面から 0.5 m 外、−26.6 — 計画の −27.5 はコア脇ピットの消火器
   −27.85 と接触）、出口ヤード 4（145 / 157 / 169 / 181 × −26、レーン側車両列 −29…−31 の 3 m 手前）、入口 2（5548 / 5552 × −21.7）。
-  トラックサイドポストのスロットは I4-a: `marshalSlots(post)` の空実装を D 区画に置いた。
+  トラックサイドポストの 90 体は I4-a の `marshalSlots(post)`（A 区画、「マーシャルポスト v2」）— 合計 108。
 - **写真家 11**（黒）: プラットホーム 5（39 / 44.3 / 58.5 / 65 / 67.5、`lookUp` をカメラ構えの代用）、出口ヤード壁裏 4（145…175 × −24.4
   — 壁は −22.0…−20.4、エプロンは s 180 まで）、E パドックのメディアマーキー脇 2。
 - **スタッフ 77**（灰白 / 黒、walk / stand）: 63 がホスピタリティ歩廊（ユニット面 −74.5 から 0.7 m の歩き線 −75.2 ± 0.25 と、
@@ -852,6 +852,57 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
   ヘリで目立たないこと、白ヘルメット行（アトラス行 28–31 の再焼き後）とドームの継ぎ目、橙 0xf07020 の彩度が日陰のエプロンで
   くすまず MSAA で縁がにじまないこと、座りクルーがスツールに沈まず浮かないこと（原点 = 台床 + 0.05）、表彰台の 4 人が黒ステップと
   背景壁の間に立つこと、旗の帯が両面から見えること。
+
+### トラックサイド
+
+#### マーシャルポスト v2
+
+`app/three/marshal-posts.ts`（I4-a）が `MARSHAL_POSTS`（`app/data/suzuka-barriers-spec.ts`、32 行）を描きます。行は `(s, lateral)` =
+キャビン本体の中心で、`type`（cabin / low / building）、`platform`（架台高、既定 2.0）、`stair`（'aft' = −s 側、既定 / 'fore'）、
+`number`（番号アンカー: 1 @ 390、26 @ 4961 = r130_post.jpg、28 @ 5240）、`secondary`（同じポストの 2 つ目の小屋: 番号板・パネル・
+カメラ無し）、`facing`、`osmWay` / `size`、`panel`、`figures`（1–4、既定 3）を持ちます。`marshalNumbers()` が building でも secondary
+でもない行を s 昇順に採番し、アンカーに正確に着地しないと facilities-check O8 が落ちます（29 番まで、全番号 unverified）。
+
+- **v1 からの変更**: props.ts の 1.3 m の「冷蔵庫」+ 3.6 m ポール + 常時緑の旗 + 常時緑発光のデジタルフラッグ（`EMISSIVE.digitalFlag`、
+  削除）を廃し、'SECTOR 2 / 3' 板も削除。5 行追加（577 / 666 / 2204 の低ポスト、865、4961 = ポスト 26）。バリア線に掛かっていた行を
+  動かした: 390（0.3 m）、650（−16.5 → −18.8: t1-t2-inside 線上）、1010（0.3）、2650 → (2652, 15.0, stair 'fore')（ヘアピンの「(」壁の
+  斜辺が階段を横切る）、4110（1 m）、4536（1.7 m、線上）、5450（−22.3 → −22.6: 架台 2.7 m の近縁がキープアウト −21.1 の外）。3 m を超えて
+  動かした 3 行は根拠付き: 3288/13.5 → (3292, 24.7)（OSM 184419748 の足跡は 200r-outside 壁の 1.1 m 裏、v1 はランオフの中）、4840/10.5 →
+  25.7（130r-inside-wall のフェンスの内側 13 m に小屋は立たない、unverified）、5235/−19.5 → (5240, −28.1)（斜めのタイヤ壁の裏。航空写真の
+  もう 1 候補 (5255, −22) は駐車場フェンス 474537488 が −21 を走るので跨ぐ）。2515 と 4536 を `secondary` に（110R と橋アプローチの
+  両側の対、番号は 29 個 = 実物「28 以上」と整合）。
+- **キャビン** = `MARSHAL_STAND`（ops-spec A 区画、guard と smoke が同じ数値を読む）: 架台 4 柱 0.1² × 2.0 + 中段タイ、床 2.7 × 3.7 × 0.12
+  （本体 2.5 + 階段側デッキ 1.1、両端 0.1 の張出し）、デッキ手摺 3 辺（階段の 0.8 m 切欠き）、階段 10 段（蹴上 0.212 × 踏面 0.24、桁 2 本、
+  手摺）。本体 2.5³: 下半 1.3 と背面は `blue_metal_plate` の法線 / ARM を 0xe6e6e2 に（`noMap`、ピットビルの白漆喰と同じレシピ、無パックは
+  plain）、上半の正面 + 両側面は暗い金網の開口（`cutoutFromAssets('fence003')` の tint 0x3a3c40、barriers.ts の fenceMat と同じ define、
+  奥に 0x1a1c20 の内箱）、赤白帯 0.25（本体 +0.4、トリムアトラスの帯行 × 5 周期 = 50 cm ピッチ）、屋根 2.7 × 2.7 × 0.1 0x3a4a5c。端壁に
+  旗架（白板 0.6 × 0.9 + 巻旗 5: 黄・赤・青・緑・白）。消火器 3（架台脚元 2 + デッキ 1、`korean_fire_extinguisher_01` / 赤円柱）。パック
+  時は本体を Small Guard Booth（`packProp` `scaleTo long 2.5` → 高さ 1.87 m、`front 'moreArea'` を −x へ回す; ガラスの transmission は
+  `propMaterial` が plain Standard に作り直すので落ちる）にし、手続き本体を L1 に。`type 'low'` = 2.0 × 1.6 × 2.0 灰箱 0xb9bcc0 + 屋根 0.08。
+  すべて `registerPropSet(ctx, 'infield', 'infield-marshal-cabins', …)`（`propsNearM` 120 / `propsFarM` 600、架台・本体・低ポストは
+  `quality.farField.shadows` のとき L0 で影を落とす、消火器は受けのみ）。
+- **番号板**: 1.2 × 0.8 の白板 0.06、中心 2.4 m、ポストの s に最も近いフェンス柱（run の `sRange[0] + 4k`、barriers.ts と同じ）の走行側
+  0.08 m、`facing` の面（既定 −s）に `marshalNumberAtlas()`（8 × 4、セル 0 空白、数字 0.67 m）のセル。フェンスの無い run（バリアだけ、
+  または低ティア）は線の 0.3 m 走行側に自前の柱。1 メッシュ `marshalNumbers`。文字は `TRACKSIDE_TEXTS`（数字のみ、textures-lint）。
+- **EM ライトパネル = 消灯**（lpfront.jpg: グリーンフラッグ中は黒い枠に暗い LED 面だけ）: 黒箱 0.7 × 0.6 × 0.2、`panel.s ?? s − 3.2` を
+  柱ピッチにスナップ、柱から 0.35 m の亜鉛アーム（φ0.05）で走行側へ（面の中心は線から 0.7 m）、面 0.62 × 0.52 = `emPanelTexture()` の
+  64 × 48 ドット（0x2a1f1d、**発光無し**: `EMISSIVE.digitalFlag` と sun-model-check の登録を削除、旗状態の発光行は後日）。ベージュの
+  制御キャビネット 0.5 × 0.4 × 0.7 を柱の裏（壁厚 / タイヤ 1.3 + 0.3）に地上 +0.3 の脚で（`ctx.boxes`）。IM `emPanels`（筐体 + 面の
+  2 材質）、`group.userData.trackside.panels = [{ s, lateral, x, y, z }]`。building 行（3245 の役員室、幾何は I5 の INFIELD_FACILITIES）
+  はパネルとカメラだけ。
+- **PTZ CCTV**（web-suzuka: 43–44 台）: 番号付き / building のポスト 30 に各 1（s + 3 の柱の裏）+ `TRACKSIDE_CCTV` 12 行（直線、
+  unverified）= 42。6 m 灰ポール φ0.08（`cctvPoles`）+ `security_camera_02` / 0.25 × 0.15 × 0.2 箱（`cctvHeads`）、フェンス線の裏
+  （壁厚 + 0.25）。mount 'fencePost' 相当で O5 免除。
+- **人物**: `marshalSlots(post)`（ops-spec A、純関数）= デッキに 1（本体の前、−s 向き、mount 'platform'、y = 2.12）+ 地上 1–3（床の
+  走行側縁から 0.35 m、1.5 m 間隔、トラック向き ± 20°、mount 'trackside'）— 計 90 体（32 行、5450 はキープアウトのため 1、5240 は
+  斜めタイヤ壁のため 2）。`figuresAt()` に含まれるので ops-people.ts が他の運営人物と同じ `ops-figures-marshals` に描き、
+  `stats.ops.figures` は 298 → 388。写真家スロット（柵の窓）は I4-c。
+- **検査**: facilities-check O8（中心 hw + 2、番号の一意・単調・アンカー一致、架台 + 階段 / 低箱 / 建物矩形が O1 / O2 / O4、最寄り run
+  の観客側 ≥ 0.6 m、他の重なる run から ≥ 0.2 m — run の窓の内側だけで評価する: 端の clamp 値で手前の小屋を裁かない、'fence' kind =
+  駐車場外周は除外）、O9 / O12 は 'trackside' / 'platform' を窓検査から外す（O1 / O2 / リング / 建物は掛かる）；
+  `scripts/audit/trackside-smoke.mjs checkPosts`（stats = 表、架台の床 + 階段の世界隅が最寄り run の観客側 ≥ 0.6 m、階段の向き、
+  番号板 29 が一意・単調・2.4 m、`emPanels` 30 の材質に emissive 無し、パネルが柱ピッチ内・線から 0.35–0.75 m、カメラ 42 が線の裏、
+  スロット 90 が包絡の外、`--glb` で警備ブース 686 tris / 1.87 m と L1 の手続き段）。低ティア（fence 無し）は板・パネルが自前の柱に。
 
 ## GPU で確認すること
 
@@ -909,6 +960,11 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
 - 建物（`buildings.ts` / `hero-buildings.ts`）: 14 層の `sampler2DArray` の法線とミップ、WebP → 配列の色管理（写真層は塗り層の平均輝度に正規化）、ヒーロー家屋の台座と正面の向き（最寄り道路側）、釉薬瓦の暗さ、遠方のシャッターのモアレ、乾田の泥タイル（`dry_mud_field_001`）
 - 車両・太陽光・鉄塔: GLB 車体の輝度マスク（ガラスの反射が塗装扱いにならないこと、ハイエースの暗い屋根）、260 m での GLB → 手続き車体の切替、太陽光フェンスの A2C とインバータ小屋、鉄塔のトラス腕と碍子連
 - 地形系（`terrain-side.ts`）: 反転 Z での 3 cm の水面帯・畦のリフト、ヘリからの枕木テクスチャのエイリアス、1 km 先の 7 cm のレール、水面帯のリップル法線
+- マーシャルポスト v2（`marshal-posts.ts`）: `blue_metal_plate` の法線 / ARM が白灰 0xe6e6e2 の上で低い横光に凹凸を出すこと、開口の
+  `fence003` 金網（tint 0x3a3c40）が A2C でにじまず内箱の暗さが「日陰の室内」に読めること、Small Guard Booth（1.87 m、`front 'moreArea'`
+  で −x = トラック向きに回してある — 窓面が本当にトラックを向くか）↔ 手続き本体 2.5 m の 120 m 切替の飛び、番号板の数字が chase / TV
+  から読めること（板は柵柱の走行側 0.08 m、金網と z-fight しないこと）、消灯パネルの LED ドット面が黒枠から浮かず反射で緑に見えないこと、
+  赤白帯の 5 周期が四隅で切れないこと、架台 + 本体の影と 6 m の CCTV ポールの細さ（1 km 先で消えてよい）
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes

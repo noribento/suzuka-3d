@@ -280,52 +280,143 @@ export const OFFSET_LANES: OffsetLaneDef[] = [
 
 // ---------------------------------------------------------------- marshal posts, cameras
 
+/**
+ * A marshal post (plan I4-a, v2). `(s, lateral)` is the centre of the CABIN BODY (the hut the
+ * aerial shows); the stand, the stair, the number board, the light panel and the marshals'
+ * slots derive from it (app/three/marshal-posts.ts, ops-spec `marshalSlots`, facilities-check O8):
+ *
+ *  - type 'cabin' (default): the 2.5 m cube on a `platform` (2.0 m) steel stand, a 2.4 m stair
+ *    along s on the `stair` side ('aft' = towards −s, default) — r130_post.jpg / mlc_post.jpg;
+ *    'low': the 2.0 × 1.6 × 2.0 grey box of the 110R type, no stand; 'building': an officials'
+ *    building INFIELD_FACILITIES draws (I5) — only its light panel and camera are placed here;
+ *  - `number`: an anchor of the post numbering (26 at the 130R exit and 28 at the chicane are
+ *    read off photos; 1 at T1 is the convention); every other post gets `marshalNumbers()`'s
+ *    ascending count, which must land exactly on each anchor (O8);
+ *  - `secondary`: a second hut of the same post (the pairs across the 110R and the bridge
+ *    approach) — a cabin with its marshals but no number board, light panel or camera;
+ *  - `facing`: which way the number board reads ('-s' = towards the approaching cars, default);
+ *  - `osmWay` / `size`: the hut's OSM footprint or a hand size [along s, across] (a 'building'
+ *    row needs one of them);
+ *  - `panel`: the light panel's s (default s − 3.2, snapped to the run's 4 m fence-post pitch)
+ *    and lateral (default the barrier line, 0.35 m arm on the track side);
+ *  - `figures`: marshals at the post (1 on the platform + the rest on the ground between the
+ *    fence and the stand; default 3; 1 where the ground in front is a pit keep-out).
+ *
+ * Every number is unverified; `unverified` rows are aerial-read positions (±3 m).
+ */
 export interface MarshalPostDef {
   s: number
   lateral: number
-  /**
-   * 'cabin' — a 2.5 m cabin on a stand (I4-a builds it; props.ts's v1 hut stands in until then);
-   * absent = a v1 aerial-read hut. I4-a extends the row (number / size / rects / figureSlots).
-   */
-  type?: 'cabin'
+  type?: 'cabin' | 'low' | 'building'
+  /** stand height (m); cabin default 2.0, low 0 */
+  platform?: number
+  /** the stair's side along s (default 'aft' = towards −s) */
+  stair?: 'fore' | 'aft'
+  /** post-number anchor (see above) */
+  number?: number
+  /** a second hut of the same post: no number board / light panel / camera */
+  secondary?: true
+  /** the number board's reading direction (default '-s') */
+  facing?: '-s' | '+s'
+  osmWay?: number
+  /** hand size [along s, across] (m) — 'building' rows without an osmWay */
+  size?: [number, number]
+  /** the light panel's position override */
+  panel?: { s: number; lateral?: number }
+  /** marshals at the post (default 3) */
+  figures?: 1 | 2 | 3 | 4
   unverified?: boolean
   note?: string
 }
 
-/** Marshal post huts read off the aerial (small white structures at the barrier line). */
+/**
+ * Marshal posts: the huts read off the aerial and the OSM `building` footprints at the barrier
+ * lines (32 rows, 29 numbered). Every cabin sits on the spectator side of its barrier run with
+ * its stand ≥ 0.6 m off the resolved line (O8 / trackside-smoke); rows moved for that at I4-a
+ * say so in their note.
+ */
 export const MARSHAL_POSTS: MarshalPostDef[] = [
-  { s: 390, lateral: -31, unverified: true, note: 'grass island tip, T1 inside' },
+  { s: 390, lateral: -31.3, number: 1, unverified: true, note: 'grass island tip, T1 inside (moved 0.3 m off the t1-inside-island line at I4-a)' },
   { s: 420, lateral: 19.5, note: 'T1 outside wall' },
   { s: 500, lateral: 39, unverified: true, note: 'behind the T1 outside wall' },
-  { s: 650, lateral: -16.5, note: 'T2 exit inside wall' },
-  { s: 1010, lateral: 24, unverified: true, note: 'T4 outside gravel edge' },
+  { s: 577, lateral: 43, type: 'low', osmWay: 469261666, unverified: true, note: 'OSM hut behind the T1–T2 outside tyre wall (I4-a)' },
+  { s: 650, lateral: -18.8, unverified: true, note: 'T2 exit inside wall (the v1 hut straddled the t1-t2-inside line at −16.5; moved 2.3 m behind it at I4-a — the wall bends there, the stair corner is what needs the room)' },
+  { s: 666, lateral: 31, type: 'low', osmWay: 184143137, unverified: true, note: 'OSM hut behind the T2 exit outside wall (I4-a)' },
+  { s: 865, lateral: -15, osmWay: 184430908, unverified: true, note: 'OSM hut behind the T3 exit inside wall (I4-a)' },
+  { s: 1010, lateral: 24.3, unverified: true, note: 'T4 outside gravel edge (0.3 m further off the esses-outside line at I4-a)' },
   { s: 1316, lateral: 32, note: 'OSM building 184146166, 逆バンク outside' },
   { s: 1524, lateral: -18, note: 'OSM building 184432634, NIPPO outside' },
   { s: 1640, lateral: -39.5, note: 'OSM building 184252581, link-road gap' },
   { s: 2075, lateral: 12.5, unverified: true },
+  { s: 2204, lateral: 42, type: 'low', osmWay: 468750071, unverified: true, note: 'OSM hut between the Degner 2 trap back and the exit wall (I4-a)' },
   { s: 2295, lateral: 30, unverified: true },
   { s: 2507, lateral: 16, unverified: true, note: '110R left' },
-  { s: 2515, lateral: -15, unverified: true, note: 'H stand end' },
-  { s: 2650, lateral: 14.5, note: 'hairpin infield tip' },
+  { s: 2515, lateral: -15, secondary: true, unverified: true, note: 'H stand end: the second hut of the 110R post (no number)' },
+  { s: 2652, lateral: 15.0, stair: 'fore', note: 'hairpin infield tip, inside the ( wall (the v1 hut at (2650, 14.5) sat 1.5 m from the hairpin-inside line and its aft stair crossed the diagonal: moved 2 m along and 0.5 m out at I4-a, stair towards +s)' },
   { s: 3040, lateral: -43, unverified: true, note: 'two-wheel chicane' },
-  { s: 3245, lateral: -19, note: '200R right officials building (20 × 5 m)' },
-  { s: 3288, lateral: 13.5, note: 'OSM building 184419748' },
+  { s: 3245, lateral: -19, type: 'building', size: [20, 5], note: '200R right officials building (20 × 5 m; INFIELD_FACILITIES officials200r draws it, I5)' },
+  { s: 3292, lateral: 24.7, osmWay: 184419748, note: 'OSM building 184419748: its footprint projects to (3290–3294, 22.8–26.7), 1.1 m behind the 200r-outside wall — the v1 row (3288, 13.5) had it in the run-off, on the track side of that wall (re-keyed at I4-a)' },
   { s: 3604, lateral: -45, unverified: true },
   { s: 3671, lateral: -38.5, note: 'gap in the Spoon outside wall' },
   { s: 3990, lateral: -11, note: 'OSM building 184419749' },
-  { s: 4110, lateral: 11, unverified: true },
+  { s: 4110, lateral: 12.0, unverified: true, note: '1 m further off the west-straight-left rail at I4-a (the v1 hut at 11 was 1.2 m from the line)' },
   { s: 4526, lateral: -11.5, note: 'OSM building 184419751' },
-  { s: 4536, lateral: 9, note: 'OSM building 184419746' },
+  { s: 4536, lateral: 10.7, secondary: true, note: 'OSM building 184419746 across the bridge approach: the second hut of the post at 4526 (no number); 1.7 m further off the bridge-approach-left rail at I4-a (the v1 hut at 9 stood on the line)' },
   { s: 4750, lateral: 30, unverified: true },
-  { s: 4840, lateral: 10.5, unverified: true, note: '130R inside' },
+  { s: 4840, lateral: 25.7, unverified: true, note: '130R inside, behind the 130r-inside-wall (the v1 hut at 10.5 stood in the grass 13 m on the track side of that fenced wall; moved behind it at I4-a)' },
+  { s: 4961, lateral: -26, number: 26, osmWay: 467386925, note: '130R exit outside: post 26 (r130_post.jpg — the cabin on its stand behind the tyre wall, the 26 board on the fence)' },
   { s: 5140, lateral: 27, unverified: true, note: 'chicane escape road' },
-  { s: 5235, lateral: -19.5, unverified: true, note: 'beside the chicane exit tyres' },
+  { s: 5240, lateral: -28.1, number: 28, figures: 2, unverified: true, note: 'chicane exit: post 28, behind the diagonal chicane-exit-tyres (the v1 row (5235, −19.5) lay on the track side of that wall; the aerial\'s other candidate on the mound at (5255, −22) straddles the car-park fence 474537488, which runs at −21 there)' },
   // moved from {5395, −11.5} (I3-a): that spot is inside the sim's pit-entry path (entering cars
   // lag Track.pitLateralAt toward the track and drive through it; gap_Sim §2). Now on the apron
-  // between the lane's keep-out and the car-park fence (its 5450 sample is 1.2 m behind the cabin).
-  { s: 5450, lateral: -22.3, type: 'cabin', unverified: true, note: 'pit entry: outside the keep-out (−20.1) and inside the car-park fence' },
+  // between the lane's keep-out and the car-park fence (its 5450 sample is 1.2 m behind the cabin;
+  // −22.3 → −22.6 at I4-a: the v2 stand is 2.7 m across). Only the platform marshal: the ground
+  // in front of the stand is the lane's keep-out (O1).
+  { s: 5450, lateral: -22.6, type: 'cabin', figures: 1, unverified: true, note: 'pit entry: the stand\'s near edge (−21.25) outside the analytic keep-out (−21.1) and its far edge 0.85 m inside the car-park fence (−24.8)' },
 ]
 
+/**
+ * The post numbers: the rows that are neither 'building' nor `secondary`, ascending in s from
+ * post 1 (T1 inside), the anchors (`number`) pinning the count — 1 @ 390, 26 @ 4961, 28 @ 5240.
+ * Returns the number of every numbered row (by row object); a row whose count disagrees with
+ * its own anchor is a data error facilities-check O8 reports. All numbers unverified.
+ */
+export function marshalNumbers(): Map<MarshalPostDef, number> {
+  const rows = MARSHAL_POSTS.filter((m) => m.type !== 'building' && !m.secondary).sort((a, b) => a.s - b.s)
+  const out = new Map<MarshalPostDef, number>()
+  let n = 0
+  for (const m of rows) {
+    n = m.number ?? n + 1
+    out.set(m, n)
+  }
+  return out
+}
+
+/**
+ * The circuit's PTZ cameras along the straights (43–44 4K PTZ heads on course-side poles feed
+ * race control; one more stands at every marshal post — marshal-posts.ts): 6 m poles behind
+ * the debris fence at the fence-post pitch, mount 'fencePost' (O5 exempt). Positions unverified.
+ */
+export interface TracksideCctvDef {
+  s: number
+  side: Side
+  note?: string
+}
+
+export const TRACKSIDE_CCTV: TracksideCctvDef[] = [
+  { s: 5620, side: 1, note: 'main straight, grandstand fence' },
+  { s: 5720, side: 1 },
+  { s: 40, side: 1 },
+  { s: 140, side: 1 },
+  { s: 240, side: 1 },
+  { s: 340, side: 1 },
+  { s: 1100, side: 1, note: 'esses outside' },
+  { s: 2560, side: -1, note: 'hairpin approach' },
+  { s: 4400, side: -1, note: 'west straight trap wall' },
+  { s: 4480, side: -1 },
+  { s: 4780, side: 1, note: '130R inside verge' },
+  { s: 5000, side: 1, note: 'chicane approach' },
+]
 /** TV camera masts whose default (outside of the nearest corner, hw + 9) lands in a run-off. */
 export const TV_MAST_OVERRIDES: Record<number, number> = { 1960: 12, 3650: -40, 4350: -24 }
 

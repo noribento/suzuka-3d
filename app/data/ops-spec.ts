@@ -29,12 +29,19 @@
 
 import type { TeamId } from './drivers'
 import { CIRCUIT } from './suzuka'
+import { MARSHAL_POSTS, type MarshalPostDef } from './suzuka-barriers-spec'
 import {
   GARAGE_ORDER, PIT_GARAGE_COUNT, PIT_CORES, PIT_BOX_STRIP, PIT_ENVELOPE, PIT_BUILDING, PIT_WALL,
   PADDOCK_BUILDINGS, PADDOCK_LAMPS, PADDOCK_OFFICE, PADDOCK_PARKING, garageS,
 } from './suzuka-facilities-spec'
 
-export type OpsMount = 'apron' | 'lane' | 'wall' | 'paddock' | 'yard' | 'interior' | 'roof' | 'fencePost' | 'barrierTop' | 'pitWallTop'
+/**
+ * 'trackside' / 'platform' (I4-a): the marshals of a trackside post — on the ground beside its
+ * stand and on the stand's deck (`y` = the platform's floor over the ground). Both stand on the
+ * drawn ground (like apron / yard rows) and are keyed by MARSHAL_POSTS, so §16 O12's s windows
+ * do not apply to them; O1 / O2 do.
+ */
+export type OpsMount = 'apron' | 'lane' | 'wall' | 'paddock' | 'yard' | 'interior' | 'roof' | 'fencePost' | 'barrierTop' | 'pitWallTop' | 'trackside' | 'platform'
 
 export type OpsKind =
   | 'vehicle' | 'truck' | 'tent' | 'container' | 'cabin' | 'crane' | 'generator'
@@ -369,6 +376,75 @@ export function perchSeats(block: number): OpsFigure[] {
   const lat = (onDeck ? P.onPlatform.lat : P.lat) - (onDeck ? P.onPlatform.width : P.size[1]) / 2 + 0.3
   const y = (onDeck ? PIT_WALL.platform.y : PIT_WALL.walkway.y) + P.floor + 0.05
   return P.seatsDS.map((d) => ({ s: wrapS(c + d), lateral: lat, role: 'crew' as const, team, pose: 'sit', yawDeg: 90, y, mount: 'wall' as const }))
+}
+
+/**
+ * The stand of a marshal post (I4-a): what marshal-posts.ts draws and facilities-check O8 /
+ * ops-spec `marshalSlots` read. The cabin body 2.5 m is centred on the row's (s, lateral); the
+ * platform floor is `across` wide and reaches `deckS` past the body on the stair side (the deck
+ * the platform marshal stands on), the stair (`stairLen` × `stairW`) runs on from the deck's
+ * edge along s. Ground marshals stand `groundGap` in front of the floor's track-side edge,
+ * `groundPitch` apart along s. Heights: `platform` default, `floor` thickness.
+ */
+export const MARSHAL_STAND = {
+  body: 2.5,
+  across: 2.7,
+  /** the floor's extent past the body on the stair side (m) */
+  deckS: 1.1,
+  stairLen: 2.4,
+  stairW: 0.8,
+  platform: 2.0,
+  floor: 0.12,
+  /** the low post (type 'low'): [along s, across, height] */
+  low: [2.0, 1.6, 2.0] as const,
+  groundGap: 0.35,
+  groundPitch: 1.5,
+} as const
+
+/** the stair's direction along s (+1 = towards +s) of a post row */
+export function marshalStairSign(post: Pick<MarshalPostDef, 'stair'>): 1 | -1 {
+  return post.stair === 'fore' ? 1 : -1
+}
+
+/**
+ * The marshals of a trackside post (I4-a): one on the stand's deck in front of the body facing
+ * the approaching cars (mount 'platform', `y` = platform + floor over the ground), the rest on
+ * the ground between the fence and the stand — `groundGap` in front of the floor's track-side
+ * edge, `groundPitch` apart along s, facing the track ± 20° (a deterministic hash) — mount
+ * 'trackside'. `figures` per row (default 3; 1 = the platform only, where the ground in front
+ * is a pit keep-out). A 'building' row offers none (I5 draws the building and its people);
+ * a 'low' post has no stand, so all of its marshals stand on the ground. Every point passes
+ * §16 O1 / O2 (facilities-check O8 / O9) and stands off the barrier line whenever the row
+ * itself does (the cabin's stand is ≥ 0.6 m off it, the marshals 0.35 m inside that edge).
+ */
+export function marshalSlots(post: MarshalPostDef): OpsFigure[] {
+  if (post.type === 'building') return []
+  const S = MARSHAL_STAND
+  const side = post.lateral >= 0 ? 1 : -1
+  const n = post.figures ?? 3
+  const low = post.type === 'low'
+  const out: OpsFigure[] = []
+  const k = Math.round(post.s)
+  if (!low) {
+    // the deck: in front of the body on the stair side, looking back along the track (−s)
+    const y = (post.platform ?? S.platform) + S.floor
+    out.push({ s: wrapS(post.s + marshalStairSign(post) * (S.body / 2 + S.deckS / 2)), lateral: post.lateral, role: 'marshal', pose: 'stand', yawDeg: 180, y, mount: 'platform' })
+  }
+  const groundN = low ? n : n - 1
+  const across = low ? S.low[1] : S.across
+  const lat = post.lateral - side * (across / 2 + S.groundGap)
+  const offsets = groundN <= 0 ? [] : groundN === 1 ? [0] : groundN === 2 ? [-0.5, 0.5] : Array.from({ length: groundN }, (_, i) => i - (groundN - 1) / 2)
+  offsets.forEach((o, i) => {
+    const yaw = -side * 90 + (unit(k, i + 11) - 0.5) * 40
+    const pose = (['stand', 'hips', 'standF', 'lookUp'] as const)[Math.floor(unit(k, i + 21) * 4)]!
+    out.push({ s: wrapS(post.s + o * S.groundPitch), lateral: lat, role: 'marshal', pose, yawDeg: yaw, mount: 'trackside' })
+  })
+  return out
+}
+
+/** the marshals of every trackside post (`marshalSlots` over MARSHAL_POSTS) */
+export function marshalPostFigures(): OpsFigure[] {
+  return MARSHAL_POSTS.flatMap((m) => marshalSlots(m))
 }
 
 /** Every static object the ops layer places: sections B + C (+ the non-figure rows of D). */
@@ -888,7 +964,9 @@ export function pitEquipmentPlacements(): OpsPlacement[] {
  *    six on the fixed platform's deck (y platform.y, mount 'wall'), four on the podium's flat
  *    2F terrace (y floors[1], mount 'roof'), two at the pit-exit light, three at the pit entry;
  *  - marshals (orange, white helmets): OPS_LAYOUT.marshals — one at each of the twelve core
- *    faces on the apron, four in the pit-exit yard, two on the entry apron;
+ *    faces on the apron, four in the pit-exit yard, two on the entry apron — and, since I4-a,
+ *    the trackside posts' marshals (section A `marshalSlots` over MARSHAL_POSTS: one on every
+ *    stand's deck, the rest on the ground between the fence and the stand);
  *  - photographers (black): five on the platform's lane edge, four behind the exit-yard wall,
  *    two by the E paddock's media marquee;
  *  - staff (grey over black, walking / standing): 60 in the paddock — the 5 m walkway between
@@ -977,16 +1055,6 @@ function marshalFigures(): OpsFigure[] {
   return out
 }
 
-/**
- * The marshals of a trackside post (plan I4-a): I4 fills this from MARSHAL_POSTS v2's
- * `figureSlots` (the cabin's platform, the flag point beside the fence window) and adds the
- * rows to `figuresAt()`; until then a post offers none, and §16 O8 already checks the slots'
- * points. Kept here so the guard, the smoke and ops-people.ts read one function.
- */
-export function marshalSlots(_post: { s: number; lateral: number }): OpsFigure[] {
-  return []
-}
-
 function photographerFigures(): OpsFigure[] {
   const P = OPS_LAYOUT.photographers
   const out: OpsFigure[] = []
@@ -1062,7 +1130,7 @@ function staffFigures(): OpsFigure[] {
 }
 
 export function figuresAt(): OpsFigure[] {
-  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...photographerFigures(), ...staffFigures()]
+  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...marshalPostFigures(), ...photographerFigures(), ...staffFigures()]
 }
 
 /** the flags' [upper band, lower band] colours (fictional tricolours: the middle band is white) */

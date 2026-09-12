@@ -1,17 +1,15 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { APEX_SPEED_TARGETS, CIRCUIT, OVERTAKE_ZONES, TV_CAMERA_SPOTS } from '~/data/suzuka'
+import { APEX_SPEED_TARGETS, OVERTAKE_ZONES, TV_CAMERA_SPOTS } from '~/data/suzuka'
 import { signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
 import { LAYER, markDecal } from './ground'
 import type { DecalQuad } from './ground-mesh'
 import { brakingRubberTexture, labelTexture } from './textures'
-import { EMISSIVE, emissiveScale } from './emissive'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
 import { GROUND_AREAS } from '~/data/suzuka-facilities-spec'
-import { MARSHAL_POSTS, TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
+import { TV_MAST_OVERRIDES } from '~/data/suzuka-barriers-spec'
 import { osmWay } from './trackside'
-import { barrierLateralAt } from './barriers'
 import { barGeometry, latticeParts } from './lattice'
 
 type Fn = (s: number) => number
@@ -21,20 +19,21 @@ const _m = new THREE.Matrix4()
 const _q = new THREE.Quaternion()
 
 /**
- * Trackside props: braking-distance boards, sector boards, marshal posts with their flags and
- * digital-flag panels, the rubbered-in braking zones, the TV camera masts and the overhead
- * power lines behind the circuit. (The OSM buildings of the surroundings used to be massed here
- * too; app/three/buildings.ts owns them since plan §2c.) The marshal huts go through the shared
- * `boxes` placer (the caller flushes it); `hutRoofMat` is the pit building's roof material, so
- * the hut roofs merge into the same mesh as the rest of that material.
- * Returns the flag-wave clock (also left on `group.userData.flagTime`), advanced per frame —
- * the caller's when given (buildEnvironment shares one clock with the infield's marshal posts).
+ * Trackside props: braking-distance boards, the rubbered-in braking zones, the TV camera masts
+ * and the overhead power lines behind the circuit. (The OSM buildings of the surroundings used
+ * to be massed here too; app/three/buildings.ts owns them since plan §2c. The marshal posts,
+ * their flags and light panels moved to app/three/marshal-posts.ts at I4-a, and the 'SECTOR 2 /
+ * 3' boards went with them — Suzuka has no sector boards, `CIRCUIT.sectors` is timing only.)
+ * `hutRoofMat` is the pit building's roof material (unused since I4-a; kept for the call site
+ * until the TV masts move too, I4-b). Returns the flag-wave clock (also left on
+ * `group.userData.flagTime`), advanced per frame — the caller's when given (buildEnvironment
+ * shares one clock with the paddock's flags).
  */
-export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Material, flagTime: { value: number } = { value: 0 }): { flagTime: { value: number } } {
-  const { track, ground, group, boxes } = ctx
+export function buildTracksideProps(ctx: EnvBuildContext, _hutRoofMat: THREE.Material, flagTime: { value: number } = { value: 0 }): { flagTime: { value: number } } {
+  const { track, ground, group } = ctx
   const hw = track.halfWidth
 
-  // --- trackside furniture: distance boards, marshal posts, sector boards -------------------------
+  // --- trackside furniture: the distance boards ---------------------------------------------
   {
     const postMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.6, metalness: 0.6 })
     const boardGeos: Record<string, THREE.Matrix4[]> = { '150': [], '100': [], '50': [] }
@@ -75,104 +74,8 @@ export function buildTracksideProps(ctx: EnvBuildContext, hutRoofMat: THREE.Mate
       inst.castShadow = true
       group.add(inst)
     }
-    // sector boards at the timing lines
-    const sectorGeo = new THREE.PlaneGeometry(2.4, 1.0)
-    sectorGeo.rotateY(Math.PI)
-    CIRCUIT.sectors.forEach((s, i) => {
-      const side = cameraSide(track, s)
-      const lat = side * (track.halfWidthAt(s) + 4)
-      const mesh = new THREE.Mesh(sectorGeo, new THREE.MeshStandardMaterial({ map: labelTexture(`SECTOR ${i + 2}`, '#111111', '#ffffff', 512, 224, 96), roughness: 0.6, side: THREE.DoubleSide }))
-      const m = new THREE.Matrix4()
-      orient(s, lat, 2.4, m)
-      mesh.applyMatrix4(m)
-      group.add(mesh)
-      track.pointAt(s, lat, _p, ground.standAt(s, lat))
-      for (const dx of [-1, 1]) {
-        const post = new THREE.CylinderGeometry(0.05, 0.05, 2.0, 6)
-        const hh = track.headingAt(s)
-        post.translate(_p.x + hh.tx * dx * 1.0, _p.y + 1.0, _p.z + hh.tz * dx * 1.0)
-        postGeos.push(post)
-      }
-    })
-    // marshal posts at the huts the aerial shows (MARSHAL_POSTS), each with a flag pole, a green
-    // flag and ONE head-height LED digital-flag panel (EM Motorsport, 2018) a few metres before
-    // it, on a grey pole at the fence line — the light-panel photo shows a single panel bracketed
-    // off the fence post, no mast. They used to be dropped every 330 m alternating sides, which
-    // stood them in gravel traps, inside the C terrace and on the racing line's verge (2026-09 audit).
-    const flagPanels: THREE.Matrix4[] = []
-    const hutMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7 })
-    const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1f8a3f, roughness: 0.7 })
-    const flagGeos: THREE.BufferGeometry[] = []
-    const flagMat = new THREE.MeshStandardMaterial({ color: 0x1fa34a, roughness: 0.9, side: THREE.DoubleSide })
-    for (const post of MARSHAL_POSTS) {
-      const s = post.s
-      const lat = post.lateral
-      const side: 1 | -1 = lat >= 0 ? 1 : -1
-      boxes.place(s, lat, 2.4, 1.8, 1.3, hutMat, 0, false, false)
-      boxes.place(s, lat, 2.4, 1.85, 0.25, stripeMat, 0.6, false, false)
-      boxes.place(s, lat, 2.5, 1.9, 0.12, hutRoofMat, 1.3, false, false)
-      const poleS = s + 1.8
-      track.pointAt(poleS, lat, _p, ground.standAt(poleS, lat))
-      const pole = new THREE.CylinderGeometry(0.03, 0.03, 3.6, 6)
-      pole.translate(_p.x, _p.y + 1.8, _p.z)
-      postGeos.push(pole)
-      const flag = new THREE.PlaneGeometry(1.0, 0.7, 8, 2)
-      const h = track.headingAt(poleS)
-      // hang from the pole top, trailing along the track direction; per-vertex phase in uv.x
-      flag.translate(0.5, 0, 0)
-      const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(h.tx, 0, h.tz), new THREE.Vector3(0, 1, 0), new THREE.Vector3(-h.tz, 0, h.tx))
-      m.setPosition(_p.x, _p.y + 3.2, _p.z)
-      flag.applyMatrix4(m)
-      flagGeos.push(flag)
-      // the panel faces the cars from a 0.08 m pole 0.3 m on the track side of the barrier line
-      // (the fence line), so it stands clear of the wall top and in front of the mesh; where no
-      // run is tabled there it stays between the hut and the road
-      const panelS = s - 3.2
-      const fenceLat = barrierLateralAt(track, panelS, side)
-      const panelLat = fenceLat !== null ? fenceLat - side * 0.3 : lat - side * 1.2
-      const pm = new THREE.Matrix4()
-      orient(panelS, panelLat, 2.05, pm)
-      flagPanels.push(pm)
-      track.pointAt(panelS, panelLat, _p, ground.standAt(panelS, panelLat))
-      const panelPost = new THREE.CylinderGeometry(0.04, 0.04, 1.75, 6)
-      panelPost.translate(_p.x, _p.y + 0.875, _p.z)
-      postGeos.push(panelPost)
-    }
-    // one merged mesh for every post and pole placed above (the marshal poles included)
+    // one merged mesh for every post placed above
     group.add(new THREE.Mesh(mergeGeometries(postGeos, false)!, postMat))
-    {
-      // LED face towards the approaching cars, dark housing just behind it; the glow sits under the
-      // bloom threshold (EMISSIVE.digitalFlag), so it reads as a lit panel rather than a lamp
-      const faceGeo = new THREE.PlaneGeometry(0.9, 0.55)
-      faceGeo.rotateY(Math.PI)
-      const faceMat = new THREE.MeshStandardMaterial({ color: 0x0a0f0c, emissive: EMISSIVE.digitalFlag.color, emissiveIntensity: EMISSIVE.digitalFlag.intensity * emissiveScale(), roughness: 0.4 })
-      const faces = new THREE.InstancedMesh(faceGeo, faceMat, flagPanels.length)
-      const housingGeo = new THREE.BoxGeometry(1.0, 0.66, 0.1)
-      housingGeo.translate(0, 0, 0.06)
-      const housings = new THREE.InstancedMesh(housingGeo, new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.6, metalness: 0.3 }), flagPanels.length)
-      flagPanels.forEach((m, i) => {
-        faces.setMatrixAt(i, m)
-        housings.setMatrixAt(i, m)
-      })
-      faces.instanceMatrix.needsUpdate = true
-      housings.instanceMatrix.needsUpdate = true
-      faces.name = 'digitalFlags'
-      housings.receiveShadow = true
-      group.add(faces, housings)
-    }
-    const flags = new THREE.Mesh(mergeGeometries(flagGeos, false)!, flagMat)
-    flags.name = 'flags'
-    flags.frustumCulled = false
-    flagMat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = flagTime
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;')
-        .replace('#include <begin_vertex>', `#include <begin_vertex>
-          float w = uv.x;
-          transformed.y += sin(uTime * 5.0 + position.x * 2.0 + position.z * 2.0 + w * 6.0) * 0.06 * w;
-          transformed.x += cos(uTime * 3.7 + w * 5.0 + position.z) * 0.05 * w;`)
-    }
-    group.add(flags)
     group.userData.flagTime = flagTime
   }
 
