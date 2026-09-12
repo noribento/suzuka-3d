@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-12T05:06:56.603Z",
+  "generated": "2026-09-12T05:56:41.729Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -899,6 +899,1043 @@
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/ops/ace_11": {
+      "kind": "model",
+      "path": "/assets/models/ops_ace_11.ef2fbb58.glb",
+      "format": "glb",
+      "bytes": 788868,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Ace '11 - Low Poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/ace-11-low-poly-model-055ff8a21b8d4d279debca089e2fafcd",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/ace-11-low-poly-model-055ff8a21b8d4d279debca089e2fafcd",
+        "sha256Source": "7049cd3ffb2be5bdc29aefda8843974c22f2b244f7778255e202aa44defcaa18",
+        "miscPath": "ops/ace_11_-_low_poly_model.zip",
+        "licenceEvidence": "ace_11_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "2 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 9 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/ops/diesel_generator": {
+      "kind": "model",
+      "path": "/assets/models/ops_diesel_generator.c3ef4fac.glb",
+      "format": "glb",
+      "bytes": 113720,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Diesel Generator (low-poly game asset)",
+        "pageUrl": "https://sketchfab.com/3d-models/diesel-generator-low-poly-game-asset-03db834f3fd94212a6a07d3127630b3b",
+        "licence": "CC-BY-4.0",
+        "author": "Eugene Flerko",
+        "authorUrl": "https://sketchfab.com/eugene.flerko",
+        "url": "https://sketchfab.com/3d-models/diesel-generator-low-poly-game-asset-03db834f3fd94212a6a07d3127630b3b",
+        "sha256Source": "c95026a38d8072a99961547402bf510a613d1ea839a5f40c8fe8483ff3081f30",
+        "miscPath": "ops/diesel_generator_low-poly_game_asset.zip",
+        "licenceEvidence": "diesel_generator_low-poly_game_asset.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 3 etc1s)"
+      ]
+    },
+    "model/ops/forklift": {
+      "kind": "model",
+      "path": "/assets/models/ops_forklift.190b9713.glb",
+      "format": "glb",
+      "bytes": 180716,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Forklift low poly",
+        "pageUrl": "https://sketchfab.com/3d-models/forklift-low-poly-8ab650b3982243f8b661142de50f79c9",
+        "licence": "CC-BY-4.0",
+        "author": "Ricardo Sanchez",
+        "authorUrl": "https://sketchfab.com/380660711785",
+        "url": "https://sketchfab.com/3d-models/forklift-low-poly-8ab650b3982243f8b661142de50f79c9",
+        "sha256Source": "f449a17211a59a3144a3645678da50fde8a27b35cd44ae5f1390bffb2234f6c8",
+        "miscPath": "ops/forklift_low_poly.zip",
+        "licenceEvidence": "forklift_low_poly.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/ops/jdm_sport_99": {
+      "kind": "model",
+      "path": "/assets/models/ops_jdm_sport_99.db18547f.glb",
+      "format": "glb",
+      "bytes": 849876,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "JDM Sport '99 - Low Poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/jdm-sport-99-low-poly-model-6dd4ae19c454414d9eed2bc524515d78",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/jdm-sport-99-low-poly-model-6dd4ae19c454414d9eed2bc524515d78",
+        "sha256Source": "baf62c6bc7e6ae3f50b6d96ba2e7e214796b92c456e91978972b36e95702d8b6",
+        "miscPath": "ops/jdm_sport_99_-_low_poly_model.zip",
+        "licenceEvidence": "jdm_sport_99_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "2 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 10 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/ops/lightbody_flatbed": {
+      "kind": "model",
+      "path": "/assets/models/ops_lightbody_flatbed.f7add7a4.glb",
+      "format": "glb",
+      "bytes": 900228,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Lightbody '90 MD Flatbed - Low poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/lightbody-90-md-flatbed-low-poly-model-39195e554c7a41a2884186c10d5079c0",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/lightbody-90-md-flatbed-low-poly-model-39195e554c7a41a2884186c10d5079c0",
+        "sha256Source": "1d0a9fd774b7ba79d7bbff67bfd401a8eea91ac354b1c6206475356b8ef879a1",
+        "miscPath": "ops/lightbody_90_md_flatbed_-_low_poly_model.zip",
+        "licenceEvidence": "lightbody_90_md_flatbed_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 10 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/ops/lightbody_tow": {
+      "kind": "model",
+      "path": "/assets/models/ops_lightbody_tow.d9c56704.glb",
+      "format": "glb",
+      "bytes": 943664,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Lightbody '90 MD Tow Truck - Low poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/lightbody-90-md-tow-truck-low-poly-model-5cba208001c64e8ea164f89e4dde91e7",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/lightbody-90-md-tow-truck-low-poly-model-5cba208001c64e8ea164f89e4dde91e7",
+        "sha256Source": "63592a1155088c32d1c3fb1734002989d749dbdf46bc0abf965272b22af8e08c",
+        "miscPath": "ops/lightbody_90_md_tow_truck_-_low_poly_model.zip",
+        "licenceEvidence": "lightbody_90_md_tow_truck_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 10 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/ops/porta_potty": {
+      "kind": "model",
+      "path": "/assets/models/ops_porta_potty.6b4cceaa.glb",
+      "format": "glb",
+      "bytes": 148832,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Porta Potty",
+        "pageUrl": "https://sketchfab.com/3d-models/porta-potty-b970702ea74a456e89673e73cfb6d873",
+        "licence": "CC-BY-4.0",
+        "author": "Sean Thomas",
+        "authorUrl": "https://sketchfab.com/foon.",
+        "url": "https://sketchfab.com/3d-models/porta-potty-b970702ea74a456e89673e73cfb6d873",
+        "sha256Source": "f915b769350320694d7bf2465b318e455e43f7e1b93c3a38ddd1afc7c02a3922",
+        "miscPath": "ops/porta_potty.zip",
+        "licenceEvidence": "porta_potty.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/ops/shvan_92_ambulance": {
+      "kind": "model",
+      "path": "/assets/models/ops_shvan_92_ambulance.5f52b486.glb",
+      "format": "glb",
+      "bytes": 928516,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Shvan '92 Ambulance - Low Poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/shvan-92-ambulance-low-poly-model-2856dd3c61f940909dced9a5c0379484",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/shvan-92-ambulance-low-poly-model-2856dd3c61f940909dced9a5c0379484",
+        "sha256Source": "a89443845c76b836cbde3a904368f653366068abace7fe58aa7f1642d74f646a",
+        "miscPath": "ops/shvan_92_ambulance_-_low_poly_model.zip",
+        "licenceEvidence": "shvan_92_ambulance_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "trademarks retouched (10 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (2 uastc, 11 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/ops/sigil_07": {
+      "kind": "model",
+      "path": "/assets/models/ops_sigil_07.c95ae55f.glb",
+      "format": "glb",
+      "bytes": 832980,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Sigil '07 - Low poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/sigil-07-low-poly-model-22abe5284d4c4b55920b8462eb24a8c1",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/sigil-07-low-poly-model-22abe5284d4c4b55920b8462eb24a8c1",
+        "sha256Source": "4e0e2830674c8e466e691fee215347f0c8cc6723f1f0bd44220bc1b9d93a3fca",
+        "miscPath": "ops/sigil_07_-_low_poly_model.zip",
+        "licenceEvidence": "sigil_07_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 10 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/ops/tent_canopy": {
+      "kind": "model",
+      "path": "/assets/models/ops_tent_canopy.59c318bf.glb",
+      "format": "glb",
+      "bytes": 331668,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Tent Canopy - rectangular",
+        "pageUrl": "https://sketchfab.com/3d-models/tent-canopy-rectangular-256b7c9e92d54a49af295be120b5ec59",
+        "licence": "CC-BY-4.0",
+        "author": "MozillaHubs",
+        "authorUrl": "https://sketchfab.com/mozillareality",
+        "url": "https://sketchfab.com/3d-models/tent-canopy-rectangular-256b7c9e92d54a49af295be120b5ec59",
+        "sha256Source": "ed0c12189c94f39e49643a3df40468116e4921d621ec4a56aa45bf27e9f553f0",
+        "miscPath": "ops/tent_canopy_-_rectangular.zip",
+        "licenceEvidence": "tent_canopy_-_rectangular.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/ops/urban_10": {
+      "kind": "model",
+      "path": "/assets/models/ops_urban_10.5227973e.glb",
+      "format": "glb",
+      "bytes": 832160,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Urban '10 - Low poly model",
+        "pageUrl": "https://sketchfab.com/3d-models/urban-10-low-poly-model-2866efdfa943484391ef8313768e074d",
+        "licence": "CC-BY-4.0",
+        "author": "Daniel Zhabotinsky",
+        "authorUrl": "https://sketchfab.com/DanielZhabotinsky",
+        "url": "https://sketchfab.com/3d-models/urban-10-low-poly-model-2866efdfa943484391ef8313768e074d",
+        "sha256Source": "1d30964fa43d25fa20f15915794a89e4ea8f5eb37eacc38bd4143d5944a11109",
+        "miscPath": "ops/urban_10_-_low_poly_model.zip",
+        "licenceEvidence": "urban_10_-_low_poly_model.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (drop /Badges/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 10 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/pit/impact_wrench": {
+      "kind": "model",
+      "path": "/assets/models/pit_impact_wrench.c0678810.glb",
+      "format": "glb",
+      "bytes": 156564,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Impact wrench",
+        "pageUrl": "https://sketchfab.com/3d-models/impact-wrench-538a84dc51ba4b43b98dad3697147ffc",
+        "licence": "CC-BY-4.0",
+        "author": "chupin",
+        "authorUrl": "https://sketchfab.com/chupin",
+        "url": "https://sketchfab.com/3d-models/impact-wrench-538a84dc51ba4b43b98dad3697147ffc",
+        "sha256Source": "846bfc06be97187a59e8c01c80ce01c01cae8c4055c206bd85e9e06be025cd40",
+        "miscPath": "pit/impact_wrench.zip",
+        "licenceEvidence": "impact_wrench.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 4 etc1s)"
+      ]
+    },
+    "model/pit/pc_monitors": {
+      "kind": "model",
+      "path": "/assets/models/pit_pc_monitors.9dd31077.glb",
+      "format": "glb",
+      "bytes": 98528,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Basic PC Monitors",
+        "pageUrl": "https://sketchfab.com/3d-models/basic-pc-monitors-58a2dba70e4f4752962ee98a9d6827be",
+        "licence": "CC-BY-4.0",
+        "author": "Sousinho",
+        "authorUrl": "https://sketchfab.com/sousinho",
+        "url": "https://sketchfab.com/3d-models/basic-pc-monitors-58a2dba70e4f4752962ee98a9d6827be",
+        "sha256Source": "25a432f77ba6fa28156028442270621feb20f2251f61afc50f0053224e1d1f5c",
+        "miscPath": "pit/basic_pc_monitors.zip",
+        "licenceEvidence": "basic_pc_monitors.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 5 etc1s)"
+      ]
+    },
+    "model/pit/pit_board": {
+      "kind": "model",
+      "path": "/assets/models/pit_pit_board.9bec9ab3.glb",
+      "format": "glb",
+      "bytes": 31012,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Pit Board",
+        "pageUrl": "https://sketchfab.com/3d-models/pit-board-42e680a0171246f8854918ac03e4c33c",
+        "licence": "CC-BY-4.0",
+        "author": "Alex Werner",
+        "authorUrl": "https://sketchfab.com/alexwerndesign",
+        "url": "https://sketchfab.com/3d-models/pit-board-42e680a0171246f8854918ac03e4c33c",
+        "sha256Source": "0b9dc1ac37cd0a33c02c18155d9f7991ef066ad25d3bb348182c52158ff2fe95",
+        "miscPath": "pit/pit_board.zip",
+        "licenceEvidence": "pit_board.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "trademarks retouched (1 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (10 etc1s)"
+      ]
+    },
+    "model/pit/trolley_jack": {
+      "kind": "model",
+      "path": "/assets/models/pit_trolley_jack.888b517d.glb",
+      "format": "glb",
+      "bytes": 118188,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Trolley Jack Lo Poly",
+        "pageUrl": "https://sketchfab.com/3d-models/trolley-jack-lo-poly-c4ea505c9a6942bd9bd192602d18ce81",
+        "licence": "CC-BY-4.0",
+        "author": "almartin",
+        "authorUrl": "https://sketchfab.com/almartin",
+        "url": "https://sketchfab.com/3d-models/trolley-jack-lo-poly-c4ea505c9a6942bd9bd192602d18ce81",
+        "sha256Source": "4ef2aee440bdb325c8d7e55d3d4af49e5fd69ae91c1ff59b718185dea0651ecc",
+        "miscPath": "pit/trolley_jack_lo_poly.zip",
+        "licenceEvidence": "trolley_jack_lo_poly.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
       ]
     },
     "model/props/Barrel_02": {
@@ -2250,6 +3287,319 @@
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)"
+      ]
+    },
+    "model/trackside/cone_pack": {
+      "kind": "model",
+      "path": "/assets/models/trackside_cone_pack.529223ce.glb",
+      "format": "glb",
+      "bytes": 435928,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Barrier & Traffic Cone Pack",
+        "pageUrl": "https://sketchfab.com/3d-models/barrier-traffic-cone-pack-23c4dfca76a24bf0b21894847867af2a",
+        "licence": "CC-BY-4.0",
+        "author": "Sabri Ayeş",
+        "authorUrl": "https://sketchfab.com/sabriayes",
+        "url": "https://sketchfab.com/3d-models/barrier-traffic-cone-pack-23c4dfca76a24bf0b21894847867af2a",
+        "sha256Source": "b4aac63e6980df335397bd9d5708399b3a4e957cd9d9d739b578987f64896936",
+        "miscPath": "trackside/barrier__traffic_cone_pack.zip",
+        "licenceEvidence": "barrier__traffic_cone_pack.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "9 mesh nodes dropped (keep /\\/Object_(3|5|10|13|14|15|16|17)$/)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (6 uastc, 16 etc1s)"
+      ]
+    },
+    "model/trackside/crowd_barrier": {
+      "kind": "model",
+      "path": "/assets/models/trackside_crowd_barrier.d9a8cd70.glb",
+      "format": "glb",
+      "bytes": 106600,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Police Crowd Barrier",
+        "pageUrl": "https://sketchfab.com/3d-models/police-crowd-barrier-27146861408c43dfa6abeacf11f23988",
+        "licence": "CC-BY-4.0",
+        "author": "exiS7-Gs",
+        "authorUrl": "https://sketchfab.com/exiS7-Gs",
+        "url": "https://sketchfab.com/3d-models/police-crowd-barrier-27146861408c43dfa6abeacf11f23988",
+        "sha256Source": "6f405804baf9403af39dedef35c375d9e2ef1a08945bdb1e7b642ca2d188147a",
+        "miscPath": "trackside/police_crowd_barrier.zip",
+        "licenceEvidence": "police_crowd_barrier.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "trademarks retouched (1 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (1 uastc, 3 etc1s)"
+      ]
+    },
+    "model/trackside/flood_light": {
+      "kind": "model",
+      "path": "/assets/models/trackside_flood_light.d7027207.glb",
+      "format": "glb",
+      "bytes": 123676,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Flood light 02",
+        "pageUrl": "https://sketchfab.com/3d-models/flood-light-02-95ad365a60434015a8700efbdaa90893",
+        "licence": "CC-BY-4.0",
+        "author": "CHAMOD",
+        "authorUrl": "https://sketchfab.com/Chamodp",
+        "url": "https://sketchfab.com/3d-models/flood-light-02-95ad365a60434015a8700efbdaa90893",
+        "sha256Source": "eeba0ce01bfb0dfd274df4492c20e64aae2f9cd6e053d0516124b772ae6f50e7",
+        "miscPath": "trackside/flood_light_02.zip",
+        "licenceEvidence": "flood_light_02.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/trackside/guard_booth": {
+      "kind": "model",
+      "path": "/assets/models/trackside_guard_booth.5f92af93.glb",
+      "format": "glb",
+      "bytes": 342804,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Small Guard Booth",
+        "pageUrl": "https://sketchfab.com/3d-models/small-guard-booth-422ec83e0bd64687a0026c67abb6bc07",
+        "licence": "CC-BY-4.0",
+        "author": "Arsen Ismailov",
+        "authorUrl": "https://sketchfab.com/fdgasd7",
+        "url": "https://sketchfab.com/3d-models/small-guard-booth-422ec83e0bd64687a0026c67abb6bc07",
+        "sha256Source": "dd71961f4b6c1a1fb6ea364988d82f64a5d7a59ff1bc9d19d699e1065167e0f6",
+        "miscPath": "trackside/small_guard_booth.zip",
+        "licenceEvidence": "small_guard_booth.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (drop /\\/RootNode\\/Cube(\\/|$)/)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 2 etc1s)"
+      ]
+    },
+    "model/trackside/tire_stack": {
+      "kind": "model",
+      "path": "/assets/models/trackside_tire_stack.06e874f0.glb",
+      "format": "glb",
+      "bytes": 47496,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Sketchfab",
+        "name": "Racetrack tire stack standard (v2)",
+        "pageUrl": "https://sketchfab.com/3d-models/racetrack-tire-stack-standard-v2-65cc7bcf581646a3bc42cf31d0580bcb",
+        "licence": "CC-BY-4.0",
+        "author": "mira9",
+        "authorUrl": "https://sketchfab.com/mira9",
+        "url": "https://sketchfab.com/3d-models/racetrack-tire-stack-standard-v2-65cc7bcf581646a3bc42cf31d0580bcb",
+        "sha256Source": "cbf937b63aac243b85d29ef620ad136edbafb450445dec71d3a531a526b80217",
+        "miscPath": "trackside/racetrack_tire_stack_standard_v2.zip",
+        "licenceEvidence": "racetrack_tire_stack_standard_v2.zip!license.txt"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (2 etc1s)"
       ]
     },
     "model/trees/bamboo": {

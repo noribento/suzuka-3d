@@ -679,6 +679,202 @@ export const SOURCES = [
     texEncode: { default: 'etc1s', normal: 'uastc', quality: 160 },
   }),
 
+  // ---- ops layer (I phase, 柵の内側: Sketchfab CC-BY 4.0 drops in misc/ops/) -----------------
+  // Course cars, medical / recovery vehicles, marquees, portable toilets, gensets and a forklift
+  // for the infield builders (I1–I5, through modelPrototype; every builder keeps a procedural
+  // fallback). The seven vehicles are Daniel Zhabotinsky's fictional-brand "Low poly model"
+  // series: one body material per car (no baseColor texture — a baseColorFactor the runtime
+  // tints), shared `UCB_*` sets (lights / glass, underbody, interiors), one `RB1c_Tire_1k` wheel
+  // set ("KAMASTONE SPECIAL" sidewall — fictional), a `Numberplates_Misk_U` letter atlas (mock
+  // plates: generic letters, US state names, no real registration) and a `Carbadges_misc_U`
+  // atlas of ~80 invented marques. Every image of all seven was dumped (`retouch-glb.mjs --dump`)
+  // and read: the shared sets are byte-identical across the cars. Two atlas cells carry real
+  // marque / model names among the invented ones ("ROVER LIMITED", "OUTBACK"), so the two
+  // badge nodes (`*_Body_Badges` / `*_Badges_Front` / `*_Badges_Body`: 4–14 tris of decal quads that the
+  // decimation also mangled to single triangles) are dropped and the atlas is pruned with them —
+  // nothing legible is left on a car body. Decimated to 0.4 (the plan's ratio: 16–26 k → 7–10 k
+  // tris; the 80-tri plates survive), capped at 512 px.
+  // Node naming: `<Model>_<Part>/Object_N/<Model>_<Part>_<Material>_0`, parts Body / Hood /
+  // Bumper_Front / Bumper_Rear / Glass_* / Headlights / Brakelights / Blinkers / Interior /
+  // Steering_Wheel / Bottom / Suspension / WheelStock_{FL,FR,RL,RR} / Numberplates_{Front,Rear}
+  // / Body_Badges / Bumper_Front_Badges. Scene units are metres, +X forward, Y up.
+  ...['jdm_sport_99', 'sigil_07', 'ace_11', 'urban_10', 'lightbody_flatbed', 'lightbody_tow'].map((id) => {
+    const meta = {
+      jdm_sport_99: ['JDM Sport \'99 - Low Poly model', 'jdm_sport_99*.zip', 'jdm-sport-99-low-poly-model-6dd4ae19c454414d9eed2bc524515d78', 'FIA-style safety car: 90s Japanese GT coupé (`carGlb|tint` red), 4.7 × 2.0 m, 23.2 k → 9.3 k tris'],
+      sigil_07: ['Sigil \'07 - Low poly model', 'sigil_07*.zip', 'sigil-07-low-poly-model-22abe5284d4c4b55920b8462eb24a8c1', 'medical car: shooting-brake estate (silver tint, red stripe procedural), 4.3 × 1.8 m, 16.9 k → 6.8 k tris'],
+      ace_11: ['Ace \'11 - Low Poly model', 'ace_11*.zip', 'ace-11-low-poly-model-055ff8a21b8d4d279debca089e2fafcd', 'Suzuka course car: city hatch (yellow tint, black roof + LED bar procedural), 3.8 × 1.8 m, 18.4 k → 7.4 k tris'],
+      urban_10: ['Urban \'10 - Low poly model', 'urban_10*.zip', 'urban-10-low-poly-model-2866efdfa943484391ef8313768e074d', 'course SUV ×2 (black tint), 4.3 × 1.9 m, 16.5 k → 6.6 k tris'],
+      lightbody_flatbed: ['Lightbody \'90 MD Flatbed - Low poly model', 'lightbody_90_md_flatbed*.zip', 'lightbody-90-md-flatbed-low-poly-model-39195e554c7a41a2884186c10d5079c0', 'recovery crane chassis: medium-duty flatbed (yellow tint, boom procedural), 5.3 × 2.0 m, 24.1 k → 9.6 k tris'],
+      lightbody_tow: ['Lightbody \'90 MD Tow Truck - Low poly model', 'lightbody_90_md_tow_truck*.zip', 'lightbody-90-md-tow-truck-low-poly-model-5cba208001c64e8ea164f89e4dde91e7', 'recovery tow truck (yellow tint), 5.7 × 2.0 m, 26.1 k → 10.5 k tris'],
+    }[id]
+    return sketchfabModel(`model/ops/${id}`, {
+      name: meta[0], zip: meta[1], author: 'Daniel Zhabotinsky', authorUrl: 'https://sketchfab.com/DanielZhabotinsky',
+      pageUrl: `https://sketchfab.com/3d-models/${meta[2]}`,
+      use: meta[3],
+      maxTex: 512,
+      simplify: 0.4,
+      dropNodes: /Badges/,
+      retouchReviewed: 'fictional brand (Zhabotinsky series), every image dumped and read; the badge nodes and their atlas are dropped, the plate atlas is mock letters',
+    })
+  }),
+  // The ambulance is the same series with a 4K body sheet: a US ambulance livery (red bands on
+  // white). "AMBULANCE", "FIRST RESPONDER" and "KEEP YOUR DISTANCE" stay (generic); filled with
+  // the sheet's own white / red: the three Star of Life marks (a registered certification mark),
+  // both US flags, "911" and the "EMERGENCY DIAL 911" block, the unit number "269 64 PCT" (×2),
+  // "MADE IN USA" and the "HANDLE WITH CARE" sticker (the retouched sheet was dumped again and
+  // read). The builder tints the white to Japanese ambulance white and keeps the red bands.
+  // Badge nodes dropped as on the other six.
+  sketchfabModel('model/ops/shvan_92_ambulance', {
+    name: 'Shvan \'92 Ambulance - Low Poly model', zip: 'shvan_92_ambulance*.zip', author: 'Daniel Zhabotinsky', authorUrl: 'https://sketchfab.com/DanielZhabotinsky',
+    pageUrl: 'https://sketchfab.com/3d-models/shvan-92-ambulance-low-poly-model-2856dd3c61f940909dced9a5c0379484',
+    use: 'ambulance ×2 (white body, red bands from the sheet), 5.0 × 2.3 m, 25.9 k → 10.4 k tris',
+    maxTex: 512,
+    simplify: 0.4,
+    dropNodes: /Badges/,
+    retouch: [
+      { image: /Shvan92_bodymat_baseColor$/, op: 'fill', colour: '#d3d3d3', rects: [[0.643, 0.472, 0.687, 0.525], [0.895, 0.535, 0.95, 0.59], [0.935, 0.685, 0.97, 0.748], [0.643, 0.772, 0.687, 0.824], [0.165, 0.888, 0.203, 0.92], [0.662, 0.884, 0.722, 0.913], [0.657, 0.922, 0.695, 0.946]] },
+      { image: /Shvan92_bodymat_baseColor$/, op: 'fill', colour: '#ca0000', rects: [[0.858, 0.538, 0.888, 0.588], [0.183, 0.86, 0.214, 0.879], [0.675, 0.853, 0.722, 0.877]] },
+    ],
+  }),
+  // One primitive `root/GLTF_SceneRootNode/TentCanopy_0/Object_4` (material TentCanopyMat, 1K
+  // set): a plain white-grey canvas with blue / teal panels, no printed valance (the sheet was
+  // dumped and read). Scene units are not metres (41 × 18 × 48) — the builder uses scaleTo.
+  sketchfabModel('model/ops/tent_canopy', {
+    name: 'Tent Canopy - rectangular', zip: 'tent_canopy*.zip', author: 'MozillaHubs', authorUrl: 'https://sketchfab.com/mozillareality',
+    pageUrl: 'https://sketchfab.com/3d-models/tent-canopy-rectangular-256b7c9e92d54a49af295be120b5ec59',
+    use: 'marquee tent (hospitality / marshal compound), 2.0 k tris',
+    maxTex: 512,
+    retouchReviewed: 'plain canvas, no printed valance — every image dumped and read',
+  }),
+  // 26 primitives (`Collada visual scene group/<Part>_LP/defaultMaterial`, one `lambert1` 4K
+  // set): a blue-and-white cabin with no operator name or sticker. 1.0 × 2.0 × 1.0 m, Y from
+  // −0.86 (its origin is mid-height).
+  sketchfabModel('model/ops/porta_potty', {
+    name: 'Porta Potty', zip: 'porta_potty*.zip', author: 'Sean Thomas', authorUrl: 'https://sketchfab.com/foon.',
+    pageUrl: 'https://sketchfab.com/3d-models/porta-potty-b970702ea74a456e89673e73cfb6d873',
+    use: 'portable toilet rows (south course, hairpin infield, marshal posts), 2.1 k tris',
+    maxTex: 256,
+    retouchReviewed: 'no operator name or sticker on the cabin — every image dumped and read',
+  }),
+  // 12 primitives under `<hash>.fbx/RootNode/<part>_low/…` (one `Material_39` 2K set): a yellow
+  // canopy genset 0.6 × 0.8 × 1.1 m with a generic caution label, an hour meter and an outlet
+  // panel ("AC 220V", "VOLT METER") — no maker.
+  sketchfabModel('model/ops/diesel_generator', {
+    name: 'Diesel Generator (low-poly game asset)', zip: 'diesel_generator*.zip', author: 'Eugene Flerko', authorUrl: 'https://sketchfab.com/eugene.flerko',
+    pageUrl: 'https://sketchfab.com/3d-models/diesel-generator-low-poly-game-asset-03db834f3fd94212a6a07d3127630b3b',
+    use: 'gensets at the broadcast compound and marquees, 1.0 k tris',
+    maxTex: 256,
+    retouchReviewed: 'generic caution label, hour meter and outlet panel only, no maker — every image dumped and read',
+  }),
+  // One primitive `Loader_car.fbx/RootNode/Loader_car/Loader_car_Loader_car_Material_0` (1K
+  // set), scene units cm (1.2 × 2.1 × 3.7): a yellow counterbalance forklift, no badge.
+  sketchfabModel('model/ops/forklift', {
+    name: 'Forklift low poly', zip: 'forklift_low_poly*.zip', author: 'Ricardo Sanchez', authorUrl: 'https://sketchfab.com/380660711785',
+    pageUrl: 'https://sketchfab.com/3d-models/forklift-low-poly-8ab650b3982243f8b661142de50f79c9',
+    use: 'forklift at the Spoon yard and the paddock, 4.4 k tris',
+    maxTex: 256,
+    retouchReviewed: 'no badge or lettering on the body — every image dumped and read',
+  }),
+
+  // ---- trackside (I phase, 柵の内側: Sketchfab CC-BY 4.0 drops in misc/trackside/) ----------
+  // Marshal cabins, tyre stacks, flood-light heads, cones and crowd barriers along the fences.
+  // The booth zip holds two nodes: `BoothMain/BoothMain_ParkingBoothMain_0` (the cabin, 2.9 ×
+  // 2.5 × 3.3 m, material ParkingBoothMain — BLEND with KHR_materials_transmission for the
+  // glazing) and `Cube/Cube_BarrierMaterial_0` (a 3.9 m boom barrier) — the boom is dropped by
+  // node. No signage on the cabin (the 4K sheet was dumped and read).
+  sketchfabModel('model/trackside/guard_booth', {
+    name: 'Small Guard Booth', zip: 'small_guard_booth*.zip', author: 'Arsen Ismailov', authorUrl: 'https://sketchfab.com/fdgasd7',
+    pageUrl: 'https://sketchfab.com/3d-models/small-guard-booth-422ec83e0bd64687a0026c67abb6bc07',
+    use: 'marshal-post cabin body (scaleTo long 2.5), 0.7 k tris',
+    maxTex: 512,
+    dropNodes: /\/RootNode\/Cube(\/|$)/,
+  }),
+  // One primitive `root/GLTF_SceneRootNode/NFT_0/Object_4` (material `material`, 2K baseColor +
+  // specular): a 0.72 × 0.94 m column of plain black tyres, no sidewall moulding.
+  sketchfabModel('model/trackside/tire_stack', {
+    name: 'Racetrack tire stack standard (v2)', zip: 'racetrack_tire_stack*.zip', author: 'mira9',
+    pageUrl: 'https://sketchfab.com/3d-models/racetrack-tire-stack-standard-v2-65cc7bcf581646a3bc42cf31d0580bcb',
+    use: 'tyre stacks at the barrier ends and marshal posts (tiles as a fence), 1.0 k tris',
+    maxTex: 256,
+  }),
+  // One primitive `Flood_light.fbx/RootNode/Cube/Cube_Material_0` (4K set → 256): a yellow
+  // industrial flood head 0.4 × 1.2 × 0.4 m, no label.
+  sketchfabModel('model/trackside/flood_light', {
+    name: 'Flood light 02', zip: 'flood_light_02*.zip', author: 'CHAMOD', authorUrl: 'https://sketchfab.com/Chamodp',
+    pageUrl: 'https://sketchfab.com/3d-models/flood-light-02-95ad365a60434015a8700efbdaa90893',
+    use: 'flood-light heads on the lighting masts, 2.8 k tris',
+    maxTex: 256,
+  }),
+  // A 12-model OBJ pack, one node each under `barrier_pack.obj.cleaner.gles/Object_2/Object_N`
+  // with 43 2K images over 17 materials (all custom-painted, no lettering — dumped and read).
+  // Kept: the two 0.46 m cones (Object_3 / Object_5, materials None.001 / None.004), the two
+  // 0.68 m striped drum cones (Object_13 / Object_14, None / None.003), the 0.6 m delineator
+  // post (Object_10, stick) and the three 1.66 × 0.67 m short barriers (Object_15 plain /
+  // Object_16 painted / Object_17 signed). Dropped: the concrete barriers, wall pieces, the
+  // fenced barrier + its fence plane, the A-frame signs and the concrete block (Object_4).
+  sketchfabModel('model/trackside/cone_pack', {
+    name: 'Barrier & Traffic Cone Pack', zip: 'barrier__traffic_cone_pack*.zip', author: 'Sabri Ayeş', authorUrl: 'https://sketchfab.com/sabriayes',
+    pageUrl: 'https://sketchfab.com/3d-models/barrier-traffic-cone-pack-23c4dfca76a24bf0b21894847867af2a',
+    use: 'traffic cones, drum cones, delineator posts and short barriers around the ops areas, 4.3 k tris kept',
+    maxTex: 256,
+    keepNodes: /\/Object_(3|5|10|13|14|15|16|17)$/,
+  }),
+  // One primitive `Police Crowd Barrier.fbx/RootNode/Cube/Cube_Material.001_0` (4K set → 256).
+  // The two blue rails read "POLICE LINE - DO NOT CROSS" / "POLICE DEPT" between the hatch
+  // stripes — filled with the rail blue so the barrier is a plain blue-and-white one. Scene
+  // units are not metres (9.4 × 5.0 × 8.2) — scaleTo.
+  sketchfabModel('model/trackside/crowd_barrier', {
+    name: 'Police Crowd Barrier', zip: 'police_crowd_barrier*.zip', author: 'exiS7-Gs',
+    pageUrl: 'https://sketchfab.com/3d-models/police-crowd-barrier-27146861408c43dfa6abeacf11f23988',
+    use: 'crowd-control barriers at the gates and the paddock, 0.2 k tris',
+    maxTex: 256,
+    retouch: [{ image: /baseColor$/, op: 'fill', colour: '#1575c5', rects: [[0.06, 0.298, 0.265, 0.708]] }],
+  }),
+
+  // ---- pit lane (I phase, 柵の内側: Sketchfab CC-BY 4.0 drops in misc/pit/) -----------------
+  // A pit board with 11 letter / digit panels, each its own node `Pit Board.fbx/RootNode/
+  // Pit_Board/<panel>/<panel>_<mat>_0` (IN, FUEL, 4, 2, L, 3, _ (−), 2_2, __2 (+), 1, P) over
+  // one baseColor image per panel (yellow glyph on black), plus the frame (Pit_Board_Metal_Sheet
+  // / Pit_Board_Inside_Bars / Pit_Board_Metal_Bar_, untextured `Paint_Metal`). Scene units cm
+  // (0.69 × 1.0 m). The panel images are filled white so the runtime writes its own message on
+  // blank cards (the plan's decision) — the glyphs themselves carry nothing to blur.
+  sketchfabModel('model/pit/pit_board', {
+    name: 'Pit Board', zip: 'pit_board*.zip', author: 'Alex Werner', authorUrl: 'https://sketchfab.com/alexwerndesign',
+    pageUrl: 'https://sketchfab.com/3d-models/pit-board-42e680a0171246f8854918ac03e4c33c',
+    use: 'pit boards held over the pit wall, 2.8 k tris',
+    maxTex: 256,
+    retouch: [{ image: /baseColor$/, op: 'fill', colour: '#ffffff', rects: [[0, 0, 1, 1]] }],
+  }),
+  // One primitive `1.obj.cleaner.materialmerger.gles/Object_2` (material UVChannel_1, 2K set):
+  // a dark-green air impact wrench; the only print is a laser-safety caution + CE mark on two
+  // socket faces (generic, ≈ 30 px at 2K and nothing at 256) — no tool brand.
+  sketchfabModel('model/pit/impact_wrench', {
+    name: 'Impact wrench', zip: 'impact_wrench*.zip', author: 'chupin',
+    pageUrl: 'https://sketchfab.com/3d-models/impact-wrench-538a84dc51ba4b43b98dad3697147ffc',
+    use: 'wheel-gun stand-in on the garage floor and at the pit-stop crews, 1.6 k tris',
+    maxTex: 256,
+  }),
+  // Four nodes `root/GLTF_SceneRootNode/Jack-Body_3/{Object_4, Jack-arm_1/Object_6,
+  // Jack-arm_1/Jack-vup_0/Object_8, Jack-lever_2/Object_10}` (one `TrollyJack` 4K set → 256):
+  // a worn blue garage trolley jack 0.8 m + 1.5 m handle, no maker. Decimated to 0.4 (8.9 k →
+  // 3.6 k).
+  sketchfabModel('model/pit/trolley_jack', {
+    name: 'Trolley Jack Lo Poly', zip: 'trolley_jack*.zip', author: 'almartin',
+    pageUrl: 'https://sketchfab.com/3d-models/trolley-jack-lo-poly-c4ea505c9a6942bd9bd192602d18ce81',
+    use: 'jacks on the garage floor (the quick-lift jacks stay procedural), 8.9 k → 3.6 k tris',
+    maxTex: 256,
+    simplify: 0.4,
+  }),
+  // Four nodes `root/GLTF_SceneRootNode/{SM_widescreen_monitor_1, SM_widescreen_stand_2,
+  // SM_standard_monitor_stand_4, SM_standard_monitor_5}/Object_N` over two 4K sets (→ 256):
+  // black screens (the wide one has an emissive slot), no brand on the bezels.
+  sketchfabModel('model/pit/pc_monitors', {
+    name: 'Basic PC Monitors', zip: 'basic_pc_monitors*.zip', author: 'Sousinho', authorUrl: 'https://sketchfab.com/sousinho',
+    pageUrl: 'https://sketchfab.com/3d-models/basic-pc-monitors-58a2dba70e4f4752962ee98a9d6827be',
+    use: 'pit-wall gantry and garage monitors (widescreen + standard, each with a stand), 4.6 k tris',
+    maxTex: 256,
+  }),
+
   // ---- reference-only downloads (kept in misc/dl, never imported) ----------------------------
   {
     key: 'ref/kenney_racing_kit',
