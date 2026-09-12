@@ -16,7 +16,9 @@
  *   4. GARAGE_ORDER ⊂ TEAM_ORDER and the same size.
  *   5. Track.enScale equals an independent re-computation of the centreline pipeline, and the
  *      OSM raceway loop maps onto the app centreline within the registration tolerance.
- *   6. Every OSM stand id referenced by the spec / mapping exists in the extract.
+ *   6. Every OSM stand id referenced by the spec / mapping exists in the extract; every id a
+ *      BUILDINGS / GROUND_AREAS / UNDERPASSES (and later infield table) row points at exists too
+ *      (an error under --strict).
  *   A10. Every stand's front is screened by a fence-carrying BARRIERS run (world space, ≥ 95 %).
  *   A11. SCREENS / SIGNS / LEADER_TOWER clear the road, the stand footprints and the pit lane;
  *        boards only on concrete runs; UNDERPASSES reference 'road' ways.
@@ -290,8 +292,39 @@ for (const st of spec.STANDS) {
     if (!f.fold && f.side !== 0 && f.side !== st.side) fail(`${st.id}: side ${st.side} but OSM way ${id} lies on side ${f.side}`)
   }
 }
-for (const [name, id] of [['pit building', spec.PIT_BUILDING.osmWay], ['Ferris wheel', 184107083], ['leader tower', 469636517], ...spec.WATER.map((w) => [w.name, w.osmWay]), ...spec.BUILDINGS.filter((b) => b.osmWay).map((b) => [b.id, b.osmWay])]) {
+for (const [name, id] of [['pit building', spec.PIT_BUILDING.osmWay], ['Ferris wheel', 184107083], ['leader tower', 469636517], ...spec.WATER.map((w) => [w.name, w.osmWay])]) {
   if (!osm.osmFeature(id)) fail(`${name}: OSM way ${id} missing from OSM_FEATURES`, true)
+}
+/**
+ * Every OSM id a spec row points at must be in the extract — an error under --strict, so a row
+ * written against a way the generator never fetched fails `pnpm check` instead of silently
+ * building nothing (`build-facilities.mjs --add-ways-from … --role …` splices it in offline).
+ * Tables: BUILDINGS (osmWay), GROUND_AREAS (`osm` rings, `way` ribbons, ring nodes with `way`),
+ * UNDERPASSES (osmWay), and — when the infield tables land — PADDOCK_BUILDINGS,
+ * INFIELD_FACILITIES, CUTS and FOOTBRIDGES, read through `osmRefs`: any `osmWay` / `osm` / `way`
+ * field, a number or a list of numbers.
+ */
+const osmRefs = (row) => {
+  const ids = []
+  const take = (v) => (Array.isArray(v) ? ids.push(...v.filter((n) => typeof n === 'number')) : typeof v === 'number' && ids.push(v))
+  for (const k of ['osmWay', 'osm', 'way']) take(row?.[k])
+  if (row?.footprint) for (const k of ['osm', 'way']) take(row.footprint[k])
+  for (const node of row?.footprint?.ring ?? []) take(node?.way)
+  return ids
+}
+const ID_TABLES = [
+  ['BUILDINGS', (b) => b.id],
+  ['GROUND_AREAS', (a) => a.name],
+  ['UNDERPASSES', (u) => u.name],
+  ['PADDOCK_BUILDINGS', (b) => b.id ?? b.name],
+  ['INFIELD_FACILITIES', (f) => f.id ?? f.name],
+  ['CUTS', (c) => c.id ?? c.name],
+  ['FOOTBRIDGES', (f) => f.id ?? f.name],
+]
+for (const [table, label] of ID_TABLES) {
+  for (const row of spec[table] ?? []) {
+    for (const id of osmRefs(row)) if (!osm.osmFeature(id)) fail(`${table} "${label(row)}": OSM way ${id} missing from OSM_FEATURES (build-facilities.mjs --add-ways-from <cache> --role <role>:${id})`, !STRICT)
+  }
 }
 const fw = osm.OSM_FERRIS_WHEEL
 if (fw && (Math.abs(fw.centroid[0] - spec.FERRIS_WHEEL.s) > 3 || Math.abs(fw.centroid[1] - spec.FERRIS_WHEEL.lateral) > 1)) fail(`FERRIS_WHEEL (${spec.FERRIS_WHEEL.s}, ${spec.FERRIS_WHEEL.lateral}) vs OSM centroid ${fw.centroid}`)

@@ -11,6 +11,16 @@
  *       # `additions:` header line records the date and ids). For the tunnel / bridge roads the
  *       # bbox query does not select (UNDERPASSES in suzuka-facilities-spec.ts); EXTRA_WAYS keeps
  *       # them across a full regeneration.
+ *   node scripts/facilities/build-facilities.mjs --add-ways-from .cache/overpass/surroundings.json \
+ *       --role "apron:467386920,467913438;parking:469079400;tunnel:184101996;footbridge:184103165"
+ *       # the same incremental splice, but the ways are read by id from a cached Overpass
+ *       # response (`out body geom`, e.g. build-surroundings' cache) — no network — and each gets
+ *       # the role named in front of its id list. This is how the paddock service aprons, the
+ *       # car parks and the pedestrian tunnels / bridges inside the fence got in (SPLICED_WAYS
+ *       # keeps them across a full regeneration). `--role` also works with `--add-ways`.
+ *
+ * Caches live in .cache/overpass/ (gitignored): facilities.json for the full query,
+ * facilities-ways-<ids>.json for --add-ways.
  *
  * Pipeline (the same one the research reports used, so the numbers agree with them):
  *   lon/lat → local EN metres (equirectangular, origin = mean of the 172 jp-1962 GeoJSON
@@ -32,17 +42,47 @@ const { Track } = await import('../../app/sim/track.ts')
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT = path.join(ROOT, 'app/data/suzuka-facilities.ts')
-const SCRATCH = process.env.SUZUKA_SCRATCH
-  ?? '/tmp/claude-1000/-home-user-projects-suzuka-3d/9c975529-1d88-4aad-bf04-564aa181d0da/scratchpad/facilities'
-const CACHE = path.join(SCRATCH, 'overpass.json')
+const CACHE_DIR = path.join(ROOT, '.cache/overpass')
+const CACHE = path.join(CACHE_DIR, 'facilities.json')
 const args = process.argv.slice(2)
 const OFFLINE = args.includes('--offline')
 const DRY = args.includes('--dry-run')
-const addAt = args.indexOf('--add-ways')
+const argAfter = (flag) => {
+  const i = args.indexOf(flag)
+  return i >= 0 ? (args[i + 1] ?? '') : null
+}
+const parseIds = (text) => text.split(',').map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0)
 /** `--add-ways <id,…>`: incremental mode (see the header) */
-const ADD_WAYS = addAt >= 0 ? (args[addAt + 1] ?? '').split(',').map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0) : null
-if (addAt >= 0 && !ADD_WAYS?.length) {
+const ADD_WAYS = args.includes('--add-ways') ? parseIds(argAfter('--add-ways')) : null
+if (ADD_WAYS && !ADD_WAYS.length) {
   console.error('--add-ways needs a comma-separated list of OSM way ids')
+  process.exit(2)
+}
+/** `--add-ways-from <json>`: the same splice, elements read from a cached Overpass response */
+const ADD_FROM = argAfter('--add-ways-from')
+if (ADD_FROM !== null && !fs.existsSync(ADD_FROM)) {
+  console.error(`--add-ways-from: ${ADD_FROM} does not exist`)
+  process.exit(2)
+}
+/**
+ * `--role <role>:<id,…>[;<role>:<id,…>]` — the role each spliced way gets (required with
+ * --add-ways-from, optional with --add-ways where it defaults to 'road').
+ */
+const ROLE_ARG = argAfter('--role')
+const ROLE_BY_ID = new Map()
+if (ROLE_ARG !== null) {
+  for (const part of ROLE_ARG.split(';')) {
+    const [role, list] = part.split(':')
+    const ids = parseIds(list ?? '')
+    if (!role?.trim() || !ids.length) {
+      console.error(`--role: cannot parse "${part}" (expected <role>:<id,…>)`)
+      process.exit(2)
+    }
+    for (const id of ids) ROLE_BY_ID.set(id, role.trim())
+  }
+}
+if (ADD_FROM !== null && !ROLE_BY_ID.size) {
+  console.error('--add-ways-from needs --role "<role>:<id,…>[;<role>:<id,…>]"')
   process.exit(2)
 }
 /**
@@ -51,6 +91,22 @@ if (addAt >= 0 && !ADD_WAYS?.length) {
  * so a regeneration keeps them; `--add-ways` inserts them without regenerating.
  */
 const EXTRA_WAYS = [175231859, 34096664, 411291884, 467219905, 183309812, 34096665]
+/**
+ * Ways inside the fence that the tag filter does not select either, spliced in from the cached
+ * surroundings response with `--add-ways-from … --role …` (2026-09-11) and kept by id across a
+ * full regeneration. roleOf() classifies them the same way the --role argument did:
+ *   apron      highway=service + area=yes — the paddock / pit-exit / chicane hard-standings
+ *   parking    amenity=parking — the paddock and west / south course car parks
+ *   tunnel     highway=footway|service + tunnel=yes — the pedestrian and service tunnels under the lap
+ *   footbridge highway=footway + bridge=yes — the three footbridges over the county-road cutting behind Q2
+ */
+const SPLICED_WAYS = {
+  apron: [467386920, 467913438, 467945733, 184253118, 467417584, 467223464, 474099240, 469065002, 469451642, 469451657, 469657637, 468377672, 467572919, 467572920, 468377676, 468750061, 469010265],
+  parking: [469079400, 469896634, 184423997, 474537492, 184415332, 184415335, 469650858, 469896636, 184429450, 183953784, 184410563],
+  tunnel: [184101996, 184105032, 183969196, 184417647, 467945734, 469010267, 941604835],
+  footbridge: [184103165, 184103564, 184103565],
+}
+const SPLICED_IDS = Object.values(SPLICED_WAYS).flat()
 
 // ---------------------------------------------------------------- projection
 // Exact inverse of the projection CENTERLINE_EN was made with (max error ≤ 0.005 m; see the
@@ -83,6 +139,7 @@ const QUERY = `[out:json][timeout:180];
   way[name~"サーキット"](${BBOX});
   node[name~"サーキット"](${BBOX});
   way(id:${EXTRA_WAYS.join(',')});
+  way(id:${SPLICED_IDS.join(',')});
 );
 out body geom;`
 /** the incremental query: just the listed ways */
@@ -108,7 +165,7 @@ async function fetchOverpass(query = QUERY, cache = CACHE) {
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const json = await res.json()
       if (!Array.isArray(json.elements)) throw new Error('no elements in response')
-      fs.mkdirSync(SCRATCH, { recursive: true })
+      fs.mkdirSync(path.dirname(cache), { recursive: true })
       fs.writeFileSync(cache, JSON.stringify(json))
       console.log(`  ${json.elements.length} elements (osm base ${json.osm3s?.timestamp_osm_base})`)
       return json
@@ -238,6 +295,11 @@ function roleOf(el) {
   if (t.barrier === 'fence') return 'fence'
   if (t.barrier) return 'barrier'
   if (t.highway === 'raceway') return 'raceway'
+  // SPLICED_WAYS: the hard-standings, car parks, pedestrian tunnels and footbridges inside the fence
+  if (t.highway === 'service' && t.area === 'yes') return 'apron'
+  if (t.amenity === 'parking') return 'parking'
+  if ((t.highway === 'footway' || t.highway === 'service') && t.tunnel) return 'tunnel'
+  if (t.highway === 'footway' && t.bridge) return 'footbridge'
   // the tunnel / bridge roads of EXTRA_WAYS (the bbox query selects no other highway)
   if (t.highway) return 'road'
   if (t.natural === 'sand') return 'sand'
@@ -255,6 +317,7 @@ const TAG_KEYS = [
   'name', 'name:en', 'grandstand', 'leisure', 'amenity', 'building', 'building:levels', 'height',
   'natural', 'landuse', 'water', 'barrier', 'highway', 'tourism', 'attraction', 'man_made', 'area',
   'tunnel', 'bridge', 'layer', 'covered', 'surface', 'sport', 'shop', 'office',
+  'parking', 'service', 'oneway', 'raceway:corner_number',
 ]
 
 // ---------------------------------------------------------------- convert
@@ -304,9 +367,22 @@ function convert(el) {
 }
 
 // stable order: by role, then id
-const ROLE_ORDER = ['stand', 'pit_building', 'leader_tower', 'ferris_wheel', 'building', 'attraction', 'man_made', 'named', 'raceway', 'road', 'sand', 'grass', 'basin', 'water', 'tyre_barrier', 'wall', 'fence', 'barrier']
+const ROLE_ORDER = ['stand', 'pit_building', 'leader_tower', 'ferris_wheel', 'building', 'attraction', 'man_made', 'named', 'raceway', 'road', 'apron', 'parking', 'tunnel', 'footbridge', 'sand', 'grass', 'basin', 'water', 'tyre_barrier', 'wall', 'fence', 'barrier']
+/** the `export type OsmRole` union, 7 roles per line, from ROLE_ORDER (render and the splice both write it) */
+const roleUnionText = () => {
+  const lines = []
+  for (let i = 0; i < ROLE_ORDER.length; i += 7) lines.push('  | ' + ROLE_ORDER.slice(i, i + 7).map((r) => `'${r}'`).join(' | '))
+  return `export type OsmRole =\n${lines.join('\n')}`
+}
+/** the per-role convenience exports that follow OSM_RACEWAY, in this order */
+const ROLE_EXPORTS = [['road', 'OSM_ROADS'], ['apron', 'OSM_APRONS'], ['parking', 'OSM_PARKING'], ['tunnel', 'OSM_TUNNELS'], ['footbridge', 'OSM_FOOTBRIDGES']]
+/** the header note that explains where the roles the query's tag filters cannot select came from */
+const SPLICED_NOTE = ` * Roles apron / parking / tunnel / footbridge are not selected by the query's tag filters: their
+ * ways are listed by id (SPLICED_WAYS in build-facilities.mjs, way(id:…) in a regeneration) and were
+ * first spliced offline from the cached surroundings response with --add-ways-from --role.`
 
 // ---------------------------------------------------------------- emit
+const bytes = (text) => Buffer.byteLength(text, 'utf8')
 const q = (v) => '\'' + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\''
 
 function featureLine(f) {
@@ -316,22 +392,52 @@ function featureLine(f) {
   return `  { id: ${f.id}, role: '${f.role}', side: ${f.side}, s: [${f.s[0]}, ${f.s[1]}], lateral: [${f.lateral[0]}, ${f.lateral[1]}], centroid: [${f.centroid[0]}, ${f.centroid[1]}], dmin: ${f.dmin}, closed: ${f.closed}${extra}, tags: ${tags}, en: ${en} },`
 }
 
-// ---------------------------------------------------------------- --add-ways: incremental insert
-if (ADD_WAYS) {
-  const json = await fetchOverpass(waysQuery(ADD_WAYS), path.join(SCRATCH, `overpass-ways-${ADD_WAYS.join('-')}.json`))
-  const date = (json.osm3s?.timestamp_osm_base ?? new Date().toISOString()).slice(0, 10)
+// ---------------------------------------------------------------- --add-ways / --add-ways-from: incremental insert
+if (ADD_WAYS || ADD_FROM !== null) {
+  /** the ids to splice and the role each one gets ('road' unless --role says otherwise) */
+  const wanted = ADD_WAYS ?? [...ROLE_BY_ID.keys()]
+  const roleFor = (id) => ROLE_BY_ID.get(id) ?? 'road'
+  for (const id of wanted) {
+    if (!ROLE_ORDER.includes(roleFor(id))) {
+      console.error(`--role: unknown role '${roleFor(id)}' for way ${id} (roles: ${ROLE_ORDER.join(', ')})`)
+      process.exit(2)
+    }
+  }
+  let json
+  let source
+  if (ADD_FROM !== null) {
+    json = JSON.parse(fs.readFileSync(ADD_FROM, 'utf8'))
+    if (!Array.isArray(json.elements)) throw new Error(`${ADD_FROM}: no elements array`)
+    source = `--add-ways-from ${path.relative(ROOT, path.resolve(ADD_FROM))}`
+    console.log(`reading ${json.elements.length} cached elements from ${ADD_FROM} (osm base ${json.osm3s?.timestamp_osm_base})`)
+  } else {
+    json = await fetchOverpass(waysQuery(wanted), path.join(CACHE_DIR, `facilities-ways-${wanted.join('-')}.json`))
+    source = '--add-ways'
+  }
+  const base = json.osm3s?.timestamp_osm_base ?? new Date().toISOString()
+  const date = base.slice(0, 10)
   const added = []
   for (const el of json.elements) {
-    if (el.type !== 'way' || !ADD_WAYS.includes(el.id)) continue
+    if (el.type !== 'way' || !wanted.includes(el.id)) continue
+    if (!el.geometry) {
+      console.warn(`way ${el.id}: no geometry in the response (needs "out body geom"), skipped`)
+      continue
+    }
     const f = convert(el)
     if (!f) continue
-    f.role = 'road'
+    const role = roleFor(el.id)
+    if (f.role !== role) console.warn(`way ${el.id}: roleOf() says '${f.role}', --role says '${role}' (${JSON.stringify(el.tags ?? {})})`)
+    f.role = role
     added.push(f)
   }
-  const missing = ADD_WAYS.filter((id) => !added.some((f) => f.id === id))
-  if (missing.length) console.warn(`ways not returned by Overpass: ${missing.join(', ')}`)
-  added.sort((a, b) => a.id - b.id)
-  for (const f of added) console.log(`road ${String(f.id).padEnd(10)} s ${f.s[0]}→${f.s[1]} lateral ${f.lateral[0]}..${f.lateral[1]} centroid ${f.centroid} dmin ${f.dmin}${f.fold ? ' FOLD' : ''}  ${f.tags.name ?? ''} ${f.tags.tunnel ? 'tunnel' : ''}${f.tags.bridge ? 'bridge' : ''}`)
+  const missing = wanted.filter((id) => !added.some((f) => f.id === id))
+  if (missing.length) console.warn(`ways not in the ${ADD_FROM !== null ? 'cache' : 'Overpass response'}: ${missing.join(', ')}`)
+  if (!added.length) {
+    console.error('nothing to insert')
+    process.exit(1)
+  }
+  added.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.id - b.id)
+  for (const f of added) console.log(`${f.role.padEnd(10)} ${String(f.id).padEnd(10)} s ${f.s[0]}→${f.s[1]} lateral ${f.lateral[0]}..${f.lateral[1]} centroid ${f.centroid} dmin ${f.dmin} ${f.en.length} verts${f.closed ? ' closed' : ''}${f.fold ? ' FOLD' : ''}  ${f.tags.name ?? ''} ${f.tags.tunnel ? 'tunnel' : ''}${f.tags.bridge ? 'bridge' : ''}`)
 
   // splice into the existing file: the array's lines between `OSM_FEATURES: OsmFeature[] = [` and its `]`
   const src = fs.readFileSync(OUT, 'utf8')
@@ -344,27 +450,41 @@ if (ADD_WAYS) {
   const roleOf2 = (l) => /role: '([a-z_]+)'/.exec(l)?.[1] ?? ''
   // re-adding an id replaces its line; everything else is kept verbatim
   const body = lines.slice(start + 1, end).filter((l) => !addedIds.has(idOf(l)))
-  // insert in the stable order: after the last line whose role sorts before 'road'
-  const before = ROLE_ORDER.indexOf('road')
-  let at = 0
-  for (let i = 0; i < body.length; i++) {
-    const r = roleOf2(body[i])
-    const ri = ROLE_ORDER.indexOf(r)
-    if (ri < before || (r === 'road' && idOf(body[i]) < added[0].id)) at = i + 1
+  // insert each in the stable order (role, then id): after the last line that sorts before it
+  const replaced = lines.slice(start + 1, end).length - body.length
+  for (const f of added) {
+    const ri = ROLE_ORDER.indexOf(f.role)
+    let at = 0
+    for (let i = 0; i < body.length; i++) {
+      const r = roleOf2(body[i])
+      const bi = ROLE_ORDER.indexOf(r)
+      if (bi < ri || (bi === ri && idOf(body[i]) < f.id)) at = i + 1
+    }
+    body.splice(at, 0, featureLine(f))
   }
-  const newBody = [...body.slice(0, at), ...added.map(featureLine), ...body.slice(at)]
-  const out = [...lines.slice(0, start + 1), ...newBody, ...lines.slice(end)]
+  const out = [...lines.slice(0, start + 1), ...body, ...lines.slice(end)]
   let text = out.join('\n')
-  // header: the additions line after the base timestamp (the timestamp itself is not touched)
-  const addLine = ` * additions: ${date} ways ${added.map((f) => f.id).join(', ')} (role 'road', --add-ways)`
-  text = text.replace(/^( \* Extract: Overpass API, OSM base timestamp [^\n]*\n)/m, `$1${addLine}\n`)
-  // the OsmRole union and the roads export, once
-  if (!/\| 'road'/.test(text)) text = text.replace(/\| 'named' \| 'raceway' \|/, "| 'named' | 'raceway' | 'road' |")
-  if (!/OSM_ROADS/.test(text)) text = text.replace(/(export const OSM_RACEWAY = byRole\('raceway'\)\n)/, "$1export const OSM_ROADS = byRole('road')\n")
+  // header: one additions line per role after the base timestamp (the timestamp itself is not touched)
+  const byRoleAdded = new Map()
+  for (const f of added) byRoleAdded.set(f.role, [...(byRoleAdded.get(f.role) ?? []), f.id])
+  const addLines = [...byRoleAdded]
+    .map(([role, ids]) => ` * additions: ${date} ways ${ids.join(', ')} (role '${role}', ${source}${ADD_FROM !== null ? `, OSM base ${base}` : ''})`)
+    .filter((l) => !text.includes(l)) // an identical re-run does not repeat itself
+  if (addLines.length) text = text.replace(/^( \* Extract: Overpass API, OSM base timestamp [^\n]*\n)/m, `$1${addLines.join('\n')}\n`)
+  // the note on the cache-spliced roles, once, before the query
+  if (!text.includes(SPLICED_NOTE) && added.some((f) => f.role in SPLICED_WAYS)) text = text.replace(/^ \* Query:\n/m, `${SPLICED_NOTE}\n * Query:\n`)
+  // the OsmRole union (always rewritten from ROLE_ORDER) and the per-role exports, once each
+  text = text.replace(/^export type OsmRole =\n(?:  \|[^\n]*\n)+/m, roleUnionText() + '\n')
+  let after = "export const OSM_RACEWAY = byRole('raceway')"
+  for (const [role, name] of ROLE_EXPORTS) {
+    const line = `export const ${name} = byRole('${role}')`
+    if (!text.includes(line)) text = text.replace(after + '\n', `${after}\n${line}\n`)
+    after = line
+  }
   if (!DRY) {
     fs.writeFileSync(OUT, text)
-    console.log(`\ninserted ${added.length} way(s) into ${path.relative(ROOT, OUT)} (${text.length} bytes)`)
-  } else console.log(`\n(dry run) would insert ${added.length} way(s)`)
+    console.log(`\ninserted ${added.length} way(s) into ${path.relative(ROOT, OUT)} (${replaced} replaced; ${bytes(src)} → ${bytes(text)} bytes)`)
+  } else console.log(`\n(dry run) would insert ${added.length} way(s) (${replaced} replaced; ${bytes(src)} → ${bytes(text)} bytes)`)
   process.exit(0)
 }
 
@@ -380,7 +500,7 @@ for (const el of json.elements) {
   if (!f) continue
   const named = !!f.tags.name
   const far = ['building', 'attraction', 'man_made', 'named'].includes(f.role)
-  if (f.dmin <= NEAR || STAND_ID_BY_WAY.has(f.id) || f.role === 'pit_building' || f.role === 'ferris_wheel' || f.role === 'leader_tower' || EXTRA_WAYS.includes(f.id)) features.push(f)
+  if (f.dmin <= NEAR || STAND_ID_BY_WAY.has(f.id) || f.role === 'pit_building' || f.role === 'ferris_wheel' || f.role === 'leader_tower' || EXTRA_WAYS.includes(f.id) || SPLICED_IDS.includes(f.id)) features.push(f)
   else if (named && far && f.dmin <= NEAR_NAMED) features.push(f)
 }
 features.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.id - b.id)
@@ -402,6 +522,7 @@ function render(list) {
  * derived from OpenStreetMap data © OpenStreetMap contributors, ODbL 1.0".
  *
  * Extract: Overpass API, OSM base timestamp ${extractDate}
+${SPLICED_NOTE}
  * Query:
 ${QUERY.split('\n').map((l) => ' *   ' + l).join('\n')}
  *
@@ -417,15 +538,13 @@ ${QUERY.split('\n').map((l) => ' *   ' + l).join('\n')}
  * Coordinates are rounded to 0.1 m. Closed ways have the duplicated closing vertex removed.
  */
 
-export type OsmRole =
-  | 'stand' | 'pit_building' | 'leader_tower' | 'ferris_wheel' | 'building' | 'attraction' | 'man_made'
-  | 'named' | 'raceway' | 'road' | 'sand' | 'grass' | 'basin' | 'water' | 'tyre_barrier' | 'wall' | 'fence' | 'barrier'
+${roleUnionText()}
 
 export interface OsmFeature {
   /** OSM way id (node id for the few named point features) */
   id: number
   tags: Record<string, string>
-  /** local EN metres, 0.1 m; a polygon when \`closed\`, else a polyline (barriers, raceway) */
+  /** local EN metres, 0.1 m; a polygon when \`closed\`, else a polyline (barriers, raceway, tunnels, footbridges) */
   en: [number, number][]
   /** [start, end] along the lap in driving direction (m); end < start across the start line */
   s: [number, number]
@@ -476,7 +595,7 @@ export const OSM_TYRE_BARRIERS = byRole('tyre_barrier')
 export const OSM_WALLS = byRole('wall')
 export const OSM_FENCES = byRole('fence')
 export const OSM_RACEWAY = byRole('raceway')
-export const OSM_ROADS = byRole('road')
+${ROLE_EXPORTS.map(([role, name]) => `export const ${name} = byRole('${role}')`).join('\n')}
 export const OSM_FERRIS_WHEEL = byId.get(${FERRIS_WHEEL_ID})!
 export const OSM_LEADER_TOWER = byId.get(${LEADER_TOWER_ID})!
 `
@@ -485,12 +604,12 @@ export const OSM_LEADER_TOWER = byId.get(${LEADER_TOWER_ID})!
 // keep the module under ~250 KB: drop the barriers/fences furthest from the track first
 const LIMIT = 250 * 1024
 let text = render(features)
-if (text.length > LIMIT) {
+if (bytes(text) > LIMIT) {
   const droppable = features
     .filter((f) => ['fence', 'wall', 'barrier'].includes(f.role))
     .sort((a, b) => b.dmin - a.dmin)
   let dropped = 0
-  while (text.length > LIMIT && droppable.length) {
+  while (bytes(text) > LIMIT && droppable.length) {
     const f = droppable.shift()
     features = features.filter((g) => g !== f)
     dropped++
@@ -502,7 +621,7 @@ if (text.length > LIMIT) {
 // ---------------------------------------------------------------- report
 const counts = {}
 for (const f of features) counts[f.role] = (counts[f.role] ?? 0) + 1
-console.log(`enScale ${scale.toFixed(8)}, ${features.length} features, ${(text.length / 1024).toFixed(1)} KB`)
+console.log(`enScale ${scale.toFixed(8)}, ${features.length} features, ${(bytes(text) / 1024).toFixed(1)} KB`)
 console.log(counts)
 console.log('\nstand         way        s-range          lateral          side centroid(s,lat)  fold')
 const missing = []
@@ -526,5 +645,5 @@ for (const id of [PIT_BUILDING_ID, FERRIS_WHEEL_ID, LEADER_TOWER_ID]) {
 
 if (!DRY) {
   fs.writeFileSync(OUT, text)
-  console.log(`\nwrote ${path.relative(ROOT, OUT)} (${text.length} bytes)`)
+  console.log(`\nwrote ${path.relative(ROOT, OUT)} (${bytes(text)} bytes)`)
 }
