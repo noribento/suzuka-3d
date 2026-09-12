@@ -1200,6 +1200,75 @@ export const PADDOCK_MASTS = {
   unverified: ['positions (final.jpg shows light masts around the E paddock; ±15 m)', 'height'],
 } as const
 
+/**
+ * One car-park block of the paddock (plan I2-c): `rows` bay rows along the lap between
+ * `s[0]` and `s[1]`, laid out from `lat[0]` (the edge nearer the track) towards `lat[1]` as
+ * back-to-back PAIRS — two rows of `PADDOCK_BAY.bayD` deep bays sharing an axis, then a
+ * `PADDOCK_BAY.aisle` wide aisle before the next pair (vehicles.ts CAR_PARK's double-loaded
+ * pitch 16 m). Bays repeat every `pitch` metres along the row (`angle` 45: the bay leans 45° to
+ * +s, so the pitch along s is `pitch / sin 45°` and the row is `bayD cos 45° + bayW sin 45°`
+ * deep). `occupancy` is the share of bays that get a car before the tier budget
+ * (`Quality.infield.paddockCars`) scales every block down alike. Rows carry no height and no
+ * world coordinates: paddock.ts `paddockBays` walks the bays in the track frame, keeps the ones
+ * whose four corners stand on a drawn `paddock` face (ground.plan.ownerAtSL / ground.builtY),
+ * outside the sim's pit envelope (PIT_ENVELOPE.keepOut), off every building footprint, fence
+ * run and lamp, and level enough for a rigid body (CAR_PARK.slopeGrade), and drops the rest —
+ * so a block may reach past the paving it stands on (E's outer pairs climb the DEM fade, the
+ * S lot's polygon is a wedge) and the paving decides the bays.
+ */
+export interface PaddockParkingRow {
+  /** ASCII id: the bay-line decal is `paddockBayLines-<id>` */
+  id: string
+  name: string
+  /** the block's stretch along the lap (a forward range; also the window of every world → s mapping, R14) */
+  s: [number, number]
+  /** from the first row's near edge to the last row's far edge (right side, negative) */
+  lat: [number, number]
+  /** bay rows (each pair of rows shares an axis; an odd count ends with a single row) */
+  rows: number
+  angle: 0 | 45
+  /** bay pitch along the row (m) = CAR_PARK.bayW */
+  pitch: number
+  occupancy: number
+  note?: string
+}
+
+/**
+ * The paddock's car parks: A behind the team offices (pad-14 ①: three double rows from the
+ * office road to the paddock road), B by the SMSC with its 45° block south-east of it, E inside
+ * the pit entry (OSM amenity=parking 474537492; s 5440–5510 stays EMPTY for the I3 broadcast
+ * compound), the strip beside the course-vehicle base in the pit-exit yard, and the S lot in
+ * front of the service house (OSM 469896634, natural ground). Every extent is read off the
+ * aerials at ±3 m (`unverified` in PADDOCK_BAY).
+ */
+export const PADDOCK_PARKING: PaddockParkingRow[] = [
+  { id: 'A', name: 'A パドック', s: [5604, 5739], lat: [-101, -143], rows: 6, angle: 0, pitch: 2.5, occupancy: 0.85, note: 'axes −106 / −122 / −138 (pad-14 ①); the office road −92.5…−101 and the paddock road beyond −144 stay clear' },
+  { id: 'B', name: 'B パドック', s: [2, 45], lat: [-107, -133], rows: 4, angle: 0, pitch: 2.5, occupancy: 0.7, note: 'axes −112 / −128 (OSM 469650858 spans −97…−133)' },
+  { id: 'B45', name: 'B パドック斜め区画', s: [68, 96], lat: [-130, -158], rows: 4, angle: 45, pitch: 2.5, occupancy: 0.6, note: 'the 45° bays of OSM 469896636 carried on to the wall 468336109' },
+  { id: 'E', name: 'E パドック', s: [5350, 5440], lat: [-40, -95], rows: 8, angle: 0, pitch: 2.5, occupancy: 0.9, note: 'inside OSM 474537492; the outer pairs climb the relief fade and the slope rule thins them; s 5440–5510 is the I3 broadcast compound' },
+  { id: 'yard', name: 'ピット出口ヤード（車両基地脇）', s: [150, 197], lat: [-46.5, -51.5], rows: 1, angle: 0, pitch: 2.5, occupancy: 0.7, note: 'one row along the yard fence (band edge −52), noses to the vehicle base (184429429 reaches −45.7)' },
+  { id: 'S', name: 'S パドック（サービスハウス前）', s: [5624, 5667], lat: [-150, -225], rows: 6, angle: 0, pitch: 2.5, occupancy: 0.6, note: 'three double rows across the OSM wedge 469896634; the bays past its west edge are dropped' },
+]
+
+/**
+ * The bay geometry (vehicles.ts CAR_PARK's bay 2.5 × 5 and 6 m aisle are the same numbers: the
+ * far-field lots and the paddock read one convention), the paint, the no-parking hatch in
+ * front of every team-office roller door (pad-14 ③: a 3 m yellow-bordered square with 45°
+ * stripes on the truck strip, centred so its track-side edge stays 0.1 m off the pit-side porch
+ * line PADDOCK_OFFICE.lateral[1] + porch.pit = −79.5), and how many of the A lot's cars are
+ * under a cover (`covered_car`).
+ */
+export const PADDOCK_BAY = {
+  bayW: 2.5,
+  bayD: 5.0,
+  aisle: 6.0,
+  /** the painted line's width (m) */
+  line: 0.1,
+  hatch: { size: 3.0, lateral: -77.9 },
+  coveredCars: 3,
+  unverified: ['every block extent (aerials, ±3 m)', 'occupancies (a race-weekend paddock; the tier budget scales them anyway)', 'hatch size / position (pad-14 ③, ±0.5 m)'],
+} as const
+
 // ---------------------------------------------------------------- pit complex
 
 /** Pit-lane face of the pit building (m from the centreline, right side). OSM way 184422099. */

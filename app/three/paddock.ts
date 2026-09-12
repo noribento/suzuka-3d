@@ -3,12 +3,15 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { TEAMS } from '~/data/drivers'
 import { enPairs } from '~/data/en-codec'
 import {
-  BUILDINGS, COLOURS, GARAGE_ORDER, PADDOCK_BUILDINGS, PADDOCK_FENCE, PADDOCK_ISLAND, PADDOCK_LAMPS, PADDOCK_MASTS, PADDOCK_OFFICE, PADDOCK_PLANE,
-  PIT_BOX_STRIP, PIT_BUILDING, UNDERPASSES, garageS, type PaddockBuildingDef,
+  BUILDINGS, COLOURS, GARAGE_ORDER, HELIPAD, PADDOCK_BAY, PADDOCK_BUILDINGS, PADDOCK_FENCE, PADDOCK_ISLAND, PADDOCK_LAMPS, PADDOCK_MASTS, PADDOCK_OFFICE, PADDOCK_PARKING, PADDOCK_PLANE,
+  PIT_BOX_STRIP, PIT_BUILDING, PIT_ENVELOPE, UNDERPASSES, garageS, type PaddockBuildingDef, type PaddockParkingRow,
 } from '~/data/suzuka-facilities-spec'
 import { osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { SUR_ROADS } from '~/data/suzuka-surroundings'
+import { Rng } from '~/sim/random'
 import { forwardDelta } from '~/sim/track'
+import { CAR_DIMS, CAR_MIX, carBodyGeometry, carBodyMaterial, pickCarBody, pickCarColour, type CarBody } from './car-bodies'
+import { CAR_GLB, carGlbGeometry, carGlbMaterial } from './car-glb'
 import type { EnvBuildContext } from './environment'
 import { GROUND_OBJECTS, LAYER, markDecal, markObject } from './ground'
 import type { DecalQuad } from './ground-mesh'
@@ -22,6 +25,7 @@ import { addMerged, canvas, enMatrix, frameAt, pitMaterials, slice, tex } from '
 import { glbOr, packProp, procProp, propMaterial, type PropProto } from './props-pack'
 import { chainLinkTexture } from './textures'
 import type { LanePoint } from './trackside'
+import { CAR_PARK } from './vehicles'
 
 /**
  * The paddock behind the pit building (plan I2-b), from the 2009 Mobilityland dossier
@@ -47,11 +51,22 @@ import type { LanePoint } from './trackside'
  *   its three gates (`paddockFence`: vertical cards only, posts `paddockFencePosts`), the street
  *   lamps (`infield-lamps`) and the two 22 m floodlight masts (`paddockMasts`).
  *
+ * - the car parks (plan I2-c, `PADDOCK_PARKING` / `PADDOCK_BAY`): `paddockBays` walks every
+ *   block's bays in the track frame and keeps the ones that stand on a drawn paddock face, off
+ *   the sim's pit envelope, every footprint, fence run and lamp, and level enough for a rigid
+ *   body; the white bay lines are `ground.decal`s on the face (`paddockBayLines-<id>`,
+ *   LAYER.paddock.line), the yellow no-parking hatches in front of the office roller doors one
+ *   opaque canvas decal (`paddockHatches`, LAYER.paddock.hatch), and the parked cars a prop set
+ *   (`infield-paddock-cars`: car-bodies.ts bodies with the car-park paint mix, the pack's GLB
+ *   bodies (car-glb.ts) inside `Quality.infield.vehiclesNearM` on the high tier, a few
+ *   `covered_car`s in the A lot), `Quality.infield.paddockCars` of them spread by occupancy.
+ *
  * Kept from v1 until I3: the team-coloured transporters and cabs on the truck strip, the tents
  * and the flags (the gate flags moved to s 5538, off the tunnel head). Everything on the
  * paddock plane is placed in the road frame (frameAt / onPlane); everything else stands on
  * `ground.standY`. Nothing here reads the terrain (R3). No new program: plain Standard maps,
- * pbrFromAssets, cutoutFromAssets('fence003'), the pit materials.
+ * pbrFromAssets, cutoutFromAssets('fence003'), the pit materials, `carBody|tint` /
+ * `carGlb|tint` (vehicles.ts compiles both).
  */
 
 const _p = new THREE.Vector3()
@@ -238,6 +253,46 @@ function pavingTexture(k: number): THREE.Texture {
   return tex(c)
 }
 
+/**
+ * The yellow no-parking hatch (pad-14 ③): a bordered square with 45° stripes on the darker,
+ * freshly sealed patch the photo shows — opaque, so the decal is a plain {map} Standard like the
+ * paving ring (no cutout program on the high tier, where the fence's cutout carries a normal
+ * map and would not share one). One repeat = one hatch.
+ */
+function yellowHatchTexture(k: number): THREE.Texture {
+  const N = 128
+  const { c, ctx } = canvas(N, N, k)
+  ctx.fillStyle = '#3b3c3e'
+  ctx.fillRect(0, 0, N, N)
+  // a little grain so the patch is not one flat tone
+  for (let i = 0; i < 400; i++) {
+    const v = 52 + Math.floor(((i * 7919) % 17) * 1.2)
+    ctx.fillStyle = `rgb(${v},${v},${v + 2})`
+    ctx.fillRect((i * 37) % N, (i * 53) % N, 2, 2)
+  }
+  ctx.fillStyle = '#f0c024'
+  const b = 6
+  ctx.fillRect(0, 0, N, b)
+  ctx.fillRect(0, N - b, N, b)
+  ctx.fillRect(0, 0, b, N)
+  ctx.fillRect(N - b, 0, b, N)
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(b, b, N - 2 * b, N - 2 * b)
+  ctx.clip()
+  ctx.strokeStyle = '#f0c024'
+  ctx.lineWidth = 6
+  for (let d = -N; d < 2 * N; d += 26) {
+    ctx.beginPath()
+    ctx.moveTo(d, 0)
+    ctx.lineTo(d + N, N)
+    ctx.stroke()
+  }
+  ctx.restore()
+  const t = tex(c, THREE.ClampToEdgeWrapping)
+  return t
+}
+
 // ---------------------------------------------------------------- materials
 
 interface PaddockMaterials {
@@ -400,6 +455,11 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     set.placements.push({ m })
   }
 
+  /** what the car parks (I2-c, at the end) must keep clear of: the roller doors' s (the hatches), the fence runs, the lamps */
+  const doorS: number[] = []
+  const fenceRuns: { x: number; z: number }[][] = []
+  const lampXZ: { x: number; z: number }[] = []
+
   // ================================================================ team offices
   {
     const O = PADDOCK_OFFICE
@@ -478,6 +538,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
           const zc = -len / 2 + (len / rooms) * (r + 0.5)
           putIn(shutters, m, D / 2 + 0.05, 0, zc - 0.45, Q)
           putIn(aircons, m, -D / 2 - 0.35, 0, zc + 1.75, -Q)
+          doorS.push(track.wrap(sc + zc - 0.45))
         }
       }
       if (row.modules) {
@@ -943,7 +1004,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     for (const h of F.hand) polylines.push({ pts: h.pts.map(([s, l]) => { track.pointAt(track.wrap(s), l, _p, 0); return { x: _p.x, z: _p.z } }), name: h.name })
     // the gates: an opening of `w` centred on the nearest point of the nearest polyline
     const gatePts = F.gates.map((g) => { track.pointAt(track.wrap(g.s), g.lateral, _p, 0); return { x: _p.x, z: _p.z, w: g.w } })
-    const runs: P2[][] = []
+    const runs: P2[][] = fenceRuns
     const gateFrames: { x: number; z: number; tx: number; tz: number }[] = []
     for (const line of polylines) {
       const pts = line.pts
@@ -1063,6 +1124,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       const m = m4().makeRotationY(yaw)
       m.setPosition(x, ground.standY(x, z) - 0.02, z)
       lamps.placements.push({ m })
+      lampXZ.push({ x, z })
     }
     for (const id of Lp.roads) {
       const road = SUR_ROADS.find((r) => r.id === id)
@@ -1197,6 +1259,298 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     for (let i = 0; i < 6; i++) pole(5538, -60 - i * 3, ground.standAt(5538, -60 - i * 3), i)
     add(flagGeos, railMat, 'flagPoles', false)
     flagsByMat.forEach((geos, i) => add(geos, flagMats[i]!, `flags${i}`, false))
+  }
+
+  // ================================================================ the car parks (I2-c): bays, bay lines, hatches, parked cars
+  {
+    const B = PADDOCK_BAY
+    const rng = new Rng(0x9a11c7)
+    type P2 = { x: number; z: number }
+    /** a track-frame point → world XZ (the paddock straight; curvature over a bay is centimetres) */
+    const world = (s: number, lat: number): P2 => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
+
+    // --- what a bay must keep clear of ----------------------------------------------------------------
+    /** the footprints in world XZ: every paddock row, the other BUILDINGS extrusions, the helipad, the v1 transporters / tents, the masts */
+    const footprints: P2[][] = []
+    const frameBox = (s0: number, s1: number, l0: number, l1: number, margin: number): P2[] =>
+      [world(s0 - margin, l0 - margin), world(s1 + margin, l0 - margin), world(s1 + margin, l1 + margin), world(s0 - margin, l1 + margin)]
+    const enRing = (f: OsmFeature): P2[] => f.en.map(([e, n]) => { track.enToWorld(e, n, _p); return { x: _p.x, z: _p.z } })
+    const disc = (s: number, lat: number, r: number): P2[] => Array.from({ length: 12 }, (_, i) => world(s + r * Math.cos((i / 12) * 2 * Math.PI), lat + r * Math.sin((i / 12) * 2 * Math.PI)))
+    for (const row of PADDOCK_BUILDINGS) {
+      const f = row.osmWay !== undefined ? osmFeature(row.osmWay) : null
+      if (f) footprints.push(enRing(f))
+      else if (row.lateral) footprints.push(frameBox(row.sRange[0], row.sRange[1], row.lateral[0], row.lateral[1], row.kind === 'teamOffices' ? PADDOCK_OFFICE.porch.paddock + PADDOCK_OFFICE.ramp : 0.5))
+    }
+    for (const b of BUILDINGS) {
+      if (b.osmWay === null || b.builder === 'paddock') continue
+      const f = osmFeature(b.osmWay)
+      if (f) footprints.push(enRing(f))
+    }
+    footprints.push(disc(HELIPAD.s, HELIPAD.lateral, HELIPAD.radius + 1))
+    for (let g = 0; g < GARAGE_ORDER.length; g++) for (const ds of [-5, 5]) footprints.push(frameBox(garageS(g) + ds - 1.3, garageS(g) + ds + 1.3, -64.5 - 6.8, -64.5 + 6.8, 0.3))
+    for (let i = 0; i < 6; i++) footprints.push(disc(5600 + i * 9, -70, 4.8))
+    for (const at of PADDOCK_MASTS.at) footprints.push(disc(at.s, at.lateral, 1.2))
+    const inPoly = (x: number, z: number, poly: P2[]): boolean => {
+      let inside = false
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i]!, b = poly[j]!
+        if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+      }
+      return inside
+    }
+    const segsCross = (a: P2, b: P2, c: P2, d: P2): boolean => {
+      const o = (p: P2, q: P2, r: P2) => Math.sign((q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x))
+      return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b)
+    }
+    /** a convex quad against a polygon (or an open polyline when `closed` is false): any corner inside, any polygon vertex inside, or any edge crossing */
+    const quadHits = (quad: P2[], poly: P2[], closed: boolean): boolean => {
+      if (closed) {
+        for (const q of quad) if (inPoly(q.x, q.z, poly)) return true
+        for (const p of poly) if (inPoly(p.x, p.z, quad)) return true
+      }
+      const n = closed ? poly.length : poly.length - 1
+      for (let i = 0; i < n; i++) {
+        const a = poly[i]!, b = poly[(i + 1) % poly.length]!
+        for (let k = 0; k < 4; k++) if (segsCross(quad[k]!, quad[(k + 1) % 4]!, a, b)) return true
+      }
+      return false
+    }
+    const segDist2 = (p: P2, a: P2, b: P2): number => {
+      const dx = b.x - a.x, dz = b.z - a.z
+      const l2 = dx * dx + dz * dz || 1
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2))
+      return (p.x - a.x - dx * t) ** 2 + (p.z - a.z - dz * t) ** 2
+    }
+    /** the sim's pit envelope at (s, lat): inside [c − back, max(c + front, −hw)] over the entry → exit span, or the lane band on the box strip */
+    const inPitEnvelope = (s: number, lat: number): boolean => {
+      const c = track.pitLateralAt(s)
+      if (c !== null) {
+        const E = PIT_ENVELOPE.keepOut
+        if (lat >= c - E.back && lat <= Math.max(c + E.front, -track.halfWidthAt(s))) return true
+      }
+      const strip = PIT_ENVELOPE.boxStrip
+      if (forwardDelta(strip[0], s, L) <= forwardDelta(strip[0], strip[1], L) && lat >= PIT_ENVELOPE.lanes[0] && lat <= PIT_ENVELOPE.lanes[1]) return true
+      return false
+    }
+
+    // --- the bays ---------------------------------------------------------------------------------------
+    interface Bay {
+      /** the bay's centre and its axis / across unit vectors in the (s, lateral) plane; `into` points from the aisle into the bay */
+      s: number; lat: number
+      into: [number, number]; across: [number, number]
+      corners: P2[]
+      /** which row of the block (0 = nearest the track) and the index along it */
+      row: number; i: number
+      x: number; z: number
+    }
+    /**
+     * The bays of one block, in the track frame, that pass every test (the module comment lists
+     * them). Rows are laid out from lat[0] as back-to-back pairs with an aisle between the
+     * pairs; a 45° block leans its bays to +s.
+     */
+    type BayReject = 'face' | 'owner' | 'envelope' | 'slope' | 'footprint' | 'fence' | 'lamp'
+    const paddockBays = (row: PaddockParkingRow): { kept: Bay[]; walked: number; rejects: Record<BayReject, number> } => {
+      const a = (row.angle * Math.PI) / 180
+      const depth = B.bayD * Math.cos(a) + B.bayW * Math.sin(a)
+      const step = row.pitch / Math.max(Math.cos(a), 1e-6) // pitch along s (2.5 straight, 3.54 at 45°)
+      const len = forwardDelta(row.s[0], row.s[1], L)
+      const n = Math.floor((len - step) / step) + 1
+      const kept: Bay[] = []
+      const rejects: Record<BayReject, number> = { face: 0, owner: 0, envelope: 0, slope: 0, footprint: 0, fence: 0, lamp: 0 }
+      let walked = 0
+      for (let r = 0; r < row.rows; r++) {
+        const pair = Math.floor(r / 2)
+        const near = row.lat[0] - pair * (2 * depth + B.aisle) - (r % 2) * depth // the row's edge nearer the track
+        const far = near - depth
+        if (far < row.lat[1] - 1e-6) break
+        // the aisle is on the +lateral side of an even row and the −lateral side of an odd one
+        const dirIn: number = r % 2 === 0 ? -1 : 1
+        const into: [number, number] = [Math.sin(a), Math.cos(a) * dirIn]
+        const across: [number, number] = [into[1], -into[0]]
+        const latC = (near + far) / 2
+        for (let i = 0; i < n; i++) {
+          walked++
+          const sc = row.s[0] + step * (i + 0.5) + (len - step * n) / 2
+          const corners: P2[] = []
+          const cornersSL: [number, number][] = []
+          for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+            const cs = sc + (into[0] * u * B.bayD) / 2 + (across[0] * v * B.bayW) / 2
+            const cl = latC + (into[1] * u * B.bayD) / 2 + (across[1] * v * B.bayW) / 2
+            cornersSL.push([cs, cl])
+            corners.push(world(cs, cl))
+          }
+          const centre = world(sc, latC)
+          const samples: [number, number, P2][] = [...cornersSL.map((c, k): [number, number, P2] => [c[0], c[1], corners[k]!]), [sc, latC, centre]]
+          // 1. on a drawn paddock face everywhere, 2. outside the sim's pit envelope
+          let why: BayReject | null = null
+          const ys: number[] = []
+          for (const [s_, l_, p] of samples) {
+            const built = ground.builtY(p.x, p.z)
+            if (!built || built.kind !== 'paddock') { why = 'face'; break }
+            const sw = track.wrap(s_)
+            const owner = ground.plan.ownerAtSL(sw, -1, -l_ - track.halfWidthAt(sw), false, p)
+            if (owner.kind !== 'paddock') { why = 'owner'; break }
+            if (inPitEnvelope(sw, l_)) { why = 'envelope'; break }
+            ys.push(built.y)
+          }
+          // 3. level enough for a rigid body (CAR_PARK.slopeGrade × the footprint diagonal)
+          if (!why && Math.max(...ys) - Math.min(...ys) > CAR_PARK.slopeGrade * Math.hypot(B.bayW, B.bayD)) why = 'slope'
+          // 4. off every footprint, 5. off the fence runs (0.6 m), 6. off the lamps (0.7 m)
+          if (!why && footprints.some((f) => quadHits(corners, f, true))) why = 'footprint'
+          if (!why && fenceRuns.some((run) => quadHits(corners, run, false) || run.some((p, k) => k > 0 && samples.some(([, , q]) => segDist2(q, run[k - 1]!, p) < 0.36)))) why = 'fence'
+          if (!why && lampXZ.some((l) => inPoly(l.x, l.z, corners) || samples.some(([, , q]) => (q.x - l.x) ** 2 + (q.z - l.z) ** 2 < 0.5))) why = 'lamp'
+          if (why) { rejects[why]++; continue }
+          kept.push({ s: sc, lat: latC, into, across, corners, row: r, i, x: centre.x, z: centre.z })
+        }
+      }
+      return { kept, walked, rejects }
+    }
+
+    // --- the bay lines: a decal per block, one 0.1 m quad down each long side of every kept bay ------------
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6, metalness: 0 })
+    const blocks: { row: PaddockParkingRow; bays: Bay[] }[] = []
+    /** per block: the bays walked / kept / rejected by reason, and the cars placed (the smoke and the probes read it) */
+    const report: { id: string; walked: number; kept: number; rejects: Record<BayReject, number>; cars: number }[] = []
+    let bays = 0, walked = 0, lineM = 0
+    for (const row of PADDOCK_PARKING) {
+      const r = paddockBays(row)
+      blocks.push({ row, bays: r.kept })
+      report.push({ id: row.id, walked: r.walked, kept: r.kept.length, rejects: r.rejects, cars: 0 })
+      bays += r.kept.length
+      walked += r.walked
+      const quads: DecalQuad[] = []
+      const seen = new Set<string>()
+      for (const b of r.kept) {
+        for (const v of [-1, 1]) {
+          // the line between two bays is drawn once (the neighbour shares it)
+          const key = `${b.row}|${v > 0 ? b.i + 1 : b.i}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          const cs = b.s + (b.across[0] * v * B.bayW) / 2, cl = b.lat + (b.across[1] * v * B.bayW) / 2
+          const xz: number[] = []
+          for (const [u, w] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+            const p = world(cs + (b.into[0] * u * B.bayD) / 2 + (b.across[0] * w * B.line) / 2, cl + (b.into[1] * u * B.bayD) / 2 + (b.across[1] * w * B.line) / 2)
+            xz.push(p.x, p.z)
+          }
+          const c = world(cs, cl)
+          quads.push({ xz, yHint: ground.standY(c.x, c.z), attrs: () => [] })
+          lineM += B.bayD
+        }
+      }
+      if (!quads.length) continue
+      const built = ground.decal(quads, LAYER.paddock.line, [])
+      if (!built.geo) continue
+      const mesh = new THREE.Mesh(built.geo, lineMat)
+      mesh.name = `paddockBayLines-${row.id}`
+      mesh.receiveShadow = true
+      mesh.renderOrder = 2
+      markDecal(mesh, LAYER.paddock.line, built.stats)
+      group.add(mesh)
+    }
+    stat('paddock-bays', bays)
+    stat('paddock-baysWalked', walked)
+    stat('paddock-bayLinesM', Math.round(lineM))
+
+    // --- the no-parking hatches in front of the office roller doors -------------------------------------
+    {
+      const hatchMat = new THREE.MeshStandardMaterial({ map: yellowHatchTexture(k), roughness: 0.75, metalness: 0 })
+      const quads: DecalQuad[] = []
+      const h = B.hatch.size / 2
+      for (const s of doorS) {
+        const c = world(s, B.hatch.lateral)
+        const hd = track.headingAt(s)
+        const ex = hd.tx, ez = hd.tz, nx = hd.tz, nz = -hd.tx // +s and +lateral in world
+        const xz: number[] = []
+        for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+          const p = world(s + u * h, B.hatch.lateral + v * h)
+          xz.push(p.x, p.z)
+        }
+        quads.push({ xz, yHint: ground.standY(c.x, c.z), attrs: (x, z) => [((x - c.x) * ex + (z - c.z) * ez) / B.hatch.size + 0.5, ((x - c.x) * nx + (z - c.z) * nz) / B.hatch.size + 0.5] })
+      }
+      const built = ground.decal(quads, LAYER.paddock.hatch, [{ name: 'uv', size: 2 }])
+      if (built.geo) {
+        const mesh = new THREE.Mesh(built.geo, hatchMat)
+        mesh.name = 'paddockHatches'
+        mesh.receiveShadow = true
+        mesh.renderOrder = 1
+        markDecal(mesh, LAYER.paddock.hatch, built.stats)
+        group.add(mesh)
+      }
+      stat('paddock-hatches', doorS.length)
+    }
+
+    // --- the parked cars ----------------------------------------------------------------------------------
+    {
+      const bodyMat = carBodyMaterial()
+      const sets = new Map<CarBody, PropSet>()
+      for (const { body: kind } of CAR_MIX) {
+        const proc = procProp(`car-${kind}`, [{ geometry: carBodyGeometry(kind), material: bodyMat }])
+        let near: PropProto = proc
+        const spec = CAR_GLB[kind]
+        if (quality.infield.glb && ctx.assets && spec) {
+          const model = ctx.assets.model(spec.key)
+          const g = model ? carGlbGeometry(model.scene, kind, spec) : null
+          // the map is required: carGlbMaterial(null) is another program (plan §横断 7)
+          if (g?.map) {
+            const bb = g.geometry.boundingBox!
+            near = {
+              id: `car-${kind}-glb`, geometry: g.geometry, materials: [carGlbMaterial(g.map, 'tint', spec.luma, spec.gain) as THREE.MeshStandardMaterial],
+              footprint: { long: bb.max.z - bb.min.z, short: bb.max.x - bb.min.x, height: bb.max.y - bb.min.y }, triangles: g.geometry.getAttribute('position').count / 3, source: 'glb',
+            }
+          }
+        }
+        sets.set(kind, { proto: near, far: proc, placements: [] })
+      }
+      // a car under a cover: the pack model (its long side turned onto the car frame's Z) or a grey body
+      const coveredProc = procProp('covered-car', [{ geometry: carBodyGeometry('sedan').clone(), material: plain(0x8e9297, 0.85, 0.05) }])
+      let covered: PropProto = coveredProc
+      if (quality.infield.glb && ctx.assets) {
+        const glb = packProp(ctx.assets, ctx.props, 'model/props/covered_car', { id: 'covered-car', front: 'none', scaleTo: { long: CAR_DIMS.sedan.l } })
+        if (glb) {
+          glb.geometry.rotateY(Q)
+          glb.geometry.computeBoundingBox()
+          glb.geometry.computeBoundingSphere()
+          covered = glb
+        }
+      }
+      const coveredSet: PropSet = { proto: covered, far: coveredProc, placements: [] }
+      // the budget: every block's occupancy scaled alike so the total is Quality.infield.paddockCars
+      const budget = quality.infield.paddockCars
+      const want = blocks.reduce((n, b) => n + b.row.occupancy * b.bays.length, 0)
+      const scale = want > 0 ? Math.min(1, budget / want) : 0
+      const jit = THREE.MathUtils.degToRad(CAR_PARK.yawJitterDeg)
+      const takes = blocks.map(({ row, bays: list }) => Math.min(list.length, Math.round(row.occupancy * scale * list.length)))
+      // the roundings settle on the biggest block, so a scaled-down paddock holds exactly the budget
+      if (scale < 1) {
+        const big = takes.indexOf(Math.max(...takes))
+        takes[big] = Math.max(0, Math.min(blocks[big]!.bays.length, takes[big]! + budget - takes.reduce((a, b) => a + b, 0)))
+      }
+      blocks.forEach(({ row, bays: list }, bi) => {
+        const take = takes[bi]!
+        report[bi]!.cars = take
+        // a deterministic shuffle picks which bays are taken
+        const order = list.map((b, i) => ({ b, r: rng.next(), i })).sort((p, q) => p.r - q.r || p.i - q.i)
+        for (let k = 0; k < take; k++) {
+          const b = order[k]!.b
+          const r1 = rng.next(), r2 = rng.next(), r3 = rng.next(), r4 = rng.next(), r5 = rng.next(), r6 = rng.next(), r7 = rng.next()
+          // nose out (rear to the axis) for CAR_PARK.noseOut of the cars; the nose in the (s, lateral) plane → world: +s = heading, +lateral = its left normal
+          const nose = r4 < CAR_PARK.noseOut ? -1 : 1
+          const hd = track.headingAt(track.wrap(b.s))
+          const ds = b.into[0] * nose, dl = b.into[1] * nose
+          const dx = ds * hd.tx + dl * hd.tz, dz = ds * hd.tz - dl * hd.tx
+          const yaw = Math.atan2(dx, dz) + (r5 - 0.5) * 2 * jit
+          const pj = CAR_PARK.posJitter
+          const off = world(b.s + b.into[0] * (r6 - 0.5) * 2 * pj + b.across[0] * (r7 - 0.5) * pj, b.lat + b.into[1] * (r6 - 0.5) * 2 * pj + b.across[1] * (r7 - 0.5) * pj)
+          const m = m4().makeRotationY(yaw)
+          m.setPosition(off.x, ground.standY(off.x, off.z) + CAR_PARK.lift, off.z)
+          if (row.id === 'A' && coveredSet.placements.length < B.coveredCars) coveredSet.placements.push({ m })
+          else sets.get(pickCarBody(r1))!.placements.push({ m, color: pickCarColour(r2, r3, new THREE.Color()) })
+        }
+      })
+      group.userData.paddockParking = report
+      registerPropSet(ctx, 'infield', 'infield-paddock-cars', [...sets.values(), coveredSet], { nearM: quality.infield.vehiclesNearM, farM: quality.farField.rangeFar, ramp: CAR_PARK.lod.ramp }, { receiveShadow: true })
+      stat('paddock-coveredCars', coveredSet.placements.length)
+    }
   }
 
   // --- the centre house's grass island (I2-a): its kerb ring ---------------------------------------

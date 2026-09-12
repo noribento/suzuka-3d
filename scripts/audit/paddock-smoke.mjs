@@ -29,19 +29,33 @@
  *        `centreHouse*` / `infield-*` object stands inside the circuit ring (`paddockBuildings` /
  *        `paddockRoofs` are the other BUILDINGS rows — CIRCUIT PLAZA is outside — and are skipped); `stats.infield`
  *        carries the same counts; `buildMs.paddock` is finite.
+ *  I2-c  the car parks (PADDOCK_PARKING / PADDOCK_BAY): one `paddockBayLines-<id>` decal per block
+ *        at LAYER.paddock.line with uncovered < 1 m² (every kept bay stands on a drawn paddock face,
+ *        so its lines do too); the hatches (`paddockHatches`, LAYER.paddock.hatch, opaque) number
+ *        the office roller doors (stats 'infield-office-shutters'); the cars (`infield-paddock-cars`)
+ *        number exactly Quality.infield.paddockCars (≥ 250 high / ≥ 110 low), every one on a
+ *        `paddock` face (ground.builtY), inside no PADDOCK_BUILDINGS footprint, outside the sim's
+ *        pit envelope (PIT_ENVELOPE.keepOut about Track.pitLateralAt), off the E lot's broadcast
+ *        strip s 5440–5510, inside the circuit ring; `group.userData.paddockParking` (walked /
+ *        kept / rejects / cars per block) sums to the same numbers; the covered cars are
+ *        PADDOCK_BAY.coveredCars in the A block.
  *
  *   node scripts/audit/paddock-smoke.mjs [--tier high|low|both] [--glb]
  *
- * `--glb` is reserved for the phase's GLB path (stub-registry.mjs, like furniture-smoke --glb).
+ * `--glb` builds the high tier once more with the pack's car GLBs (kei_wagon / kei_truck / van_h100
+ * / covered_car) behind a stub asset registry (stub-registry.mjs, like furniture-smoke --glb) and
+ * checks the GLB path of the cars: the kinds with a model draw their `car-<kind>-glb` prototype at
+ * L0, a far level L1 follows with the procedural bodies, the count is still the budget, every
+ * vertex finite.
  * Exit 1 on any failure.
  */
 import path from 'node:path'
 import { buildScene, ROOT, THREE } from './app-runtime.mjs'
-import { commonChecks, finiteVertices, fmt, smokeArgs, standPoints, trisOf } from './smoke-common.mjs'
+import { commonChecks, finiteVertices, fmt, infieldRoots, smokeArgs, standPoints, trisOf } from './smoke-common.mjs'
 import { insideRing } from './ring.mjs'
+import { buildSceneWith, stubRegistry } from './stub-registry.mjs'
 
 const { tiers, check, finish, glb } = smokeArgs('paddock-smoke')
-if (glb) console.log('--glb: no GLB path in this smoke yet (the phase adds it)')
 
 const spec = await import(path.join(ROOT, 'app/data/suzuka-facilities-spec.ts'))
 const groundMod = await import(path.join(ROOT, 'app/three/ground.ts'))
@@ -189,6 +203,85 @@ for (const tier of tiers) {
     check((infield['infield-office-shutters'] ?? 0) === (expected - 1) * O.rooms && (infield['infield-office-aircon'] ?? 0) === (expected - 1) * O.rooms, `office shutters ${infield['infield-office-shutters']} / aircon ${infield['infield-office-aircon']} = ${(expected - 1) * O.rooms}`)
     check(infield['paddock-tunnelHeads'] === 2 && infield['paddock-buildings'] === spec.PADDOCK_BUILDINGS.length, `tunnel heads ${infield['paddock-tunnelHeads']}, buildings ${infield['paddock-buildings']} = table ${spec.PADDOCK_BUILDINGS.length}`)
   }
+  // --- I2-c: the car parks — bay lines, hatches, parked cars ---------------------------------------------
+  {
+    const infield = env.stats?.infield ?? {}
+    const q = scene.quality
+    const report = env.group.userData.paddockParking ?? []
+    check(report.length === spec.PADDOCK_PARKING.length, `paddockParking report: ${report.length} blocks = table ${spec.PADDOCK_PARKING.length}`)
+    for (const row of spec.PADDOCK_PARKING) {
+      const mesh = env.group.getObjectByName(`paddockBayLines-${row.id}`)
+      const d = mesh?.userData.decal
+      check(!!d && d.rung === groundMod.LAYER.paddock.line && !d.soft && d.uncovered < 1, `  paddockBayLines-${row.id}: ${mesh ? trisOf(mesh) : 0} tris at LAYER.paddock.line, uncovered ${d?.uncovered?.toFixed(2)} m² of ${d?.area?.toFixed(1)} m²`)
+      const r = report.find((b) => b.id === row.id)
+      const rej = r ? Object.entries(r.rejects).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') : '-'
+      check(!!r && r.kept > 0 && r.cars > 0, `  block ${row.id}: ${r?.kept} of ${r?.walked} bays kept (${rej || 'no rejects'}), ${r?.cars} cars`)
+    }
+    const keptTotal = report.reduce((n, b) => n + b.kept, 0), carsTotal = report.reduce((n, b) => n + b.cars, 0)
+    check(infield['paddock-bays'] === keptTotal, `  stats.infield['paddock-bays'] = ${infield['paddock-bays']} = Σ kept ${keptTotal}`)
+    // the hatches: one per office roller door
+    const hatches = env.group.getObjectByName('paddockHatches')
+    const hd = hatches?.userData.decal
+    check(!!hd && hd.rung === groundMod.LAYER.paddock.hatch && hd.uncovered < 1 && infield['paddock-hatches'] === infield['infield-office-shutters'], `paddockHatches ${infield['paddock-hatches']} = roller doors ${infield['infield-office-shutters']}, LAYER.paddock.hatch, uncovered ${hd?.uncovered?.toFixed(2)} m² of ${hd?.area?.toFixed(0)} m²`)
+    check(!!hd && Math.abs(hd.area - infield['paddock-hatches'] * spec.PADDOCK_BAY.hatch.size ** 2) < 1, `  hatch outline area ${hd?.area?.toFixed(1)} m² = ${infield['paddock-hatches']} × ${spec.PADDOCK_BAY.hatch.size}²`)
+    // the cars: the budget, and where every one stands
+    const budget = q.infield.paddockCars
+    const cars = infield['infield-paddock-cars'] ?? 0
+    check(cars === budget && cars === carsTotal && cars >= (tier === 'high' ? 250 : 110), `infield-paddock-cars ${cars} = Quality.infield.paddockCars ${budget} (report Σ ${carsTotal}; ≥ ${tier === 'high' ? 250 : 110})`)
+    check(infield['paddock-coveredCars'] === spec.PADDOCK_BAY.coveredCars, `  covered cars ${infield['paddock-coveredCars']} = PADDOCK_BAY.coveredCars ${spec.PADDOCK_BAY.coveredCars}`)
+    const carMeshes = new Map()
+    for (const o of infieldRoots(env, /^infield-paddock-cars-/)) o.traverse((m) => { if (m.isInstancedMesh && /-L0-/.test(m.name)) carMeshes.set(m.uuid, m) })
+    const pts = standPoints([...carMeshes.values()])
+    const E = spec.PIT_ENVELOPE
+    const fac = await import(path.join(ROOT, 'app/data/suzuka-facilities.ts'))
+    const polys = spec.PADDOCK_BUILDINGS.map((b) => {
+      if (b.osmWay !== undefined) { const f = fac.osmFeature(b.osmWay); return f ? f.en.map(([e, n]) => { track.enToWorld(e, n, v); return [v.x, v.z] }) : null }
+      if (!b.lateral) return null
+      return [[b.sRange[0], b.lateral[0]], [b.sRange[1], b.lateral[0]], [b.sRange[1], b.lateral[1]], [b.sRange[0], b.lateral[1]]].map(([s, l]) => { track.pointAt(track.wrap(s), l, v, 0); return [v.x, v.z] })
+    }).filter(Boolean)
+    const inPoly = (x, z, poly) => { let inside = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, zi] = poly[i], [xj, zj] = poly[j]; if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside } return inside }
+    let offFace = 0, inFoot = 0, inEnv = 0, inStrip = 0, outRing = 0
+    for (const [x, z] of pts) {
+      const f = ground.builtY(x, z)
+      if (!f || f.kind !== 'paddock') offFace++
+      if (polys.some((p) => inPoly(x, z, p))) inFoot++
+      if (!insideRing(x, z)) outRing++
+      const pr = plan.project(x, z)
+      const c = track.pitLateralAt(pr.s)
+      if (c !== null && pr.lateral >= c - E.keepOut.back && pr.lateral <= Math.max(c + E.keepOut.front, -track.halfWidthAt(pr.s))) inEnv++
+      // the E lot's broadcast strip: windowed to the pit-entry straight
+      const pe = plan.project(x, z, [5300, 5560])
+      if (pe.d < 120 && pe.s >= 5440 && pe.s <= 5510 && pe.lateral < -25) inStrip++
+    }
+    check(pts.length === cars, `  ${pts.length} car instances at L0 = stats ${cars}`)
+    check(offFace === 0, `  every car on a paddock face (${offFace} off)`)
+    check(inFoot === 0, `  no car inside a PADDOCK_BUILDINGS footprint (${inFoot})`)
+    check(inEnv === 0, `  no car in the sim's pit envelope (${inEnv})`)
+    check(inStrip === 0, `  no car on the E lot's broadcast strip s 5440–5510 (${inStrip})`)
+    check(outRing === 0, `  every car inside the circuit ring (${outRing} outside)`)
+    check('infield-paddock-cars' in infield && 'infield-lamps' in infield, `  stats.infield keys 'infield-paddock-cars', 'infield-lamps' present`)
+  }
+}
+
+// --- --glb: the cars' GLB path on the high tier behind the stub registry ---------------------------------
+if (glb) {
+  console.log('\npaddock-smoke: tier high + car GLBs (stub registry)')
+  const reg = await stubRegistry(['model/vehicles/kei_wagon', 'model/vehicles/kei_truck', 'model/vehicles/van_h100', 'model/props/covered_car'])
+  const scene = await buildSceneWith('high', reg)
+  const { env } = scene
+  const infield = env.stats?.infield ?? {}
+  const meshes = []
+  for (const o of infieldRoots(env, /^infield-paddock-cars-/)) o.traverse((m) => { if (m.isInstancedMesh) meshes.push(m) })
+  const names = new Set(meshes.map((m) => m.name.replace(/-L(\d)-\d+$/, '-L$1')))
+  const l0 = [...names].filter((n) => /-L0$/.test(n)), l1 = [...names].filter((n) => /-L1$/.test(n))
+  check(['kei', 'keitruck', 'minivan'].every((k) => l0.includes(`infield-paddock-cars-car-${k}-glb-L0`)), `L0 draws the GLB kinds (${l0.filter((n) => /-glb-/.test(n)).map((n) => n.replace('infield-paddock-cars-', '')).join(', ')})`)
+  check(l1.length > 0 && l1.every((n) => !/-glb-/.test(n)), `L1 is procedural (${l1.length} prototypes)`)
+  const fv = finiteVertices(meshes)
+  check(fv.nan === 0, `  ${meshes.length} InstancedMeshes, ${fmt(fv.vertices)} vertices, no NaN (${fv.nan})`)
+  const l0Count = meshes.filter((m) => /-L0-/.test(m.name)).reduce((n, m) => n + m.count, 0)
+  check(l0Count === scene.quality.infield.paddockCars && infield['infield-paddock-cars'] === l0Count, `  ${l0Count} cars at L0 = Quality.infield.paddockCars ${scene.quality.infield.paddockCars}`)
+  const covered = meshes.find((m) => /covered-car-L0-/.test(m.name))
+  check(!!covered && covered.count === spec.PADDOCK_BAY.coveredCars && covered.geometry.attributes.position.count > 3 * 60, `  covered_car GLB at L0: ${covered?.count} instances, ${covered ? trisOf(covered) / covered.count : 0} tris each`)
 }
 
 finish()

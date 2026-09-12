@@ -140,12 +140,12 @@
       "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured (the team-office module buckets 4, the fence posts 4, the paddock prop sets infield-office-shutters / -aircon / -lamps / -fuel / -garage-shutters / -base-shutters / -flood-heads 14 per cell), +10 %"
     },
     "lowNoAssets": {
-      "triangles": 2038400,
+      "triangles": 2243800,
       "meshes": 801,
-      "instancedMeshes": 686,
+      "instancedMeshes": 757,
       "farFieldEntries": 866,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 1,853,053 tris / 656 meshes / 624 InstancedMeshes / 787 entries, +10 %; meshes re-based at I2-b: 728 measured (the paddock's named meshes — offices A, centre house 8, SMSC, fuel station 6, service house / tyre garage 6, vehicle base 3, tunnel heads, fence, gates, masts, rails, glass, steps), +10 %"
+      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 1,853,053 tris / 656 meshes / 624 InstancedMeshes / 787 entries, +10 %; meshes re-based at I2-b: 728 measured (the paddock's named meshes — offices A, centre house 8, SMSC, fuel station 6, service house / tyre garage 6, vehicle base 3, tunnel heads, fence, gates, masts, rails, glass, steps), +10 %; triangles and instancedMeshes re-based at I2-c: 2,039,776 tris / 688 IM measured (the paddock car parks: 6 bay-line decals + the hatch decal ≈ 9 k tris, infield-paddock-cars 141 bodies in 7 InstancedMeshes (one per body kind, one bucket on the low tier)), +10 %"
     }
   },
   "data": {
