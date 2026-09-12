@@ -397,7 +397,7 @@ for (const tier of tiers) {
   // names
   const missing = Object.entries(V1_NAMES).filter(([n, c]) => (byName.get(n)?.length ?? 0) !== c)
   check(missing.length === 0, `v1 meshes under env.group: ${Object.keys(V1_NAMES).length} names${missing.length ? ` — wrong: ${missing.map(([n, c]) => `${n} (${byName.get(n)?.length ?? 0} ≠ ${c})`).join(', ')}` : ''}`)
-  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'perchCanopies', 'perchBacks', 'transporters', 'parkingLines', 'parkedCars']
+  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'perchCanopies', 'perchBacks', 'transporters', 'teamOffices']
   // the bucketed sets carry a '-<bay>' suffix per 60 m bay
   const noInst = instanced.filter((n) => ![...byName.entries()].some(([k, ms]) => (k === n || k.startsWith(`${n}-`)) && ms.some((o) => o.isInstancedMesh)))
   check(noInst.length === 0, `instanced sets: ${instanced.length}${noInst.length ? ` — missing: ${noInst.join(', ')}` : ''}`)

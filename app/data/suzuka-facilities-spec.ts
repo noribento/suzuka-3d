@@ -1007,7 +1007,16 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: BuildingDef[] = [
-  { id: 'team_offices', name: 'チームオフィス', osmWay: 184423963, height: 8, levels: 2, anchor: { s: 5670, lateral: -88 }, colour: COLOURS.pitFacade.mid, roof: 'flat', unverified: ['height'] },
+  // The three OSM team-office polygons (E/D/C+WC, B, A) and the centre house stay here so the
+  // surroundings generator's OWNED set never re-ships them; paddock.ts builds them from the
+  // 2009 dossier (PADDOCK_BUILDINGS, `builder: 'paddock'`) instead of extruding these rings —
+  // the OSM outlines trace the porches / canopies (17 m deep vs the 10.5 m building)
+  { id: 'team_offices', name: 'チームオフィス E・D・C・WC', osmWay: 184423963, height: 3.2, levels: 1, anchor: { s: 5670, lateral: -88 }, colour: COLOURS.pitFacade.mid, roof: 'flat', builder: 'paddock', unverified: ['the OSM outline is the porch / canopy line (paddock.ts builds PADDOCK_BUILDINGS instead)'] },
+  { id: 'team_offices_b', name: 'チームオフィス B', osmWay: 184430911, height: 3.2, levels: 1, anchor: { s: 22, lateral: -86 }, colour: COLOURS.pitFacade.mid, roof: 'flat', builder: 'paddock', unverified: ['as team_offices'] },
+  { id: 'team_offices_a', name: 'チームオフィス A（既設 2 階）', osmWay: 184430909, height: 6.5, levels: 2, anchor: { s: 73, lateral: -86 }, colour: COLOURS.pitFacade.mid, roof: 'flat', builder: 'paddock', unverified: ['storeys', 'as team_offices'] },
+  // the centre house (D-shaped, flat side to the pits): 2 levels under the elliptical canopy;
+  // the eaves take the I1 spur bridge's top (PIT_BUILDING.v2.spur.bridge y 8.55) under them
+  { id: 'centre_house', name: 'センターハウス', osmWay: 184430907, height: 8.7, levels: 2, anchor: { s: 5774, lateral: -84 }, colour: COLOURS.pitFacade.mid, roof: 'flat', builder: 'paddock', unverified: ['height (the dossier gives 2 levels and no elevation; 8.7 = the spur bridge\'s top + 0.15)', 'storey heights'] },
   // 2026: the medical centre is the ground floor of the control pod (pit building, final-corner
   // end); way 184429429 beside the helipad is the former medical room, now the course-vehicle base
   { id: 'course_vehicle_base', name: '旧医務室（コース車両基地）', osmWay: 184429429, height: 5.0, levels: 1, anchor: { s: 165, lateral: -40 }, colour: COLOURS.pitFacade.mid, roof: 'flat', builder: 'paddock', unverified: ['height', 'use (the 2009 dossier calls it 医務室; the 2026 medical centre is in the pod)'] },
@@ -1030,6 +1039,166 @@ export const HELIPAD = { s: 5566, lateral: -78, radius: 8 }
  * kerb ring (paddock.ts, GROUND_OBJECTS.islandKerb) read the same numbers.
  */
 export const PADDOCK_ISLAND = { s: 5774, lateral: -134, radius: 4.2 }
+
+// ---------------------------------------------------------------- paddock (I2-b)
+
+/**
+ * The paddock plane: the drawn ground behind the pit building is one plane at the road plane
+ * − `drop` (the I0-c relief core; the 1,480 mm of the dossier's section is the foundation
+ * depth, not a step). Every building on it stands on a flat slab `floor` above that plane —
+ * one slab per module, NOT following the 2.8 % fall inside a module — on a plinth reaching
+ * `plinth` below the plane (p6_sec: floor → eave 3,200 with the ground lines at floor level,
+ * the paddock side 0.15–0.2 lower with a small step). The buildings past the plane (the S lot,
+ * the tyre garage) stand on the natural ground instead (`floor: 'ground'`).
+ */
+export const PADDOCK_PLANE = { drop: 0.12, floor: 0.15, plinth: 0.3 } as const
+
+/**
+ * The team-office module (pitpad-6 / p6_sec): 3 rooms of 3.8 × 10.5 m in an 11,400 × 10,500
+ * block (250 + 4 × 2,500 + 250), a 1.0 m porch strip on the pit side and 1.5 m on the paddock
+ * side, floor → eave 3,200, roof fascia 330 (top 3.53), vertical corrugated siding, a light
+ * blue-grey shallow metal roof (pad-14 ③), one wide light-grey roller door + one window per room
+ * on the pit face, one door + one window per room on the paddock face, a 2 m ramp at every
+ * paddock door, one condenser unit per room. The row stands at lateral −80.5 … −91.0 (the
+ * OSM outline 184423963's pit-side edge −80.4 = the porch line; the dossier's "30 m from the
+ * pits" would put the face at −86.7 — 6 m apart, the OSM edge is taken).
+ */
+export const PADDOCK_OFFICE = {
+  /** module length along s and its room count */
+  module: 11.4,
+  rooms: 3,
+  /** the building's lateral extent (right side, negative) and the porch strips beyond it */
+  lateral: [-91.0, -80.5] as [number, number],
+  porch: { pit: 1.0, paddock: 1.5 },
+  eaves: 3.2,
+  roofTop: 3.53,
+  roofColour: 0x8fa4b4,
+  /** the pit-face roller door (w × h) and the openings' sizes */
+  rollDoor: [2.5, 2.6] as [number, number],
+  window: [1.2, 1.0] as [number, number],
+  door: [0.9, 2.1] as [number, number],
+  ramp: 2.0,
+  /** the corrugated siding's photo tile (m per repeat) */
+  sidingTile: 1.0,
+} as const
+
+export type PaddockBuildingKind = 'teamOffices' | 'officeBlock' | 'centreHouse' | 'smsc' | 'fuel' | 'serviceHouse' | 'tyreGarage' | 'vehicleBase' | 'tunnelHead' | 'portal'
+
+export interface PaddockBuildingDef {
+  id: string
+  name: string
+  kind: PaddockBuildingKind
+  /** OSM way the footprint is extruded from (facilities-check §6 / O6 / O11); absent = the track-frame box below */
+  osmWay?: number
+  /** the stretch of lap the row belongs to (the window of every world → s mapping, R14); for a track-frame box also its s extent */
+  sRange: [number, number]
+  /** lateral extent of a track-frame footprint (right side negative) */
+  lateral?: [number, number]
+  /** team offices: how many PADDOCK_OFFICE modules from sRange[0] (0 = one plain block of the row's length) */
+  modules?: number
+  /** the floor: a flat slab over the paddock plane (PADDOCK_PLANE) or the natural ground (ground.standY) */
+  floor: 'plane' | 'ground'
+  /** eaves height above the floor (m) */
+  eaves: number
+  levels: number
+  /** the walls' material key (the pack texture, with a procedural fallback) and tint */
+  wall: 'corrugated007a' | 'corrugated009' | 'plaster' | 'concrete'
+  /** roll doors on one face: which face (track frame), how many, their size */
+  doors?: { face: '+lateral' | '-lateral' | '-s' | '+s'; n: number; w: number; h: number }
+  /** the orientation of a rotated footprint: the two OSM ways whose centroids give the long axis */
+  axisWays?: [number, number]
+  unverified: string[]
+}
+
+/**
+ * The paddock's buildings (plan I2-b), from the 2009 dossier layout (pphi-3, read off at
+ * 2.22 px/m, ±5 m) and the OSM outlines where one exists. Heights are the dossier's where it
+ * gives one (team offices), estimates elsewhere (`unverified`). Rows carry no world height:
+ * paddock.ts places every one on the paddock plane or the drawn ground.
+ */
+export const PADDOCK_BUILDINGS: PaddockBuildingDef[] = [
+  // --- the team-office row behind the pits (pphi-3: E 5605→5641, D 5646→5691, C 5694→5730, WC 5731→5744, B 0→49, A 56→88)
+  { id: 'offices_e', name: 'チームオフィス E', kind: 'teamOffices', sRange: [5605, 5639.2], lateral: PADDOCK_OFFICE.lateral, modules: 3, floor: 'plane', eaves: PADDOCK_OFFICE.eaves, levels: 1, wall: 'corrugated007a', unverified: ['s (pphi-3 ±5 m)'] },
+  { id: 'offices_d', name: 'チームオフィス D', kind: 'teamOffices', sRange: [5646, 5691.6], lateral: PADDOCK_OFFICE.lateral, modules: 4, floor: 'plane', eaves: PADDOCK_OFFICE.eaves, levels: 1, wall: 'corrugated007a', unverified: ['s (pphi-3 ±5 m)'] },
+  { id: 'offices_c', name: 'チームオフィス C', kind: 'teamOffices', sRange: [5694, 5728.2], lateral: PADDOCK_OFFICE.lateral, modules: 3, floor: 'plane', eaves: PADDOCK_OFFICE.eaves, levels: 1, wall: 'corrugated007a', unverified: ['s (pphi-3 ±5 m)'] },
+  { id: 'offices_wc', name: 'WC 棟', kind: 'teamOffices', sRange: [5731, 5744], lateral: PADDOCK_OFFICE.lateral, modules: 0, floor: 'plane', eaves: PADDOCK_OFFICE.eaves, levels: 1, wall: 'corrugated007a', unverified: ['s (pphi-3 ±5 m)', 'size'] },
+  { id: 'offices_b', name: 'チームオフィス B', kind: 'teamOffices', osmWay: 184430911, sRange: [5, 39.2], lateral: PADDOCK_OFFICE.lateral, modules: 3, floor: 'plane', eaves: PADDOCK_OFFICE.eaves, levels: 1, wall: 'corrugated007a', unverified: ['s (pphi-3 ±5 m; OSM 184430911 spans 5801.8→43.7 with its porches)'] },
+  // A (既設, 12 rooms): the two-storey white block of pad-14 ①, 32 × 10 m, an external corridor / balcony on the paddock face
+  { id: 'offices_a', name: 'チームオフィス A（既設）', kind: 'officeBlock', osmWay: 184430909, sRange: [57, 89], lateral: PADDOCK_OFFICE.lateral, floor: 'plane', eaves: 6.5, levels: 2, wall: 'plaster', unverified: ['storeys', 'eaves', 's (pphi-3 ±5 m; OSM 184430909 spans 48.2→86.7 with its porches)'] },
+  // --- the centre house (BUILDINGS centre_house carries the height; this row is its footprint for O6 / O11)
+  { id: 'centre_house', name: 'センターハウス', kind: 'centreHouse', osmWay: 184430907, sRange: [5755, 5795], floor: 'plane', eaves: 8.7, levels: 2, wall: 'plaster', unverified: ['eaves (see BUILDINGS centre_house)', 'canopy 52 × 36 at 9.6 (pad-14 ②: the roof overhangs the building by ≈ 3 m on slender columns)', 'stair and balcony positions'] },
+  // --- SMSC office (pad-14 ④): single storey, fully glazed front under a deep flat slab on round columns
+  { id: 'smsc', name: 'SMSC 事務所', kind: 'smsc', sRange: [63, 88], lateral: [-124, -102], floor: 'plane', eaves: 4.0, levels: 1, wall: 'concrete', unverified: ['s / lateral (pphi-3 ±5 m)', 'eaves 4.0', 'canopy 3 m on φ0.3 columns @ 5 m'] },
+  // --- the fuel station at the T1 end of the paddock road: the two amenity=fuel ways are the pump islands (their centroids give the axis)
+  { id: 'fuel', name: '施設内給油所', kind: 'fuel', sRange: [98, 122], lateral: [-96, -60], axisWays: [469451640, 469451655], floor: 'ground', eaves: 5.0, levels: 1, wall: 'plaster', unverified: ['canopy 24 × 9 × 0.6 at 5.0 on φ0.4 × 4', 'dispensers 4 on 2 islands', 'kiosk 6 × 4 × 3.2 at the −s end of the apron (pphi-3 draws the box to s 128, but the pond 184005565 begins at s 124)'] },
+  // --- beyond the paddock road: the service house (2 levels) and the tyre service garage, on the natural ground
+  { id: 'service_house', name: 'サービスハウス', kind: 'serviceHouse', sRange: [5694, 5738], lateral: [-183, -153], floor: 'ground', eaves: 7.5, levels: 2, wall: 'corrugated009', unverified: ['height', 'footprint (pphi-3 ±5 m)'] },
+  { id: 'tyre_garage', name: 'タイヤサービスガレージ', kind: 'tyreGarage', sRange: [5685, 5757], lateral: [-219, -187], floor: 'ground', eaves: 6.0, levels: 1, wall: 'corrugated009', doors: { face: '+lateral', n: 6, w: 3.5, h: 4.0 }, unverified: ['height', 'footprint (pphi-3 ±5 m)', '6 roll doors on the service-house face'] },
+  // --- the former medical room (BUILDINGS course_vehicle_base carries the height): 3 roll doors on the −s face, a window band
+  { id: 'course_vehicle_base', name: '旧医務室（コース車両基地）', kind: 'vehicleBase', osmWay: 184429429, sRange: [140, 190], floor: 'plane', eaves: 5.0, levels: 1, wall: 'plaster', doors: { face: '-s', n: 3, w: 2.2, h: 3.2 }, unverified: ['use', 'doors (lights.jpg shows the vehicles parked beside it)'] },
+  // --- tunnel heads: the 逆バンクトンネル's paddock-side ramp head (reno-09: a mid-tunnel ramp to the paddock beside the
+  //     control-tower nose; the cut itself is I6) and the works-road tunnel's south-west head (UNDERPASSES 175231859 `portal`)
+  { id: 'gyaku_bank_head', name: '逆バンクトンネル パドック側ランプ頭', kind: 'tunnelHead', sRange: [5540.5, 5546.5], lateral: [-68, -60], floor: 'plane', eaves: 3.2, levels: 1, wall: 'concrete', doors: { face: '-lateral', n: 1, w: 4.0, h: 2.8 }, unverified: ['position (reno-09 aerial: beside the control-tower nose, ±10 m; kept 0.5 m clear of the helipad compound fence 474537494 at s 5547)', 'size 6 × 8 × 3.2'] },
+  { id: 'works_road_head', name: '構内道路トンネル 南西頭', kind: 'portal', sRange: [114.5, 119.5], lateral: [-42, -34], floor: 'plane', eaves: 3.4, levels: 1, wall: 'concrete', unverified: ['the head at (117, −38) with two 8 m retaining-wall stubs 1.2 high along the road (OSM 175231859 crosses the lap at s 119 and runs across it, so the stubs run along lateral)'] },
+]
+
+/**
+ * The paddock's chain-link enclosure (green mesh, pad-14 ① / padoc.jpg): the OSM fence ways
+ * around the E paddock and the helipad compound and along the pit entry — fold rows placed
+ * from EN only (their s ranges are unreliable) — plus the pit-exit yard's edge and the hand
+ * fence that closes that yard at its T1 end. `gates` are 8 m openings cut where a road crosses:
+ * the helipad compound's gate, the yard gate, and the pit-entry outer fence where OFFSET_LANES
+ * 411291883 crosses it (s 5325–5337). `clip` drops the yard fence's last vertex, which OSM
+ * draws into the pit-exit lane's keep-out (PIT_ENVELOPE).
+ */
+export const PADDOCK_FENCE = {
+  height: 3.0,
+  colour: 0x2f6a3a,
+  postPitch: 3.0,
+  ways: [474537488, 474537494, 474099241, 469636518],
+  /** vertices to drop: [way, index] */
+  clip: [[469636518, 7]] as [number, number][],
+  /** hand polylines in (s, lateral) */
+  hand: [
+    { name: 'ピット出口ヤード T1 端', pts: [[191.2, -27.0], [200, -40], [200, -52]] as [number, number][], window: [150, 250] as [number, number] },
+  ],
+  gates: [
+    { s: 5548, lateral: -60, w: 8, window: [5500, 5600] as [number, number], note: 'helipad compound (474537494)' },
+    { s: 200, lateral: -46, w: 8, window: [150, 250] as [number, number], note: 'pit-exit yard' },
+    { s: 5331, lateral: -27.5, w: 8, window: [5280, 5380] as [number, number], note: 'OFFSET_LANES 411291883 crosses the pit-entry outer fence 474099241' },
+  ],
+  unverified: ['heights', 'the yard fence and its gate (no OSM way; the yard is closed at its T1 end so the vehicles have a gate onto the pit-exit road)', 'gate widths'],
+} as const
+
+/**
+ * Street lamps (props_street_lamp_02 / a 36-tri pole): along the paddock's service roads
+ * (SUR_ROADS ids — the paddock road 184429431 from the fuel station round the S lot to the
+ * A car park, its spur 184429432 to the pit building, the centre house's round drive
+ * 184429434 / 469650860) every `pitch` metres, plus the rows the aerials show along the
+ * office fronts, the vehicle base and the fuel station (`extra`, track frame).
+ */
+export const PADDOCK_LAMPS = {
+  roads: [184429431, 184429432, 184429434, 469650860],
+  pitch: 40,
+  height: 8.0,
+  /** the lamp's offset from the road's centreline (m, to its right in walking order) */
+  offset: 3.5,
+  extra: [
+    // the office fronts: between the truck strip and the pit-side porches
+    [5612, -77], [5652, -77], [5692, -77], [5732, -77], [12, -77], [52, -77], [86, -77],
+    // the E paddock's edge, the vehicle base and the fuel station
+    [5430, -40], [5520, -44], [150, -48], [185, -48], [100, -66], [130, -72],
+  ] as [number, number][],
+  unverified: ['positions (aerials, ±10 m)', 'height 8 m'],
+} as const
+
+/** The 22 m floodlight masts (3 heads) at the E paddock's edge and inside the final corner; the hairpin one is I4 */
+export const PADDOCK_MASTS = {
+  height: 22,
+  heads: 3,
+  at: [{ s: 5480, lateral: -38 }, { s: 5330, lateral: -34 }],
+  unverified: ['positions (final.jpg shows light masts around the E paddock; ±15 m)', 'height'],
+} as const
 
 // ---------------------------------------------------------------- pit complex
 
@@ -1344,6 +1513,11 @@ export interface UnderpassDef {
   sRange: [number, number]
   /** the BARRIERS run whose top carries the 1.1 m parapet railing over the tunnel, and where along it */
   parapet?: { run: string; sRange: [number, number] }
+  /**
+   * A portal head paddock.ts dresses before the cut exists (I6 digs it): where the road comes
+   * out, and which way the opening looks (track frame: the road leaves the portal in that direction)
+   */
+  portal?: { s: number; lateral: number; facing: '+s' | '-s' | '+lateral' | '-lateral' }
   unverified: string[]
   note?: string
 }
@@ -1362,7 +1536,7 @@ export interface UnderpassDef {
  * bank semantics cannot express without an R6 rule change.
  */
 export const UNDERPASSES: UnderpassDef[] = [
-  { name: '構内道路トンネル（メインストレート）', kind: 'road', osmWay: 175231859, sRange: [100, 140], unverified: ['a works road, not a spectator tunnel (OSM yh:TYPE 構内道路, 3.0–5.5 m wide); crosses the lap at s 119'] },
+  { name: '構内道路トンネル（メインストレート）', kind: 'road', osmWay: 175231859, sRange: [100, 140], portal: { s: 117, lateral: -38, facing: '-lateral' }, unverified: ['a works road, not a spectator tunnel (OSM yh:TYPE 構内道路, 3.0–5.5 m wide); crosses the lap at s 119', 'the south-west portal (117, −38): the way ends at lateral −25.8 under the pit apron and the road runs across the lap (constant s), so the head looks −lateral toward the paddock road it joins at (116, −53); the plan wrote facing −s'] },
   { name: '県道三行庄野線 トンネル（ダンロップ側）', kind: 'road', osmWay: 34096664, sRange: [1760, 1810], parapet: { run: 'dunlop-inside', sRange: [1775, 1800] }, unverified: ['the tunnel way is 2 nodes (s 1779–1790, lateral −37.8 → +17); portal positions from the DEM notch ±5 m', 'the parapet stretch is the run\'s own note (1775–1800)'] },
   { name: '県道三行庄野線 トンネル（シケイン側）', kind: 'road', osmWay: 411291884, sRange: [5095, 5145], parapet: { run: 'chicane-approach-right-a', sRange: [5110, 5125] }, unverified: ['the tunnel way is 3 nodes (s 5112–5129, lateral −8.3 → +15.1); portal positions from the DEM notch ±5 m', 'the railing stands on the guardrail\'s top (the wall the road passes under is not tabled)'] },
   { name: '県道三行庄野線 切通し（シケイン右 ↔ ダンロップ北）', kind: 'road', osmWay: 183309812, sRange: [5080, 5120], unverified: ['the 39 m open cut between the two tunnels, from (5112, −8.3) to (1790, −37.8): depth from dem-profile.mjs (P8)'], note: 'not drawn yet (P8); the way spans both legs of the figure-8, so its window is the chicane end only' },
@@ -1621,6 +1795,11 @@ export const GROUND_AREAS: GroundArea[] = [
   // on the natural ground: the OSM polygon itself — a pit-frame rectangle (−146…−222) would cut
   // across the S-curve road at its west corner, the polygon keeps 34 m off that centreline
   { name: 'サービスハウス前庭', kind: 'paddock', layer: 1, source: 'osm', footprint: { osm: [469896634], sRange: [5600, 5770], straight: true }, note: 'OSM 469896634: the S car park in front of the service house (184423960 / 184423962) and the tyre garage' },
+  // NOTE (I2-b): a fuel-station apron ring (s 98–122 × −60…−96, paddock, layer 1) was tried
+  // here and reverted: it inserted stations on the S-curve leg it backs onto (WHY.infieldRings),
+  // which re-rastered the T1 pond's bank (G3 water 8.8 → 10.6 %) and left one bare census
+  // sample at the B paddock; the station stands on the relief plane's bare terrain until the
+  // P7 raster refinement lets the ring in.
   // the centre house's grass island, a layer over the drive; its concrete kerb is an OBJECT
   // (paddock.ts, GROUND_OBJECTS.islandKerb), not a face
   { name: 'センターハウス芝島', kind: 'grassArea', layer: 2, source: 'osm', footprint: { disc: { s: PADDOCK_ISLAND.s, lateral: PADDOCK_ISLAND.lateral, r: PADDOCK_ISLAND.radius } }, note: 'OSM landuse=grass 469896637' },

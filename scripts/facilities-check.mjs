@@ -1642,8 +1642,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
           const r = worldRingOf(b.osmWay)
           if (r) outlines.push({ id, ring: r })
           if (b.sRange && !FOLD_WAYS.has(b.osmWay)) {
-            const [cx, cz] = [f.centroid[0] * track.enScale, -f.centroid[1] * track.enScale]
-            const near = track.nearestOnRange(cx, cz, b.sRange[0], b.sRange[1])
+            // OsmFeature.centroid is [s, lateral] (the generator's unwindowed mapping): project the ring's EN centroid instead
+            let ce = 0, cn = 0
+            for (const [e, n] of f.en) { ce += e / f.en.length; cn += n / f.en.length }
+            const near = track.nearestOnRange(ce * track.enScale, -cn * track.enScale, b.sRange[0], b.sRange[1])
             if (!inArc(near.s, b.sRange)) fail(`${id}: centroid projects to s ${fmt(near.s, 0)} outside its window ${b.sRange.join('→')} — O11`)
           }
         }

@@ -251,7 +251,7 @@ app/
     pit-building.ts            # ピットビル v2（2009 図面の断面を勾配追従スイープ: 1F ガレージ列・ファシア梁・2F/3F テラス・曲面キャノピー、折戸・シャッター・番号札、階段塔、銀灰のコントロールポッドとメディア区間、T1 ノーズ、ビジョン 8、ガレージ内装とウォッシュ・機材の prop set 'ops-garage'、裏キャノピー／タイル壁／窓帯／スパー橋、屋上設備、表彰台、テラスの観客 'ops-terrace'。canopyTopAt を export。§ピットビル v2）
     infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
     pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、v1 の prat perch（I3-c が置き換える）、リーダータワー
-    paddock.ts                 # パドック: BUILDINGS と OSM 建物の押出し、プレハブ列、トランスポーター、テント、旗、駐車場（v1。I2 がチームオフィス列・センターハウス・フェンスと門に建て替える）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング（GROUND_OBJECTS.islandKerb、markObject）。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
+    paddock.ts                 # パドック（I2-b、表 PADDOCK_BUILDINGS / PADDOCK_OFFICE / PADDOCK_FENCE / PADDOCK_LAMPS / PADDOCK_MASTS）: チームオフィス段状モジュール（IM `teamOffices`）と A 棟 2 階、センターハウス（OSM 押出し + 楕円キャノピー + 丸柱 16 + 舗石デカール）、SMSC、給油所（島縁石 = islandKerb）、サービスハウス・タイヤガレージ、車両基地、トンネル頭 2、緑金網フェンス（`paddockFence` 垂直面のみ + 支柱 IM）と門 3、街灯（`infield-lamps`）、照明マスト 2。v1 から残すのはトランスポーター・テント・旗（I3 まで）と BUILDINGS の他行の押出し（`paddockBuildings`）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
     ops.ts                     # 運営レイヤー（I3: トランスポーター、ホスピタリティ、ピット機材、人物、SC／メディカル／コース車両、クレーン。ops-spec の行を置き ctx.ops に積む。I0 は入口のみ）
     marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
     tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
@@ -585,6 +585,62 @@ sim の包絡: ボックス帯の走行レーン [−19.1, −11.5] にはレー
 （フープ数 ± 1、青帯の uncovered、全 pit* 頂点が有限で路面 −0.5 m 以上、標識が白ブロック上、W ビームが区間内、ゲートリーの 5 × 4）。programs は増えません（concrete046 は FrontSide、金網は barriers と同じ fence003 cutout、W ビームは barriers の guardMat と同じ組合せ）。
 未確認寸法は `PIT_WALL.unverified`（歩廊・縁石の横位置 ±0.5、金網高、W ビーム区間、白ブロック長、パラペット、スターター台）。
 
+### パドック
+
+`app/three/paddock.ts`（I2-b、データは `PADDOCK_BUILDINGS` / `PADDOCK_OFFICE` / `PADDOCK_PLANE` / `PADDOCK_FENCE` / `PADDOCK_LAMPS` /
+`PADDOCK_MASTS`）。Mobilityland 2009 図面のパドック配置（pphi-3、2.22 px/m で読み ±5 m）、チームオフィス図（pitpad-6 / p6_sec）、
+写真（pad-14）と OSM 外形から建て直したもの。地面は I0-c の 1 平面（路面 −0.12 = `PADDOCK_PLANE.drop`）で、平面上の建物は
+路面フレームに、平面の外（S 駐車場、タイヤガレージ）は `ground.standY` に立ちます（R3: terrain は読まない）。
+
+- **チームオフィス**（E 3 / D 4 / C 3 / WC 1 / B 3 モジュール、A 棟は 2 階 32 × 10）: 1 モジュール = 11.4 × 10.5 m（3 室 × 3.8）、
+  軒 3.2、屋根 3.53（青灰 0x8fa4b4 の浅い棟）、前ポーチ 1.0（ピット側 −79.5）／後ポーチ 1.5（−92.5）、壁 `corrugatedsteel007a`
+  （1 m リピート、パック無しは縦リブのキャンバス）、開口アトラス（扉 0.9 × 2.1 + 窓 1.2 × 1.0 を面から 12 mm 浮かせた quad）、
+  プリンス（コンクリ）と各扉の 2 m ランプ — 4 材質グループ 66 tris の 1 プロトタイプを `bucketedInstancedMeshes`（`teamOffices-<bay>`、
+  高ティアは cast）。**床は 1 モジュール 1 枚の平板**: 平面 + 0.15 をモジュールの −s 端（登り側）で取り、内部で勾配に追従しない
+  （列が 0.32 m ずつ段になる = 立面図どおり）。プリンスは登り側の深さ 0.30 + 勾配分まで潜る。ピット面に室ごとの灰ロールドア
+  2.5 × 2.6（`infield-office-shutters`: `rollershutter_door` GLB を非等方に伸ばしたプロトタイプ／手続きリブ箱、L0 120 m）、パドック面に
+  室外機（`infield-office-aircon`: `exterior_aircon_unit`／箱）。OSM の 3 面（184423963 / 184430911 / 184430909）は BUILDINGS に
+  `builder: 'paddock'` で残し（OWNED → SUR 再生成で再出荷しない）、外形は使いません（OSM はポーチ線 17 m 幅）。
+- **センターハウス** 184430907（BUILDINGS `centre_house`、軒 8.7 = I1 の 2F ブリッジ天端 8.55 + 0.15）: OSM リングを白 plaster で
+  押出し、丸側の 1F に `facade001` のガラス帯 0.2–3.8、全周に 2F 窓帯 5.6–7.2、丸側に 2 m バルコニー（5.05 = ブリッジ床）+ 手摺、
+  −s 側に外階段 25 段、楕円キャノピー 52（横）× 36（s）m の 0.35 スラブを 9.6 に（`centreHouseCanopy`、白）、丸柱 φ0.35 × 16
+  （平側 ±40° を空け、外形の内側に落ちる柱は外へ押す、`centreHouseColumns`）、周囲 3 m の舗石デカール（`paddockPaving`、
+  `pavingstones099`／手続き、`LAYER.paddock.hatch` 10 mm、頂点を角の二等分線で外へ出した重ならない四角、uncovered 0）。
+- **SMSC 事務所**（s 63–88 × −102…−124、単層 4.0）: 白コンクリ箱、+lateral 面は全面ガラス、屋根スラブ 0.5 を 3 m 張出し、
+  丸柱 φ0.3 @ 5 m。**給油所**（s 98–122 × −60…−96）: 2 本の amenity=fuel ウェイ（469451640 / 469451655）の重心を結ぶ軸に回した
+  キャノピー 24 × 9 × 0.6 at 5.0、柱 φ0.4 × 4、島縁石 2（スタジアム形の閉ループを `sweepKerb` で掃き `GROUND_OBJECTS.islandKerb`、
+  `paddockFuelIslands`）、ディスペンサー 4（`infield-fuel`）、キオスク 6 × 4 × 3.2（エプロンの −s 端）。給油所は平面の素地に立ちます
+  （エプロン行は試して戻した: S 字脚に駅を挿入して池の raster が変わり G3 water 8.8 → 10.6 %、P7 まで見送り）。
+- **サービスハウス**（2 層 7.5、`corrugatedsteel009` + 窓帯 2 段）と**タイヤサービスガレージ**（6.0、+lateral 面にロールドア 3.5 × 4.0 × 6
+  `infield-garage-shutters`）は自然地盤: 四隅の standY の最小 −0.5 から最大 + 軒まで。**車両基地** 184429429（BUILDINGS
+  `course_vehicle_base` 5.0）: 押出し + 窓帯 2.2–3.4 + −s 面（最小 s の辺）にロールドア 2.2 × 3.2 × 3（`infield-base-shutters`）。
+- **トンネル頭**（掘削は I6）: 逆バンクトンネルのパドック側ランプ頭 = コンクリ箱 6 × 8 × 3.2 at (5543.5, −64)（ヘリパッド囲い
+  474537494 の s 5547 から 0.5 m 離す）+ −lateral 面の暗い開口 4 × 2.8; 構内道路トンネル南西頭 = `UNDERPASSES` 175231859 の
+  `portal { s 117, lateral −38, facing '−lateral' }`（OSM ウェイは s 119 で周回を横切り −25.8 で終わる: 頭はパドック道路へ向く。
+  計画の '−s' は採らない）に擁壁スタブ 2 本（lateral −42…−34、`preconcrete_wall_001_long`、高 1.2）+ 門型（ピア + まぐさ 3.0–3.4）。
+- **囲いフェンス**（`PADDOCK_FENCE`）: OSM 474537488 / 474537494 / 474099241（fold 行 → EN のみ、s 射影無し）+ ピット出口ヤード縁
+  469636518（最終頂点はピット出口レーンのキープアウトに入るので落とす）+ ヤードを T1 端で閉じる手描き 3 点。各辺 1 枚の垂直
+  カード（両端 standY − 0.05、高 3.0、m 単位 uv）を `fence003` カットアウトの緑 tint（無しは金網キャンバス）で `paddockFence`
+  （法線はすべて水平 = G8 に掛からない）、支柱 φ0.06 @ 3 m を 250 m セルで IM `paddockFencePosts-<cell>`、門 3（8 m の切欠き +
+  φ0.1 の門柱 2 + 上桟、`paddockGates`）: ヘリパッド囲い (5548, −60)、ヤード (200, −46)、OFFSET_LANES 411291883 が横切る
+  ピット入口外側 (5331, −27.5)。総延長 633 m（計画の 1,200 m は表の 4 ウェイでは届かない）。
+- **街灯**（`PADDOCK_LAMPS`）: パドック道路 SUR_ROADS 184429431（給油所 → S 駐車場 → A 駐車場）・支線 184429432・回廊 184429434 /
+  469650860 に 40 m 毎（右 3.5 m、腕は道路へ）+ 手置き 13（オフィス前 −77、車両基地、給油所）= 29 本、`props_street_lamp_02`
+  （高さ 8 m に scaleTo）／36 tris のポール、`registerPropSet(ctx, 'infield', 'infield-lamps', …)` 段 [700 m, ∞]。計画の 184120107 は
+  GP スクエア裏のサービスロードでパドックを通らない。**照明マスト**（`PADDOCK_MASTS`）: 22 m の 0.6 角ラチス（panel 1.5、X ブレース
+  は `Quality.infield.detail`）+ 横桟に `trackside_flood_light`／箱 3 灯（`infield-flood-heads`、−lateral 向き）を E パドック縁
+  (5480, −38) と最終コーナー内 (5330, −34) に（`paddockMasts`）。
+- v1 から残す: トランスポーター（−64.5）とキャブ、テント 6（5600–5645, −70）、旗 5 + 6（門の旗は s 5548 → 5538、トンネル頭と
+  囲いの位置）、BUILDINGS の他行（ダンロップ事務所・西タワー・CIRCUIT PLAZA）の押出し（`paddockBuildings` / `paddockRoofs`）。
+  削除: 8 m の窓無しスラブ、プレハブ 6、駐車場の 1 cm スラブ線と箱の車（I2-c が `ground.decal` の区画線と `infield-paddock-cars` で置く）。
+- 検査: `scripts/audit/paddock-smoke.mjs --tier both`（モジュール数 = 表、床 |y − (路面(s0) − 0.12 + 0.15)| ≤ 20 mm、柱 16、デカール
+  uncovered 0、島縁石の markObject、フェンス ≥ 600 m・法線水平・門 3、街灯 ≥ 20、`stats.infield` の一致、全 paddock* が
+  リング内）; facilities-check §16 O6 / O11（PADDOCK_BUILDINGS の外形は互いに交差せず、重心は自分の s 窓に射影 — O11 は
+  `OsmFeature.centroid` を EN と読んでいたので EN 重心の射影に直した）。静的コスト（Node、高）: 3,869,335 tris / 965 メッシュ /
+  808 IM / 1,010 エントリ（IM 予算を 807 → 889 = 実測 × 1.10 に、低ティアはメッシュ 722 → 801）、生成データ 1,018,297 B
+  （センターハウスと B/A オフィスの 3 面を SUR から落として −3 行）。programs は増えません（plain map / pbrFromAssets /
+  fence003 cutout / pit の材質のみ）。未確認寸法は各行の `unverified`。
+
 ## GPU で確認すること
 
 このリポジトリの検証はすべてソフトウェア描画（SwiftShader）で行っているため、高品質ティアの見た目は実 GPU で確認してください
@@ -612,6 +668,12 @@ sim の包絡: ボックス帯の走行レーン [−19.1, −11.5] にはレー
 - 白線が近景で実寸（15 cm）、俯瞰・ヘリでも消えずに 1 px 強で残ること（`app/three/lines.ts` の最小幅シェーダ）
 - 乾いた調整池（T1 インフィールド・T1–T2）の法面と床が地形と馴染んでいること
 - ピットレーン舗装の明度が本線と揃っていること
+- パドック（`paddock.ts`、I2-b）: `corrugatedsteel007a` の縦リブの法線の向き（低い横光で凹凸が逆に見えないこと）とモジュール
+  境の 0.32 m 段、開口 quad（12 mm 浮き）が反転 Z で壁と z-fight しないこと、`rollershutter_door` を非等方に伸ばしたシャッターの
+  法線、センターハウスの `facade001` ガラス帯と楕円キャノピーの影が丸柱 16 本の間に落ちること、`pavingstones099` デカール
+  （10 mm）が舗装面から浮かず縁が切れないこと、給油所の島縁石（sink 20 / crown 120）とディスペンサー、緑 tint の `fence003`
+  金網が A2C でにじまず両面から見えること、街灯 `street_lamp_02` の L0（700 m）↔ ポールの切替、照明マストの X ブレース、
+  トンネル頭の暗い開口が面から浮かないこと
 - ピットレーン断面（`pit-lane.ts`）: concrete046 の壁と歩廊の法線の向き（低い横光）、金網（fence003）の A2C の縁と 1.0 / 1.8 m の段、白縁石上のフープ 266 体の影の落ち方（受けのみ）、青帯デカール（12 mm）が反転 Z で z-fight しないこと、
   エプロンの目地（`apronConcreteMaps` の法線溝）が 14:00 の斜光で段として読めること、壁天端の 60 / FIRE STATION 板の向き（−s 面に印刷）、スターター台の金網窓、W ビームの armco 法線と白パイプ柵、ゲートリーの 5 × 4 ランプの上 2 段だけがスタートシーケンスで光り下 2 段が暗いままなこと、白バナー 2.0 m の文字
 - 土地利用マスクの境界（森・田・舗装・集落）が区画の縁や地形チャンクとリングの継ぎ目で途切れないこと、ミップ／異方性でヘリからのちらつきが出ないこと（`?fx=1` で detail タイルも）
