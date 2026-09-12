@@ -3,7 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { CROWD_ATLAS, CROWD_FIGURES } from '~/data/crowd-atlas'
 import { TEAMS, type TeamId } from '~/data/drivers'
 import { CROWD_LAYOUT } from '~/data/impostor-atlas'
+import { GARAGE_ORDER, PIT_BLOCK, PIT_BUILDING, PIT_GARAGE_COUNT, garageS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
+import type { Track } from '~/sim/track'
 import type { AssetRegistry } from './assets'
 import type { EnvBuildContext } from './environment'
 import type { FarLevel } from './farfield'
@@ -292,8 +294,8 @@ export function figureMaterial(): THREE.MeshStandardMaterial {
 // ---------------------------------------------------------------------------------------------
 // the operations layer's figures: poses, roles, the library, the placer
 
-/** The standing poses the ops layer uses (male / female variants, a walk, a crouch at a wheel). */
-export type FigurePose = 'stand' | 'standF' | 'hips' | 'hipsF' | 'lookUp' | 'lookUpF' | 'walk' | 'crouch'
+/** The poses the ops layer uses (male / female standing variants, a walk, a crouch at a wheel, the seated pair of the terrace guests). */
+export type FigurePose = 'stand' | 'standF' | 'hips' | 'hipsF' | 'lookUp' | 'lookUpF' | 'walk' | 'crouch' | 'sit' | 'sitF'
 
 /**
  * Per pose: the pack figure, its impostor row in the bare block (the walk and the crouch have
@@ -311,6 +313,9 @@ export const OPS_FIGURES: Record<FigurePose, { id: string; row: number; helmetRo
   lookUpF: { id: 'female_lookingup', row: 11, helmetRow: null, sink: 0 },
   walk: { id: 'male_walking', row: 4, helmetRow: 2 * CROWD_ATLAS.figures, sink: 0 },
   crouch: { id: 'male_pickingup', row: 0, helmetRow: null, sink: 0.4 },
+  // the seated pair (the crowd's rows 0 / 2): placed on a tread with a seat, so no sink
+  sit: { id: 'male_sitting', row: 0, helmetRow: null, sink: 0 },
+  sitF: { id: 'female_sitting', row: 2, helmetRow: null, sink: 0 },
 }
 export const FIGURE_POSES = Object.keys(OPS_FIGURES) as FigurePose[]
 
@@ -551,4 +556,56 @@ export function buildOpsFigures(ctx: EnvBuildContext, placements: readonly Figur
   for (const p of placements) stats.byRole[p.role] = (stats.byRole[p.role] ?? 0) + 1
   ctx.infieldStats[name] = (ctx.infieldStats[name] ?? 0) + placements.length
   return stats
+}
+
+// ---------------------------------------------------------------------------------------------
+// the pit building's terrace guests (plan I1-b 3/4)
+
+/**
+ * Seated guests on the 2F / 3F terraces of the pit building (`PIT_BUILDING.v2.guests`): per
+ * team block, on the seats of the three 2F rows and the five 3F rows (the seat pitch and
+ * centring of pit-building.ts), `seats2F` / `seats3F` of a row's seats taken at `occupancy`
+ * (a seeded draw, so the count is a fact the smoke can restate), sitting `inset` behind the
+ * row's front edge and facing the track. Block 12 (the
+ * podium bay) and the media section carry no guests; rows follow the road plane like the
+ * terraces themselves (pit-building.ts sweeps them at these heights), so `y` needs no ground.
+ * The result feeds `buildOpsFigures(ctx, slots, 'ops-terrace')` — role 'guest', poses sit /
+ * sitF — and is counted in `ctx.infieldStats['ops-terrace']`, never in the crowd's statistics.
+ */
+export function terraceSlots(track: Track): FigurePlacement[] {
+  const V2 = PIT_BUILDING.v2
+  const G = V2.guests
+  const T2 = V2.terrace2F
+  const T3 = V2.terrace3F
+  const F2 = V2.floors[1]
+  const row3Riser = (T3.deck.y - T3.frontRow.y) / T3.rows
+  const row3Tread = (T3.frontRow.lateral - T3.deck.lateral) / T3.rows
+  const rng = new Rng(41)
+  const out: FigurePlacement[] = []
+  const bayHalf = PIT_BLOCK / 2 - 0.6
+  // the seats of a row exactly as pit-building.ts places them (pitch, centred in the bay), a
+  // guest on each with probability seats / nSeats × occupancy so the figures sit ON the seats
+  const row = (c: number, seats: number, lat: number, y: number) => {
+    const len = 2 * bayHalf
+    const n = Math.floor(len / G.seatPitch)
+    const start = c - bayHalf + (len - (n - 1) * G.seatPitch) / 2
+    const p = Math.min(1, (seats / n) * G.occupancy)
+    for (let i = 0; i < n; i++) {
+      const s = start + i * G.seatPitch
+      const taken = rng.next() < p
+      const female = rng.next() < 0.5
+      if (!taken) continue
+      const h = track.headingAt(s)
+      track.pointAt(s, lat, _p, y)
+      // the crowd's yaw convention: atan2(dx, dz) of the look direction, here +lateral (towards the track)
+      out.push({ x: _p.x, y: _p.y, z: _p.z, yaw: Math.atan2(h.tz, -h.tx), pose: female ? 'sitF' : 'sit', role: 'guest' })
+    }
+  }
+  for (let g = 0; g < PIT_GARAGE_COUNT; g++) {
+    if (g >= GARAGE_ORDER.length) continue // block 12: the podium bay
+    const c = garageS(g)
+    for (let r = 0; r < T2.rows; r++) row(c, G.seats2F, T2.steps[0] - r * T2.tread - G.inset, F2 + (r + 1) * T2.riser)
+    for (let r = 0; r < T3.rows; r++) row(c, G.seats3F, T3.frontRow.lateral - r * row3Tread - G.inset, T3.frontRow.y + r * row3Riser)
+  }
+  return out
 }

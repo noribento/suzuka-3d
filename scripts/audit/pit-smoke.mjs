@@ -27,17 +27,26 @@
  *        block nothing of the building — vertices of the pit* meshes, the props merges and the
  *        instanced bays (prototype bounds through every instance matrix) — lies inside
  *        s ∈ [boxS − 13, boxS − 3] × lateral stop ± 1.5 below the 2F soffit (4.6); all eight
- *        SCREENS rows are drawn (their frames stand on the canopy).
+ *        SCREENS rows are drawn (their pylons stand on the canopy).
+ *  I1-b 3/4 (in `checkBuilding` too): the commit-3 meshes (pitRearLower / pitRearUpper /
+ *        pitRearWindows / pitInteriorRoom / pitInteriorMesh / pitPodium / pitScreenPylons, the
+ *        pitRearColumns bays, the pitInteriorBands instances = team blocks); the interior
+ *        equipment (`ops-garage-*` InstancedMeshes, the near level): every instance's bbox
+ *        inside lateral [garageBack, equipmentFront] and under the ceiling, the instance total
+ *        = stats.infield['ops-garage']; the terrace guests: stats.infield['ops-terrace'] =
+ *        terraceSlots(track).length on both tiers, every guest over a terrace tread; the
+ *        pit-room wash luminance under the bloom threshold on the built materials.
+ *  --glb  (stub-registry.mjs, high tier): the pack prototypes of the equipment
+ *        (metal_tool_chest / steel_frame_shelves_01 / plastic_crate_02 / pc_monitors) are the
+ *        near level and every equipment prototype is ≤ 2.9 m tall.
  *  I1-c  `checkLane` (its own block at the end): the lane's v2 meshes, the hoop count from the
  *        table, the blue-band decal on LAYER.pit.band, every lane vertex finite and above the
  *        road plane − 0.5, the sim envelope (nothing inside lateral (−19.1, −11.5) along the box
  *        strip, nothing in the chase-lens columns), the wall-top signs, the W-beam sections, the
  *        start gantry's 5 × 4 lamps.
- *  TODO(I1-b 3/4): the interior props' bbox (lateral ∈ [−51.6, −29]), the terrace guests in stats.ops.
  *
  *   node scripts/audit/pit-smoke.mjs [--tier high|low|both] [--glb]
  *
- * `--glb` is reserved for the phase's GLB path (stub-registry.mjs, like furniture-smoke --glb).
  * Exit 1 on any failure.
  */
 import path from 'node:path'
@@ -45,11 +54,11 @@ import { buildScene, ROOT, THREE } from './app-runtime.mjs'
 import { commonChecks, finiteVertices, fmt, smokeArgs, trisOf } from './smoke-common.mjs'
 
 const { tiers, check, finish, glb } = smokeArgs('pit-smoke')
-if (glb) console.log('--glb: no GLB path in this smoke yet (the phase adds it)')
 
 const spec = await import(path.join(ROOT, 'app/data/suzuka-facilities-spec.ts'))
 const bar = await import(path.join(ROOT, 'app/data/suzuka-barriers-spec.ts'))
 const em = await import(path.join(ROOT, 'app/three/emissive.ts'))
+const figures = await import(path.join(ROOT, 'app/three/figures.ts'))
 
 // --- the tables (tier-independent) -------------------------------------------------------------------
 console.log('\npit-smoke: tables')
@@ -116,7 +125,7 @@ function checkBuilding(scene, check, byName) {
   check(instancesOf('pitColumns') === pierS.size, `pitColumns: ${instancesOf('pitColumns')} round columns = the row's ${pierS.size} pier positions`)
   const shutters = byName.get('pitShutters')?.[0]
   const nCaps = Math.floor(((spec.PIT_BOX_STRIP[0] - v2.mediaSection.sRange[0] + L) % L) / spec.PIT_BOX)
-  check(!!shutters && trisOf(shutters) === (4 + nCaps) * 2, `pitShutters: ${shutters ? trisOf(shutters) / 2 : 0} closed shutters = block 12's 4 + the ${nCaps} cap pits`)
+  check(!!shutters && trisOf(shutters) === (4 + nCaps) * 2 * 3, `pitShutters: ${shutters ? trisOf(shutters) / 2 : 0} shutter faces = (block 12's 4 + the ${nCaps} cap pits) × (front + both faces of the closed rear door)`)
   // every pit* vertex finite and never more than 0.5 m under the road plane at its (s, lateral)
   const pitMeshes = meshesNamed(/^(pit|controlPod|t1Nose)/).filter((m) => !m.isInstancedMesh)
   const fv = finiteVertices(pitMeshes)
@@ -207,15 +216,126 @@ function checkBuilding(scene, check, byName) {
   const faces = spec.SCREENS.reduce((a, s) => a + s.faces, 0)
   const screens = byName.get('pitScreens')?.[0]
   check(!!screens && trisOf(screens) === faces * 2, `pitScreens: ${screens ? trisOf(screens) : 0} tris = ${faces} faces × 2 (all ${spec.SCREENS.length} rows)`)
-  // the canopy and the pods stand above the deck; buildMs.pit finite
+  // --- I1-b 3/4: interiors, rear, roof plant, podium, terrace guests ------------------------------
+  const C3_NAMES = ['pitRearLower', 'pitRearUpper', 'pitRearWindows', 'pitInteriorRoom', 'pitInteriorMesh', 'pitPodium', 'pitScreenPylons']
+  const c3Missing = C3_NAMES.filter((n) => (byName.get(n)?.length ?? 0) !== 1)
+  check(c3Missing.length === 0, `commit-3 meshes: ${C3_NAMES.length} names${c3Missing.length ? ` — missing: ${c3Missing.join(', ')}` : ''}`)
+  check(instancesOf('pitRearColumns') === Math.ceil(((spec.PIT_BOX_STRIP[1] - v2.mediaSection.sRange[0] + L) % L) / v2.rearCanopy.columns.pitch - 0.5), `pitRearColumns: ${instancesOf('pitRearColumns')} round columns every ${v2.rearCanopy.columns.pitch} m under the rear canopy`)
+  const bands = byName.get('pitInteriorBands')?.[0]
+  check(!!bands?.isInstancedMesh && bands.count === spec.GARAGE_ORDER.length, `pitInteriorBands: ${bands?.count ?? 0} team-colour floor bands = ${spec.GARAGE_ORDER.length} team blocks`)
+  // the pit-room / floor / mesh wash: on the built materials, under the bloom threshold
+  const room = byName.get('pitInteriorRoom')?.[0], floor = byName.get('pitInterior')?.[0], mesh = byName.get('pitInteriorMesh')?.[0]
+  const washOk = [room, floor, mesh].every((m) => m && m.material.emissive && m.material.emissiveIntensity > 0 && em.luminanceLinear(m.material.emissive.r, m.material.emissive.g, m.material.emissive.b, m.material.emissiveIntensity) < em.BLOOM_THRESHOLD)
+  check(washOk, `garage wash on pitInteriorRoom / pitInterior / pitInteriorMesh: emissive set, luminance under ${em.BLOOM_THRESHOLD}`)
+  // the equipment: every near-level instance inside the garages' equipment zone
+  const stats = env.stats?.infield ?? {}
+  const garageMeshes = []
+  env.group.traverse((o) => { if (o.isInstancedMesh && /^ops-garage-.*-L0-\d+$/.test(o.name)) garageMeshes.push(o) })
+  let gInstances = 0, gOut = 0, gTall = 0
+  const gOffenders = []
+  for (const m of garageMeshes) {
+    m.updateWorldMatrix(true, false)
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox()
+    const bb = m.geometry.boundingBox
+    const corners = [[bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.min.y, bb.min.z], [bb.min.x, bb.max.y, bb.min.z], [bb.max.x, bb.max.y, bb.min.z], [bb.min.x, bb.min.y, bb.max.z], [bb.max.x, bb.min.y, bb.max.z], [bb.min.x, bb.max.y, bb.max.z], [bb.max.x, bb.max.y, bb.max.z]]
+    for (let i = 0; i < m.count; i++) {
+      gInstances++
+      m.getMatrixAt(i, m4)
+      m4.premultiply(m.matrixWorld)
+      let bad = false, tall = false
+      for (const [x, y, z] of corners) {
+        v.set(x, y, z).applyMatrix4(m4)
+        const hit = track.nearestOnRange(v.x, v.z, 5580, 100)
+        if (!hit) { bad = true; continue }
+        if (hit.lateral < v2.garageBack - 0.05 || hit.lateral > v2.interior.equipmentFront) bad = true
+        track.pointAt(hit.s, hit.lateral, road, 0)
+        if (v.y - road.y > v2.garage.ceiling + 0.01) tall = true
+      }
+      if (bad) { gOut++; if (gOffenders.length < 4) gOffenders.push(`${m.name}[${i}]`) }
+      if (tall) gTall++
+    }
+  }
+  check(garageMeshes.length > 0 && gOut === 0 && gTall === 0, `ops-garage: ${garageMeshes.length} near-level InstancedMeshes, ${gInstances} instances, all inside lateral [${v2.garageBack}, ${v2.interior.equipmentFront}] and under the ceiling (${gOut} outside${gOffenders.length ? `: ${gOffenders.join(', ')}` : ''}, ${gTall} too tall)`)
+  check(stats['ops-garage'] === gInstances, `stats.infield['ops-garage'] = ${stats['ops-garage']} = the instance total ${gInstances}`)
+  // the terrace guests: the count restated from figures.terraceSlots, every guest over a terrace tread
+  const slots = figures.terraceSlots(track)
+  check(stats['ops-terrace'] === slots.length && slots.length > 0, `stats.infield['ops-terrace'] = ${stats['ops-terrace']} = terraceSlots(track).length ${slots.length} (≈ ${spec.GARAGE_ORDER.length} team blocks × (${v2.terrace2F.rows} × ${v2.guests.seats2F} + ${v2.terrace3F.rows} × ${v2.guests.seats3F}) × ${v2.guests.occupancy} = ${Math.round(spec.GARAGE_ORDER.length * (v2.terrace2F.rows * v2.guests.seats2F + v2.terrace3F.rows * v2.guests.seats3F) * v2.guests.occupancy)})`)
+  let guestsOff = 0
+  for (const g of slots) {
+    const hit = track.nearestOnRange(g.x, g.z, 5620, 95)
+    if (!hit) { guestsOff++; continue }
+    track.pointAt(hit.s, hit.lateral, road, 0)
+    const y = g.y - road.y
+    const on2F = hit.lateral < v2.terrace2F.steps[0] && hit.lateral > v2.terrace2F.steps[1] - 0.5 && y > v2.floors[1] && y < v2.floors[1] + 1.2
+    const on3F = hit.lateral < v2.terrace3F.frontRow.lateral && hit.lateral > v2.terrace3F.deck.lateral - 0.5 && y > v2.terrace3F.frontRow.y - 0.05 && y < v2.terrace3F.deck.y + 0.05
+    if (!(on2F || on3F)) guestsOff++
+  }
+  check(guestsOff === 0, `every terrace guest sits over a 2F / 3F tread (${guestsOff} off)`)
+  // ... and ON a seat: every guest coincides with a pitSeats instance (same s, lateral − inset)
+  const seatKeys = new Set()
+  for (const m of meshesNamed(/^pitSeats-\d+$/)) {
+    m.updateWorldMatrix(true, false)
+    for (let i = 0; i < m.count; i++) {
+      m.getMatrixAt(i, m4)
+      m4.premultiply(m.matrixWorld)
+      v.setFromMatrixPosition(m4)
+      seatKeys.add(`${Math.round(v.x * 20)}|${Math.round(v.z * 20)}`)
+    }
+  }
+  const nearSeat = (g) => {
+    const kx = Math.round(g.x * 20), kz = Math.round(g.z * 20)
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (seatKeys.has(`${kx + dx}|${kz + dz}`)) return true
+    return false
+  }
+  const unseated = slots.filter((g) => !nearSeat(g)).length
+  check(unseated === 0, `every terrace guest sits on a pitSeats instance (${seatKeys.size} seats, ${unseated} unseated)`)
+  const terraceMeshes = []
+  env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^ops-terrace-/.test(o.name)) terraceMeshes.push(o) })
+  const terraceInst = terraceMeshes.filter((m) => /-L\d+-\d+$/.test(m.name) && !/-3d-/.test(m.name)).reduce((a, m) => a + m.count, 0)
+  check(terraceInst === slots.length, `ops-terrace impostor instances ${terraceInst} = ${slots.length}`)
+  // buildMs.pit finite
   check(Number.isFinite(env.buildMs?.pit), `buildMs.pit = ${Number(env.buildMs?.pit).toFixed(0)} ms`)
+}
+
+/**
+ * The GLB path of the building (--glb, high tier): the stub registry serves the equipment's
+ * pack models, so `glbOr` makes them the near level of 'ops-garage'; every prototype (pack or
+ * procedural) stays ≤ 2.9 m tall (nothing of the equipment reaches the ceiling strips or the
+ * chase lens' height band) and the procedural far level is still there behind each pack one.
+ */
+async function checkBuildingGlb(check) {
+  const { stubRegistry, buildSceneWith } = await import('./stub-registry.mjs')
+  const keys = ['model/props/metal_tool_chest', 'model/props/steel_frame_shelves_01', 'model/props/plastic_crate_02', 'model/pit/pc_monitors']
+  const reg = await stubRegistry(keys)
+  check(reg.loaded.length === keys.length, `--glb: stub registry loaded ${reg.loaded.length} of ${keys.length} equipment models`)
+  const scene = await buildSceneWith('high', reg)
+  const near = new Map(), far = new Map()
+  scene.env.farField.group.traverse((o) => {
+    const m = o.name.match(/^ops-garage-(.+)-L(\d)-\d+$/)
+    if (!o.isInstancedMesh || !m) return
+    ;(m[2] === '0' ? near : far).set(m[1], o)
+  })
+  const ids = [...near.keys()]
+  const glbIds = keys.map((k) => k.slice(k.lastIndexOf('/') + 1))
+  const missing = glbIds.filter((id) => !near.has(id))
+  check(missing.length === 0, `--glb: the pack prototypes are the near level: ${glbIds.join(', ')}${missing.length ? ` — missing: ${missing.join(', ')}` : ''}`)
+  const tall = []
+  for (const [id, m] of near) {
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox()
+    const h = m.geometry.boundingBox.max.y - m.geometry.boundingBox.min.y
+    if (h > 2.9) tall.push(`${id} ${h.toFixed(2)}`)
+  }
+  check(tall.length === 0, `--glb: every equipment prototype ≤ 2.9 m tall (${ids.length} prototypes${tall.length ? `; too tall: ${tall.join(', ')}` : ''})`)
+  const procIds = ['roll-cabinet', 'shelves', 'crate', 'monitor-wall']
+  const farMissing = procIds.filter((id) => !far.has(id))
+  check(farMissing.length === 0, `--glb: the procedural stand-ins are the far level: ${procIds.join(', ')}${farMissing.length ? ` — missing: ${farMissing.join(', ')}` : ''}`)
 }
 
 // --- the built scene ------------------------------------------------------------------------------------
 /** the v1 meshes the three builders leave under env.group, by name → expected count */
 const V1_NAMES = {
   // pit-building.ts (v2, I1-b): the names the plan lists, plus the 1F paddock face kept from v1 until commit 3
-  pitShell: 1, pitCanopy: 1, pitGlass: 1, pitInterior: 1, pitInteriorCeiling: 1, pitInteriorWalls: 1, pitFascia: 1, pitSoffit: 1, pitRear: 1, pitShutters: 1, pitPlates: 1, pitPodiumDoor: 1, pitStairTowers: 1,
+  pitShell: 1, pitCanopy: 1, pitGlass: 1, pitInterior: 1, pitInteriorCeiling: 1, pitInteriorWalls: 1, pitFascia: 1, pitSoffit: 1, pitShutters: 1, pitPlates: 1, pitPodiumDoor: 1, pitStairTowers: 1,
   controlPod: 1, controlPodGlass: 1, controlPodSign: 1, pitDarkGlass: 1, t1Nose: 1, t1NoseGlass: 1, pitScreens: 1,
   // pit-lane.ts
   pitWall: 1, pitWallBoards: 1, pitWallBoardsLane: 1, pitDebrisFence: 1, leaderTowerLattice: 1, leaderTowerName: 1, leaderTowerBoard: 1,
@@ -237,7 +357,7 @@ for (const tier of tiers) {
   // names
   const missing = Object.entries(V1_NAMES).filter(([n, c]) => (byName.get(n)?.length ?? 0) !== c)
   check(missing.length === 0, `v1 meshes under env.group: ${Object.keys(V1_NAMES).length} names${missing.length ? ` — wrong: ${missing.map(([n, c]) => `${n} (${byName.get(n)?.length ?? 0} ≠ ${c})`).join(', ')}` : ''}`)
-  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'garageWalls', 'perchCanopies', 'perchBacks', 'transporters', 'parkingLines', 'parkedCars']
+  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'perchCanopies', 'perchBacks', 'transporters', 'parkingLines', 'parkedCars']
   // the bucketed sets carry a '-<bay>' suffix per 60 m bay
   const noInst = instanced.filter((n) => ![...byName.entries()].some(([k, ms]) => (k === n || k.startsWith(`${n}-`)) && ms.some((o) => o.isInstancedMesh)))
   check(noInst.length === 0, `instanced sets: ${instanced.length}${noInst.length ? ` — missing: ${noInst.join(', ')}` : ''}`)
@@ -417,5 +537,11 @@ function checkLane(scene, check, byName) {
   check(Number.isFinite(env.buildMs?.pitLane), `buildMs.pitLane = ${Number(env.buildMs?.pitLane).toFixed(0)} ms`)
 }
 // ================================================================ end I1-c
+
+// ======================================================================== the GLB path (I1-b)
+if (glb) {
+  console.log('\npit-smoke: --glb (high tier, stub registry)')
+  await checkBuildingGlb(check)
+}
 
 finish()

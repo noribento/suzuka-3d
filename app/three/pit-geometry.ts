@@ -324,9 +324,10 @@ export function chequer(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
 /**
  * Every word the pit textures draw (textures-lint reads this list): descriptive panels only, no
  * trademarks, team colours without wordmarks. Indices 0–7 are the fascia / pit-wall panel cycle;
- * the words after them are the plates' cap band (PIT_BUILDING.v2.plates.capText) and the podium.
+ * the words after them are the plates' cap band (PIT_BUILDING.v2.plates.capText), the podium
+ * plate and the fictional event banner over the podium bay (I1-b 3/4).
  */
-export const PIT_TEXTS = ['SUZUKA CIRCUIT', 'JAPANESE GP', 'MOBILITY RESORT', 'ROUND 17', 'PIT LANE', 'SUZUKA', '2026 SEASON', 'RACE WEEKEND', 'SCRUTINEERING', 'PODIUM']
+export const PIT_TEXTS = ['SUZUKA CIRCUIT', 'JAPANESE GP', 'MOBILITY RESORT', 'ROUND 17', 'PIT LANE', 'SUZUKA', '2026 SEASON', 'RACE WEEKEND', 'SCRUTINEERING', 'PODIUM', 'JAPANESE GRAND PRIX']
 export const PANEL_COLOURS = [COLOURS.circuitRed.lit, '#1d5bb5', COLOURS.signageGreen.mid, '#111111']
 
 // ---------------------------------------------------------------- the bullet-nose loft

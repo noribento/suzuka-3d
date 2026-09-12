@@ -248,7 +248,7 @@ app/
     stands.ts                  # OSM フットプリントと座席仕様から全スタンドを生成（段床・座席・柱・屋根・ガラス帯・足場・裏方・案内板）、パスフレーム、座席数クランプ、地形リリーフ（スタンドの丘・台地、GP スクエア、パドックの右側 1 平面）
     pit-complex.ts             # ピット複合体の入口（buildPitComplex = pit-building を呼び buildingRoofMat を返す薄い層。ピットレーンとパドックは infield.ts の傘から）
     pit-geometry.ts            # ピット系の純幾何・キャンバス補助（frameAt / sweep / texturedWall / trackPrism / podLoft の弾丸ロフトと podBand / podFlank（帯・丸窓）、smoothProfile / remapV、canvas / label、PIT_TEXTS、3 ビルダーが共有する材質 pitMaterials(ctx)、addMerged）
-    pit-building.ts            # ピットビル v2（2009 図面の断面を勾配追従スイープ: 1F ガレージ列・ファシア梁・2F/3F テラス・曲面キャノピー、折戸・シャッター・番号札、階段塔、銀灰のコントロールポッドとメディア区間、T1 ノーズ、ビジョン 8。canopyTopAt を export。§ピットビル v2）
+    pit-building.ts            # ピットビル v2（2009 図面の断面を勾配追従スイープ: 1F ガレージ列・ファシア梁・2F/3F テラス・曲面キャノピー、折戸・シャッター・番号札、階段塔、銀灰のコントロールポッドとメディア区間、T1 ノーズ、ビジョン 8、ガレージ内装とウォッシュ・機材の prop set 'ops-garage'、裏キャノピー／タイル壁／窓帯／スパー橋、屋上設備、表彰台、テラスの観客 'ops-terrace'。canopyTopAt を export。§ピットビル v2）
     infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
     pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、v1 の prat perch（I3-c が置き換える）、リーダータワー
     paddock.ts                 # パドック: BUILDINGS と OSM 建物の押出し、プレハブ列、トランスポーター、テント、旗、駐車場（v1。I2 がチームオフィス列・センターハウス・フェンスと門に建て替える）
@@ -259,7 +259,7 @@ app/
     cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
     infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
-    figures.ts                 # 人物の共通部（crowd.ts から昇格）: 焼き込み／手続きインポスター、GLB の 3D プロトタイプ（部位 id、白ヘルメットの第 5 部位）、部位着色材質、運営レイヤーの姿勢・役割（marshal / official / crew / photographer / staff / guest）と buildOpsFigures（kind 'ops'、観客予算とは別勘定）
+    figures.ts                 # 人物の共通部（crowd.ts から昇格）: 焼き込み／手続きインポスター、GLB の 3D プロトタイプ（部位 id、白ヘルメットの第 5 部位）、部位着色材質、運営レイヤーの姿勢・役割（marshal / official / crew / photographer / staff / guest、座り姿 sit / sitF）と buildOpsFigures（kind 'ops'、観客予算とは別勘定）、ピットビル 2F/3F テラスの座席スロット terraceSlots
     props.ts                   # 距離看板、マーシャルポスト＋デジタルフラッグ、TV カメラ塔、送電線（鉄塔はトラス腕・碍子連・架空地線の頂部、7 本目のケーブル）、二輪・カート舗装
     vegetation.ts              # トラックサイドの樹木の散布（棄却サンプリング、桜ゾーン、キープアウト）と Node／低ティアのコーン原型
     boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
@@ -511,11 +511,40 @@ pphi-3/4、平面 pp4t-4、ピット仕様 p5spec、テラス pitph-12、コン�
   `scripts/audit/pit-smoke.mjs checkBuilding` が実メッシュ（IM はプロトタイプ境界 × 全インスタンス行列）で検査し、
   表からの数（札 28 = 12 × 2 + 4、葉 88、柱 55、シャッター 11）、階段塔の天端、全 `pit*` 頂点の有限性と路面下 0.5 m 以内、
   ビジョン 8 行の描画も確認します。
-- **まだ v1 のまま**（I1-b 3/4 が置き換える）: 1F の裏面（`pitRear` の 1 枚テクスチャ壁、裏キャノピーと裏シャッター列は未）、
-  2F/3F 裏壁の窓帯、屋上の HVAC／アンテナ／スクリーン用ラチス pylon（ビジョンの脚は角柱 4 本）、ガレージ内装（ブロック端の
-  暗い側板・チーム色の裏壁・照明ストリップ 3 列・暗い小物）、表彰台の市松バックドロップとバナー、テラスの観客、`PIT_BUILDING`
-  の v1 キー（`floors / garage / podium / controlPod / spur`、読む所は無い）。
-- 静的コスト（Node、アセット無し、高ティア）: +47.9 k tris / +7 メッシュ / +9 IM（`scene-cost` 3,713,779 / 901 / 742、予算内）。
+- **ガレージ内装**（I1-b 3/4、`PIT_BUILDING.v2.interior`、pitbox.jpg）: ブロック境界に白のエキスパンドメタル側壁（`fence003`
+  カットアウトの白 tint、パック無しは金網キャンバス、`pitInteriorMesh`）、床前縁 1 m のチーム色帯（`pitInteriorBands`、
+  instanceColor の IM 1 つ、床の 12 mm 上 ≥ `LAYER_MIN_STEP`）、裏は白いピットルーム壁（`pitInteriorRoom` + ピアは boxes）に
+  ピット毎の裏扉 3.6 × 3.0 — チームブロックは開（ヘッダー下に巻き上げたシャッター、ガレージ越しにパドックが見える）、
+  ブロック 12 とキャップ 49–55 は閉じたリブ付きシャッター（両面、`pitShutters` に合流）。**ウォッシュ**: 床・金網・ピットルーム
+  の材質に `EMISSIVE.garageWash`（0xfff2dd × 0.8、輝度 0.72 — 点灯して見えて halo 無し、`sun-model-check` の sub-threshold）。
+  emissive 色はプログラムを変えません。機材は `registerPropSet(ctx, 'ops', 'ops-garage', …)`（プロトタイプ × 250 m セル毎に
+  IM 1 つ、受けのみ、全て lateral ≤ −29）: 工具壁ユニット 2、ロールキャビネット 3（`metal_tool_chest`）、棚 2
+  （`steel_frame_shelves_01`）、タイヤスタック 6（チーム色ブランケットの筒 = instanceColor + 上に裸のタイヤ `tyreMaps`）、
+  モニター机 + 3 × 2 画面壁（`pc_monitors`、手続き版は `EMISSIVE.opsMonitor` の emissiveMap）、天井下の 17 m 照明トラス（0.3 角
+  ラチス、路面勾配に合わせて傾ける）、ケーブルドラム 2、クレート 4（`plastic_crate_02`）。チーム 11 × 28 + FIA 9 = 317 体。
+  GLB は `Quality.infield.glb` とドロップがある時だけ近景 L0、手続き箱が常に L1／唯一の段（Node・低ティアが測るもの）。
+- **裏面**: ピットルーム壁のヘッダー外面 + 1F 裏キャノピー（ソフィット 4.35 → 3.81、厚 0.3、`pitRearLower`）、その縁下に
+  φ0.30 の丸柱 9.5 m 毎（`pitRearColumns-<bay>`、32 本）、2F/3F 裏壁は `rectangular_facade_tiles`（`pitRearUpper`、キャノピー
+  天端 4.65 から屋根まで）に 19 m 1 リピートの窓帯（`pitRearWindows`: 2F 6.3–7.8 の連続ガラス、3F 10.6–11.6 の暗いスパンドレルに
+  小窓 8）。スパーはトンネルホール（5771.5–5778.9 × −56.7…−66、高 5.0）にガラス帯、2F ブリッジ 5773–5777 × −52…−84 は
+  y 5.05–8.55 の白箱 + 両側の窓帯（boxes）。
+- **屋上設備**（`v2.roof`）: HVAC 箱 10（2 × 1.5 × 1.2、lateral −45、ブロック 1–10 の中心 +4 m）、アンテナ 3 本 6 m at 5595 (−40)
+  （横棒 3 段）、屋上ビジョン 4 基は黒ラチス pylon 2 本（`latticeGeometry` panel 1.0、キャノピー天端 → パネル天端、
+  `pitScreenPylons`）に置き換え（角柱 4 本は廃止）。
+- **表彰台** 5632（`v2.rostrum`）: 灰コンクリ壁の面に市松バックドロップ 7 × 4（`podiumTexture` 行 0: 市松 + 白い菱形に
+  SUZUKA CIRCUIT）、その前に黒の 3 段（1 位 0.9 中央、2 位 0.6 / 3 位 0.45 両脇、1.2 m 角、boxes）、ベイのファシアに架空の
+  JAPANESE GRAND PRIX バナー 9.5 × 2.1（行 1、`PIT_TEXTS[10]`）。まとめて `pitPodium`。
+- **テラスの観客**（`v2.guests`）: `figures.terraceSlots(track)` — チームブロック 11 の 2F 3 列 × 26 席、3F 5 列 × 20 席を
+  占有 0.85 で抽選（seat pitch 0.55 の座席位置に一致、seed 固定、1,653 体）、座り姿 sit / sitF、役割 guest、トラック向き → `buildOpsFigures(ctx, slots,
+  'ops-terrace')`。表彰台ベイとメディア区間は空。`stats.infield['ops-terrace']` に計上（観客 `crowd` の窓は不変）。手続き
+  アトラス（低ティア／パック無し）には座り姿のセルが無いので official の立ち姿カードで代用されます。
+- ファシアのアトラス行: キャンバス上端の行 0 は CanvasTexture（flipY）では v ∈ [2/3, 1]。2/4 の `remapV(row/3 …)` は行が
+  上下逆（ブロックが無地、コアがパネル）だったので `(2 − row) / 3` に直しました。
+- 削除した v1 キー: `PIT_BUILDING.floors / garage / podium / controlPod / spur / colour / unverified`（読む所は無かった）。
+  残る v1 は `terrace2F.seatColour` と `glass` だけ。
+- 静的コスト（Node、アセット無し、高ティア）: 2/4 で +47.9 k tris / +7 メッシュ / +9 IM、3/4 で +81.9 k tris / +9 メッシュ /
+  +27 IM / +5 エントリ（`scene-cost` 3,795,667 / 910 / 769 / 996、予算 4,039,200 / 982 / 807 / 1,090 内；低 1,950,829 / 673 / 649）。うち
+  `farField/ops` 66,010 tris / 21 IM / 1,962 体（機材 317 + 観客 1,653）、`pitScreenPylons` 12.7 k。
 
 ### ピットレーン断面
 
@@ -552,6 +581,12 @@ sim の包絡: ボックス帯の走行レーン [−19.1, −11.5] にはレー
   ガラスが暗枠から浮かないこと、ソフィットのダウンライト（輝度 0.45）が日陰のガレージ前で点いて見えて halo が出ないこと、
   曲面キャノピーの上面／下面の継ぎ目と前縁の立上り、pit-follow の chase 枠（stop −23.5 の 11 m 後方 +3.4）でファシア梁
   （底 2.85）が右端に掛からないこと、2F 手摺ガラスの両面が両側から見えること
+- ピットビル v2 3/4: ガレージのウォッシュ（`garageWash` 0.72）が日陰の開口の奥で「点いた室内」に見えて床の `concrete_floor_03`
+  が白飛びしないこと、`fence003` の白い金網が A2C でにじまないこと、開いた裏扉からパドックの光が抜けること、
+  `metal_tool_chest` / `steel_frame_shelves_01` / `plastic_crate_02` / `pc_monitors` の近景 L0 ↔ 手続き L1 の切替（120 m）が
+  目立たないこと、タイヤブランケットの instanceColor、モニター壁の `opsMonitor` 発光（GLB の emissive スロットは未使用）、
+  `rectangular_facade_tiles` の法線の向きと窓帯の反射、屋上ラチス pylon の影、テラスの座り姿インポスター（1,653）が座席に
+  沈まず・浮かず、55 m 以内の 3D 座り姿（`male_sitting` / `female_sitting`）との切替
 - 60 fps を保てること（保てなければ描画解像度が自動で下がります。`?assets=0` で差分を切り分け）
 - 白線が近景で実寸（15 cm）、俯瞰・ヘリでも消えずに 1 px 強で残ること（`app/three/lines.ts` の最小幅シェーダ）
 - 乾いた調整池（T1 インフィールド・T1–T2）の法面と床が地形と馴染んでいること

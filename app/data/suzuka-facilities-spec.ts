@@ -1128,22 +1128,10 @@ export const PIT_BUILDING = {
   /** the 2F terrace drip line = OSM way 184422099 = the pit-lane face facilities-check §3 holds to ±1.5 */
   front: PIT_GARAGE_FRONT,
   back: -56.7,
-  // ---------------------------------------------------------------- v1 (unread; deleted in I1-b commit 3)
-  /** rear stair/service spur */
-  spur: { sRange: [5771.5, 5778.9] as [number, number], lateral: [-56.7, -80.7] as [number, number] },
-  /** floor levels above the local pit-lane apron (follows the 2.8 % gradient) — UNVERIFIED (photogrammetry) */
-  floors: [0, 7.8, 12.3],
-  garage: { doorHeight: 4.1, pier: 0.95, boxPitch: 7.083, depth: 15.4 },
-  /** 2F terrace: 100 black seats × 11 rooms cantilevered over the pit lane */
+  /** 2F terrace: the black seats of the hospitality rooms (pitph-12) */
   terrace2F: { seatColour: '#2b2b2b' },
-  podium: { s: 5579, width: 9.5, backdropHeight: 4.5, level: 1 },
-  // the podium recess (garage 12, s≈5574–5579) sits right beside the glazed core in the podium
-  // photo, so the pod ends at the recess rather than at the earlier 5605 estimate
-  controlPod: { sRange: [5554, 5574] as [number, number], top: 19 },
-  colour: COLOURS.pitFacade.mid,
   /** 2F lounge glazing: mid blue-grey (dark tinted glass reflecting the sky; a darker base with high metalness rendered black) */
   glass: '#7f8c98',
-  unverified: ['all heights (±3 m)', 'podium s (±8 m)', 'control pod length'],
   // ---------------------------------------------------------------- v2 (2009 dossier; I1-b)
   v2: {
     /** the shutter line: 2.8 m overhang + 0.35 m wall behind the drip line (pp4s2-4); the garage floor runs to garageBack */
@@ -1186,7 +1174,26 @@ export const PIT_BUILDING = {
     plates: { perBlock: [1, 3] as [number, number], stride: 4, caps: [49, 51, 53, 55], capText: 'SCRUTINEERING' },
     /** the pods' silver-grey aluminium panels (pitbld.jpg, not white) and the control pod's dark-blue sign band */
     podMat: { color: 0xb9bcc0, metalness: 0.35, roughness: 0.45, signBand: { color: 0x1c2a4a, h: 0.8 } },
-    unverified: ['shutter line (OSM = drip line, ±0.8)', 'plate numbering', '3F row geometry', 'stair tower size', 'pod colour 2026'],
+    /**
+     * The garage interiors (pitbox.jpg, I1-b 3/4): white expanded-metal side walls on the
+     * block boundaries, the 1 m team-colour band along the floor's front edge, the white
+     * pit-room wall at the back with a rear door per pit (open on the team blocks, a closed
+     * shutter on block 12 and the caps), three ceiling strips, and the equipment rows — every
+     * piece at lateral ≤ `equipmentFront` so the chase-lens column and the car box stay clear.
+     */
+    interior: { sideMesh: 2.0, teamBand: 1.0, rearDoor: { w: 3.6, h: 3.0 }, wallT: 0.3, strips: [-31, -38, -45], equipmentFront: -29 },
+    /** the roof plant: HVAC boxes on the canopy, the three antennas over the media section, the black lattice pylons of the screens */
+    roof: { hvac: { n: 10, size: [2, 1.5, 1.2] as [number, number, number], lateral: -45 }, antennas: { s: 5595, lateral: -40, h: 6, n: 3, pitch: 2 }, pylon: { half: 0.25, panel: 1.0 } },
+    /** the podium's chequered backdrop (podium.jpg): three black steps in front of it, the banner on the fascia over the bay */
+    rostrum: { steps: [[0, 0.9], [1.3, 0.6], [-1.3, 0.45]] as [number, number][], size: 1.2, lateral: -26.6 },
+    /**
+     * Terrace seats and guests (I1-b 3/4): seats every `seatPitch` along a row (≈ 32 per 19 m
+     * bay); guests take `seats2F` / `seats3F` of them per row at `occupancy` (an expected
+     * 22 / 17 seated figures per row), sitting `inset` behind the row's front edge; the podium
+     * bay and the media section stay empty.
+     */
+    guests: { seatPitch: 0.55, seats2F: 26, seats3F: 20, occupancy: 0.85, inset: 0.42 },
+    unverified: ['shutter line (OSM = drip line, ±0.8)', 'plate numbering', '3F row geometry', 'stair tower size', 'pod colour 2026', 'rear door width', 'rear window bands', 'roof plant layout', 'equipment layout'],
   },
 } as const
 
