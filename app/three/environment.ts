@@ -152,7 +152,7 @@ export class Terrain {
    * It has to cover every surface that is drawn ON the road plane out there, or that surface
    * stands on natural ground while its neighbours stand on the shelf. It used to stop at
    * s 5540-90 and lateral -100, which left the outer 25 m of the paddock apron
-   * (`pit-complex.ts` drapes it to -125) and both ends of the pit concrete apron
+   * (`paddock.ts` drapes it to -125) and both ends of the pit concrete apron
    * (`track-mesh.ts`, s 5520-180) off the shelf.
    */
   private readonly flatZone = { from: 5500, to: 200, latMin: -130, latMax: 66 }

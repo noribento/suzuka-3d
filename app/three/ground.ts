@@ -60,7 +60,7 @@ export const LAYER = {
   pit: {
     /** pit-lane.ts: the blue working-lane band and the white edge strips of the lane cross-section */
     band: 0.012,
-    /** lines.ts: the limit / divider / box lines; pit-complex.ts: the car-park bay lines */
+    /** lines.ts: the limit / divider / box lines; paddock.ts: the car-park bay lines */
     line: 0.022,
   },
   paddock: {

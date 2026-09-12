@@ -2,7 +2,7 @@
  * Circuit structures that are not ground, barriers or stands: the crossover bridge with its
  * abutments and the service road under it, the parapet railings over the roads that pass under
  * the lap, the chicane service bridge, and the trackside signs (DRS boards, the pit-exit boards
- * and signal). The screens and the Leader Tower are pit-complex.ts, the start gantry track-mesh.ts.
+ * and signal). The screens are pit-building.ts, the Leader Tower and the pit wall pit-lane.ts, the start gantry track-mesh.ts.
  *
  * Built after the trackside props and BEFORE `boxes.flush()` so single-material boxes (girders,
  * kerbs, posts, boards) merge into the shared `props` meshes; everything stands on
@@ -27,7 +27,7 @@ import type { EnvBuildContext } from './environment'
 import type { Ground } from './ground'
 import { DECK_REACH, DECK_SHOULDER } from './ground-plan'
 import { profileRibbonGeometry, ribbonGeometry, wallGeometry } from './track-mesh'
-import { texturedWall } from './pit-complex'
+import { texturedWall } from './pit-geometry'
 import { barrierProfile, barrierRun } from './barriers'
 import { osmWay } from './trackside'
 import { cameraSide } from './props'
@@ -90,15 +90,19 @@ export function fasciaTextTexture(text: string): THREE.Texture {
   })
 }
 
+/** Every word the sign atlas draws (textures-lint reads this list; no series, tyre or team names). */
+export const SIGN_TEXTS = { fireStation: 'FIRE STATION', pitExit: 'PIT EXIT', drs: 'DRS', detection: 'DETECTION', zone: 'ZONE', speed60: '60' } as const
+
 /**
  * The sign atlas: 4 × 2 cells of 256 × 128 (logical) pixels. Cell 0 is blank white — every box
- * face that does not carry the graphic maps to it — then the boards of SIGNS by kind.
+ * face that does not carry the graphic maps to it — then the boards of SIGNS by kind; cell 5 is
+ * the round red-bordered 60 of the pit entry (drawn on the wall top by pit-lane.ts, I1-c).
  */
-const SIGN_CELL: Record<'blank' | 'fireStation' | 'pitExit' | 'drsDetection' | 'drsZone', number> = { blank: 0, fireStation: 1, pitExit: 2, drsDetection: 3, drsZone: 4 }
+export const SIGN_CELL: Record<'blank' | 'fireStation' | 'pitExit' | 'drsDetection' | 'drsZone' | 'speed60', number> = { blank: 0, fireStation: 1, pitExit: 2, drsDetection: 3, drsZone: 4, speed60: 5 }
 const ATLAS_COLS = 4
 const ATLAS_ROWS = 2
 
-function signAtlas(): THREE.Texture {
+export function signAtlas(): THREE.Texture {
   const [w, h] = scaled(1024, 256)
   return cached(`structures-signs|${w}x${h}`, () => {
     const { c, ctx } = canvas(w, h)
@@ -120,14 +124,24 @@ function signAtlas(): THREE.Texture {
       ctx.textBaseline = 'middle'
       ctx.fillText(t, x, y + px * 0.05)
     }
-    cell(SIGN_CELL.fireStation, (x, y) => text('FIRE STATION', x + cw / 2, y + ch / 2, ch * 0.5, '#b8202c'))
-    cell(SIGN_CELL.pitExit, (x, y) => text('PIT EXIT', x + cw / 2, y + ch / 2, ch * 0.55, '#1d1f22'))
-    for (const [i, sub] of [[SIGN_CELL.drsDetection, 'DETECTION'], [SIGN_CELL.drsZone, 'ZONE']] as const) {
+    cell(SIGN_CELL.fireStation, (x, y) => text(SIGN_TEXTS.fireStation, x + cw / 2, y + ch / 2, ch * 0.5, '#b8202c'))
+    cell(SIGN_CELL.pitExit, (x, y) => text(SIGN_TEXTS.pitExit, x + cw / 2, y + ch / 2, ch * 0.55, '#1d1f22'))
+    for (const [i, sub] of [[SIGN_CELL.drsDetection, SIGN_TEXTS.detection], [SIGN_CELL.drsZone, SIGN_TEXTS.zone]] as const) {
       cell(i, (x, y) => {
-        text('DRS', x + cw / 2, y + ch * 0.42, ch * 0.62, '#1d1f22')
+        text(SIGN_TEXTS.drs, x + cw / 2, y + ch * 0.42, ch * 0.62, '#1d1f22')
         text(sub, x + cw / 2, y + ch * 0.82, ch * 0.2, '#1d1f22', 700)
       })
     }
+    // the 60: a red ring on white with black figures, centred in the (landscape) cell
+    cell(SIGN_CELL.speed60, (x, y) => {
+      const r = ch * 0.46
+      ctx.strokeStyle = '#b8202c'
+      ctx.lineWidth = r * 0.22
+      ctx.beginPath()
+      ctx.arc(x + cw / 2, y + ch / 2, r * 0.86, 0, Math.PI * 2)
+      ctx.stroke()
+      text(SIGN_TEXTS.speed60, x + cw / 2, y + ch / 2, r * 1.05, '#141414')
+    })
     return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
   })
 }
@@ -430,7 +444,10 @@ interface SignMats {
 /** The SIGNS table: boards on posts through the shared box placer, one atlas; the pit-exit signal head. */
 function buildSigns(track: Track, boxes: BoxPlacer, m: SignMats) {
   for (const sign of SIGNS) {
-    if (sign.mount === 'pitWallBoard') continue // painted on the pit wall by pit-complex.ts
+    if (sign.mount === 'pitWallBoard') continue // painted on the pit wall's boards by pit-lane.ts
+    // TODO(I1-c): pitWallTop rows (the 60 and FIRE STATION on the wall's white block) are drawn
+    // by pit-lane.ts on the wall top; barrierTop rows by the barrier builder (I4) — skipped here
+    if (sign.mount === 'pitWallTop' || sign.mount === 'barrierTop') continue
     const lat = sign.lateral === 'cameraSide' ? cameraSide(track, sign.s) * (track.halfWidthAt(sign.s) + 3.2) : sign.lateral
     if (sign.kind === 'pitExitLight') {
       // a pole, a dark three-lens head, the green lens on the face towards the lane's traffic

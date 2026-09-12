@@ -81,6 +81,15 @@ export const EMISSIVE = {
    * the emitters.
    */
   pitExitLight: { color: 0x22d05a, intensity: 5 },
+  /**
+   * Garage-interior wash (I1-b): the floor / side-wall / back-wall materials of the team garages
+   * carry a warm emissive so the pit-side facade, in shade all afternoon at the reproduced
+   * 14:00 (sun az 51° behind the building), still reads as a lit interior. Luminance ≈ 0.72:
+   * lit, no halo — listed in sun-model-check's sub-threshold set.
+   */
+  garageWash: { color: 0xfff2dd, intensity: 0.8 },
+  /** the monitor walls in the garages and on the pit wall (I1-b / I3): a cool screen glow, luminance ≈ 0.8, no halo */
+  opsMonitor: { color: 0x9fc4ff, intensity: 0.9 },
   /** titanium sparks off the plank: linear rgb per unit of "heat", heat drawn in [heatMin, heatMax] */
   spark: { rgb: [10, 3.8, 0.8] as const, heatMin: 0.75, heatMax: 1.4 },
   /**

@@ -1650,7 +1650,7 @@ export function apronPaintTexture(): THREE.Texture {
 
 /**
  * Plain paddock asphalt: grey noise so the macro-variation patch has a map to modulate. Was a
- * pit-complex.ts canvas; it lives here since the paddock is a ground face (ground-materials.ts).
+ * pit-geometry.ts canvas; it lives here since the paddock is a ground face (ground-materials.ts).
  */
 export function paddockAsphaltTexture(): THREE.Texture {
   return cached(`paddockAsphalt|${textureScale}`, () => {

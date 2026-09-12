@@ -2360,7 +2360,7 @@ function reliefZones(track: Track): ReliefZone[] {
     // E-1 claims nothing before its own first section: the notch is E-2's
     zones.push(chordZone(e1Spec, [0, 30], [-40, E_V_MAX], (u, v, g) => prof1(u, v, g), [false, true]))
   }
-  // retention basins: a sunken floor with a bank, so the dry-basin meshes in pit-complex.ts have
+  // retention basins: a sunken floor with a bank, so the dry-basin faces (GROUND_AREAS water rows, ground-mesh.ts) have
   // ground to sit in (a flat sheet at grade read as a lake — 2026-09 audit S01-04 / S02-05)
   for (const b of BASINS) {
     const f = osmFeature(b.osmWay)

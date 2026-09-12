@@ -134,7 +134,7 @@ export const BARRIERS: BarrierRun[] = [
   { id: 'chicane-approach-right-b', kind: 'guardrail', side: -1, sRange: [5150, 5203], minGap: 2.0, source: { samples: P([[5150, -16.0], [5160, -17.5], [5175, -17.5], [5185, -15.0], [5195, -14.0], [5203, -13.5]]) }, note: 'gap at 5134–5150 for the two-wheel pit-in slip road (OSM 467219908 stops at the slip)', unverified: ['no OSM way and not resolvable at 0.49 m/px — read from the edge of the paved run-off, ±3 m'] },
   { id: 'chicane-exit-tyres', kind: 'tyre', side: -1, sRange: [5203, 5252], source: { osm: [467219893, 467219895, 467219896, 467219894] } },
   { id: 'pit-entry-outer-fence', kind: 'fence', side: -1, sRange: [5250, 5450], source: { samples: P([[5250, -21.0], [5300, -21.5], [5350, -21.6], [5400, -22.0], [5450, -24.0]]) }, note: 'car-park fence behind the pit-entry lane' },
-  { id: 't18-pit-entry-separator', kind: 'concrete', side: -1, sRange: [5389, 5538], fence: 2.2, source: { osm: [471532694], samples: P([[5520, -10.5], [5538, -9.7]]) }, note: 'between the track and the pit-entry lane; the pit wall (pit-complex) continues from 5538' },
+  { id: 't18-pit-entry-separator', kind: 'concrete', side: -1, sRange: [5389, 5538], fence: 2.2, source: { osm: [471532694], samples: P([[5520, -10.5], [5538, -9.7]]) }, note: 'between the track and the pit-entry lane; the pit wall (pit-lane.ts) continues from 5538' },
 ]
 
 // ---------------------------------------------------------------- kerbs
@@ -324,13 +324,21 @@ export const TV_MAST_OVERRIDES: Record<number, number> = { 1960: 12, 3650: -40, 
 // ---------------------------------------------------------------- signs
 
 /**
- * drs — the FIA DRS boards (detection line / activation zone); fireStation / pitExit — the white
- * boards at the pit-exit end of the pit wall (West-straight photo); pitExitLight — the signal head
- * at the pit-exit line (EMISSIVE.pitExitLight); speed80 — the pit-lane limit ring, painted as a
- * cell of the pit-wall boards by pit-complex.ts (not free-standing: the ring stands ON the wall).
- * There are no corner-number boards at Suzuka.
+ * drs — the DRS boards (detection line / activation zone); fireStation / pitExit — the white
+ * boards at the pit wall's ends (west.jpg / padroad.jpg); pitExitLight — the signal head at the
+ * pit-exit line (EMISSIVE.pitExitLight); speed80 — the pit-lane limit ring, painted as a cell of
+ * the pit-wall boards by pit-lane.ts (not free-standing: the ring stands ON the wall); speed60 —
+ * the round red-bordered 60 at the pit entry. There are no corner-number boards at Suzuka.
  */
-export type SignKind = 'drs' | 'fireStation' | 'pitExit' | 'pitExitLight' | 'speed80'
+export type SignKind = 'drs' | 'fireStation' | 'pitExit' | 'pitExitLight' | 'speed80' | 'speed60'
+
+/**
+ * Where a sign hangs instead of standing on posts: pitWallBoard — a cell of the pit wall's board
+ * band; pitWallTop — on the white block at the top of the pit wall (pit-lane.ts, I1-c);
+ * barrierTop — on a BARRIERS wall's top (I4). Mounted rows are drawn by the wall's builder
+ * (structures.ts skips them) and exempt from A11's standing-room rules (facilities-check).
+ */
+export type SignMount = 'pitWallBoard' | 'pitWallTop' | 'barrierTop'
 
 export interface SignDef {
   id: string
@@ -345,8 +353,8 @@ export interface SignDef {
   /** board size (m); the DRS boards are square, the pit-exit boards landscape */
   width: number
   boardHeight: number
-  /** drawn by pit-complex.ts on the pit-wall boards instead of standing free */
-  mount?: 'pitWallBoard'
+  /** hangs on a wall instead of standing free (see SignMount) */
+  mount?: SignMount
   unverified?: string[]
   note?: string
 }
@@ -356,7 +364,10 @@ export const SIGNS: SignDef[] = [
   // stands behind the right-hand guardrail on the grass, clear of the tarmac (A11)
   { id: 'drs-detection', kind: 'drs', s: 5150, lateral: -27, facing: '-s', height: 1.5, width: 1.2, boardHeight: 1.2, note: 'DRS detection line (CIRCUIT.drs.detection); behind chicane-approach-right-b, outside the right apron (its edge is −24 at s 5148)', unverified: ['lateral: the board is not resolvable in the aerial; placed on the first unpaved ground beside the line'] },
   { id: 'drs-zone', kind: 'drs', s: 5590, lateral: 'cameraSide', facing: '-s', height: 1.5, width: 1.2, boardHeight: 1.2, note: 'DRS activation (CIRCUIT.drs.start)' },
-  { id: 'fire-station', kind: 'fireStation', s: 160, lateral: -20.6, facing: '+lat', height: 2.0, width: 2.4, boardHeight: 0.6, note: 'white board with red letters beside the pit-exit lane (West-straight photo)', unverified: ['s ±10 (the photo is a long lens down the straight)'] },
+  // the pit-entry end of the wall (west.jpg / padroad.jpg): the 60 ring and the FIRE STATION board
+  // stand side by side on the white block where the concrete wall starts — TODO(I1-c): pit-lane.ts draws them
+  { id: 'pit-entry-60', kind: 'speed60', s: 5556, lateral: -9.4, facing: '-s', mount: 'pitWallTop', height: 1.8, width: 0.6, boardHeight: 0.6, note: 'round red-bordered 60 on the white block where the concrete wall starts (padroad.jpg)', unverified: ['s ±10'] },
+  { id: 'fire-station', kind: 'fireStation', s: 5562, lateral: -9.4, facing: '-s', mount: 'pitWallTop', height: 1.8, width: 2.4, boardHeight: 0.6, note: 'white board with red letters on the pit wall beside the 60 (west.jpg)', unverified: ['s ±10 (the photo is a long lens down the straight)'] },
   { id: 'pit-exit', kind: 'pitExit', s: 126, lateral: -20.6, facing: '-s', height: 2.0, width: 1.6, boardHeight: 0.5, unverified: ['position ±5'] },
   { id: 'pit-exit-light', kind: 'pitExitLight', s: 128, lateral: -21.5, facing: '-s', height: 3.0, width: 0.35, boardHeight: 0.9, note: 'at the pit-exit line (LINES pit exit line, s 128), outside the lane' },
   { id: 'pit-lane-80', kind: 'speed80', s: 5570, lateral: -9.4, facing: '-lat', height: 1.05, width: 0.5, boardHeight: 0.5, mount: 'pitWallBoard', note: 'the 80 km/h ring on the pit-lane face of the pit wall at the limit line (CIRCUIT.pit.limitStartS)' },

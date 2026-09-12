@@ -219,14 +219,30 @@ if (osm.OSM_PIT_BUILDING) {
     if (!near(arcLen(core[0], core[1]), spec.PIT_CORE)) fail(`PIT_CORE ${core[0]}→${core[1]} is ${fmt(arcLen(core[0], core[1]))} m, not ${spec.PIT_CORE}`)
     if (!gaps.some(([a, b]) => near(a, core[0]) && near(b, core[1]))) fail(`PIT_CORE ${core[0]}→${core[1]} is not a gap between two garage blocks`)
   }
-  // podium over the final-corner block, the control pod before the strip
-  const pod = spec.PIT_BUILDING
+  // podium over the final-corner block, the control pod before the strip (the v2 rows of the
+  // 2009 dossier; the v1 keys the v1 builder still reads are deleted in I1-b)
+  const pod = spec.PIT_BUILDING.v2 ?? spec.PIT_BUILDING
   const podiumOff = signedDelta(spec.garageS(spec.PIT_GARAGE_COUNT - 1), pod.podium.s, L)
-  // TODO(I1): PIT_BUILDING.podium.s is still the v1 estimate (5579); the dossier puts the podium
-  // over pits 45–47 (garage 12, s ≈ 5632) — I1 rebuilds the building and moves it, then this
-  // becomes an error.
-  if (Math.abs(podiumOff) > 9.5) fail(`PIT_BUILDING.podium.s ${pod.podium.s} is ${fmt(podiumOff)} m from garage 12 (${spec.garageS(spec.PIT_GARAGE_COUNT - 1)}); the dossier podium is over pits 45–47 (until I1)`, true)
-  if (arcLen(pod.controlPod.sRange[1], spec.PIT_BOX_STRIP[0]) > L / 2) fail(`PIT_BUILDING.controlPod ends at ${pod.controlPod.sRange[1]}, past the start of the garage row ${spec.PIT_BOX_STRIP[0]}`)
+  if (Math.abs(podiumOff) > 9.5) fail(`PIT_BUILDING podium.s ${pod.podium.s} is ${fmt(podiumOff)} m from garage 12 (${spec.garageS(spec.PIT_GARAGE_COUNT - 1)}); the dossier podium is over pits 45–47`)
+  if (arcLen(pod.controlPod.sRange[1], spec.PIT_BOX_STRIP[0]) > L / 2) fail(`PIT_BUILDING controlPod ends at ${pod.controlPod.sRange[1]}, past the start of the garage row ${spec.PIT_BOX_STRIP[0]}`)
+  // the v2 section: shutter / garage back / floors / canopy consistent with PIT_PLANNED and each other
+  if (spec.PIT_BUILDING.v2) {
+    const v = spec.PIT_BUILDING.v2
+    if (v.shutter !== planned.shutter) fail(`PIT_BUILDING.v2.shutter ${v.shutter} ≠ PIT_PLANNED.shutter ${planned.shutter}`)
+    if (Math.abs(v.garageBack - (v.shutter - v.garage.depth)) > 1e-6) fail(`PIT_BUILDING.v2.garageBack ${v.garageBack} ≠ shutter − garage.depth ${v.shutter - v.garage.depth}`)
+    if (v.rearCanopy.from !== v.garageBack || v.rearCanopy.to < spec.PIT_BUILDING.back) fail(`PIT_BUILDING.v2.rearCanopy ${v.rearCanopy.from}→${v.rearCanopy.to} must run from the garage back to inside the paddock face ${spec.PIT_BUILDING.back}`)
+    if (!(v.floors[0] < v.floors[1] && v.floors[1] < v.floors[2])) fail(`PIT_BUILDING.v2.floors ${v.floors.join(', ')} are not ascending`)
+    if (v.garage.boxPitch !== spec.PIT_BOX) fail(`PIT_BUILDING.v2.garage.boxPitch ${v.garage.boxPitch} ≠ PIT_BOX ${spec.PIT_BOX}`)
+    if (v.garage.door.w + v.garage.pier > spec.PIT_BOX) fail(`PIT_BUILDING.v2.garage door ${v.garage.door.w} + pier ${v.garage.pier} exceed the pit pitch ${spec.PIT_BOX}`)
+    // the fascia band hangs on the drip line, 3.2 m in front of the shutters: it may start below the door head, it ends at the 2F slab
+    if (v.garage.fascia[0] >= v.garage.fascia[1] || v.garage.fascia[1] !== v.floors[1]) fail(`PIT_BUILDING.v2.garage.fascia [${v.garage.fascia.join(', ')}] must end at the 2F floor (${v.floors[1]})`)
+    for (let i = 1; i < v.canopy.profile.length; i++) if (v.canopy.profile[i][0] <= v.canopy.profile[i - 1][0]) fail(`PIT_BUILDING.v2.canopy.profile is not ordered back → front at ${i}`)
+    const nStairs = v.stairTowers.s.length
+    if (nStairs !== spec.PIT_CORES.length + 1) fail(`PIT_BUILDING.v2.stairTowers has ${nStairs} towers, expected ${spec.PIT_CORES.length} cores + the control-tower core`)
+    for (const core of spec.PIT_CORES) if (!v.stairTowers.s.some((sc) => Math.abs(signedDelta(sc, (core[0] + core[1]) / 2, L)) < 0.6)) fail(`PIT_BUILDING.v2.stairTowers: no tower at core ${core[0]}→${core[1]}`)
+    if (arcLen(v.controlPod.sRange[1], v.mediaSection.sRange[0]) !== 0 || arcLen(v.mediaSection.sRange[1], spec.PIT_BOX_STRIP[0]) !== 0) fail(`PIT_BUILDING.v2 controlPod ${v.controlPod.sRange.join('→')} / mediaSection ${v.mediaSection.sRange.join('→')} must abut and end at the garage row ${spec.PIT_BOX_STRIP[0]}`)
+    if (arcLen(spec.PIT_BOX_STRIP[1], v.t1Nose.info.sRange[0]) !== 0 || arcLen(v.t1Nose.info.sRange[1], v.t1Nose.sRange[0]) !== 0) fail(`PIT_BUILDING.v2 t1Nose ${v.t1Nose.info.sRange.join('→')} / ${v.t1Nose.sRange.join('→')} must follow the garage row ${spec.PIT_BOX_STRIP[1]}`)
+  }
   // the stop line: the car (stop ± carHalf) inside the work area, or on the fallback inside the auxiliary lane
   const E = spec.PIT_ENVELOPE
   const carL = [E.stop - E.carHalf, E.stop + E.carHalf]
@@ -1047,7 +1063,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
 /**
  * A11. SCREENS / SIGNS / LEADER_TOWER: |lateral| ≥ hw + 1.5 (never in the road or its kerb),
  * outside every stand's OSM footprint (world space), not inside the pit lane's band where the
- * lane runs; `boards` only on concrete runs (the boards hang on a wall face).
+ * lane runs; `boards` only on concrete runs (the boards hang on a wall face). SIGNS rows with a
+ * `mount` (pitWallBoard / pitWallTop / barrierTop) hang on a wall and are exempt; they must
+ * name a wall that exists at their s (the pit wall's sRange, or a BARRIERS run).
  */
 {
   const laneHalf = pit.laneWidth / 2
@@ -1058,7 +1076,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   const items = [
     ...spec.SCREENS.map((sc) => ({ id: `screen ${sc.id}`, s: sc.s, lateral: sc.lateral })),
     // cameraSide: the outside of the nearest corner at hw + 3.2 (props.ts cameraSide, re-stated)
-    ...bar.SIGNS.map((sg) => {
+    // rows that hang on a wall (mount) are the wall's business: the wall itself passes the
+    // barrier checks, and the sign sits on its top or its boards, inside the wall's own band
+    ...bar.SIGNS.filter((sg) => !sg.mount).map((sg) => {
       let k = 0
       for (let d = -40; d <= 40; d += 10) k += track.kappaAt(sg.s + d)
       const side = Math.abs(k) < 1e-4 ? 1 : k > 0 ? -1 : 1
@@ -1077,6 +1097,20 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     if (paved) fail(`${it.id}: stands on the paved GROUND_AREAS apron "${paved}" (a sign belongs beside the tarmac, not on it)`)
   }
   for (const run of bar.BARRIERS) if (run.boards && run.kind !== 'concrete') fail(`${run.id}: boards on a ${run.kind} run — boards hang on concrete walls only`)
+  // mounted signs: the wall they hang on exists at their s
+  for (const sg of bar.SIGNS) {
+    if (!sg.mount) continue
+    if (sg.mount === 'pitWallBoard' || sg.mount === 'pitWallTop') {
+      const w = spec.PIT_WALL
+      if (!inArc(sg.s, w.sRange)) fail(`sign ${sg.id}: mount ${sg.mount} at s ${sg.s} is outside the pit wall ${w.sRange[0]}→${w.sRange[1]}`)
+      if (sg.lateral !== w.lateral) fail(`sign ${sg.id}: mount ${sg.mount} at lateral ${sg.lateral}, the pit wall is at ${w.lateral}`)
+      if (sg.mount === 'pitWallTop' && w.concrete && !inArc(sg.s, w.concrete)) fail(`sign ${sg.id}: mount pitWallTop at s ${sg.s} is off the concrete wall ${w.concrete[0]}→${w.concrete[1]} (the W-beam ends carry no block)`)
+    } else if (sg.mount === 'barrierTop') {
+      const s0 = sg.s
+      const run = bar.BARRIERS.find((r) => inArc(s0, r.sRange) && Math.sign(r.side) === Math.sign(sg.lateral))
+      if (!run) fail(`sign ${sg.id}: mount barrierTop at s ${sg.s} finds no BARRIERS run on that side`)
+    }
+  }
   for (const u of spec.UNDERPASSES) {
     const f = osm.osmFeature(u.osmWay)
     if (!f) fail(`underpass "${u.name}": OSM way ${u.osmWay} missing from OSM_FEATURES (build-facilities.mjs --add-ways)`)
@@ -1265,7 +1299,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *   O5  every BARRIERS run's resolved line stays ≥ w/2 + 0.2 from the footprint (mounted rows and
  *       boards / lights / cameras exempt).
  *   O6  no row that is not interior / roof inside PIT_BUILDING (shutter line → back), the centre
- *       house 184430907, the medical centre 184429429, PADDOCK_BUILDINGS, INFIELD_FACILITIES.
+ *       house 184430907, the former medical room 184429429 (course_vehicle_base), PADDOCK_BUILDINGS,
+ *       INFIELD_FACILITIES.
  *   O7  TV_CAMERAS: lens rows 1:1 with TV_CAMERA_SPOTS; the tower footprint on the spectator
  *       side of the barrier line and 0.6 m outside it, |lateral| ≥ hw + 1.5, outside stands and
  *       paved aprons; platform / rails clear of the lens point (r 0.5, or below y_lens − 0.5).

@@ -143,7 +143,7 @@ export interface TrackMeshes {
  * What stands on or beside the racing surface that is NOT ground: the sausage kerbs (objects on
  * the drawn kerb, GROUND_OBJECTS.sausage), the painted aprons and green strips (decals on the
  * drawn ground), the DRS markings (decals) and the start gantry. The crossover bridge is
- * structures.ts, the pit wall pit-complex.ts, the barrier boards barriers.ts.
+ * structures.ts, the pit wall pit-lane.ts, the barrier boards barriers.ts.
  *
  * The ground itself — the road, the kerbs, the run-off bands, the gravel, the pit lane and its
  * apron, the paved areas — is the partition of ground-plan.ts drawn by ground-mesh.ts. Nothing
@@ -260,7 +260,7 @@ export function buildTrackMeshes(track: Track, ground: Ground, braces = true): T
   }
 
   // The crossover bridge (slab, fascia, girders, abutments, the lower road's service road) is
-  // structures.ts; the pit wall and its boards are pit-complex.ts; the grandstand front wall's
+  // structures.ts; the pit wall and its boards are pit-lane.ts; the grandstand front wall's
   // boards are barriers.ts (`boards` on the gs-front run). Nothing of those is duplicated here.
 
   // grid slots, the start line and every other painted marking are built by lines.ts
