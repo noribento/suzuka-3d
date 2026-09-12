@@ -17,9 +17,19 @@
  *        paddock, `pitScreens` draws exactly the faces of the rows the v1 builder can mount;
  *        PIT_BUILDING.v2 / PIT_WALL v2 carry the dossier numbers; EMISSIVE garageWash /
  *        opsMonitor exist and stay under the bloom threshold.
- *  TODO(I1-b / I1-c): the garage blocks (12, GARAGE_CENTRES), the 2F / 3F decks and the canopy,
- *        pitPlates / pitDoorLeaves / pitHoops counts from the tables, the LAYER.pit.band decals,
- *        the chase-lens column, the stair towers' top 17.0, the interior props' bbox.
+ *  I1-b  (`checkBuilding`, the building block below) the v2 meshes exist under their names
+ *        (pitShell / pitCanopy / pitGlass / pitInterior / pitRails / pitFascia / pitShutters /
+ *        pitPlates / pitStairTowers / controlPod / controlPodGlass / t1Nose and the pitColumns /
+ *        pitDoorLeaves bays); pitPlates = PIT_GARAGE_COUNT × 2 + caps from the table,
+ *        pitDoorLeaves = team blocks × 8, pitColumns = the row's pier count; every pit* vertex
+ *        finite and ≥ 0.5 m under the road plane at worst; the stair towers' tops at 17.0 ± 0.1
+ *        above the road plane; the CHASE-LENS column (PIT_ENVELOPE.chaseLens): in front of every
+ *        block nothing of the building — vertices of the pit* meshes, the props merges and the
+ *        instanced bays (prototype bounds through every instance matrix) — lies inside
+ *        s ∈ [boxS − 13, boxS − 3] × lateral stop ± 1.5 below the 2F soffit (4.6); all eight
+ *        SCREENS rows are drawn (their frames stand on the canopy).
+ *  TODO(I1-c): pitHoops counts from the tables, the LAYER.pit.band decals; TODO(I1-b 3/4): the
+ *        interior props' bbox (lateral ∈ [−51.6, −29]), the terrace guests in stats.ops.
  *
  *   node scripts/audit/pit-smoke.mjs [--tier high|low|both] [--glb]
  *
@@ -74,11 +84,135 @@ console.log('\npit-smoke: tables')
   check(lum(E.garageWash) < em.BLOOM_THRESHOLD && lum(E.opsMonitor) < em.BLOOM_THRESHOLD, `both under the bloom threshold ${em.BLOOM_THRESHOLD} (lit, no halo)`)
 }
 
+// ======================================================================== pit-building.ts (I1-b)
+/**
+ * The building's own facts (I1-b): counts from the tables, the stair towers' tops, every pit*
+ * vertex on the road plane's side of the ground, the chase-lens column and the screens. `byName`
+ * maps mesh name → meshes directly under env.group.
+ */
+function checkBuilding(scene, check, byName) {
+  const { env, track } = scene
+  const L = track.length
+  const v2 = spec.PIT_BUILDING.v2
+  const E = spec.PIT_ENVELOPE
+  const road = new THREE.Vector3()
+  const meshesNamed = (re) => [...byName.entries()].filter(([n]) => re.test(n)).flatMap(([, ms]) => ms)
+  const instancesOf = (prefix) => meshesNamed(new RegExp(`^${prefix}-\\d+$`)).reduce((a, m) => a + (m.isInstancedMesh ? m.count : 0), 0)
+  // the pods' bands come from the table
+  check(v2.controlPod.band[0] === 9.6 && v2.controlPod.band[1] === 11.4 && v2.t1Nose.band[0] === 5.2 && v2.t1Nose.band[1] === 7.4, `v2 pod bands: control ${v2.controlPod.band.join('–')}, T1 nose ${v2.t1Nose.band.join('–')}`)
+  // counts from the tables
+  const nPlates = spec.PIT_GARAGE_COUNT * v2.plates.perBlock.length + v2.plates.caps.length
+  const plates = byName.get('pitPlates')?.[0]
+  check(!!plates && trisOf(plates) === nPlates * 2, `pitPlates: ${plates ? trisOf(plates) / 2 : 0} plates = PIT_GARAGE_COUNT ${spec.PIT_GARAGE_COUNT} × ${v2.plates.perBlock.length} + ${v2.plates.caps.length} caps = ${nPlates}`)
+  const nLeaves = spec.GARAGE_ORDER.length * 8
+  check(instancesOf('pitDoorLeaves') === nLeaves, `pitDoorLeaves: ${instancesOf('pitDoorLeaves')} folded leaves = ${spec.GARAGE_ORDER.length} team blocks × 8`)
+  // the row's piers: five per block, shared where two blocks abut without a core
+  const pierS = new Set()
+  for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) for (let j = 0; j <= 4; j++) pierS.add(Math.round(track.wrap(spec.garageS(g) - spec.PIT_BLOCK / 2 + j * spec.PIT_BOX) * 10))
+  check(instancesOf('pitColumns') === pierS.size, `pitColumns: ${instancesOf('pitColumns')} round columns = the row's ${pierS.size} pier positions`)
+  const shutters = byName.get('pitShutters')?.[0]
+  const nCaps = Math.floor(((spec.PIT_BOX_STRIP[0] - v2.mediaSection.sRange[0] + L) % L) / spec.PIT_BOX)
+  check(!!shutters && trisOf(shutters) === (4 + nCaps) * 2, `pitShutters: ${shutters ? trisOf(shutters) / 2 : 0} closed shutters = block 12's 4 + the ${nCaps} cap pits`)
+  // every pit* vertex finite and never more than 0.5 m under the road plane at its (s, lateral)
+  const pitMeshes = meshesNamed(/^(pit|controlPod|t1Nose)/).filter((m) => !m.isInstancedMesh)
+  const fv = finiteVertices(pitMeshes)
+  let below = 0, sampled = 0
+  for (const m of pitMeshes) {
+    const p = m.geometry.attributes.position
+    for (let i = 0; i < p.count; i += 5) {
+      const hit = track.nearestOnRange(p.getX(i), p.getZ(i), 5540, 110)
+      if (!hit || hit.d > 80) continue
+      sampled++
+      track.pointAt(hit.s, hit.lateral, road, 0)
+      if (p.getY(i) < road.y - 0.5) below++
+    }
+  }
+  check(fv.nan === 0 && below === 0, `${pitMeshes.length} pit* meshes: ${fmt(fv.vertices)} vertices finite (${fv.nan} NaN), ${fmt(sampled)} sampled, ${below} more than 0.5 m under the road plane`)
+  // the stair towers' tops
+  const towers = byName.get('pitStairTowers')?.[0]
+  let towerOk = 0
+  if (towers) {
+    const p = towers.geometry.attributes.position
+    const latC = (v2.stairTowers.lateral[0] + v2.stairTowers.lateral[1]) / 2
+    for (const ts of v2.stairTowers.s) {
+      track.pointAt(ts, latC, road, 0)
+      let top = -Infinity
+      for (let i = 0; i < p.count; i++) if (Math.hypot(p.getX(i) - road.x, p.getZ(i) - road.z) < 8) top = Math.max(top, p.getY(i) - road.y)
+      if (Math.abs(top - v2.stairTowers.top) <= 0.1) towerOk++
+    }
+  }
+  check(towerOk === v2.stairTowers.s.length, `pitStairTowers: ${towerOk} of ${v2.stairTowers.s.length} towers top out at ${v2.stairTowers.top} ± 0.1 above the road plane`)
+  // the chase-lens column: nothing of the building below the 2F soffit inside
+  // s ∈ [boxS − columnS[0], boxS − 3] × lateral stop ± halfLat (PIT_ENVELOPE.chaseLens)
+  const SOFFIT = v2.garage.ceiling
+  const half = E.chaseLens.halfLat
+  const columns = []
+  for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
+    const boxS = spec.garageS(g)
+    const s0 = track.wrap(boxS - E.chaseLens.columnS[0]), s1 = track.wrap(boxS - 3)
+    // a world XZ box around the column for the cheap first pass
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+    for (const [ss, ll] of [[s0, E.stop - half], [s0, E.stop + half], [s1, E.stop - half], [s1, E.stop + half]]) {
+      track.pointAt(ss, ll, road, 0)
+      minX = Math.min(minX, road.x - 1); maxX = Math.max(maxX, road.x + 1); minZ = Math.min(minZ, road.z - 1); maxZ = Math.max(maxZ, road.z + 1)
+    }
+    columns.push({ g, boxS, s0, s1, minX, maxX, minZ, maxZ })
+  }
+  const inColumn = (x, y, z) => {
+    for (const c of columns) {
+      if (x < c.minX || x > c.maxX || z < c.minZ || z > c.maxZ) continue
+      const hit = track.nearestOnRange(x, z, c.s0, c.s1, 20)
+      if (!hit) continue
+      const ds = ((hit.s - c.s0 + L) % L)
+      if (ds > E.chaseLens.columnS[0] - 3 + 1e-6) continue
+      if (Math.abs(hit.lateral - E.stop) > half) continue
+      track.pointAt(hit.s, hit.lateral, road, 0)
+      if (y - road.y < SOFFIT) return { c, y: y - road.y, ds: E.chaseLens.columnS[0] - ds, lateral: hit.lateral }
+    }
+    return null
+  }
+  const offenders = []
+  const buildingMeshes = meshesNamed(/^(pit|controlPod|t1Nose|garage|props$)/)
+  const v = new THREE.Vector3(), m4 = new THREE.Matrix4()
+  for (const m of buildingMeshes) {
+    m.updateWorldMatrix(true, false)
+    const p = m.geometry.attributes.position
+    if (m.isInstancedMesh) {
+      if (!m.geometry.boundingBox) m.geometry.computeBoundingBox()
+      const bb = m.geometry.boundingBox
+      const corners = [[bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.min.y, bb.min.z], [bb.min.x, bb.max.y, bb.min.z], [bb.max.x, bb.max.y, bb.min.z], [bb.min.x, bb.min.y, bb.max.z], [bb.max.x, bb.min.y, bb.max.z], [bb.min.x, bb.max.y, bb.max.z], [bb.max.x, bb.max.y, bb.max.z]]
+      for (let i = 0; i < m.count; i++) {
+        m.getMatrixAt(i, m4)
+        m4.premultiply(m.matrixWorld)
+        for (const [x, y, z] of corners) {
+          v.set(x, y, z).applyMatrix4(m4)
+          const hit = inColumn(v.x, v.y, v.z)
+          if (hit) { offenders.push(`${m.name}[${i}] block ${hit.c.g + 1} (boxS − ${hit.ds.toFixed(1)}, lateral ${hit.lateral.toFixed(2)}, +${hit.y.toFixed(2)})`); break }
+        }
+      }
+    } else {
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld)
+        const hit = inColumn(v.x, v.y, v.z)
+        if (hit) { offenders.push(`${m.name} block ${hit.c.g + 1} (boxS − ${hit.ds.toFixed(1)}, lateral ${hit.lateral.toFixed(2)}, +${hit.y.toFixed(2)})`); break }
+      }
+    }
+  }
+  check(offenders.length === 0, `chase-lens column: nothing of the building below ${SOFFIT} m inside s ∈ [boxS − ${E.chaseLens.columnS[0]}, boxS − 3] × lateral ${E.stop} ± ${half} for the ${spec.PIT_GARAGE_COUNT} blocks (${buildingMeshes.length} meshes${offenders.length ? `; ${offenders.slice(0, 4).join('; ')}` : ''})`)
+  // every SCREENS row is drawn (the roof rows' frames stand on the canopy)
+  const faces = spec.SCREENS.reduce((a, s) => a + s.faces, 0)
+  const screens = byName.get('pitScreens')?.[0]
+  check(!!screens && trisOf(screens) === faces * 2, `pitScreens: ${screens ? trisOf(screens) : 0} tris = ${faces} faces × 2 (all ${spec.SCREENS.length} rows)`)
+  // the canopy and the pods stand above the deck; buildMs.pit finite
+  check(Number.isFinite(env.buildMs?.pit), `buildMs.pit = ${Number(env.buildMs?.pit).toFixed(0)} ms`)
+}
+
 // --- the built scene ------------------------------------------------------------------------------------
 /** the v1 meshes the three builders leave under env.group, by name → expected count */
 const V1_NAMES = {
-  // pit-building.ts
-  pitShell: 1, pitRoof: 1, pitGlass: 1, pitInterior: 1, pitFascia: 1, pitRear: 1, controlPod: 1, garageDoors: 1, podiumBackdrop: 1, pitScreens: 1,
+  // pit-building.ts (v2, I1-b): the names the plan lists, plus the 1F paddock face kept from v1 until commit 3
+  pitShell: 1, pitCanopy: 1, pitGlass: 1, pitInterior: 1, pitInteriorCeiling: 1, pitInteriorWalls: 1, pitFascia: 1, pitSoffit: 1, pitRear: 1, pitShutters: 1, pitPlates: 1, pitPodiumDoor: 1, pitStairTowers: 1,
+  controlPod: 1, controlPodGlass: 1, controlPodSign: 1, pitDarkGlass: 1, t1Nose: 1, t1NoseGlass: 1, pitScreens: 1,
   // pit-lane.ts
   pitWall: 1, pitWallBoards: 1, pitWallBoardsLane: 1, pitDebrisFence: 1, leaderTowerLattice: 1, leaderTowerName: 1, leaderTowerBoard: 1,
   // both: the building's railings and the wall's top ribbon / fence rail (same name, same material)
@@ -99,7 +233,7 @@ for (const tier of tiers) {
   // names
   const missing = Object.entries(V1_NAMES).filter(([n, c]) => (byName.get(n)?.length ?? 0) !== c)
   check(missing.length === 0, `v1 meshes under env.group: ${Object.keys(V1_NAMES).length} names${missing.length ? ` — wrong: ${missing.map(([n, c]) => `${n} (${byName.get(n)?.length ?? 0} ≠ ${c})`).join(', ')}` : ''}`)
-  const instanced = ['pitSeats', 'pitRailPosts', 'garageWalls', 'pitBoards', 'perchCanopies', 'perchBacks', 'transporters', 'parkingLines', 'parkedCars']
+  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'garageWalls', 'perchCanopies', 'perchBacks', 'transporters', 'parkingLines', 'parkedCars']
   // the bucketed sets carry a '-<bay>' suffix per 60 m bay
   const noInst = instanced.filter((n) => ![...byName.entries()].some(([k, ms]) => (k === n || k.startsWith(`${n}-`)) && ms.some((o) => o.isInstancedMesh)))
   check(noInst.length === 0, `instanced sets: ${instanced.length}${noInst.length ? ` — missing: ${noInst.join(', ')}` : ''}`)
@@ -128,14 +262,9 @@ for (const tier of tiers) {
   // one shared material object per name (pitMaterials memo): the wall's rails and the building's rails share railMat
   const rails = byName.get('pitRails')
   check(rails.length === 2 && rails[0].material === rails[1].material, 'the two pitRails meshes share one material (pitMaterials(ctx) memo)')
-  const roofs = byName.get('paddockRoofs')[0], pitRoof = byName.get('pitRoof')[0]
-  check(roofs.material === pitRoof.material, 'paddockRoofs and pitRoof share buildingRoofMat')
-  // screens: the faces of the rows the v1 builder mounts (roof rows above the v1 roof, all ground rows)
-  const ROOF = spec.PIT_BUILDING.roofTop
-  const drawn = spec.SCREENS.filter((s) => s.mount === 'ground' || s.base >= ROOF + 0.3)
-  const faces = drawn.reduce((a, s) => a + s.faces, 0)
-  const screens = byName.get('pitScreens')[0]
-  check(trisOf(screens) === faces * 2, `pitScreens: ${trisOf(screens)} tris = ${faces} faces × 2 (${drawn.length} of ${spec.SCREENS.length} rows; pit_paddock waits for the v2 canopy)`)
+  const roofs = byName.get('paddockRoofs')[0], pitCanopy = byName.get('pitCanopy')[0]
+  check(roofs.material === pitCanopy.material, 'paddockRoofs and pitCanopy share buildingRoofMat')
+  checkBuilding(scene, check, byName)
   // the wall-top signs are not free-standing boxes: nothing of the props buckets stands at (5556…5562, −9.4) above the wall top
   const wallTop = spec.PIT_WALL.height + 0.5
   const props = [...byName.entries()].filter(([n]) => n === 'props').flatMap(([, ms]) => ms)

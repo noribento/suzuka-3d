@@ -90,6 +90,12 @@ export const EMISSIVE = {
   garageWash: { color: 0xfff2dd, intensity: 0.8 },
   /** the monitor walls in the garages and on the pit wall (I1-b / I3): a cool screen glow, luminance ≈ 0.8, no halo */
   opsMonitor: { color: 0x9fc4ff, intensity: 0.9 },
+  /**
+   * The recessed downlights in the 2F terrace soffit over the garage fronts (I1-b, one per
+   * 2.8 m, an emissiveMap of the soffit texture): dim warm discs, luminance ≈ 0.45 — lit, no
+   * halo, listed in sun-model-check's sub-threshold set.
+   */
+  terraceDownlight: { color: 0xfff2dd, intensity: 0.5 },
   /** titanium sparks off the plank: linear rgb per unit of "heat", heat drawn in [heatMin, heatMax] */
   spark: { rgb: [10, 3.8, 0.8] as const, heatMin: 0.75, heatMax: 1.4 },
   /**

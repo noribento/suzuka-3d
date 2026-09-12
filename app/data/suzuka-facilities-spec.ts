@@ -1110,15 +1110,16 @@ export const PIT_ENVELOPE = {
 } as const
 
 /**
- * The pit building. v1 = the photogrammetry estimate the v1 builder (pit-building.ts) still
- * reads; `v2` = the Mobilityland 2009 pit / paddock dossier (pp4s2-4 section, pphi-3 / pphi-4
- * elevations, pp4t-4 plan, p5spec pit spec, pitph-12 terraces, ct-13 control tower) that I1-b
- * builds from. Lateral values are metres from the centreline (negative = right = pit side),
- * heights are above the local pit-lane apron (the building follows the 2.8 % gradient).
+ * The pit building. `v2` = the Mobilityland 2009 pit / paddock dossier (pp4s2-4 section,
+ * pphi-3 / pphi-4 elevations, pp4t-4 plan, p5spec pit spec, pitph-12 terraces, ct-13 control
+ * tower) that pit-building.ts builds from (I1-b). Lateral values are metres from the
+ * centreline (negative = right = pit side), heights are above the local pit-lane apron (the
+ * building follows the 2.8 % gradient).
  *
- * v1-only keys, deleted with the v1 builder: `floors`, `roofTop`, `garage` (doorWidth /
- * doorHeight / pier / boxPitch / depth / fasciaHeight), `terrace2F.rows`, `podium`,
- * `controlPod`, `spur` (I1-b). `v2` is promoted to the top level in the same commit.
+ * The remaining v1 keys (`floors`, `garage`, `podium`, `controlPod`, `spur` — the
+ * photogrammetry estimate) are read by nothing since I1-b commit 2 and go, with `v2` promoted
+ * to the top level, in the commit that finishes the building (I1-b commit 3); `roofTop`,
+ * `garage.doorWidth / fasciaHeight` and `terrace2F.rows` were deleted with their consumers.
  */
 export const PIT_BUILDING = {
   osmWay: 184422099,
@@ -1127,15 +1128,14 @@ export const PIT_BUILDING = {
   /** the 2F terrace drip line = OSM way 184422099 = the pit-lane face facilities-check §3 holds to ±1.5 */
   front: PIT_GARAGE_FRONT,
   back: -56.7,
-  // ---------------------------------------------------------------- v1 (deleted in I1-b)
+  // ---------------------------------------------------------------- v1 (unread; deleted in I1-b commit 3)
   /** rear stair/service spur */
   spur: { sRange: [5771.5, 5778.9] as [number, number], lateral: [-56.7, -80.7] as [number, number] },
   /** floor levels above the local pit-lane apron (follows the 2.8 % gradient) — UNVERIFIED (photogrammetry) */
   floors: [0, 7.8, 12.3],
-  roofTop: 15.5,
-  garage: { doorWidth: 6.1, doorHeight: 4.1, pier: 0.95, boxPitch: 7.083, depth: 15.4, fasciaHeight: 3.5 },
+  garage: { doorHeight: 4.1, pier: 0.95, boxPitch: 7.083, depth: 15.4 },
   /** 2F terrace: 100 black seats × 11 rooms cantilevered over the pit lane */
-  terrace2F: { rows: 4, seatColour: '#2b2b2b' },
+  terrace2F: { seatColour: '#2b2b2b' },
   podium: { s: 5579, width: 9.5, backdropHeight: 4.5, level: 1 },
   // the podium recess (garage 12, s≈5574–5579) sits right beside the glazed core in the podium
   // photo, so the pod ends at the recess rather than at the earlier 5605 estimate
@@ -1168,12 +1168,12 @@ export const PIT_BUILDING = {
     terrace3F: { rows: 5, frontRow: { y: 8.15, lateral: -28.3 }, deck: { y: 9.85, lateral: -32.55 }, parapet: { lateral: -28.0, h: 1.1 }, columns: { d: 0.35, lateral: -28.0, pitch: PIT_BOX } },
     /** the podium over pits 45–47 (block 12's 2F, podium.jpg): backdrop 7 × 4 m */
     podium: { s: 5632, width: 9.5, backdrop: [7, 4] as [number, number], level: 1 },
-    /** the control-tower pod (ct-13, pp4t-4): the final-corner end up to the media section, top 19 */
-    controlPod: { sRange: [5554.5, 5590] as [number, number], top: 19 },
+    /** the control-tower pod (ct-13, pp4t-4): the final-corner end up to the media section, top 19, the glass band 9.6 → 11.4 (its mid line is the nose tip) */
+    controlPod: { sRange: [5554.5, 5590] as [number, number], top: 19, band: [9.6, 11.4] as [number, number] },
     /** 2F / 3F straight glass body between the pod and the garage row, no terraces */
     mediaSection: { sRange: [5590, 5625] as [number, number] },
-    /** the T1 nose: a 1F + 2F bullet pod (top 11, 8 portholes) past the paddock-information box 88 → 92 (pitbld.jpg) */
-    t1Nose: { sRange: [92, 103.3] as [number, number], top: 11, portholes: 8, info: { sRange: [88, 92] as [number, number] } },
+    /** the T1 nose: a 1F + 2F bullet pod (top 11, the 2F glass band 5.2 → 7.4, 8 portholes) past the paddock-information box 88 → 92 (pitbld.jpg) */
+    t1Nose: { sRange: [92, 103.3] as [number, number], top: 11, band: [5.2, 7.4] as [number, number], portholes: 8, info: { sRange: [88, 92] as [number, number] } },
     /** seven stair towers (pp4t-4): the six core centres and the control-tower core, 5 (s) × 6 (lateral) at −46 … −52, top 17.0 */
     stairTowers: { s: [5587, 5647.5, 5692.5, 5737.5, 5782.5, 20.5, 65.5], size: [5, 6] as [number, number], lateral: [-46, -52] as [number, number], top: 17.0 },
     /** the rear spur (pphi-3): the tunnel hall on the paddock face and the 2F bridge over the paddock road */

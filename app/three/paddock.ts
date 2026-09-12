@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { TEAMS } from '~/data/drivers'
-import { BUILDINGS, COLOURS, GARAGE_ORDER, PIT_BOX_STRIP, PIT_BUILDING, garageS } from '~/data/suzuka-facilities-spec'
+import { BUILDINGS, COLOURS, GARAGE_ORDER, PIT_BOX_STRIP, garageS } from '~/data/suzuka-facilities-spec'
 import { OSM_BUILDINGS, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import type { EnvBuildContext } from './environment'
 import { LAYER, markDecal } from './ground'
+import { canopyTopAt } from './pit-building'
 import { addMerged, enMatrix, frameAt, pitMaterials, slice } from './pit-geometry'
 
 /**
@@ -24,9 +25,8 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   const { buildingRoofMat } = opts
   const { railMat, whiteMat } = pitMaterials(ctx)
   const add = (geos: THREE.BufferGeometry[], mat: THREE.Material, name: string, cast: boolean) => addMerged(group, geos, mat, name, cast)
-  // the T1 end of the box strip and the roof line: the flag poles stand on the T1 cap's roof
+  // the T1 end of the box strip: the flag poles stand on the canopy at the T1 end (pitbld.jpg)
   const S1 = track.wrap(PIT_BOX_STRIP[1]) // 88
-  const ROOF = PIT_BUILDING.roofTop
   const teams = GARAGE_ORDER.map((id) => TEAMS[id])
 
   // --- paddock: footprint buildings, prefabs, transporters, tents, flags, car park ------------------
@@ -103,7 +103,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     }
     add(tentGeos, tentMat, 'tents', false)
     add(tentRedGeos, tentRedMat, 'tentsRed', false)
-    // flag poles on the T1 cap roof (as in the photos) and at the paddock gate
+    // flag poles on the canopy at the T1 end (as in the photos) and at the paddock gate
     const flagGeos: THREE.BufferGeometry[] = []
     const flagColours = [0xffffff, COLOURS.circuitRed.lit, 0x1d5bb5, 0xffffff, COLOURS.signageGreen.mid]
     const flagMats = flagColours.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, side: THREE.DoubleSide }))
@@ -117,7 +117,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       f.applyMatrix4(frameAt(track, s, lat + 0.02, yBase + 8.3, new THREE.Matrix4()))
       flagsByMat[i % flagColours.length]!.push(f)
     }
-    for (let i = 0; i < 5; i++) pole(track.wrap(S1 + 1 + i * 1.5), -36 - i * 4, ROOF + 0.3, i)
+    for (let i = 0; i < 5; i++) pole(track.wrap(S1 - 1.5 - i * 1.5), -36 - i * 4, canopyTopAt(-36 - i * 4) + 0.3, i)
     for (let i = 0; i < 6; i++) pole(5548, -62 - i * 5, ground.standAt(5548, -62 - i * 5), i)
     add(flagGeos, railMat, 'flagPoles', false)
     flagsByMat.forEach((geos, i) => add(geos, flagMats[i]!, `flags${i}`, false))

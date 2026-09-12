@@ -15,7 +15,11 @@ import { profileRibbonGeometry } from './track-mesh'
  *   straight (`sweep` / `creased` / `texturedWall` / `sectionPlate` / `tube`), the prisms over
  *   OSM footprints in track coordinates (`trackCoords` / `clipD` / `trackPrism`), the EN → world
  *   extrusion matrix (`enMatrix`) and `slice` for ExtrudeGeometry groups, `podLoft` (the
- *   squircle bullet-nose loft of the control tower, parameterised so the T1 nose can reuse it);
+ *   squircle bullet-nose loft of the control tower, parameterised so the T1 nose can reuse it)
+ *   with `podBand` (a strip of the same skin between two heights — the glass band, the sign
+ *   band, the race-control corner) and `podFlank` (a point on the skin with its plan normal,
+ *   for the portholes), `smoothProfile` (Catmull-Rom through a section polyline — the curved
+ *   canopy) and `remapV` (an atlas row on a textured wall);
  * - the tier-scaled canvas (`canvas` / `tex` / `label` / `chequer`) and the word list every pit
  *   texture draws from (`PIT_TEXTS`, read by textures-lint);
  * - `pitMaterials(ctx)`: the materials the three builders share, memoised per build context so
@@ -356,6 +360,44 @@ export interface PodLoftParams {
   step?: number
 }
 
+interface PodFrame {
+  len: number
+  sAt: (d: number) => number
+  A: number
+  cLat: number
+  mid: number
+  kwAt: (d: number) => number
+  bottomAt: (d: number) => number
+  topAt: (d: number) => number
+}
+
+/** The loft's station math, shared by `podLoft`, `podBand` and `podFlank`. */
+function podFrame(p: PodLoftParams): PodFrame {
+  const { track, s0, s1, front, back, bottom, mid, top } = p
+  const dir = p.dir ?? 1
+  const nose = p.nose ?? { plan: 18, top: 18, bottom: 9 }
+  const tail = p.tail === undefined ? null : p.tail
+  const len = forwardDelta(s0, s1, track.length)
+  const ell = (d: number, n: number) => (d >= n ? 1 : Math.sqrt(Math.max(0, 1 - ((n - d) / n) ** 2)))
+  return {
+    len,
+    sAt: (d) => (dir > 0 ? s0 + d : s1 - d),
+    A: (front - back) / 2,
+    cLat: (front + back) / 2,
+    mid,
+    // parabolic in plan (a pointed train nose) but domed in elevation
+    kwAt: (d) => Math.max(0.002, d >= nose.plan ? 1 : 1 - ((nose.plan - d) / nose.plan) ** 2),
+    bottomAt: (d) => mid - (mid - bottom) * ell(d, nose.bottom),
+    topAt: (d) => {
+      const dome = mid + (top - mid) * ell(d, nose.top)
+      return tail ? dome + (tail.top - dome) * smoothstep((d - (len - tail.ease)) / tail.ease) : dome
+    },
+  }
+}
+
+/** squircle: |v|^½ with the sign kept — the flanks stay nearly vertical, the corners tight */
+const sq = (v: number) => Math.sign(v) * Math.sqrt(Math.abs(v))
+
 /**
  * A streamlined pod lofted along the track: squircle section (|cos|^½ keeps the flanks nearly
  * vertical and the corners tight), parabolic in plan and domed in elevation towards the nose, a
@@ -364,23 +406,11 @@ export interface PodLoftParams {
  * mid-body and flipped if the normals point in.
  */
 export function podLoft(p: PodLoftParams): THREE.BufferGeometry {
-  const { track, s0, s1, front, back, bottom, mid, top, tile } = p
-  const dir = p.dir ?? 1
-  const nose = p.nose ?? { plan: 18, top: 18, bottom: 9 }
-  const tail = p.tail === undefined ? null : p.tail
+  const { track, mid, tile } = p
   const band = p.band === undefined ? { deg: 1.2, dark: 0x30383f } : p.band
   const step = p.step ?? 1
-  const L = track.length
-  const len = forwardDelta(s0, s1, L)
-  const sAt = (d: number) => (dir > 0 ? s0 + d : s1 - d)
-  const A = (front - back) / 2
-  const cLat = (front + back) / 2
-  const ell = (d: number, n: number) => (d >= n ? 1 : Math.sqrt(Math.max(0, 1 - ((n - d) / n) ** 2)))
-  const bottomAt = (d: number) => mid - (mid - bottom) * ell(d, nose.bottom)
-  const topAt = (d: number) => {
-    const dome = mid + (top - mid) * ell(d, nose.top)
-    return tail ? dome + (tail.top - dome) * smoothstep((d - (len - tail.ease)) / tail.ease) : dome
-  }
+  const f = podFrame(p)
+  const { len, sAt, A, cLat } = f
   const stations: number[] = []
   for (let d = 0; d < len; d += step) stations.push(d)
   stations.push(len)
@@ -403,13 +433,11 @@ export function podLoft(p: PodLoftParams): THREE.BufferGeometry {
     } else ring.push({ th, dark: inBand(th) })
   }
   const N = ring.length
-  // squircle section
-  const sq = (v: number) => Math.sign(v) * Math.sqrt(Math.abs(v))
   // arc length around the full section, so the plaster tiles at the shell's scale (a per-vertex
   // fraction of the perimeter gave 30 tiny tiles that read as a woven brown skin on the high tier)
   const perim: number[] = []
   {
-    const pt = (th: number): [number, number] => [A * sq(Math.cos(th)), (Math.sin(th) > 0 ? top - mid : mid - bottom) * sq(Math.sin(th))]
+    const pt = (th: number): [number, number] => [A * sq(Math.cos(th)), (Math.sin(th) > 0 ? p.top - mid : mid - p.bottom) * sq(Math.sin(th))]
     let acc = 0
     let prev = pt(ring[0]!.th)
     for (let j = 0; j < N; j++) {
@@ -426,9 +454,8 @@ export function podLoft(p: PodLoftParams): THREE.BufferGeometry {
   const darkC = new THREE.Color(band?.dark ?? 0xffffff)
   const white = new THREE.Color(0xffffff)
   stations.forEach((d, si) => {
-    // parabolic in plan (a pointed train nose) but domed in elevation
-    const kw = Math.max(0.002, d >= nose.plan ? 1 : 1 - ((nose.plan - d) / nose.plan) ** 2)
-    const bt = Math.max(0.002, topAt(d) - mid), bb = Math.max(0.002, mid - bottomAt(d))
+    const kw = f.kwAt(d)
+    const bt = Math.max(0.002, f.topAt(d) - mid), bb = Math.max(0.002, mid - f.bottomAt(d))
     const s = sAt(d)
     for (let j = 0; j < N; j++) {
       const { th, dark: isDark } = ring[j]!
@@ -469,6 +496,117 @@ export function podLoft(p: PodLoftParams): THREE.BufferGeometry {
   return geo
 }
 
+/** The (lateral, height) of the loft's skin at station `d` for a height `y`, on the front (+1) or back (−1) flank, `proud` m off the skin. */
+function podSkinAt(f: PodFrame, d: number, y: number, side: 1 | -1, proud: number): { lat: number; y: number } {
+  const bt = Math.max(0.002, f.topAt(d) - f.mid), bb = Math.max(0.002, f.mid - f.bottomAt(d))
+  // clamp to the section: near the tip the bottom curve rises past a low band edge
+  const yc = Math.min(f.topAt(d) - 0.001, Math.max(f.bottomAt(d) + 0.001, y))
+  const sn = (yc - f.mid) / (yc > f.mid ? bt : bb) // = sq(sin θ) ∈ (−1, 1)
+  const sinTh = Math.sign(sn) * sn * sn
+  const cosTh = Math.sqrt(Math.max(0, 1 - sinTh * sinTh))
+  return { lat: f.cLat + side * (f.A * f.kwAt(d) * sq(cosTh) + proud), y: yc }
+}
+
+export interface PodBandParams {
+  /** the band's bottom and top (m above the road plane) */
+  y0: number
+  y1: number
+  /** how far off the skin it sits (m) */
+  proud?: number
+  /** stations to cover, as distance from the nose tip; default the whole loft */
+  dRange?: [number, number]
+  sides?: 'front' | 'back' | 'both'
+  /** vertical subdivisions */
+  segments?: number
+  step?: number
+}
+
+/**
+ * A strip of the pod's skin between two heights (the glass band, the sign band under it, the
+ * race-control corner): one ribbon per flank, following the same squircle / parabola as the
+ * loft so it wraps the nose (the two ribbons meet at the tip). uv: u along s in tiles, v 0 → 1
+ * up the band.
+ */
+export function podBand(p: PodLoftParams, b: PodBandParams): THREE.BufferGeometry {
+  const f = podFrame(p)
+  const proud = b.proud ?? 0.03
+  const M = b.segments ?? 4
+  const step = b.step ?? p.step ?? 1
+  const d0 = Math.max(0, b.dRange?.[0] ?? 0), d1 = Math.min(f.len, b.dRange?.[1] ?? f.len)
+  const stations: number[] = []
+  for (let d = d0; d < d1; d += step) stations.push(d)
+  stations.push(d1)
+  const sides: (1 | -1)[] = b.sides === 'front' ? [1] : b.sides === 'back' ? [-1] : [1, -1]
+  const parts: THREE.BufferGeometry[] = []
+  for (const side of sides) {
+    const pos: number[] = [], uv: number[] = [], idx: number[] = []
+    stations.forEach((d, si) => {
+      const s = f.sAt(d)
+      for (let j = 0; j <= M; j++) {
+        const y = b.y0 + ((b.y1 - b.y0) * j) / M
+        const k = podSkinAt(f, d, y, side, proud)
+        p.track.pointAt(s, k.lat, _p, k.y)
+        pos.push(_p.x, _p.y, _p.z)
+        uv.push(d / p.tile, j / M)
+      }
+      if (si > 0) {
+        for (let j = 0; j < M; j++) {
+          const a = (si - 1) * (M + 1) + j, c = si * (M + 1) + j
+          idx.push(a, c, a + 1, a + 1, c, c + 1)
+        }
+      }
+    })
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+    g.setIndex(idx)
+    g.computeVertexNormals()
+    // outward = away from the loft's centre line at a mid station
+    const n = g.attributes.normal as THREE.BufferAttribute
+    const mi = Math.floor(stations.length / 2) * (M + 1) + Math.floor(M / 2)
+    p.track.pointAt(f.sAt(stations[Math.floor(stations.length / 2)]!), f.cLat, _c, f.mid)
+    const ox = pos[mi * 3]! - _c.x, oz = pos[mi * 3 + 2]! - _c.z
+    if (n.getX(mi) * ox + n.getZ(mi) * oz < 0) flip(g)
+    parts.push(g.toNonIndexed())
+    g.dispose()
+  }
+  const merged = mergeGeometries(parts, false)!
+  for (const g of parts) g.dispose()
+  return merged
+}
+
+/**
+ * A point on the pod's skin at station `d` and height `y`, `proud` m off the flank, with the
+ * yaw (about Y, in the track frame of `frameAt`) that turns a +X-facing plate onto the skin's
+ * plan normal there — for the portholes along the nose.
+ */
+export function podFlank(p: PodLoftParams, d: number, y: number, side: 1 | -1, proud: number): { s: number; lat: number; y: number; yaw: number } {
+  const f = podFrame(p)
+  const k = podSkinAt(f, d, y, side, proud)
+  const dd = 0.25
+  const k0 = podSkinAt(f, Math.max(0, d - dd), y, side, proud), k1 = podSkinAt(f, Math.min(f.len, d + dd), y, side, proud)
+  // the flank's plan tangent (along s, across) and its outward normal
+  const dir = p.dir ?? 1
+  const tS = dir * (2 * dd), tL = k1.lat - k0.lat
+  let nL = tS, nS = -tL
+  if (nL * side < 0) { nL = -nL; nS = -nS }
+  const l = Math.hypot(nL, nS) || 1
+  return { s: f.sAt(d), lat: k.lat, y: k.y, yaw: Math.atan2(-nS / l, nL / l) }
+}
+
+/** Catmull-Rom through a (lateral, height) polyline, `per` points per span — the curved canopy. */
+export function smoothProfile(pts: Pt[], per = 6): Pt[] {
+  const curve = new THREE.CatmullRomCurve3(pts.map(([x, y]) => new THREE.Vector3(x, y, 0)), false, 'centripetal')
+  return curve.getPoints((pts.length - 1) * per).map((v) => [v.x, v.y] as Pt)
+}
+
+/** Move a geometry's v range 0..1 into [v0, v1] — one row of an atlas on a `texturedWall`. */
+export function remapV(geo: THREE.BufferGeometry, v0: number, v1: number): THREE.BufferGeometry {
+  const uv = geo.attributes.uv as THREE.BufferAttribute
+  for (let i = 0; i < uv.count; i++) uv.setY(i, v0 + uv.getY(i) * (v1 - v0))
+  return geo
+}
+
 // ---------------------------------------------------------------- shared materials
 
 export interface PitMaterials {
@@ -477,7 +615,7 @@ export interface PitMaterials {
   concreteTile: number
   /** white panels (white_plaster_02 normal / ARM under a flat albedo): the building shells, caps, backdrop wall */
   shellMat: THREE.MeshStandardMaterial
-  /** the same with vertex colours: the control pod's glass band (v1) */
+  /** the pods' silver-grey aluminium panels (PIT_BUILDING.v2.podMat; the photos show them silver, not white) */
   podMat: THREE.MeshStandardMaterial
   /** concrete046: the pit wall */
   concreteMat: THREE.MeshStandardMaterial
@@ -516,7 +654,7 @@ export function pitMaterials(ctx: EnvBuildContext): PitMaterials {
       ? pbrFromAssets(reg, 'white_plaster_02', { fallback: () => new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra }), handBuiltUv: true, normalScale: 0.5, noMap: true, extra: { color: 0xe4e6e3, ...extra } })
       : new THREE.MeshStandardMaterial({ color: 0xe4e6e3, roughness: 0.75, ...extra })
   const shellMat = plaster()
-  const podMat = plaster({ vertexColors: true })
+  const podMat = new THREE.MeshStandardMaterial({ color: PIT_BUILDING.v2.podMat.color, metalness: PIT_BUILDING.v2.podMat.metalness, roughness: PIT_BUILDING.v2.podMat.roughness })
   const concreteMat = reg
     ? pbrFromAssets(reg, 'concrete046', { fallback: () => new THREE.MeshStandardMaterial({ color: COLOURS.concrete.mid, roughness: 0.9 }), handBuiltUv: true, normalScale: 0.6 })
     : new THREE.MeshStandardMaterial({ color: COLOURS.concrete.mid, roughness: 0.9 })
