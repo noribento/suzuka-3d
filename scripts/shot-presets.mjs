@@ -51,12 +51,12 @@ export const PRESETS = [
   ['chase-in-box', [box1 - PIT_ENVELOPE.chaseLens.back, stop, PIT_ENVELOPE.chaseLens.up], [box1 + 9, stop, 0.9], 55],
   ['paddock-heli', [5800, -140, 90], [5720, -60, 4], 45],
   ['paddock-rear', [5620, -150, 6], [5700, -70, 8], 45],
-  ['paddock-walk', [5700, -70, 1.7], [5760, -64, 2], 60],
+  ['paddock-walk', [5700, -76.5, 1.7], [5760, -73, 2], 60], // on the 5 m walkway between the hospitality units (−71) and the office porches (−79.5)
   ['centre-house', [5730, -110, 4], [5775, -95, 8], 50],
   ['medical-helipad', [5540, -110, 6], [5570, -70, 3], 50],
   ['pit-exit-yard', [110, -22, 3], [165, -40, 3], 50],
   ['e-paddock', [5470, -20, 6], [5420, -70, 3], 50],
-  ['sc-pocket', [80, -20, 2.5], [95, -25, 1.5], 50],
+  ['sc-pocket', [138, -22, 2.5], [157, -30, 1.5], 50], // the FIA safety / medical cars wait in the pit-exit yard strip (I3-b: (154 / 160, −30)), not beside the T1 cap
   ['marshal-post-t1', [390, -24, 2], [420, -16, 2], 40],
   ['post26', [4930, -14, 2], [4965, -26, 3], 40],
   ['tv-b-tower', [480, 30, 4], [520, 70, 12], 45],
