@@ -1126,7 +1126,7 @@ export const PADDOCK_BUILDINGS: PaddockBuildingDef[] = [
   // A (既設, 12 rooms): the two-storey white block of pad-14 ①, 32 × 10 m, an external corridor / balcony on the paddock face
   { id: 'offices_a', name: 'チームオフィス A（既設）', kind: 'officeBlock', osmWay: 184430909, sRange: [57, 89], lateral: PADDOCK_OFFICE.lateral, floor: 'plane', eaves: 6.5, levels: 2, wall: 'plaster', unverified: ['storeys', 'eaves', 's (pphi-3 ±5 m; OSM 184430909 spans 48.2→86.7 with its porches)'] },
   // --- the centre house (BUILDINGS centre_house carries the height; this row is its footprint for O6 / O11)
-  { id: 'centre_house', name: 'センターハウス', kind: 'centreHouse', osmWay: 184430907, sRange: [5755, 5795], floor: 'plane', eaves: 8.7, levels: 2, wall: 'plaster', unverified: ['eaves (see BUILDINGS centre_house)', 'canopy 52 × 36 at 9.6 (pad-14 ②: the roof overhangs the building by ≈ 3 m on slender columns)', 'stair and balcony positions'] },
+  { id: 'centre_house', name: 'センターハウス', kind: 'centreHouse', osmWay: 184430907, sRange: [5755, 5795], floor: 'plane', eaves: 8.7, levels: 2, wall: 'plaster', unverified: ['eaves (see BUILDINGS centre_house)', 'canopy 52 × 44 at 9.6, the 16 columns ≥ 2.4 m outside the walls under its rim (pad-14 ②: the roof overhangs the building by ≈ 3 m on slender columns outside the balcony; an ellipse over the D-shaped ring overhangs 4.5–6 m)', 'stair and balcony positions'] },
   // --- SMSC office (pad-14 ④): single storey, fully glazed front under a deep flat slab on round columns
   { id: 'smsc', name: 'SMSC 事務所', kind: 'smsc', sRange: [63, 88], lateral: [-124, -102], floor: 'plane', eaves: 4.0, levels: 1, wall: 'concrete', unverified: ['s / lateral (pphi-3 ±5 m)', 'eaves 4.0', 'canopy 3 m on φ0.3 columns @ 5 m'] },
   // --- the fuel station at the T1 end of the paddock road: the two amenity=fuel ways are the pump islands (their centroids give the axis)
@@ -1171,7 +1171,8 @@ export const PADDOCK_FENCE = {
 } as const
 
 /**
- * Street lamps (props_street_lamp_02 / a 36-tri pole): along the paddock's service roads
+ * Street lamps (a procedural 8 m pole with a cobra head, both LOD levels — the pack's
+ * street_lamp_02 is a 1.7 m wall lantern, not a pole, and is not used): along the paddock's service roads
  * (SUR_ROADS ids — the paddock road 184429431 from the fuel station round the S lot to the
  * A car park, its spur 184429432 to the pit building, the centre house's round drive
  * 184429434 / 469650860) every `pitch` metres, plus the rows the aerials show along the
@@ -1184,15 +1185,22 @@ export const PADDOCK_LAMPS = {
   /** the lamp's offset from the road's centreline (m, to its right in walking order) */
   offset: 3.5,
   extra: [
-    // the office fronts: between the truck strip and the pit-side porches
-    [5612, -77], [5652, -77], [5692, -77], [5732, -77], [12, -77], [52, -77], [86, -77],
-    // the E paddock's edge, the vehicle base and the fuel station
-    [5430, -40], [5520, -44], [150, -48], [185, -48], [100, -66], [130, -72],
+    // the office fronts: between the truck strip and the pit-side porches, 0.9 m off the roller
+    // doors' no-parking hatches (PADDOCK_BAY.hatch −79.4…−76.4; paddock.ts drops an extra inside one)
+    [5612, -75.5], [5652, -75.5], [5692, -75.5], [5732, -75.5], [12, -75.5], [52, -75.5], [86, -75.5],
+    // the E paddock's edge, the vehicle base and the fuel station (its −s end: (130, −64) is the
+    // grass 4 m outside the pond 184005565's rim; paddock.ts drops a lamp that lands on a water face)
+    [5430, -40], [5520, -44], [150, -48], [185, -48], [100, -66], [130, -64],
   ] as [number, number][],
   unverified: ['positions (aerials, ±10 m)', 'height 8 m'],
 } as const
 
-/** The 22 m floodlight masts (3 heads) at the E paddock's edge and inside the final corner; the hairpin one is I4 */
+/**
+ * The 22 m floodlight masts (3 heads) at the E paddock's edge and inside the final corner; the
+ * hairpin one is I4. The first one stands on the grass 2 m outside the E lot, inside the strip
+ * s 5440–5510 that PADDOCK_PARKING keeps empty for the I3 broadcast compound: I3 reads these
+ * rows (paddock.ts also pushes each mast's disc r 2.2 into ctx.keepOut) and keeps clear of them.
+ */
 export const PADDOCK_MASTS = {
   height: 22,
   heads: 3,

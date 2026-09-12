@@ -40,7 +40,7 @@ import { CAR_PARK } from './vehicles'
  *   two-storey A block is its own merged mesh with an external corridor;
  * - the centre house: the OSM ring extruded (white plaster) with the 1F glass band on its round
  *   side (facade001), the 2F window band, the 2 m balcony and the external stair, the
- *   elliptical 52 × 36 m canopy on 16 round columns, and a paving-stone decal ring round it
+ *   elliptical 52 × 44 m canopy on 16 round columns outside the balcony, and a paving-stone decal ring round it
  *   (`paddockPaving`, LAYER.paddock.hatch); the I1 spur bridge enters its flat side;
  * - the SMSC office (glass front under a deep slab on round columns), the fuel station
  *   (canopy on four columns, two island kerbs = GROUND_OBJECTS.islandKerb, four dispensers,
@@ -52,7 +52,8 @@ import { CAR_PARK } from './vehicles'
  *   lamps (`infield-lamps`) and the two 22 m floodlight masts (`paddockMasts`).
  *
  * - the car parks (plan I2-c, `PADDOCK_PARKING` / `PADDOCK_BAY`): `paddockBays` walks every
- *   block's bays in the track frame and keeps the ones that stand on a drawn paddock face, off
+ *   block's bays in world metres along the row (the track frame shrinks inside the final corner:
+ *   an s-metre at the E lot's lateral is 0.42–0.86 m) and keeps the ones that stand on a drawn paddock face, off
  *   the sim's pit envelope, every footprint, fence run and lamp, and level enough for a rigid
  *   body; the white bay lines are `ground.decal`s on the face (`paddockBayLines-<id>`,
  *   LAYER.paddock.line), the yellow no-parking hatches in front of the office roller doors one
@@ -148,7 +149,7 @@ function walls(sh: Sheet, x0: number, x1: number, z0: number, z1: number, y0: nu
 
 // ---------------------------------------------------------------- canvas textures (procedural fallbacks and the openings)
 
-/** vertical corrugated siding, one repeat = `PADDOCK_OFFICE.sidingTile` metres (the pack-less siding) */
+/** vertical corrugated siding, one repeat = `PADDOCK_OFFICE.sidingTile` metres (the pack-less siding; the pack path keeps the same white over the asset's ribs) */
 function corrugatedTexture(k: number, base: string, dark: string): THREE.Texture {
   const w = 128, h = 128
   const { c, ctx } = canvas(w, h, k)
@@ -328,7 +329,10 @@ function paddockMaterials(ctx: EnvBuildContext, buildingRoofMat: THREE.Material)
   const pm = pitMaterials(ctx)
   const sidingTile = tileMetres(reg, 'tex/corrugatedsteel007a/diff', PADDOCK_OFFICE.sidingTile)
   const sidingFallback = () => new THREE.MeshStandardMaterial({ map: corrugatedTexture(k, '#e9ebe8', '#6d7276'), roughness: 0.55, metalness: 0.35 })
-  const siding = reg ? pbrFromAssets(reg, 'corrugatedsteel007a', { fallback: sidingFallback, handBuiltUv: true, normalScale: 0.7, extra: { color: 0xf2f3f0 } }) : sidingFallback()
+  // the pack's diff is a teal painted sheet (the outskirts' works walls); the office row is white
+  // siding under a blue-grey roof (pad-14 ③), so only its ribs (nor_gl) and ARM are used under a
+  // flat colour — the same {normal, ao, roughness, metalness} program as the plaster in pit-geometry
+  const siding = reg ? pbrFromAssets(reg, 'corrugatedsteel007a', { fallback: sidingFallback, handBuiltUv: true, normalScale: 0.7, noMap: true, extra: { color: 0xe9ebe8, roughness: 0.55, metalness: 0.35 } }) : sidingFallback()
   const t9u = tileMetres(reg, 'tex/corrugatedsteel009/diff', 1.5)
   const siding009Tile: [number, number] = [t9u, t9u / assetAspect(reg, 'tex/corrugatedsteel009/diff', 2)]
   const siding009Fallback = () => new THREE.MeshStandardMaterial({ map: corrugatedTexture(k, '#cfd3d1', '#4e5457'), roughness: 0.6, metalness: 0.4 })
@@ -385,6 +389,8 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     const r = track.nearestOnRange(_p.x, _p.z, window[0], window[1], 40)
     return { s: r.s, lat: r.lateral }
   }
+  /** world XZ of a track-frame point */
+  const world2 = (s: number, lat: number): { x: number; z: number } => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
   /** world y of the drawn ground at track (s, lateral) */
   const standWorld = (s: number, lat: number): number => {
     track.pointAt(track.wrap(s), lat, _p, 0)
@@ -435,9 +441,14 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       const glb = packProp(ctx.assets, ctx.props, 'model/props/rollershutter_door', { id, nodes: /^rollershutter_door(\/|$)/, front: 'moreArea' })
       if (glb) {
         glb.geometry.scale(w / glb.footprint.long, h / glb.footprint.height, 1)
+        // the pack door is bbox-centred with its leaf at local z ≈ −0.13 and only the roller housing
+        // in front: slide it so the leaf's slat plane sits on z = 0 like the procedural box, else the
+        // placements (wall + 0.05) put the leaf 10 cm inside the siding and only the housing shows
+        glb.geometry.translate(0, 0, 0.13)
         glb.geometry.computeBoundingBox()
         glb.geometry.computeBoundingSphere()
-        glb.footprint = { long: w, short: glb.footprint.short, height: h }
+        const bb = glb.geometry.boundingBox!
+        glb.footprint = { long: w, short: bb.max.z - bb.min.z, height: h }
         near = glb
       }
     }
@@ -641,6 +652,10 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     // the 1F glass band on the round side (facade001, 0.2 → 3.8), the 2F window band all round, the balcony slab + rail
     const glass1 = new Sheet(), band2 = new Sheet(), balcony = new Sheet()
     const balconyY = floorW + PIT_BUILDING.v2.floors[1]
+    // the external stair (below) lands on the balcony's outer edge at (sStair, latStairTop): the rail leaves it a 1.4 m opening
+    const sStair = row.sRange[0] + 2.0, latStairTop = -100 + 0.28 * 25
+    const stairTop = world2(sStair, latStairTop)
+    const GAP = 1.4
     for (let i = 0; i < n; i++) {
       const a = ring[i]!, b = ring[(i + 1) % n]!
       const { nx, nz, len } = segNormal(i)
@@ -658,9 +673,23 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       balcony.quad(V(a.x + ox, y0, a.z + oz), V(b.x + ox, y0, b.z + oz), V(b.x + ox, y1, b.z + oz), V(a.x + ox, y1, a.z + oz), [[0, 0], [1, 0], [1, 1], [0, 1]], out)
       const rs = new Sheet()
       const ry = y1 + 1.1, r = 0.025
-      rs.quad(V(a.x + ox, ry, a.z + oz), V(b.x + ox, ry, b.z + oz), V(b.x + ox, ry + 2 * r, b.z + oz), V(a.x + ox, ry + 2 * r, a.z + oz), [[0, 0], [1, 0], [1, 1], [0, 1]], out)
-      rails.push(rs.build())
+      // the stair's opening on this edge: the stair top projected onto the outer edge, when it lies within 1 m of it
+      const ex = a.x + ox, ez = a.z + oz
+      const tTop = ((stairTop.x - ex) * (b.x - a.x) + (stairTop.z - ez) * (b.z - a.z)) / (len * len)
+      const offEdge = Math.hypot(stairTop.x - (ex + (b.x - a.x) * tTop), stairTop.z - (ez + (b.z - a.z) * tTop))
+      const gap: [number, number] | null = tTop > 0 && tTop < 1 && offEdge < 1 ? [Math.max(0, tTop * len - GAP / 2), Math.min(len, tTop * len + GAP / 2)] : null
+      const spans: [number, number][] = gap ? [[0, gap[0]], [gap[1], len]] : [[0, len]]
+      let bars = 0
+      for (const [d0, d1] of spans) {
+        if (d1 - d0 < 0.05) continue
+        const t0 = d0 / len, t1 = d1 / len
+        const x0 = ex + (b.x - a.x) * t0, z0 = ez + (b.z - a.z) * t0, x1 = ex + (b.x - a.x) * t1, z1 = ez + (b.z - a.z) * t1
+        rs.quad(V(x0, ry, z0), V(x1, ry, z1), V(x1, ry + 2 * r, z1), V(x0, ry + 2 * r, z0), [[0, 0], [1, 0], [1, 1], [0, 1]], out)
+        bars++
+      }
+      if (bars) rails.push(rs.build())
       for (let d = 0.2; d < len; d += 1.5) {
+        if (gap && d > gap[0] && d < gap[1]) continue
         const t = d / len
         const post = new THREE.CylinderGeometry(0.02, 0.02, 1.1, 6)
         post.translate(a.x + ox + (b.x - a.x) * t - nx * 0.05, y1 + 0.55, a.z + oz + (b.z - a.z) * t - nz * 0.05)
@@ -670,9 +699,8 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     add([glass1.build()], M.glassBand, 'centreHouseGlass', false)
     add([band2.build()], M.windowBand, 'centreHouseWindows', false)
     add([balcony.build()], M.shell, 'centreHouseBalcony', true)
-    // the external stair on the −s side: 25 treads from the ground up to the balcony along lateral
+    // the external stair on the −s side: 25 treads from the ground up to the balcony along lateral (its top at latStairTop)
     {
-      const sStair = row.sRange[0] + 2.0
       const rise = (balconyY - standWorld(sStair, -100)) / 25
       for (let i = 0; i < 25; i++) {
         const lat = -100 + 0.28 * (i + 0.5)
@@ -682,9 +710,11 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
         concreteGeos.push(step)
       }
     }
-    // the elliptical canopy: 52 (lateral) × 36 (s), a 0.35 slab at 9.6, on 16 round columns just outside the walls
+    // the elliptical canopy: 52 (lateral) × 44 (s), a 0.35 slab at 9.6, on 16 round columns round the
+    // D-shaped ring (33.4 along s × 42 across; its flat side at +lateral): the columns stand outside
+    // the 2 m balcony and its rail and under the slab's rim
     {
-      const a = 26, b = 18, y = 9.6
+      const a = 26, b = 22, y = 9.6
       const centreS = (row.sRange[0] + row.sRange[1]) / 2, centreLat = anchor.lateral - 19
       const shape2 = new THREE.Shape().absellipse(0, 0, a, b, 0, Math.PI * 2, false, 0)
       const slab = new THREE.ExtrudeGeometry(shape2, { depth: 0.35, bevelEnabled: false, curveSegments: 48 })
@@ -692,7 +722,9 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       slab.translate(0, 0.35, 0)
       const frame = frameAt(track, track.wrap(centreS), centreLat, floorW - roadY(centreS, centreLat) + y, m4())
       slab.applyMatrix4(frame)
-      add([slab], M.white, 'centreHouseCanopy', true)
+      const canopy = add([slab], M.white, 'centreHouseCanopy', true)
+      // the ellipse in the track frame (the smoke tests the columns against it)
+      if (canopy) canopy.userData.canopy = { s: track.wrap(centreS), lateral: centreLat, a, b, y: floorW + y }
       const cols: THREE.BufferGeometry[] = []
       const inRing = (x: number, z: number) => {
         let inside = false
@@ -702,17 +734,34 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
         }
         return inside
       }
+      const ringDist = (x: number, z: number) => {
+        let best = Infinity
+        for (let i = 0; i < n; i++) {
+          const p = ring[i]!, q = ring[(i + 1) % n]!
+          const dx = q.x - p.x, dz = q.z - p.z
+          const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)))
+          best = Math.min(best, Math.hypot(x - p.x - dx * t, z - p.z - dz * t))
+        }
+        return best
+      }
+      // a column's centre keeps the balcony (2 m) + its radius 0.175 + 0.25 clear of the wall …
+      const clear = 2 + 0.175 + 0.25
+      // … and stays inside 0.97 of the ellipse (its top under the slab's rim)
+      const rMax = 0.97
       let count = 0
       for (let i = 0; i < 16; i++) {
-        // angle 0 = +lateral (the flat side): the columns leave the flat side's ±40° to the bridge and the entrance
-        const t = (40 + (280 * i) / 15) * (Math.PI / 180)
-        let rx = 0.94 * a * Math.cos(t), rz = 0.94 * b * Math.sin(t)
-        for (let step = 0; step < 8; step++) {
-          _p.set(rx, 0, rz).applyMatrix4(frame)
-          if (!inRing(_p.x, _p.z)) break
-          rx *= 1.03
-          rz *= 1.03
+        // angle 0 = +lateral (the flat side): the fan 85° … 275° leaves the flat side to the bridge and
+        // the entrance — its corners at ±38° sit outside the ellipse's rim, so no column can stand there
+        const t = (85 + (190 * i) / 15) * (Math.PI / 180)
+        let r = 0.94
+        // the safety net for another ring: grow while the column would stand in the balcony, then clamp under the rim
+        for (let step = 0; step < 12; step++) {
+          _p.set(r * a * Math.cos(t), 0, r * b * Math.sin(t)).applyMatrix4(frame)
+          if (!inRing(_p.x, _p.z) && ringDist(_p.x, _p.z) >= clear) break
+          r *= 1.03
         }
+        r = Math.min(r, rMax)
+        const rx = r * a * Math.cos(t), rz = r * b * Math.sin(t)
         _p.set(rx, 0, rz).applyMatrix4(frame)
         const top = floorW + y
         const bottom = ground.standY(_p.x, _p.z) - 0.05
@@ -912,13 +961,18 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     let minS = Infinity, doorSeg = 0
     for (let i = 0; i < n; i++) {
       const a = ring[i]!, b = ring[(i + 1) % n]!
+      const len = Math.hypot(b.x - a.x, b.z - a.z)
+      const mid = forwardDelta(row.sRange[0], (a.s + b.s) / 2, L)
+      if (len > 5 && mid < minS) { minS = mid; doorSeg = i }
+    }
+    for (let i = 0; i < n; i++) {
+      const a = ring[i]!, b = ring[(i + 1) % n]!
       const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1
       let nx = dz / len, nz = -dx / len
       if (nx * ((a.x + b.x) / 2 - cx) + nz * ((a.z + b.z) / 2 - cz) < 0) { nx = -nx; nz = -nz }
-      const y0 = baseW + 0.5 + 2.2, y1 = y0 + 1.2
+      // the band sits 2.2 over the floor, but over the door face it lifts above the 3.2 m doors (still under the shell's top)
+      const y0 = i === doorSeg && row.doors ? baseW + 0.5 + row.doors.h + 0.2 : baseW + 0.5 + 2.2, y1 = y0 + 1.2
       band.quad(V(a.x + nx * 0.03, y0, a.z + nz * 0.03), V(b.x + nx * 0.03, y0, b.z + nz * 0.03), V(b.x + nx * 0.03, y1, b.z + nz * 0.03), V(a.x + nx * 0.03, y1, a.z + nz * 0.03), [[0, 0], [len / 1.5, 0], [len / 1.5, 1], [0, 1]], V(nx, 0, nz))
-      const mid = forwardDelta(row.sRange[0], (a.s + b.s) / 2, L)
-      if (len > 5 && mid < minS) { minS = mid; doorSeg = i }
     }
     add([band.build()], M.windowBand, 'paddockVehicleBaseWindows', false)
     if (row.doors) {
@@ -1057,7 +1111,11 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       const tail = slice_(from, total)
       if (tail.length > 1) runs.push(tail)
     }
-    // the mesh: one card per segment standing on the drawn ground at both ends (vertical faces only), metre uv
+    // the mesh: every OSM segment split at half the post pitch, one vertical card per sub-span
+    // standing on the drawn ground at both of its ends (the OSM segments are 28–65 m long and cross
+    // the relief fade under the helipad compound, so a single card per segment hung up to 1.5 m in
+    // the air; the low tier's coarser terrain grid creases 0.2 m inside a 3.5 m span, hence the half
+    // pitch); the posts stand on every second sub-span end, metre uv continuous along the run
     const mesh = new Sheet()
     const postM: THREE.Matrix4[] = []
     let length = 0
@@ -1068,16 +1126,21 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
         const a = run[i - 1]!, b = run[i]!
         const len = Math.hypot(b.x - a.x, b.z - a.z)
         if (len < 0.05) continue
-        const ya = ground.standY(a.x, a.z), yb = ground.standY(b.x, b.z)
-        mesh.quad(V(a.x, ya - 0.05, a.z), V(b.x, yb - 0.05, b.z), V(b.x, yb + H, b.z), V(a.x, ya + H, a.z), [[u, 0], [u + len, 0], [u + len, H], [u, H]])
-        // posts every postPitch along the segment, plus the run's ends
         const nPost = Math.max(1, Math.round(len / F.postPitch))
-        for (let p = i === 1 ? 0 : 1; p <= nPost; p++) {
-          const t = p / nPost
-          const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t
-          postM.push(m4().makeTranslation(x, ground.standY(x, z) - 0.05, z))
+        const nSub = 2 * nPost
+        let px = a.x, pz = a.z, py = ground.standY(a.x, a.z)
+        if (i === 1) postM.push(m4().makeTranslation(px, py - 0.05, pz))
+        for (let p = 1; p <= nSub; p++) {
+          const t = p / nSub
+          const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t, y = ground.standY(x, z)
+          const l = len / nSub
+          mesh.quad(V(px, py - 0.05, pz), V(x, y - 0.05, z), V(x, y + H, z), V(px, py + H, pz), [[u, 0], [u + l, 0], [u + l, H], [u, H]])
+          if (p % 2 === 0) postM.push(m4().makeTranslation(x, y - 0.05, z))
+          u += l
+          px = x
+          pz = z
+          py = y
         }
-        u += len
         length += len
       }
     }
@@ -1117,10 +1180,17 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     arm.translate(0.8, hgt - 0.04, 0)
     const head = new THREE.BoxGeometry(0.6, 0.16, 0.3)
     head.translate(1.5, hgt - 0.1, 0)
-    const poleProc = procProp('lamp-pole', [{ geometry: mergeGeometries([mast, arm, head].map((g) => g.toNonIndexed()), false)!, material: plain(0xb4b8b6, 0.6, 0.4) }])
-    const pole = glbOr(ctx, 'model/props/street_lamp_02', { front: 'none', scaleTo: { height: hgt } }, poleProc)
-    const lamps: PropSet = { proto: pole, far: poleProc, placements: [] }
+    const base = new THREE.CylinderGeometry(0.25, 0.25, 0.06, 8)
+    base.translate(0, 0.03, 0)
+    // the procedural pole is the only level: the pack's street_lamp_02 is a 1.7 m wall-bracket
+    // lantern with no shaft (scaled to 8 m it hung in the air), and the aerials show plain steel
+    // poles with cobra heads — the same pole as the outskirts' car parks
+    const poleProc = procProp('lamp-pole', [{ geometry: mergeGeometries([mast, arm, head, base].map((g) => g.toNonIndexed()), false)!, material: plain(0xb4b8b6, 0.6, 0.4) }])
+    const lamps: PropSet = { proto: poleProc, far: poleProc, placements: [] }
     const put = (x: number, z: number, yaw: number) => {
+      // never on a water face (the fuel station's −s end meets the pond 184005565); bare terrain
+      // (builtY null: the un-drawn fuel apron until P7) stays allowed
+      if (ground.builtY(x, z)?.kind === 'water') { console.warn('[paddock] lamp dropped on a water face', x.toFixed(1), z.toFixed(1)); return }
       const m = m4().makeRotationY(yaw)
       m.setPosition(x, ground.standY(x, z) - 0.02, z)
       lamps.placements.push({ m })
@@ -1147,7 +1217,13 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
         walked += len
       }
     }
+    const hatchHalf = PADDOCK_BAY.hatch.size / 2 + 0.3
     for (const [s, lat] of Lp.extra) {
+      // never inside a roller door's no-parking hatch (3 × 3 at PADDOCK_BAY.hatch.lateral in front of every office door)
+      if (Math.abs(lat - PADDOCK_BAY.hatch.lateral) < hatchHalf && doorS.some((d) => Math.min(forwardDelta(d, s, L), forwardDelta(s, d, L)) < hatchHalf)) {
+        console.warn('[paddock] lamp dropped inside a door hatch', s, lat)
+        continue
+      }
       track.pointAt(track.wrap(s), lat, _p, 0)
       const h = track.headingAt(track.wrap(s))
       // the arm toward the track (+lateral = the left normal (tz, −tx))
@@ -1164,6 +1240,9 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     const heads: PropSet = { proto: headProto, far: headProc, placements: [] }
     for (const at of Mt.at) {
       const frame = frameAt(track, track.wrap(at.s), at.lateral, ground.standAt(track.wrap(at.s), at.lateral) - 0.05, m4())
+      // the mast's footprint is a keep-out for whatever is placed later (the first mast stands in the
+      // E lot's broadcast strip s 5440–5510 that I3 fills: read ctx.keepOut / PADDOCK_MASTS.at there)
+      ctx.keepOut.push({ x: frame.elements[12]!, z: frame.elements[14]!, r: 2.2 })
       const body = lattice.clone()
       body.applyMatrix4(frame)
       mastGeos.push(body)
@@ -1266,8 +1345,18 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     const B = PADDOCK_BAY
     const rng = new Rng(0x9a11c7)
     type P2 = { x: number; z: number }
-    /** a track-frame point → world XZ (the paddock straight; curvature over a bay is centimetres) */
+    /**
+     * A track-frame point → world XZ. The frame is not isometric: inside a bend an s-metre at
+     * lateral l is only (R − |l|) / R world metres (the E lot sits inside the final corner,
+     * R ≈ 130–360 m, at lateral −40…−95 → 0.42–0.86), so every bay is laid out in world metres and
+     * its s-components are divided by the local metric `k` (`Bay.k`) before going through here.
+     */
     const world = (s: number, lat: number): P2 => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
+    /** world metres per s-metre at (s, lat) */
+    const metricAt = (s: number, lat: number): number => {
+      const p0 = world(s - 0.5, lat), p1 = world(s + 0.5, lat)
+      return Math.max(0.05, Math.hypot(p1.x - p0.x, p1.z - p0.z))
+    }
 
     // --- what a bay must keep clear of ----------------------------------------------------------------
     /** the footprints in world XZ: every paddock row, the other BUILDINGS extrusions, the helipad, the v1 transporters / tents, the masts */
@@ -1338,23 +1427,27 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       /** the bay's centre and its axis / across unit vectors in the (s, lateral) plane; `into` points from the aisle into the bay */
       s: number; lat: number
       into: [number, number]; across: [number, number]
+      /** world metres per s-metre at the centre: an s-offset of d world metres is d / k in the frame */
+      k: number
       corners: P2[]
       /** which row of the block (0 = nearest the track) and the index along it */
       row: number; i: number
       x: number; z: number
     }
     /**
-     * The bays of one block, in the track frame, that pass every test (the module comment lists
-     * them). Rows are laid out from lat[0] as back-to-back pairs with an aisle between the
-     * pairs; a 45° block leans its bays to +s.
+     * The bays of one block, laid out in world metres along each row, that pass every test (the
+     * module comment lists them). Rows are laid out from lat[0] as back-to-back pairs with an
+     * aisle between the pairs; a 45° block leans its bays to +s. The row's length and the bay
+     * pitch are measured in world metres at the row's centre lateral (the frame shrinks inside a
+     * bend), and every bay is a rigid `bayW × bayD` rectangle: its s-offsets are divided by the
+     * local metric `k`.
      */
     type BayReject = 'face' | 'owner' | 'envelope' | 'slope' | 'footprint' | 'fence' | 'lamp'
     const paddockBays = (row: PaddockParkingRow): { kept: Bay[]; walked: number; rejects: Record<BayReject, number> } => {
       const a = (row.angle * Math.PI) / 180
       const depth = B.bayD * Math.cos(a) + B.bayW * Math.sin(a)
-      const step = row.pitch / Math.max(Math.cos(a), 1e-6) // pitch along s (2.5 straight, 3.54 at 45°)
-      const len = forwardDelta(row.s[0], row.s[1], L)
-      const n = Math.floor((len - step) / step) + 1
+      const step = row.pitch / Math.max(Math.cos(a), 1e-6) // pitch along the row in world metres (2.5 straight, 3.54 at 45°)
+      const sLen = forwardDelta(row.s[0], row.s[1], L)
       const kept: Bay[] = []
       const rejects: Record<BayReject, number> = { face: 0, owner: 0, envelope: 0, slope: 0, footprint: 0, fence: 0, lamp: 0 }
       let walked = 0
@@ -1368,13 +1461,34 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
         const into: [number, number] = [Math.sin(a), Math.cos(a) * dirIn]
         const across: [number, number] = [into[1], -into[0]]
         const latC = (near + far) / 2
+        // the row's length in world metres: the cumulative distance along (s, latC) every 0.25 m of s
+        const ds = 0.25
+        const nS = Math.max(1, Math.ceil(sLen / ds))
+        const cum: number[] = [0]
+        let prev = world(row.s[0], latC)
+        for (let j = 1; j <= nS; j++) {
+          const p = world(row.s[0] + Math.min(sLen, j * ds), latC)
+          cum.push(cum[j - 1]! + Math.hypot(p.x - prev.x, p.z - prev.z))
+          prev = p
+        }
+        const rowLen = cum[nS]!
+        /** cumulative world length along the row → s (linear in the sample table) */
+        const sAt = (d: number): number => {
+          let j = 1
+          while (j < nS && cum[j]! < d) j++
+          const t = (d - cum[j - 1]!) / Math.max(1e-9, cum[j]! - cum[j - 1]!)
+          const s0 = row.s[0] + (j - 1) * ds, s1 = row.s[0] + Math.min(sLen, j * ds)
+          return s0 + (s1 - s0) * Math.max(0, Math.min(1, t))
+        }
+        const n = Math.floor((rowLen - step) / step) + 1
         for (let i = 0; i < n; i++) {
           walked++
-          const sc = row.s[0] + step * (i + 0.5) + (len - step * n) / 2
+          const sc = sAt(step * (i + 0.5) + (rowLen - step * n) / 2)
+          const k = metricAt(sc, latC)
           const corners: P2[] = []
           const cornersSL: [number, number][] = []
           for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-            const cs = sc + (into[0] * u * B.bayD) / 2 + (across[0] * v * B.bayW) / 2
+            const cs = sc + ((into[0] * u * B.bayD) / 2 + (across[0] * v * B.bayW) / 2) / k
             const cl = latC + (into[1] * u * B.bayD) / 2 + (across[1] * v * B.bayW) / 2
             cornersSL.push([cs, cl])
             corners.push(world(cs, cl))
@@ -1400,7 +1514,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
           if (!why && fenceRuns.some((run) => quadHits(corners, run, false) || run.some((p, k) => k > 0 && samples.some(([, , q]) => segDist2(q, run[k - 1]!, p) < 0.36)))) why = 'fence'
           if (!why && lampXZ.some((l) => inPoly(l.x, l.z, corners) || samples.some(([, , q]) => (q.x - l.x) ** 2 + (q.z - l.z) ** 2 < 0.5))) why = 'lamp'
           if (why) { rejects[why]++; continue }
-          kept.push({ s: sc, lat: latC, into, across, corners, row: r, i, x: centre.x, z: centre.z })
+          kept.push({ s: sc, lat: latC, into, across, k, corners, row: r, i, x: centre.x, z: centre.z })
         }
       }
       return { kept, walked, rejects }
@@ -1426,10 +1540,10 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
           const key = `${b.row}|${v > 0 ? b.i + 1 : b.i}`
           if (seen.has(key)) continue
           seen.add(key)
-          const cs = b.s + (b.across[0] * v * B.bayW) / 2, cl = b.lat + (b.across[1] * v * B.bayW) / 2
+          const cs = b.s + (b.across[0] * v * B.bayW) / 2 / b.k, cl = b.lat + (b.across[1] * v * B.bayW) / 2
           const xz: number[] = []
           for (const [u, w] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-            const p = world(cs + (b.into[0] * u * B.bayD) / 2 + (b.across[0] * w * B.line) / 2, cl + (b.into[1] * u * B.bayD) / 2 + (b.across[1] * w * B.line) / 2)
+            const p = world(cs + ((b.into[0] * u * B.bayD) / 2 + (b.across[0] * w * B.line) / 2) / b.k, cl + (b.into[1] * u * B.bayD) / 2 + (b.across[1] * w * B.line) / 2)
             xz.push(p.x, p.z)
           }
           const c = world(cs, cl)
@@ -1540,7 +1654,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
           const dx = ds * hd.tx + dl * hd.tz, dz = ds * hd.tz - dl * hd.tx
           const yaw = Math.atan2(dx, dz) + (r5 - 0.5) * 2 * jit
           const pj = CAR_PARK.posJitter
-          const off = world(b.s + b.into[0] * (r6 - 0.5) * 2 * pj + b.across[0] * (r7 - 0.5) * pj, b.lat + b.into[1] * (r6 - 0.5) * 2 * pj + b.across[1] * (r7 - 0.5) * pj)
+          const off = world(b.s + (b.into[0] * (r6 - 0.5) * 2 * pj + b.across[0] * (r7 - 0.5) * pj) / b.k, b.lat + b.into[1] * (r6 - 0.5) * 2 * pj + b.across[1] * (r7 - 0.5) * pj)
           const m = m4().makeRotationY(yaw)
           m.setPosition(off.x, ground.standY(off.x, off.z) + CAR_PARK.lift, off.z)
           if (row.id === 'A' && coveredSet.placements.length < B.coveredCars) coveredSet.placements.push({ m })
