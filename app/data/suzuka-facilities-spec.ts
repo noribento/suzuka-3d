@@ -1191,35 +1191,58 @@ export const PIT_BUILDING = {
 } as const
 
 /**
- * Pit wall between the track and the pit lane. v1 keys the v1 builder (pit-lane.ts) still reads
- * — `height` (1.05), `topWidth`, `fenceHeight` — are deleted in I1-c; the rest is the v2 section
- * (plan §横断 2, padroad.jpg / west.jpg): 0.7 m wall to 1.8 m, the walkway and kerb on the lane
- * side, hoops, mesh, the fixed platform, the starter's rostrum, the divider and the blue band.
+ * Pit wall between the track and the pit lane — the v2 section pit-lane.ts builds (plan §横断 2,
+ * pp4s2-4 / padroad.jpg / west.jpg), laterals from the centreline (negative = pit side), heights
+ * above the road plane:
+ *
+ *   wall −9.05…−9.75 (0.7 m concrete to 1.8; the first 10 m from `concrete[0]` painted white —
+ *   the block the 60 / FIRE STATION signs stand on) | walkway −9.75…−11.05 top +0.5 | kerb
+ *   −11.05…−11.5 top +0.45 (white, the hoops stand on it) | fast lane −11.5…−16.05 | dashed divider
+ *   −16.05 (LINES) | auxiliary lane −16.05…−19.1 with the blue band −19.1…−18.1 and the white edge
+ *   line −18.1…−18.0 | concrete work area −19.1…−28.3 (pitApron, road frame).
+ *
+ * The track face carries the advertising band (`adPanel`) and, above the wall top, the debris
+ * mesh (`mesh`: 1.0 m along the box strip, 1.8 m at the entry / exit sections, posts every 4 m).
+ * The wall proper is `concrete`; the W-beam guardrail with round posts and a white pipe rail
+ * (`wBeam`) continues it to `sRange`. The fixed platform (officials / photographers) and the
+ * starter's rostrum (a dark steel cabin on four legs over the walkway, floor +3.0, the stair down
+ * to the walkway) sit on the lane side of the wall.
  */
 export const PIT_WALL = {
   lateral: -9.4,
   sRange: [5538, 125] as [number, number],
-  // v1 (deleted in I1-c)
-  height: 1.05,
-  topWidth: 0.4,
-  fenceHeight: 2.2,
-  // v2
   wallWidth: 0.7,
   wallTop: 1.8,
   /** the concrete wall proper; W-beam guardrail either side (`wBeam`) */
   concrete: [5556, 95] as [number, number],
+  /** the white-painted block at the entry end of the concrete wall, metres from `concrete[0]` (padroad.jpg) */
+  whiteBlock: 10,
   walkway: { from: -9.75, to: -11.05, y: 0.5 },
   kerb: { from: -11.05, to: -11.5, h: 0.45 },
+  /** inverted-U pipe hoops along the kerb: pitch along s, height above the kerb, width along s, tube radius */
   hoops: { pitch: 1.3, h: 1.0, w: 1.2, r: 0.025 },
-  mesh: { hBox: 1.0, hEnds: 1.8, postPitch: 4 },
+  /** debris mesh over the track face: height along the box strip, at the entry / exit sections, post pitch, post diameter */
+  mesh: { hBox: 1.0, hEnds: 1.8, postPitch: 4, postD: 0.09 },
   /** the track-face advertising band y 0.9 → 1.8 */
   adPanel: [0.9, 1.8] as [number, number],
-  platform: { sRange: [31, 69] as [number, number], y: 1.3 },
-  rostrum: { s: 3, size: [3, 3, 2.6] as [number, number, number], floor: 3.0 },
+  /** grey equipment cabinets on the walkway at the block boundaries (one per block + the final-corner end) */
+  cabinet: { size: [0.6, 0.9, 1.2] as [number, number, number] },
+  /** the fixed platform: deck height, its front parapet above the deck, the pipe rail above the deck */
+  platform: { sRange: [31, 69] as [number, number], y: 1.3, parapet: 0.35, rail: 1.1 },
+  /**
+   * the starter's rostrum: cabin [along s, across, height] over the walkway (centre `lateral`),
+   * floor height, leg diameter, stair steps down to the walkway (west.jpg: the cabin stands
+   * beside the start gantry's leg on the T1 side)
+   */
+  rostrum: { s: 5.5, lateral: -10.3, size: [3, 2.4, 2.6] as [number, number, number], floor: 3.0, legD: 0.1, steps: 8 },
   divider: -16.05,
   blueBand: { lat: [-19.1, -18.1] as [number, number], edgeLine: [-18.1, -18.0] as [number, number] },
+  /** W-beam guardrail sections (Gr-C profile 0.34 → 0.8, round posts every 2 m, a white pipe rail at 1.1) */
   wBeam: [[5538, 5556], [95, 125]] as [number, number][],
-  unverified: ['height', 'fence extent', 'walkway/kerb laterals (±0.5)', 'mesh heights', 'W-beam extent'],
+  wBeamRail: { bottom: 0.34, top: 0.8, pipe: 1.1, postPitch: 2, postD: 0.114 },
+  /** the wall-top signs (SIGNS mount 'pitWallTop') stand this far above the wall on two posts */
+  signPost: 0.4,
+  unverified: ['walkway/kerb laterals (±0.5)', 'mesh heights', 'W-beam extent', 'white block length', 'platform parapet / rail', 'rostrum size and s (the cabin is read off west.jpg beside the gantry leg)'],
 } as const
 /** Team pit-wall stands, one per garage, centred on garageS(i). */
 export const PRAT_PERCH = { length: 5.5, width: 1.8, height: 2.6, unverified: ['all dimensions'] }

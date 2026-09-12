@@ -70,7 +70,7 @@ export function mulberry(seed: number): () => number {
 }
 
 /** Tileable value noise. Periods must be powers of two (≤ 256 · 2^k) for the hash to wrap cleanly. */
-class Noise2 {
+export class Noise2 {
   private perm = new Uint8Array(512)
   constructor(seed: number) {
     const rng = mulberry(seed)

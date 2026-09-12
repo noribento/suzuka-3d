@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { CIRCUIT } from '~/data/suzuka'
-import { PAINTED_APRONS, type Side } from '~/data/suzuka-facilities-spec'
+import { PAINTED_APRONS, PIT_WALL, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import { APRON_TILE_M, APRON_UV, apronPaintTexture, labelTexture } from './textures'
@@ -285,9 +285,12 @@ export function buildTrackMeshes(track: Track, ground: Ground, braces = true): T
     group.add(drsLines)
   }
 
-  // --- start gantry with the five light clusters ------------------------------------
-  // The Frontstretch photo: two black triangular-section lattice legs, a white fascia beam
-  // with 'SUZUKA CIRCUIT' in a plain face towards the grid, the light clusters under it.
+  // --- start gantry v2 (I1-c): the banner, the 5 × 4 lamp panel, the EM panel ---------------
+  // The Frontstretch photo: two black lattice legs (the right one on the pit wall's walkway, so
+  // the wall and the kerb pass beside it, not through it), a 2.0 m white banner box with
+  // 'SUZUKA CIRCUIT' in a plain face towards the grid, the start-light panel under it — five
+  // columns of four 0.28 m lamps; the race lights the top two rows of a column (startLampMaterials[i]),
+  // the bottom two stay dark — and a dark 1.5 × 1.0 EM information panel to its left.
   const steel = new THREE.MeshStandardMaterial({ color: 0x1e2024, roughness: 0.5, metalness: 0.7 })
   const gantry = new THREE.Group()
   gantry.name = 'startGantry'
@@ -299,38 +302,51 @@ export function buildTrackMeshes(track: Track, ground: Ground, braces = true): T
   // legs: 9 m lattice columns of 0.45 m half-width standing on the drawn ground beside the wall;
   // the braces go with the fences on the low tier
   const legGeo = latticeGeometry({ height: 9.4, baseHalf: 0.45, topHalf: 0.45, panel: 1.5, leg: 0.09, ring: 0.06, brace: 0.05, braces: braces })
-  for (const x of [hw + 2.5, -hw - 2.5]) {
+  const walkway = (PIT_WALL.walkway.from + PIT_WALL.walkway.to) / 2
+  for (const x of [hw + 2.5, walkway]) {
     const leg = new THREE.Mesh(legGeo, steel)
     leg.position.set(x, ground.standAt(gs, x), 0)
     leg.castShadow = true
     gantry.add(leg)
   }
-  // the fascia: a white box 2hw + 6 long, its −s face (towards the grid) carrying the name
+  // the banner: a white box 2hw + 6 long and 2.0 tall, its −s face (towards the grid) carrying the name
   const fasciaW = 2 * hw + 6
-  const fasciaGeo = new THREE.BoxGeometry(fasciaW, 1.1, 0.45)
+  const fasciaH = 2.0
+  const fasciaY = 8.85
+  const fasciaGeo = new THREE.BoxGeometry(fasciaW, fasciaH, 0.45)
   const blank = new THREE.MeshStandardMaterial({ color: 0xf4f4f1, roughness: 0.55 })
-  const fasciaText = new THREE.MeshStandardMaterial({ map: labelTexture('SUZUKA CIRCUIT', '#f4f4f1', '#1d1f22', 2048, 128, 96), roughness: 0.55 })
+  const fasciaText = new THREE.MeshStandardMaterial({ map: labelTexture('SUZUKA CIRCUIT', '#f4f4f1', '#1d1f22', 2048, 192, 130), roughness: 0.55 })
   // BoxGeometry material groups: +x, −x, +y, −y, +z, −z — the −z face looks back down the grid
   const beam = new THREE.Mesh(fasciaGeo, [blank, blank, blank, blank, blank, fasciaText])
-  beam.position.set(0, 8.85, 0)
+  beam.position.set(0, fasciaY, 0)
   beam.castShadow = true
   gantry.add(beam)
+  // the lamp panel: a dark box hung under the banner, 5 columns × 4 rows of lamps on its −s face
   const startLampMaterials: THREE.MeshStandardMaterial[] = []
   const lampGeo = new THREE.SphereGeometry(0.28, 10, 8)
-  const housingGeo = new THREE.BoxGeometry(0.9, 1.7, 0.5)
-  for (let i = 0; i < 5; i++) {
-    const x = (i - 2) * 1.6
-    const housing = new THREE.Mesh(housingGeo, new THREE.MeshStandardMaterial({ color: 0x111111 }))
-    housing.position.set(x, 7.5, 0)
-    gantry.add(housing)
+  const cols = 5, rows = 4
+  const colPitch = 0.8, rowPitch = 0.7
+  const panelW = (cols - 1) * colPitch + 0.9, panelH = (rows - 1) * rowPitch + 0.9
+  const panelTop = fasciaY - fasciaH / 2
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, 0.3), new THREE.MeshStandardMaterial({ color: 0x111111 }))
+  panel.position.set(0, panelTop - panelH / 2, 0)
+  panel.castShadow = true
+  gantry.add(panel)
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3a0000, emissive: 0x000000, roughness: 0.3 })
+  for (let i = 0; i < cols; i++) {
+    const x = (i - (cols - 1) / 2) * colPitch
     const mat = new THREE.MeshStandardMaterial({ color: 0x3a0000, emissive: 0x000000, roughness: 0.3 })
     startLampMaterials.push(mat)
-    for (const y of [7.9, 7.1]) {
-      const lamp = new THREE.Mesh(lampGeo, mat)
-      lamp.position.set(x, y, -0.3)
+    for (let r = 0; r < rows; r++) {
+      const lamp = new THREE.Mesh(lampGeo, r < 2 ? mat : dark)
+      lamp.position.set(x, panelTop - 0.45 - r * rowPitch, -0.3)
       gantry.add(lamp)
     }
   }
+  // the EM information panel (dark, unlit — the marshalling system's own light board) left of the lamps
+  const em = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 0.15), new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6 }))
+  em.position.set(panelW / 2 + 0.3 + 0.75, panelTop - 0.6, 0)
+  gantry.add(em)
   group.add(gantry)
 
   return { group, startLampMaterials }

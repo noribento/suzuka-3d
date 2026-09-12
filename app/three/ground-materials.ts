@@ -5,7 +5,7 @@ import type { AssetRegistry } from './assets'
 import { PLANAR_UV, type GroundMaterials } from './ground-mesh'
 import type { CoverLayer } from './landcover'
 import { addMacro, addRoadSurface, grassSurfaceMaterial, pbr, pbrFromAssets, repeatMetres, tileMetres } from './materials'
-import { ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, asphaltMaps, concreteMaps, gravelMaps, helipadTexture, kerbMaps, paddockAsphaltTexture, turfMaps } from './textures'
+import { ASPHALT_LINE_FRAC, ASPHALT_TILE_M, ASPHALT_WIDTH_M, asphaltMaps, cached, concreteMaps, gravelMaps, groundAniso, helipadTexture, kerbMaps, makeTexture, type MaterialMaps, Noise2, normalMapFrom, paddockAsphaltTexture, paint, scaled, turfMaps } from './textures'
 
 /**
  * One material per ground owner kind (ground-plan.ts PRECEDENCE), for `buildGroundMeshes`.
@@ -27,8 +27,15 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
 
   const kerb = pbr(kerbMaps(), { roughness: 0.75 }, 0.9)
 
-  // the crossover deck's shoulder and the garage apron: poured concrete
+  // the crossover deck's shoulder: poured concrete
   const concrete = pbr(concreteMaps(), { roughness: 0.95 }, 0.6)
+  // the garage apron: the same concrete cast in 6 m bays with sawn joints (I1-c); uvOf gives it
+  // u = 6 m across from the working-lane edge and v = 4 m along, so the square tile is repeated
+  // 2/3 along to keep the bays square. Both tiers — the apron carries no pack material.
+  const apronMaps = apronConcreteMaps()
+  apronMaps.map.repeat.set(1, APRON_V_M / APRON_JOINT_M)
+  apronMaps.normalMap!.repeat.set(1, APRON_V_M / APRON_JOINT_M)
+  const pitApron = pbr(apronMaps, { roughness: 0.95 }, 0.7)
 
   // --- pit lane: the asphalt_pit_lane photo tile when the pack has it, else the lined tile inset
   // past its painted edge lines (cloned textures share the upload; only the transform differs)
@@ -91,7 +98,7 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
     kerb,
     deckShoulder: concrete,
     pitLane,
-    pitApron: concrete,
+    pitApron,
     lane: asphaltArea,
     asphaltArea,
     turf,
@@ -104,4 +111,43 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
     asphaltBand,
     grass,
   }
+}
+
+/** metres of the pit apron one uv unit spans along s (ground-mesh.ts `uvOf`, case 'pitApron': v = s / 4) */
+const APRON_V_M = 4
+/** the apron's concrete bays: one 1024² tile = one 6 m bay across (the uv's u unit) */
+const APRON_JOINT_M = 6
+
+/**
+ * The pit apron's concrete (I1-c): one 6 m bay per tile — the field of the crossover's
+ * `concreteMaps` (the same fbm aggregate and staining, a fresh seed) with two 25 mm sawn joint
+ * lines (one per axis: the tile's edges, so the repeat makes the 6 m grid) drawn dark and cut
+ * into the height field, so the normal map carries the groove and the joint reads under a
+ * raking sun as a step, not a stripe. Cached per textureScale like every procedural tile.
+ */
+export function apronConcreteMaps(): MaterialMaps {
+  const [w, h] = scaled(1024, 1024)
+  return cached(`pit-apron-${w}`, () => {
+    const n = new Noise2(29)
+    const height = new Float32Array(w * h)
+    // 25 mm of a 6 m bay, at least one texel on the low tier
+    const jw = Math.max(1, Math.round((0.025 / APRON_JOINT_M) * w))
+    const c = paint(w, h, (x, y, out) => {
+      const u = x / w, v = y / h
+      const f = n.fbm(u * 32, v * 32, 32, 32, 4, 0.5)
+      const stain = n.fbm(u * 3, v * 3, 3, 3, 3, 0.6)
+      // the joint: a dark groove along both tile edges (wraps with the repeat)
+      const joint = x < jw || y < jw
+      // a faint band of lighter, smoother concrete beside the joint where the saw cleaned it
+      const edge = Math.min(x, y, w - x, h - y) / w
+      const lip = edge < 0.01 ? (1 - edge / 0.01) * 6 : 0
+      const base = 150 + (f - 0.5) * 40 + (stain - 0.5) * 30 + lip
+      const dark = joint ? 0.55 : 1
+      out[0] = (base + 2) * dark
+      out[1] = base * dark
+      out[2] = (base - 6) * dark
+      height[y * w + x] = joint ? f - 0.9 : f
+    })
+    return { map: makeTexture(c, { aniso: groundAniso() }), normalMap: normalMapFrom(height, w, h, 0.8, 0.8, groundAniso()) }
+  })
 }

@@ -28,8 +28,12 @@
  *        instanced bays (prototype bounds through every instance matrix) — lies inside
  *        s ∈ [boxS − 13, boxS − 3] × lateral stop ± 1.5 below the 2F soffit (4.6); all eight
  *        SCREENS rows are drawn (their frames stand on the canopy).
- *  TODO(I1-c): pitHoops counts from the tables, the LAYER.pit.band decals; TODO(I1-b 3/4): the
- *        interior props' bbox (lateral ∈ [−51.6, −29]), the terrace guests in stats.ops.
+ *  I1-c  `checkLane` (its own block at the end): the lane's v2 meshes, the hoop count from the
+ *        table, the blue-band decal on LAYER.pit.band, every lane vertex finite and above the
+ *        road plane − 0.5, the sim envelope (nothing inside lateral (−19.1, −11.5) along the box
+ *        strip, nothing in the chase-lens columns), the wall-top signs, the W-beam sections, the
+ *        start gantry's 5 × 4 lamps.
+ *  TODO(I1-b 3/4): the interior props' bbox (lateral ∈ [−51.6, −29]), the terrace guests in stats.ops.
  *
  *   node scripts/audit/pit-smoke.mjs [--tier high|low|both] [--glb]
  *
@@ -60,7 +64,7 @@ console.log('\npit-smoke: tables')
   check(v2.unverified.length >= 5, `v2 unverified list (${v2.unverified.length})`)
   const w = spec.PIT_WALL
   check(w.wallWidth === 0.7 && w.wallTop === 1.8 && w.divider === -16.05 && w.blueBand.lat[0] === -19.1, `PIT_WALL v2: ${w.wallWidth} m wall to ${w.wallTop}, divider ${w.divider}, blue band ${w.blueBand.lat.join('…')}`)
-  check(w.height === 1.05 && w.fenceHeight === 2.2, `PIT_WALL v1 keys kept for the v1 builder (height ${w.height}, fence ${w.fenceHeight})`)
+  check(w.height === undefined && w.fenceHeight === undefined && w.topWidth === undefined, 'PIT_WALL v1 keys (height / fenceHeight / topWidth) deleted with the v1 builder (I1-c)')
   // signs on the wall
   const sixty = bar.SIGNS.find((s) => s.id === 'pit-entry-60')
   const fire = bar.SIGNS.find((s) => s.id === 'fire-station')
@@ -266,7 +270,7 @@ for (const tier of tiers) {
   check(roofs.material === pitCanopy.material, 'paddockRoofs and pitCanopy share buildingRoofMat')
   checkBuilding(scene, check, byName)
   // the wall-top signs are not free-standing boxes: nothing of the props buckets stands at (5556…5562, −9.4) above the wall top
-  const wallTop = spec.PIT_WALL.height + 0.5
+  const wallTop = spec.PIT_WALL.wallTop
   const props = [...byName.entries()].filter(([n]) => n === 'props').flatMap(([, ms]) => ms)
   let boardsOnWall = 0
   const road = new THREE.Vector3()
@@ -282,6 +286,136 @@ for (const tier of tiers) {
     }
   }
   check(boardsOnWall === 0, `no free-standing sign box above the wall top at s 5554–5565 (structures.ts skips mount pitWallTop; ${boardsOnWall} vertices)`)
+  checkLane(scene, check, byName)
 }
+
+// ================================================================ I1-c — the pit lane (pit-lane.ts)
+/**
+ * The lane's own facts (plan I1-c): the v2 names exist; the hoop count follows the table
+ * (⌊forwardDelta(concrete) / pitch⌋ ± 1); the blue band is a decal on LAYER.pit.band with no bare
+ * ground under it; every pit* / concretePit* vertex is finite and ≥ 0.5 m under the road plane at
+ * worst; the sim's envelope holds — nothing of the lane stands inside lateral (−19.1, −11.5)
+ * along the box strip (the wall-side furniture stays at ≥ −11.5) and nothing at all inside the
+ * chase-lens columns s [boxS − 13, boxS − 9] × lat [−25, −22] of every block — from the real
+ * vertices / instance boxes; the wall-top signs stand over the white block; the W-beams stay in
+ * their sections; the start gantry has its 5 × 4 lamps and the 5 column materials the race lights.
+ */
+function checkLane(scene, check, byName) {
+  const { env, track, trackMeshes } = scene
+  const L = track.length
+  const W = spec.PIT_WALL
+  const fwd = (a, b) => ((b - a) % L + L) % L
+  const inArc = (s, [a, b]) => fwd(a, s) <= fwd(a, b)
+  const names = ['pitWall', 'pitWallBlock', 'pitWallBoards', 'pitWallBoardsLane', 'pitWallSigns', 'pitDebrisFence', 'concretePitKerb', 'concretePitWalkway', 'concretePitPlatform', 'pitRostrum', 'pitRostrumWindow', 'pitRostrumPanel', 'pitWBeam', 'pitBlueBand', 'pitCabinets', 'pitSteel']
+  const missing = names.filter((n) => (byName.get(n)?.length ?? 0) !== 1)
+  check(missing.length === 0, `lane meshes: ${names.length} names${missing.length ? ` — missing / duplicated: ${missing.join(', ')}` : ''}`)
+  const setsOf = (prefix) => [...byName.entries()].filter(([k, ms]) => k.startsWith(`${prefix}-`) && ms.some((o) => o.isInstancedMesh)).flatMap(([, ms]) => ms)
+  const hoops = setsOf('pitHoops')
+  const hoopCount = hoops.reduce((a, m) => a + m.count, 0)
+  const expected = Math.floor(fwd(W.concrete[0], W.concrete[1]) / W.hoops.pitch)
+  check(Math.abs(hoopCount - expected) <= 1 && hoops.length >= 2, `hoops: ${hoopCount} instances in ${hoops.length} bays = ⌊${fwd(W.concrete[0], W.concrete[1]).toFixed(0)} / ${W.hoops.pitch}⌋ ${expected} ± 1 (prototype ${trisOf({ geometry: hoops[0]?.geometry, isInstancedMesh: false })} tris)`)
+  const fencePosts = [...setsOf('pitFencePosts'), ...setsOf('pitFencePostsTall')]
+  const wPosts = setsOf('pitWBeamPosts')
+  check(fencePosts.length >= 2 && wPosts.length >= 2, `instanced posts: fence ${fencePosts.reduce((a, m) => a + m.count, 0)} in ${fencePosts.length} bays, W-beam ${wPosts.reduce((a, m) => a + m.count, 0)} in ${wPosts.length} bays`)
+  // the blue band
+  const band = byName.get('pitBlueBand')?.[0]
+  const decal = band?.userData.decal
+  // uncovered is the clipper's float residue at the quads' corners on the lane / apron edge (µm²), not bare ground
+  check(!!decal && decal.uncovered < 1e-3 && Math.abs(decal.rung - 0.012) < 1e-9 && Array.isArray(band.material) && band.material.length === 2, `pitBlueBand: decal on LAYER.pit.band (${decal?.rung} m), ${decal?.area.toFixed(0)} m², uncovered ${decal?.uncovered.toExponential(1)} m² (< 1e-3), ${Array.isArray(band?.material) ? band.material.length : 1} material groups`)
+  // every lane vertex: finite, on the road plane's side of the ground, outside the envelope
+  // the lane's own meshes (the building's are I1-b's smoke): the names above and the instanced sets
+  const lanePrefix = /^(pitHoops-|pitFencePosts|pitWBeamPosts-|perchCanopies|perchBacks)/
+  const laneMeshes = [...byName.entries()].filter(([n]) => (names.includes(n) || lanePrefix.test(n)) && n !== 'pitBlueBand').flatMap(([, ms]) => ms)
+  const road = new THREE.Vector3(), v = new THREE.Vector3(), m4 = new THREE.Matrix4()
+  const [S0, S1] = spec.PIT_BOX_STRIP
+  const lens = spec.PIT_ENVELOPE.chaseLens
+  const stop = spec.PIT_ENVELOPE.stop
+  let below = 0, inLane = 0, inLens = 0, n = 0, nan = 0
+  const offenders = new Set()
+  const test = (x, y, z, name) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { nan++; return }
+    const hit = track.nearestOnRange(x, z, 5530, 135)
+    if (!hit || hit.d > 40) return
+    n++
+    track.pointAt(hit.s, hit.lateral, road, 0)
+    if (y < road.y - 0.5) { below++; offenders.add(`${name} (below)`) }
+    const s = track.wrap(hit.s)
+    if (inArc(s, [S0, S1]) && hit.lateral < -11.5 - 1e-3 && hit.lateral > -19.1) { inLane++; offenders.add(`${name} (lane ${hit.lateral.toFixed(2)} at s ${s.toFixed(1)})`) }
+    for (const boxS of spec.GARAGE_CENTRES) {
+      if (inArc(s, [boxS - lens.columnS[0], boxS - lens.columnS[1]]) && hit.lateral >= stop - lens.halfLat && hit.lateral <= stop + lens.halfLat) { inLens++; offenders.add(`${name} (lens column of ${boxS})`) }
+    }
+  }
+  for (const m of laneMeshes) {
+    m.updateWorldMatrix(true, false)
+    const p = m.geometry.attributes.position
+    if (!p) continue
+    if (m.isInstancedMesh) {
+      if (!m.geometry.boundingBox) m.geometry.computeBoundingBox()
+      const bb = m.geometry.boundingBox
+      for (let i = 0; i < m.count; i++) {
+        m.getMatrixAt(i, m4)
+        m4.premultiply(m.matrixWorld)
+        for (const cx of [bb.min.x, bb.max.x]) for (const cy of [bb.min.y, bb.max.y]) for (const cz of [bb.min.z, bb.max.z]) {
+          v.set(cx, cy, cz).applyMatrix4(m4)
+          test(v.x, v.y, v.z, `${m.name}[${i}]`)
+        }
+      }
+    } else {
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld)
+        test(v.x, v.y, v.z, m.name)
+      }
+    }
+  }
+  check(nan === 0 && below === 0, `${laneMeshes.length} lane meshes, ${fmt(n)} vertices / instance corners near the straight: finite (${nan} NaN), none > 0.5 m under the road plane (${below})`)
+  check(inLane === 0, `sim envelope: nothing inside lateral (−19.1, −11.5) along the box strip ${S0}→${S1} (${inLane} vertices${inLane ? `: ${[...offenders].filter((o) => o.includes('lane')).slice(0, 4).join(', ')}` : ''})`)
+  check(inLens === 0, `chase-lens columns s [boxS − ${lens.columnS[0]}, boxS − ${lens.columnS[1]}] × lat ${stop} ± ${lens.halfLat} of ${spec.GARAGE_CENTRES.length} blocks: empty (${inLens} vertices${inLens ? `: ${[...offenders].filter((o) => o.includes('lens')).slice(0, 4).join(', ')}` : ''})`)
+  // the wall-top signs stand over the white block, above the wall
+  {
+    const signs = byName.get('pitWallSigns')?.[0]
+    let ok = !!signs, lo = Infinity, hi = -Infinity, sMin = Infinity, sMax = -Infinity
+    if (signs) {
+      const p = signs.geometry.attributes.position
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(signs.matrixWorld)
+        const hit = track.nearestOnRange(v.x, v.z, 5540, 5580)
+        track.pointAt(hit.s, hit.lateral, road, 0)
+        const dy = v.y - road.y
+        lo = Math.min(lo, dy); hi = Math.max(hi, dy); sMin = Math.min(sMin, hit.s); sMax = Math.max(sMax, hit.s)
+        if (Math.abs(hit.lateral - W.lateral) > 1.5) ok = false
+      }
+      ok = ok && lo >= W.wallTop + W.signPost - 1e-3 && sMin >= W.concrete[0] - 1 && sMax <= W.concrete[0] + W.whiteBlock + 1
+    }
+    check(ok, `pitWallSigns: over the white block s ${sMin.toFixed(1)}–${sMax.toFixed(1)} (${W.concrete[0]} + ${W.whiteBlock}), y ${lo.toFixed(2)}–${hi.toFixed(2)} above the road (wall top ${W.wallTop} + posts ${W.signPost})`)
+  }
+  // the W-beams stay in their sections
+  {
+    const wb = byName.get('pitWBeam')?.[0]
+    let out = 0, cnt = 0
+    if (wb) {
+      const p = wb.geometry.attributes.position
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(wb.matrixWorld)
+        const hit = track.nearestOnRange(v.x, v.z, 5530, 135)
+        cnt++
+        if (!W.wBeam.some(([a, b]) => inArc(track.wrap(hit.s), [a - 0.5, b + 0.5]))) out++
+      }
+    }
+    check(!!wb && out === 0, `pitWBeam: ${cnt} vertices inside ${W.wBeam.map(([a, b]) => `${a}→${b}`).join(' / ')} (${out} outside)`)
+  }
+  // the start gantry v2: 5 lamp columns × 4 rows, the top two rows on the race's materials
+  {
+    const g = trackMeshes.group.getObjectByName('startGantry')
+    const lamps = g ? g.children.filter((o) => o.isMesh && o.geometry?.type === 'SphereGeometry') : []
+    const mats = trackMeshes.startLampMaterials
+    const onRace = lamps.filter((l) => mats.includes(l.material)).length
+    check(!!g && lamps.length === 20 && mats.length === 5 && onRace === 10, `startGantry: ${lamps.length} lamps (5 × 4), ${mats.length} column materials, ${onRace} lamps on them (the top two rows)`)
+    const boxes = g ? g.children.filter((o) => o.isMesh && o.geometry?.type === 'BoxGeometry') : []
+    const banner = boxes.find((b) => Array.isArray(b.material))
+    check(!!banner && Math.abs(banner.geometry.parameters.height - 2.0) < 1e-9 && Math.abs(banner.position.y - 8.85) < 1e-9, `startGantry banner: ${banner?.geometry.parameters.width.toFixed(1)} × ${banner?.geometry.parameters.height} at ${banner?.position.y}`)
+  }
+  check(Number.isFinite(env.buildMs?.pitLane), `buildMs.pitLane = ${Number(env.buildMs?.pitLane).toFixed(0)} ms`)
+}
+// ================================================================ end I1-c
 
 finish()

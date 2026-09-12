@@ -147,10 +147,26 @@ export function signAtlas(): THREE.Texture {
 }
 
 /** BoxGeometry face index the sign's graphic goes on (groups +x, −x, +y, −y, +z, −z; local +X = +lateral, +Z = +s). */
-const FACING_FACE: Record<SignDef['facing'], number> = { '+lat': 0, '-lat': 1, '+s': 4, '-s': 5 }
+export const FACING_FACE: Record<SignDef['facing'], number> = { '+lat': 0, '-lat': 1, '+s': 4, '-s': 5 }
 
-/** Remap a BoxGeometry's uv so face `face` shows atlas cell `cell` and every other face the blank cell. */
-function signUv(face: number, cell: number): (uv: THREE.BufferAttribute) => void {
+/** the atlas cell of a board sign's kind (the pit-exit light has no board) */
+export function signCellOf(sign: SignDef): number {
+  return sign.kind === 'fireStation' ? SIGN_CELL.fireStation : sign.kind === 'pitExit' ? SIGN_CELL.pitExit : sign.kind === 'speed60' ? SIGN_CELL.speed60 : sign.id === 'drs-detection' ? SIGN_CELL.drsDetection : SIGN_CELL.drsZone
+}
+
+/**
+ * Remap a BoxGeometry's uv so face `face` shows atlas cell `cell` and every other face the blank
+ * cell. `aspect` = the board's width / height: the cells are 2 : 1, so a square board (the 60
+ * ring) reads the middle half of its cell and the ring stays round. Shared with pit-lane.ts,
+ * which draws the SIGNS rows mounted on the pit wall's top (`pitWallTop`) from the same atlas.
+ */
+export function signUv(face: number, cell: number, aspect = 2): (uv: THREE.BufferAttribute) => void {
+  // the fraction of the cell a board of this aspect shows, centred: a narrower board reads the
+  // middle of the cell's width, a wider one the middle of its height (never under 60 %: the
+  // letters are drawn at half the cell's height, so the crop keeps them whole)
+  const span = Math.max(0.1, Math.min(1, aspect / 2))
+  const vSpan = Math.max(0.6, Math.min(1, 2 / aspect))
+  const uLo = (1 - span) / 2, vLo = (1 - vSpan) / 2
   const rect = (i: number) => {
     const col = i % ATLAS_COLS, row = Math.floor(i / ATLAS_COLS)
     // canvas rows run top-down; the texture's v runs bottom-up
@@ -161,7 +177,7 @@ function signUv(face: number, cell: number): (uv: THREE.BufferAttribute) => void
       const r = rect(f === face ? cell : SIGN_CELL.blank)
       for (let i = f * 4; i < f * 4 + 4; i++) {
         // inset 6 % so the bilinear filter never reads the neighbouring cell
-        const u = 0.06 + uv.getX(i) * 0.88, v = 0.06 + uv.getY(i) * 0.88
+        const u = uLo + span * (0.06 + uv.getX(i) * 0.88), v = vLo + vSpan * (0.06 + uv.getY(i) * 0.88)
         uv.setXY(i, r.u0 + u * (r.u1 - r.u0), r.v0 + v * (r.v1 - r.v0))
       }
     }
@@ -444,10 +460,11 @@ interface SignMats {
 /** The SIGNS table: boards on posts through the shared box placer, one atlas; the pit-exit signal head. */
 function buildSigns(track: Track, boxes: BoxPlacer, m: SignMats) {
   for (const sign of SIGNS) {
-    if (sign.mount === 'pitWallBoard') continue // painted on the pit wall's boards by pit-lane.ts
-    // TODO(I1-c): pitWallTop rows (the 60 and FIRE STATION on the wall's white block) are drawn
-    // by pit-lane.ts on the wall top; barrierTop rows by the barrier builder (I4) — skipped here
-    if (sign.mount === 'pitWallTop' || sign.mount === 'barrierTop') continue
+    // mounted rows are drawn by the wall's builder: pitWallBoard is a cell of the pit wall's
+    // boards and pitWallTop a board on the wall's white block (both pit-lane.ts)
+    if (sign.mount === 'pitWallBoard' || sign.mount === 'pitWallTop') continue
+    // TODO(I4): barrierTop rows are drawn by the barrier builder — skipped here until then
+    if (sign.mount === 'barrierTop') continue
     const lat = sign.lateral === 'cameraSide' ? cameraSide(track, sign.s) * (track.halfWidthAt(sign.s) + 3.2) : sign.lateral
     if (sign.kind === 'pitExitLight') {
       // a pole, a dark three-lens head, the green lens on the face towards the lane's traffic
@@ -458,7 +475,7 @@ function buildSigns(track: Track, boxes: BoxPlacer, m: SignMats) {
       boxes.place(sign.s + dz, lat + dl, 0.05, 0.22, 0.22, m.lensMat, sign.height + sign.boardHeight * 0.62, false, false)
       continue
     }
-    const cell = sign.kind === 'fireStation' ? SIGN_CELL.fireStation : sign.kind === 'pitExit' ? SIGN_CELL.pitExit : sign.id === 'drs-detection' ? SIGN_CELL.drsDetection : SIGN_CELL.drsZone
+    const cell = signCellOf(sign)
     const across = sign.facing === '+s' || sign.facing === '-s'
     // the board: its long side across the track for a ±s facing, along it otherwise
     boxes.place(sign.s, lat, across ? 0.06 : sign.width, across ? sign.width : 0.06, sign.boardHeight, m.signMat, sign.height, false, true, signUv(FACING_FACE[sign.facing], cell))

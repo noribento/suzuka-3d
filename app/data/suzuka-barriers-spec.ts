@@ -365,7 +365,7 @@ export const SIGNS: SignDef[] = [
   { id: 'drs-detection', kind: 'drs', s: 5150, lateral: -27, facing: '-s', height: 1.5, width: 1.2, boardHeight: 1.2, note: 'DRS detection line (CIRCUIT.drs.detection); behind chicane-approach-right-b, outside the right apron (its edge is −24 at s 5148)', unverified: ['lateral: the board is not resolvable in the aerial; placed on the first unpaved ground beside the line'] },
   { id: 'drs-zone', kind: 'drs', s: 5590, lateral: 'cameraSide', facing: '-s', height: 1.5, width: 1.2, boardHeight: 1.2, note: 'DRS activation (CIRCUIT.drs.start)' },
   // the pit-entry end of the wall (west.jpg / padroad.jpg): the 60 ring and the FIRE STATION board
-  // stand side by side on the white block where the concrete wall starts — TODO(I1-c): pit-lane.ts draws them
+  // stand side by side on the white block where the concrete wall starts (pit-lane.ts draws them on two posts over the wall top)
   { id: 'pit-entry-60', kind: 'speed60', s: 5556, lateral: -9.4, facing: '-s', mount: 'pitWallTop', height: 1.8, width: 0.6, boardHeight: 0.6, note: 'round red-bordered 60 on the white block where the concrete wall starts (padroad.jpg)', unverified: ['s ±10'] },
   { id: 'fire-station', kind: 'fireStation', s: 5562, lateral: -9.4, facing: '-s', mount: 'pitWallTop', height: 1.8, width: 2.4, boardHeight: 0.6, note: 'white board with red letters on the pit wall beside the 60 (west.jpg)', unverified: ['s ±10 (the photo is a long lens down the straight)'] },
   { id: 'pit-exit', kind: 'pitExit', s: 126, lateral: -20.6, facing: '-s', height: 2.0, width: 1.6, boardHeight: 0.5, unverified: ['position ±5'] },
