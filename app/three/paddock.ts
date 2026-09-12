@@ -1,11 +1,11 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { TEAMS } from '~/data/drivers'
 import { enPairs } from '~/data/en-codec'
 import {
-  BUILDINGS, COLOURS, GARAGE_ORDER, HELIPAD, PADDOCK_BAY, PADDOCK_BUILDINGS, PADDOCK_FENCE, PADDOCK_ISLAND, PADDOCK_LAMPS, PADDOCK_MASTS, PADDOCK_OFFICE, PADDOCK_PARKING, PADDOCK_PLANE,
-  PIT_BOX_STRIP, PIT_BUILDING, PIT_ENVELOPE, UNDERPASSES, garageS, type PaddockBuildingDef, type PaddockParkingRow,
+  BUILDINGS, COLOURS, HELIPAD, PADDOCK_BAY, PADDOCK_BUILDINGS, PADDOCK_FENCE, PADDOCK_ISLAND, PADDOCK_LAMPS, PADDOCK_MASTS, PADDOCK_OFFICE, PADDOCK_PARKING, PADDOCK_PLANE,
+  PIT_BOX_STRIP, PIT_BUILDING, PIT_ENVELOPE, UNDERPASSES, type PaddockBuildingDef, type PaddockParkingRow,
 } from '~/data/suzuka-facilities-spec'
+import { placementCorners, vehiclePlacements } from '~/data/ops-spec'
 import { osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { SUR_ROADS } from '~/data/suzuka-surroundings'
 import { Rng } from '~/sim/random'
@@ -62,8 +62,8 @@ import { CAR_PARK } from './vehicles'
  *   bodies (car-glb.ts) inside `Quality.infield.vehiclesNearM` on the high tier, a few
  *   `covered_car`s in the A lot), `Quality.infield.paddockCars` of them spread by occupancy.
  *
- * Kept from v1 until I3: the team-coloured transporters and cabs on the truck strip, the tents
- * and the flags (the gate flags moved to s 5538, off the tunnel head). Everything on the
+ * Kept from v1: the flags (the gate flags moved to s 5538, off the tunnel head; the T1-cap
+ * poles) — the v1 transporters and tents went with I3-b (ops-vehicles.ts). Everything on the
  * paddock plane is placed in the road frame (frameAt / onPlane); everything else stands on
  * `ground.standY`. Nothing here reads the terrain (R3). No new program: plain Standard maps,
  * pbrFromAssets, cutoutFromAssets('fence003'), the pit materials, `carBody|tint` /
@@ -470,6 +470,25 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   const doorS: number[] = []
   const fenceRuns: { x: number; z: number }[][] = []
   const lampXZ: { x: number; z: number }[] = []
+  /**
+   * The ops layer's paddock footprints (I3-b, ops-spec `vehiclePlacements()`: the transporters,
+   * hospitality units, tents, containers, the compound) in world XZ, grown by 0.3 m — the
+   * street lamps and the car-park bays keep off them (the marquees cover the whole B lot).
+   */
+  const opsFootprints: { x: number; z: number }[][] = []
+  for (const p of vehiclePlacements()) {
+    if (p.mount !== 'paddock' || (p.y ?? 0) > 0) continue
+    const grown = { ...p, size: [p.size[0] + 0.6, p.size[1] + 0.6, p.size[2]] as [number, number, number] }
+    opsFootprints.push(placementCorners(grown).map(([s, l]) => { track.pointAt(track.wrap(s), l, _p, 0); return { x: _p.x, z: _p.z } }))
+  }
+  const inOpsFootprint = (x: number, z: number): boolean => opsFootprints.some((poly) => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i]!, b = poly[j]!
+      if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+    }
+    return inside
+  })
 
   // ================================================================ team offices
   {
@@ -1187,7 +1206,10 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     // poles with cobra heads — the same pole as the outskirts' car parks
     const poleProc = procProp('lamp-pole', [{ geometry: mergeGeometries([mast, arm, head, base].map((g) => g.toNonIndexed()), false)!, material: plain(0xb4b8b6, 0.6, 0.4) }])
     const lamps: PropSet = { proto: poleProc, far: poleProc, placements: [] }
+    let underOps = 0
     const put = (x: number, z: number, yaw: number) => {
+      // a lamp under a marquee / hospitality unit / container (I3-b) is left out
+      if (inOpsFootprint(x, z)) { underOps++; return }
       // never on a water face (the fuel station's −s end meets the pond 184005565); bare terrain
       // (builtY null: the un-drawn fuel apron until P7) stays allowed
       if (ground.builtY(x, z)?.kind === 'water') { console.warn('[paddock] lamp dropped on a water face', x.toFixed(1), z.toFixed(1)); return }
@@ -1230,6 +1252,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       put(_p.x, _p.z, Math.atan2(-(-h.tx), h.tz))
     }
     registerPropSet(ctx, 'infield', 'infield-lamps', [lamps], { nearM: 700, farM: Infinity }, { receiveShadow: true })
+    stat('paddock-lampsUnderOps', underOps)
 
     // the 22 m masts: a 0.6 m square lattice, a crossbar with three flood heads facing the paddock (−lateral)
     const Mt = PADDOCK_MASTS
@@ -1266,7 +1289,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   add(concreteGeos, M.concrete, 'concretePaddockSteps', true)
   add(darkGeos, M.dark, 'paddockOpenings', false)
 
-  // ================================================================ v1 pieces kept until I3: the other BUILDINGS extrusions, transporters, tents, flags
+  // ================================================================ v1 pieces kept until I3: the other BUILDINGS extrusions, the flags
   {
     // the BUILDINGS rows no other builder owns (the Dunlop office, the west tower, CIRCUIT PLAZA) — the v1 extrusion
     const capGeos: THREE.BufferGeometry[] = []
@@ -1290,33 +1313,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     add(wallGeos, whiteMat, 'paddockBuildings', true)
     add(capGeos, opts.buildingRoofMat, 'paddockRoofs', true)
 
-    // transporters backed up to the rear wall behind each team's garage, two per team (I3 replaces them)
-    const teams = GARAGE_ORDER.map((id) => TEAMS[id])
-    const trailers: { m: THREE.Matrix4; color: THREE.Color }[] = []
-    teams.forEach((team, g) => {
-      const s = garageS(g)
-      for (const ds of [-5, 5]) {
-        trailers.push({ m: boxes.matrix(s + ds, -64.5, 4.0, 0, false, new THREE.Matrix4()), color: new THREE.Color(team.body) })
-        boxes.place(s + ds, -72.6, 2.5, 2.4, 3.2, whiteMat, 0, false, false) // cab
-      }
-    })
-    boxes.instanced(2.55, 13.6, 4.0, trailers, 0.5, true, 'transporters')
-    // tents (white and red) on the final-corner side of the truck strip
-    const tentMat = new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.9, side: THREE.DoubleSide })
-    const tentRedMat = new THREE.MeshStandardMaterial({ color: COLOURS.circuitRed.lit, roughness: 0.9, side: THREE.DoubleSide })
-    const tentGeos: THREE.BufferGeometry[] = []
-    const tentRedGeos: THREE.BufferGeometry[] = []
-    for (let i = 0; i < 6; i++) {
-      const s = 5600 + i * 9
-      const lat = -70
-      const cone = new THREE.ConeGeometry(4.6, 2.2, 4, 1, true)
-      cone.rotateY(Math.PI / 4)
-      cone.applyMatrix4(frameAt(track, s, lat, ground.standAt(s, lat) + 2.7 + 1.1, new THREE.Matrix4()))
-      ;(i % 3 === 1 ? tentRedGeos : tentGeos).push(cone)
-      for (const [ds, dl] of [[-3, -3], [3, -3], [-3, 3], [3, 3]] as const) boxes.place(s + ds, lat + dl, 0.1, 0.1, 2.7, railMat, 0, false, false)
-    }
-    add(tentGeos, tentMat, 'tents', false)
-    add(tentRedGeos, tentRedMat, 'tentsRed', false)
+    // the transporters and tents of v1 went with I3-b (ops-vehicles.ts draws the trucks, the hospitality units and the tents)
     // flag poles on the canopy at the T1 end (pitbld.jpg) and at the paddock gate (moved from s 5548 to
     // 5538: the 逆バンク ramp head and the helipad compound fence stand where they were)
     const S1 = track.wrap(PIT_BOX_STRIP[1])
@@ -1359,7 +1356,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     }
 
     // --- what a bay must keep clear of ----------------------------------------------------------------
-    /** the footprints in world XZ: every paddock row, the other BUILDINGS extrusions, the helipad, the v1 transporters / tents, the masts */
+    /** the footprints in world XZ: every paddock row, the other BUILDINGS extrusions, the helipad, the masts, and every ops-layer footprint on the paddock (ops-spec `vehiclePlacements()`: the transporters, hospitality units, tents, containers, the compound) */
     const footprints: P2[][] = []
     const frameBox = (s0: number, s1: number, l0: number, l1: number, margin: number): P2[] =>
       [world(s0 - margin, l0 - margin), world(s1 + margin, l0 - margin), world(s1 + margin, l1 + margin), world(s0 - margin, l1 + margin)]
@@ -1376,9 +1373,9 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       if (f) footprints.push(enRing(f))
     }
     footprints.push(disc(HELIPAD.s, HELIPAD.lateral, HELIPAD.radius + 1))
-    for (let g = 0; g < GARAGE_ORDER.length; g++) for (const ds of [-5, 5]) footprints.push(frameBox(garageS(g) + ds - 1.3, garageS(g) + ds + 1.3, -64.5 - 6.8, -64.5 + 6.8, 0.3))
-    for (let i = 0; i < 6; i++) footprints.push(disc(5600 + i * 9, -70, 4.8))
     for (const at of PADDOCK_MASTS.at) footprints.push(disc(at.s, at.lateral, 1.2))
+    // the ops layer's paddock rows (I3-b), grown by 0.3 m: a bay under a marquee, a truck or a hospitality unit is dropped
+    footprints.push(...opsFootprints)
     const inPoly = (x: number, z: number, poly: P2[]): boolean => {
       let inside = false
       for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

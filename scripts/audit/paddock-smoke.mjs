@@ -300,12 +300,19 @@ for (const tier of tiers) {
     const q = scene.quality
     const report = env.group.userData.paddockParking ?? []
     check(report.length === spec.PADDOCK_PARKING.length, `paddockParking report: ${report.length} blocks = table ${spec.PADDOCK_PARKING.length}`)
+    // a block whose every walkable bay lies under an ops-layer footprint (I3-b: the three marquees
+    // cover the whole B lot on a race weekend) keeps no bay, draws no lines and holds no car
+    const underOps = (r) => !!r && r.kept === 0 && r.rejects.footprint > 0 && r.rejects.footprint + r.rejects.slope + r.rejects.face + r.rejects.owner + r.rejects.envelope + r.rejects.fence + r.rejects.lamp === r.walked
     for (const row of spec.PADDOCK_PARKING) {
+      const r = report.find((b) => b.id === row.id)
+      const rej = r ? Object.entries(r.rejects).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') : '-'
+      if (underOps(r)) {
+        check(!env.group.getObjectByName(`paddockBayLines-${row.id}`), `  block ${row.id}: every bay under an ops footprint (${rej}) — no lines, no cars`)
+        continue
+      }
       const mesh = env.group.getObjectByName(`paddockBayLines-${row.id}`)
       const d = mesh?.userData.decal
       check(!!d && d.rung === groundMod.LAYER.paddock.line && !d.soft && d.uncovered < 1, `  paddockBayLines-${row.id}: ${mesh ? trisOf(mesh) : 0} tris at LAYER.paddock.line, uncovered ${d?.uncovered?.toFixed(2)} m² of ${d?.area?.toFixed(1)} m²`)
-      const r = report.find((b) => b.id === row.id)
-      const rej = r ? Object.entries(r.rejects).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') : '-'
       check(!!r && r.kept > 0 && r.cars > 0, `  block ${row.id}: ${r?.kept} of ${r?.walked} bays kept (${rej || 'no rejects'}), ${r?.cars} cars`)
     }
     const keptTotal = report.reduce((n, b) => n + b.kept, 0), carsTotal = report.reduce((n, b) => n + b.cars, 0)

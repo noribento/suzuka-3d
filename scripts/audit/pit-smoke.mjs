@@ -381,8 +381,8 @@ const V1_NAMES = {
   pitWall: 1, pitWallBoards: 1, pitWallBoardsLane: 1, pitDebrisFence: 1, leaderTowerLattice: 1, leaderTowerName: 1, leaderTowerBoard: 1,
   // both: the building's railings and the wall's top ribbon / fence rail (same name, same material)
   pitRails: 2,
-  // paddock.ts
-  paddockBuildings: 1, paddockRoofs: 1, tents: 1, tentsRed: 1, flagPoles: 1,
+  // paddock.ts (the v1 tents and transporters went with I3-b: ops-vehicles.ts)
+  paddockBuildings: 1, paddockRoofs: 1, flagPoles: 1,
 }
 /** the I1-a facts of the scene: the v1 meshes are there, finite and on the road plane's side of the ground */
 for (const tier of tiers) {
@@ -397,12 +397,12 @@ for (const tier of tiers) {
   // names
   const missing = Object.entries(V1_NAMES).filter(([n, c]) => (byName.get(n)?.length ?? 0) !== c)
   check(missing.length === 0, `v1 meshes under env.group: ${Object.keys(V1_NAMES).length} names${missing.length ? ` — wrong: ${missing.map(([n, c]) => `${n} (${byName.get(n)?.length ?? 0} ≠ ${c})`).join(', ')}` : ''}`)
-  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'perchCanopies', 'perchBacks', 'transporters', 'teamOffices']
+  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'perchCanopies', 'perchBacks', 'teamOffices']
   // the bucketed sets carry a '-<bay>' suffix per 60 m bay
   const noInst = instanced.filter((n) => ![...byName.entries()].some(([k, ms]) => (k === n || k.startsWith(`${n}-`)) && ms.some((o) => o.isInstancedMesh)))
   check(noInst.length === 0, `instanced sets: ${instanced.length}${noInst.length ? ` — missing: ${noInst.join(', ')}` : ''}`)
   // vertices: finite, and never more than 0.5 m under the road plane at their (s, lateral)
-  const pitMeshes = [...byName.entries()].filter(([n]) => /^(pit|controlPod|garage|podium|leaderTower|paddock|tents|flag|perch|transporters|parking|parkedCars)/.test(n)).flatMap(([, ms]) => ms)
+  const pitMeshes = [...byName.entries()].filter(([n]) => /^(pit|controlPod|garage|podium|leaderTower|paddock|flag|perch|parking|parkedCars)/.test(n)).flatMap(([, ms]) => ms)
   const fv = finiteVertices(pitMeshes)
   check(fv.nan === 0, `${pitMeshes.length} pit / paddock meshes, ${fmt(fv.vertices)} vertices, no NaN / infinite (${fv.nan})`)
   const tris = pitMeshes.reduce((a, m) => a + trisOf(m), 0)
