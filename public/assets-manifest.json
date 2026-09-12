@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-09-11T19:06:16.408Z",
+  "generated": "2026-09-12T05:06:56.603Z",
   "tools": {
     "sharp": "0.35.4",
     "ktx": "4.4.2",
@@ -901,27 +901,66 @@
         "meshopt compression (gltfpack -cc)"
       ]
     },
+    "model/props/Barrel_02": {
+      "kind": "model",
+      "path": "/assets/models/props_Barrel_02.3c9d173b.glb",
+      "format": "glb",
+      "bytes": 109840,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Barrel 02",
+        "pageUrl": "https://polyhaven.com/a/Barrel_02",
+        "licence": "CC0-1.0",
+        "author": "Jorge Camacho",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Barrel_02/Barrel_02_1k.gltf",
+        "sha256Source": "82204368af4d7211c440e7ebcd30979f48ba349d4439f3bf0212f86d4ba5d9d8"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
     "model/props/concrete_road_barrier": {
       "kind": "model",
-      "path": "/assets/models/props_concrete_road_barrier.cb24abf3.glb",
+      "path": "/assets/models/props_concrete_road_barrier.b9d7a2c2.glb",
       "format": "glb",
-      "bytes": 438640,
+      "bytes": 436036,
       "role": "model",
       "textures": [
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         }
       ],
       "source": {
@@ -936,35 +975,537 @@
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)",
+        "simplified to 0.08 of the triangles (gltfpack -si -sa)"
       ]
     },
-    "model/props/security_camera_01": {
+    "model/props/covered_car": {
       "kind": "model",
-      "path": "/assets/models/props_security_camera_01.7befa6c3.glb",
+      "path": "/assets/models/props_covered_car.07eb3c77.glb",
       "format": "glb",
-      "bytes": 243932,
+      "bytes": 151864,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Covered Car",
+        "pageUrl": "https://polyhaven.com/a/covered_car",
+        "licence": "CC0-1.0",
+        "author": "MP",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/covered_car/covered_car_1k.gltf",
+        "sha256Source": "80b210b08673833a8085812b9ee71286213b2af92654886e5a1a368977265aa7"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)",
+        "simplified to 0.4 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/exterior_aircon_unit": {
+      "kind": "model",
+      "path": "/assets/models/props_exterior_aircon_unit.39bcd2c4.glb",
+      "format": "glb",
+      "bytes": 205696,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Exterior Aircon Unit",
+        "pageUrl": "https://polyhaven.com/a/exterior_aircon_unit",
+        "licence": "CC0-1.0",
+        "author": "Monsta3D",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/exterior_aircon_unit/exterior_aircon_unit_1k.gltf",
+        "sha256Source": "f19d85c76948903047c2846068aeaa376d5e956a410675268cb6cb6aac5d97c2"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "1 mesh nodes dropped (keep /^exterior_aircon_unit$/)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)",
+        "simplified to 0.3 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/korean_fire_extinguisher_01": {
+      "kind": "model",
+      "path": "/assets/models/props_korean_fire_extinguisher_01.02327c89.glb",
+      "format": "glb",
+      "bytes": 226712,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Korean Fire Extinguisher 01",
+        "pageUrl": "https://polyhaven.com/a/korean_fire_extinguisher_01",
+        "licence": "CC0-1.0",
+        "author": "UM JOORIN",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/korean_fire_extinguisher_01/korean_fire_extinguisher_01_1k.gltf",
+        "sha256Source": "565f9e41909165c2bead24b722746e29ba55e8eb5e541f61fe0d1ef7e66d2ecf"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "trademarks retouched (3 rectangles blurred / filled)",
+        "parts dropped (1 primitives matching /paper/)",
+        "textures GPU-compressed to KTX2 (3 uastc, 3 etc1s)",
+        "simplified to 0.3 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/metal_jerrycan": {
+      "kind": "model",
+      "path": "/assets/models/props_metal_jerrycan.f03a401b.glb",
+      "format": "glb",
+      "bytes": 134860,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Metal Jerrycan",
+        "pageUrl": "https://polyhaven.com/a/metal_jerrycan",
+        "licence": "CC0-1.0",
+        "author": "Sean Buckley",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/metal_jerrycan/metal_jerrycan_1k.gltf",
+        "sha256Source": "7ae6f2aa0b7f35e38baa89c1c243312848391a9d1c0e67acf02aa7dac32599ff"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)",
+        "simplified to 0.15 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/metal_tool_chest": {
+      "kind": "model",
+      "path": "/assets/models/props_metal_tool_chest.eebf6c49.glb",
+      "format": "glb",
+      "bytes": 131928,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Metal Tool Chest",
+        "pageUrl": "https://polyhaven.com/a/metal_tool_chest",
+        "licence": "CC0-1.0",
+        "author": "Yann Kervran, John Hutcheson",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/metal_tool_chest/metal_tool_chest_1k.gltf",
+        "sha256Source": "2f66fbb723cd52382f73daec184b68d9b36842a488ecaf120e5c3a6354e9dea4"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)",
+        "simplified to 0.25 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/modular_fire_escape": {
+      "kind": "model",
+      "path": "/assets/models/props_modular_fire_escape.7709aacb.glb",
+      "format": "glb",
+      "bytes": 863200,
       "role": "model",
       "textures": [
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Modular Fire Escape",
+        "pageUrl": "https://polyhaven.com/a/modular_fire_escape",
+        "licence": "CC0-1.0",
+        "author": "Juniix",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_fire_escape/modular_fire_escape_1k.gltf",
+        "sha256Source": "3a28e24cf2b6fc32c86f4fd378a372f9c3babfb9c2206036c6276d5bb47df2fd"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 4 etc1s)"
+      ]
+    },
+    "model/props/old_tyre": {
+      "kind": "model",
+      "path": "/assets/models/props_old_tyre.9d843bd0.glb",
+      "format": "glb",
+      "bytes": 115336,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Old Tyre",
+        "pageUrl": "https://polyhaven.com/a/old_tyre",
+        "licence": "CC0-1.0",
+        "author": "MP",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/old_tyre/old_tyre_1k.gltf",
+        "sha256Source": "ba7b417eb3dc747c356ac3cd1f125754755684eb664737a9f1fc9e490c0b766e"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/props/plastic_crate_02": {
+      "kind": "model",
+      "path": "/assets/models/props_plastic_crate_02.9514682e.glb",
+      "format": "glb",
+      "bytes": 179516,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Plastic Crate 02",
+        "pageUrl": "https://polyhaven.com/a/plastic_crate_02",
+        "licence": "CC0-1.0",
+        "author": "Fabi_G",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/plastic_crate_02/plastic_crate_02_1k.gltf",
+        "sha256Source": "531f7ba7d4b501759b04fb704db1948bcaab34d8342e71e3f5877d9f0340dba7"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 1 etc1s)",
+        "simplified to 0.5 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/plastic_monobloc_chair_01": {
+      "kind": "model",
+      "path": "/assets/models/props_plastic_monobloc_chair_01.127f7c31.glb",
+      "format": "glb",
+      "bytes": 144040,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Plastic Monobloc Chair 01",
+        "pageUrl": "https://polyhaven.com/a/plastic_monobloc_chair_01",
+        "licence": "CC0-1.0",
+        "author": "Kuutti Siitonen",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/plastic_monobloc_chair_01/plastic_monobloc_chair_01_1k.gltf",
+        "sha256Source": "899bf148139ab8d1718c25ec06112a652631f9476b5aaeeacb9eb1da9b7f1d3a"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
+      ]
+    },
+    "model/props/portable_generator": {
+      "kind": "model",
+      "path": "/assets/models/props_portable_generator.c2663f29.glb",
+      "format": "glb",
+      "bytes": 232584,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Portable Generator",
+        "pageUrl": "https://polyhaven.com/a/portable_generator",
+        "licence": "CC0-1.0",
+        "author": "James Ray Cock",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/portable_generator/portable_generator_1k.gltf",
+        "sha256Source": "d5afe27834f824dfe753391713c45be03479e8100831f320796030531f61b848"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "trademarks retouched (11 rectangles blurred / filled)",
+        "textures GPU-compressed to KTX2 (2 uastc, 3 etc1s)",
+        "simplified to 0.15 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/rollershutter_door": {
+      "kind": "model",
+      "path": "/assets/models/props_rollershutter_door.7ef483a1.glb",
+      "format": "glb",
+      "bytes": 264636,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Rollershutter Door",
+        "pageUrl": "https://polyhaven.com/a/rollershutter_door",
+        "licence": "CC0-1.0",
+        "author": "MP",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rollershutter_door/rollershutter_door_1k.gltf",
+        "sha256Source": "913b2689f88f99cb75f8a6575e315ee90437e59976a2a3ce0b260d5636a14d30"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 3 etc1s)"
+      ]
+    },
+    "model/props/security_camera_01": {
+      "kind": "model",
+      "path": "/assets/models/props_security_camera_01.d322f28e.glb",
+      "format": "glb",
+      "bytes": 586692,
+      "role": "model",
+      "textures": [
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "format": "ktx2"
         }
       ],
       "source": {
@@ -979,35 +1520,165 @@
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 2 etc1s)",
+        "simplified to 0.3 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/security_camera_02": {
+      "kind": "model",
+      "path": "/assets/models/props_security_camera_02.bca3b584.glb",
+      "format": "glb",
+      "bytes": 186924,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Security Camera 02",
+        "pageUrl": "https://polyhaven.com/a/security_camera_02",
+        "licence": "CC0-1.0",
+        "author": "Garrison Gager, Yann Kervran",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/security_camera_02/security_camera_02_1k.gltf",
+        "sha256Source": "912c8e01a7a3f3edc52ac39cc6f357bef9a967e5a1ded270c634c621f74d0b51"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 2 etc1s)",
+        "simplified to 0.3 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/security_light": {
+      "kind": "model",
+      "path": "/assets/models/props_security_light.075901f5.glb",
+      "format": "glb",
+      "bytes": 243504,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Security Light",
+        "pageUrl": "https://polyhaven.com/a/security_light",
+        "licence": "CC0-1.0",
+        "author": "Maximilian Schuster",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/security_light/security_light_1k.gltf",
+        "sha256Source": "d82d2191df1e30a75c2f2ce07a8abefcd52b0e8eabc819e2ac854da0f16fba18"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 2 etc1s)"
+      ]
+    },
+    "model/props/steel_frame_shelves_01": {
+      "kind": "model",
+      "path": "/assets/models/props_steel_frame_shelves_01.6b10d561.glb",
+      "format": "glb",
+      "bytes": 85864,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Steel Frame Shelves 01",
+        "pageUrl": "https://polyhaven.com/a/steel_frame_shelves_01",
+        "licence": "CC0-1.0",
+        "author": "James Ray Cock",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/steel_frame_shelves_01/steel_frame_shelves_01_1k.gltf",
+        "sha256Source": "4eff8994825d654e337f8dc425e959ed6add7f4773188c87ba64402d9edd9842"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)"
       ]
     },
     "model/props/street_lamp_02": {
       "kind": "model",
-      "path": "/assets/models/props_street_lamp_02.646aaed3.glb",
+      "path": "/assets/models/props_street_lamp_02.123595e4.glb",
       "format": "glb",
-      "bytes": 266740,
+      "bytes": 503152,
       "role": "model",
       "textures": [
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         },
         {
           "width": 512,
           "height": 512,
-          "format": "jpeg"
+          "format": "ktx2"
         }
       ],
       "source": {
@@ -1022,7 +1693,49 @@
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 512 px"
+        "textures resized to ≤ 512 px",
+        "textures GPU-compressed to KTX2 (2 uastc, 2 etc1s)",
+        "simplified to 0.2 of the triangles (gltfpack -si -sa)"
+      ]
+    },
+    "model/props/tool_cart": {
+      "kind": "model",
+      "path": "/assets/models/props_tool_cart.437c9e44.glb",
+      "format": "glb",
+      "bytes": 146220,
+      "role": "model",
+      "textures": [
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        },
+        {
+          "width": 256,
+          "height": 256,
+          "format": "ktx2"
+        }
+      ],
+      "source": {
+        "site": "Poly Haven",
+        "name": "Tool Cart",
+        "pageUrl": "https://polyhaven.com/a/tool_cart",
+        "licence": "CC0-1.0",
+        "author": "Savva Zakharov",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/tool_cart/tool_cart_1k.gltf",
+        "sha256Source": "ba4290f62b37dc08d4f99da2b3c78d8cb584bd229e8805ce586ed3f3b5303759"
+      },
+      "modified": true,
+      "modifications": [
+        "meshopt compression (gltfpack -cc)",
+        "textures resized to ≤ 256 px",
+        "textures GPU-compressed to KTX2 (1 uastc, 2 etc1s)",
+        "simplified to 0.15 of the triangles (gltfpack -si -sa)"
       ]
     },
     "model/props/utility_box_02": {
@@ -1537,62 +2250,6 @@
       "modified": true,
       "modifications": [
         "meshopt compression (gltfpack -cc)"
-      ]
-    },
-    "model/seats/bleacher": {
-      "kind": "model",
-      "path": "/assets/models/seats_bleacher.258f796b.glb",
-      "format": "glb",
-      "bytes": 5627336,
-      "role": "model",
-      "textures": [
-        {
-          "width": 1024,
-          "height": 1024,
-          "format": "png"
-        },
-        {
-          "width": 1024,
-          "height": 1024,
-          "format": "png"
-        },
-        {
-          "width": 1024,
-          "height": 1024,
-          "format": "png"
-        },
-        {
-          "width": 1024,
-          "height": 1024,
-          "format": "png"
-        },
-        {
-          "width": 1024,
-          "height": 1024,
-          "format": "png"
-        },
-        {
-          "width": 1024,
-          "height": 1024,
-          "format": "png"
-        }
-      ],
-      "source": {
-        "site": "Sketchfab",
-        "name": "Bleacher",
-        "pageUrl": "https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b",
-        "licence": "CC-BY-4.0",
-        "author": "JanStano",
-        "authorUrl": "https://sketchfab.com/JanStano",
-        "url": "https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b",
-        "sha256Source": "722b8cef25aeb6e1922b6af796ed24546955ad6a1523d3e9c76ec158f04ea679",
-        "miscPath": "bleacher.zip",
-        "licenceEvidence": "bleacher.zip!license.txt"
-      },
-      "modified": true,
-      "modifications": [
-        "meshopt compression (gltfpack -cc)",
-        "textures resized to ≤ 1024 px"
       ]
     },
     "model/trees/bamboo": {
@@ -2268,6 +2925,73 @@
         "textures GPU-compressed to KTX2 (1 etc1s)"
       ]
     },
+    "tex/asphalt033/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt033_arm.948c5928.ktx2",
+      "format": "ktx2",
+      "bytes": 65874,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.5,
+      "packed": {
+        "ao": true,
+        "metal": false
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Asphalt 033",
+        "pageUrl": "https://ambientcg.com/view?id=Asphalt033",
+        "url": "https://ambientcg.com/get?file=Asphalt033_1K-JPG.zip#Asphalt033_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "c71801b342dbea594dbdd0bd2ddc0a6d13f813c923fca408b9f5b9ee5e58aba2"
+      },
+      "modified": true
+    },
+    "tex/asphalt033/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt033_diff.f92dbb90.ktx2",
+      "format": "ktx2",
+      "bytes": 57910,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.5,
+      "source": {
+        "site": "ambientCG",
+        "name": "Asphalt 033",
+        "pageUrl": "https://ambientcg.com/view?id=Asphalt033",
+        "url": "https://ambientcg.com/get?file=Asphalt033_1K-JPG.zip#Asphalt033_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "c71801b342dbea594dbdd0bd2ddc0a6d13f813c923fca408b9f5b9ee5e58aba2"
+      },
+      "modified": true
+    },
+    "tex/asphalt033/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt033_nor_gl.530c28df.ktx2",
+      "format": "ktx2",
+      "bytes": 315499,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.5,
+      "source": {
+        "site": "ambientCG",
+        "name": "Asphalt 033",
+        "pageUrl": "https://ambientcg.com/view?id=Asphalt033",
+        "url": "https://ambientcg.com/get?file=Asphalt033_1K-JPG.zip#Asphalt033_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "c71801b342dbea594dbdd0bd2ddc0a6d13f813c923fca408b9f5b9ee5e58aba2"
+      },
+      "modified": true
+    },
     "tex/asphalt_04/arm": {
       "kind": "texture",
       "path": "/assets/tex/asphalt_04_arm.2b952193.ktx2",
@@ -2394,6 +3118,132 @@
       },
       "modified": true
     },
+    "tex/asphalt_track/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_track_arm.a9ea3a63.ktx2",
+      "format": "ktx2",
+      "bytes": 35304,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt Track",
+        "pageUrl": "https://polyhaven.com/a/asphalt_track",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "1ad38c055c97547802912facec609ee6deda2dc9bc2f048f36ea484e5f5ccb6e"
+      },
+      "modified": true
+    },
+    "tex/asphalt_track/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_track_diff.a1cd4d58.ktx2",
+      "format": "ktx2",
+      "bytes": 63636,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt Track",
+        "pageUrl": "https://polyhaven.com/a/asphalt_track",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "05c4e79cd99160075969d37bfc6ef72be262153a410bb45510b2c23f7303894c"
+      },
+      "modified": true
+    },
+    "tex/asphalt_track/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/asphalt_track_nor_gl.4bbeae97.ktx2",
+      "format": "ktx2",
+      "bytes": 276743,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Asphalt Track",
+        "pageUrl": "https://polyhaven.com/a/asphalt_track",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "18caf02427a7cd9cd577ceae5aa9daa7bb3ffba60598e2df8aaf75d1925a8a94"
+      },
+      "modified": true
+    },
+    "tex/blue_metal_plate/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/blue_metal_plate_arm.3c11371d.ktx2",
+      "format": "ktx2",
+      "bytes": 40871,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Blue Metal Plate",
+        "pageUrl": "https://polyhaven.com/a/blue_metal_plate",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/blue_metal_plate/blue_metal_plate_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "9321b539fe9cf0136ea04c3405b95ae82383f31c258b9c0e37ff8a1e577b637f"
+      },
+      "modified": true
+    },
+    "tex/blue_metal_plate/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/blue_metal_plate_diff.6b404663.ktx2",
+      "format": "ktx2",
+      "bytes": 42162,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Blue Metal Plate",
+        "pageUrl": "https://polyhaven.com/a/blue_metal_plate",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/blue_metal_plate/blue_metal_plate_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "a0162bffce47d4a35613a12af22571b28c18412dc5805cbb69eac343554ef750"
+      },
+      "modified": true
+    },
+    "tex/blue_metal_plate/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/blue_metal_plate_nor_gl.810eb6c3.ktx2",
+      "format": "ktx2",
+      "bytes": 203514,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Blue Metal Plate",
+        "pageUrl": "https://polyhaven.com/a/blue_metal_plate",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/blue_metal_plate/blue_metal_plate_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "970f0273c9e2e3b4fc8338bfd58a28c413b70ac4d1734d9dc8a136724bde56e6"
+      },
+      "modified": true
+    },
     "tex/car_atlas/diff": {
       "kind": "texture",
       "path": "/assets/tex/car_atlas_diff.c021dc00.ktx2",
@@ -2498,6 +3348,132 @@
         "licence": "CC0-1.0",
         "author": "Lennart Demes",
         "sha256Source": "72bf4321acbb39ddbc3b786f5996813b2a3cede12efefb47955e97ea9668985b"
+      },
+      "modified": true
+    },
+    "tex/concrete_floor_03/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/concrete_floor_03_arm.b6ba45c9.ktx2",
+      "format": "ktx2",
+      "bytes": 67235,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Concrete Floor 03",
+        "pageUrl": "https://polyhaven.com/a/concrete_floor_03",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_03/concrete_floor_03_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel, Matterfield",
+        "sha256Source": "baaea8404331ead21e12306ab5a890eb74b80cb8a2e508aa209cc9dfa4423fa1"
+      },
+      "modified": true
+    },
+    "tex/concrete_floor_03/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/concrete_floor_03_diff.d53213de.ktx2",
+      "format": "ktx2",
+      "bytes": 73138,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Concrete Floor 03",
+        "pageUrl": "https://polyhaven.com/a/concrete_floor_03",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_03/concrete_floor_03_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel, Matterfield",
+        "sha256Source": "6403524d194100d80e3040435b953ddf44e90069bd404cfb116204dec3c35df7"
+      },
+      "modified": true
+    },
+    "tex/concrete_floor_03/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/concrete_floor_03_nor_gl.52914df8.ktx2",
+      "format": "ktx2",
+      "bytes": 308446,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.5,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Concrete Floor 03",
+        "pageUrl": "https://polyhaven.com/a/concrete_floor_03",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_03/concrete_floor_03_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel, Matterfield",
+        "sha256Source": "f9f18d02c1e4e655aa321ddeaf2c696a87a9c4782fea7119c65310c510367f5a"
+      },
+      "modified": true
+    },
+    "tex/container_side/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/container_side_arm.748e31d2.ktx2",
+      "format": "ktx2",
+      "bytes": 25977,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1.94,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Container Side",
+        "pageUrl": "https://polyhaven.com/a/container_side",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/container_side/container_side_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "c5238fd9c6d234b1c6c9a62e2b1b97343636a4e42abd429e03faf58a613318b7"
+      },
+      "modified": true
+    },
+    "tex/container_side/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/container_side_diff.ce63a0ae.ktx2",
+      "format": "ktx2",
+      "bytes": 25258,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1.94,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Container Side",
+        "pageUrl": "https://polyhaven.com/a/container_side",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/container_side/container_side_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "9d6a8a9a243b6111f9d13af12d90325f0f1d52e45c2e1731f2d496702f024452"
+      },
+      "modified": true
+    },
+    "tex/container_side/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/container_side_nor_gl.4d0f010e.ktx2",
+      "format": "ktx2",
+      "bytes": 257088,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1.94,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Container Side",
+        "pageUrl": "https://polyhaven.com/a/container_side",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/container_side/container_side_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "1e9e54d5816c97e5abeb448c3468b1eafb4add9acb41fcdc26817563c8f21f22"
       },
       "modified": true
     },
@@ -2728,9 +3704,9 @@
     },
     "tex/crowd_atlas/diff": {
       "kind": "texture",
-      "path": "/assets/tex/crowd_atlas_diff.732eb65f.ktx2",
+      "path": "/assets/tex/crowd_atlas_diff.66c38f1e.ktx2",
       "format": "ktx2",
-      "bytes": 670713,
+      "bytes": 761518,
       "width": 2048,
       "height": 4096,
       "colorSpace": "srgb",
@@ -2744,15 +3720,15 @@
         "licence": "CC0-1.0",
         "author": "Quaternius",
         "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
-        "sha256Source": "defbc324e373f6b60953e0338c7127e288b78534f5e393262bdee163cc67620f"
+        "sha256Source": "6dd111a4f82099249358f807b6cc107c3359ce7b5362d517019a26bffc20a41f"
       },
       "modified": true
     },
     "tex/crowd_atlas/mask": {
       "kind": "texture",
-      "path": "/assets/tex/crowd_atlas_mask.67b9ecfe.ktx2",
+      "path": "/assets/tex/crowd_atlas_mask.d41d261d.ktx2",
       "format": "ktx2",
-      "bytes": 285768,
+      "bytes": 323473,
       "width": 2048,
       "height": 4096,
       "colorSpace": "linear",
@@ -2766,7 +3742,7 @@
         "licence": "CC0-1.0",
         "author": "Quaternius",
         "authorUrl": "https://quaternius.com/packs/backgroundposedhumans.html",
-        "sha256Source": "03551fadf519f92314f0a51207768a21c26f0822cb1c3b28088c01c4370a6afe"
+        "sha256Source": "f2e3d05aff8c75b011480cd5264e52b11d0cbf7fba12a142824ec7abc6ae784d"
       },
       "modified": true
     },
@@ -3097,6 +4073,291 @@
         "resized / repacked (lossless WebP)"
       ]
     },
+    "tex/metalwalkway012/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/metalwalkway012_arm.e74d6d71.ktx2",
+      "format": "ktx2",
+      "bytes": 64805,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1,
+      "packed": {
+        "ao": false,
+        "metal": true
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Metal Walkway 012",
+        "pageUrl": "https://ambientcg.com/view?id=MetalWalkway012",
+        "url": "https://ambientcg.com/get?file=MetalWalkway012_1K-JPG.zip#MetalWalkway012_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "ab3240a3b1fdab71ddf0eebd9f62a473e200f358c327402ec5e9355324b35709"
+      },
+      "modified": true
+    },
+    "tex/metalwalkway012/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/metalwalkway012_diff.bd40319e.ktx2",
+      "format": "ktx2",
+      "bytes": 62977,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1,
+      "source": {
+        "site": "ambientCG",
+        "name": "Metal Walkway 012",
+        "pageUrl": "https://ambientcg.com/view?id=MetalWalkway012",
+        "url": "https://ambientcg.com/get?file=MetalWalkway012_1K-JPG.zip#MetalWalkway012_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "ab3240a3b1fdab71ddf0eebd9f62a473e200f358c327402ec5e9355324b35709"
+      },
+      "modified": true
+    },
+    "tex/metalwalkway012/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/metalwalkway012_nor_gl.b13c1f09.ktx2",
+      "format": "ktx2",
+      "bytes": 85045,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1,
+      "source": {
+        "site": "ambientCG",
+        "name": "Metal Walkway 012",
+        "pageUrl": "https://ambientcg.com/view?id=MetalWalkway012",
+        "url": "https://ambientcg.com/get?file=MetalWalkway012_1K-JPG.zip#MetalWalkway012_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "ab3240a3b1fdab71ddf0eebd9f62a473e200f358c327402ec5e9355324b35709"
+      },
+      "modified": true
+    },
+    "tex/metalwalkway012/opacity": {
+      "kind": "texture",
+      "path": "/assets/tex/metalwalkway012_opacity.55176a10.ktx2",
+      "format": "ktx2",
+      "bytes": 12834,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "opacity",
+      "tile": 1,
+      "source": {
+        "site": "ambientCG",
+        "name": "Metal Walkway 012",
+        "pageUrl": "https://ambientcg.com/view?id=MetalWalkway012",
+        "url": "https://ambientcg.com/get?file=MetalWalkway012_1K-JPG.zip#MetalWalkway012_1K-JPG_Opacity.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "ab3240a3b1fdab71ddf0eebd9f62a473e200f358c327402ec5e9355324b35709"
+      },
+      "modified": true
+    },
+    "tex/painted_metal_shutter/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/painted_metal_shutter_arm.e96092b6.ktx2",
+      "format": "ktx2",
+      "bytes": 37889,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Painted Metal Shutter",
+        "pageUrl": "https://polyhaven.com/a/painted_metal_shutter",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dario Barresi, Rico Cilliers, Charlotte Baglioni",
+        "sha256Source": "26a49a8b60dd2e1fdb325c1488d55d2e6e7362f4505e400ac2243bf0ec67ca56"
+      },
+      "modified": true
+    },
+    "tex/painted_metal_shutter/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/painted_metal_shutter_diff.bf472cad.ktx2",
+      "format": "ktx2",
+      "bytes": 55829,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Painted Metal Shutter",
+        "pageUrl": "https://polyhaven.com/a/painted_metal_shutter",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dario Barresi, Rico Cilliers, Charlotte Baglioni",
+        "sha256Source": "278394aabcb5a5bd560d9904358682acc5af23666b22bd1f12558789da4aa4d2"
+      },
+      "modified": true
+    },
+    "tex/painted_metal_shutter/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/painted_metal_shutter_nor_gl.6607e551.ktx2",
+      "format": "ktx2",
+      "bytes": 167606,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Painted Metal Shutter",
+        "pageUrl": "https://polyhaven.com/a/painted_metal_shutter",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dario Barresi, Rico Cilliers, Charlotte Baglioni",
+        "sha256Source": "7545d778669c55e3e9bdc89355ce7190077c3ffdfb324e988ff9803a5bae5a46"
+      },
+      "modified": true
+    },
+    "tex/paintedmetal010/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/paintedmetal010_arm.c2b5e90a.ktx2",
+      "format": "ktx2",
+      "bytes": 63332,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 1,
+      "packed": {
+        "ao": true,
+        "metal": true
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Painted Metal 010",
+        "pageUrl": "https://ambientcg.com/view?id=PaintedMetal010",
+        "url": "https://ambientcg.com/get?file=PaintedMetal010_1K-JPG.zip#PaintedMetal010_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "1d57d7d4fcbab46ec9637b6d6b5d3ff9e405f8a1e52cb8a550f58e7f1365e1aa"
+      },
+      "modified": true
+    },
+    "tex/paintedmetal010/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/paintedmetal010_diff.ce344245.ktx2",
+      "format": "ktx2",
+      "bytes": 68550,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 1,
+      "source": {
+        "site": "ambientCG",
+        "name": "Painted Metal 010",
+        "pageUrl": "https://ambientcg.com/view?id=PaintedMetal010",
+        "url": "https://ambientcg.com/get?file=PaintedMetal010_1K-JPG.zip#PaintedMetal010_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "1d57d7d4fcbab46ec9637b6d6b5d3ff9e405f8a1e52cb8a550f58e7f1365e1aa"
+      },
+      "modified": true
+    },
+    "tex/paintedmetal010/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/paintedmetal010_nor_gl.bf0b656c.ktx2",
+      "format": "ktx2",
+      "bytes": 289653,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 1,
+      "source": {
+        "site": "ambientCG",
+        "name": "Painted Metal 010",
+        "pageUrl": "https://ambientcg.com/view?id=PaintedMetal010",
+        "url": "https://ambientcg.com/get?file=PaintedMetal010_1K-JPG.zip#PaintedMetal010_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "1d57d7d4fcbab46ec9637b6d6b5d3ff9e405f8a1e52cb8a550f58e7f1365e1aa"
+      },
+      "modified": true
+    },
+    "tex/pavingstones099/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/pavingstones099_arm.4d9dc1c3.ktx2",
+      "format": "ktx2",
+      "bytes": 33330,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "packed": {
+        "ao": false,
+        "metal": false
+      },
+      "source": {
+        "site": "ambientCG",
+        "name": "Paving Stones 099",
+        "pageUrl": "https://ambientcg.com/view?id=PavingStones099",
+        "url": "https://ambientcg.com/get?file=PavingStones099_1K-JPG.zip#PavingStones099_1K-JPG_Roughness.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "dbd1a0de24e4a64480c0d80a3a3669eccafb26bb3b19aecf378af718f5b0ef8d"
+      },
+      "modified": true
+    },
+    "tex/pavingstones099/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/pavingstones099_diff.643df109.ktx2",
+      "format": "ktx2",
+      "bytes": 61812,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "ambientCG",
+        "name": "Paving Stones 099",
+        "pageUrl": "https://ambientcg.com/view?id=PavingStones099",
+        "url": "https://ambientcg.com/get?file=PavingStones099_1K-JPG.zip#PavingStones099_1K-JPG_Color.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "dbd1a0de24e4a64480c0d80a3a3669eccafb26bb3b19aecf378af718f5b0ef8d"
+      },
+      "modified": true
+    },
+    "tex/pavingstones099/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/pavingstones099_nor_gl.8b3086bf.ktx2",
+      "format": "ktx2",
+      "bytes": 293171,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "ambientCG",
+        "name": "Paving Stones 099",
+        "pageUrl": "https://ambientcg.com/view?id=PavingStones099",
+        "url": "https://ambientcg.com/get?file=PavingStones099_1K-JPG.zip#PavingStones099_1K-JPG_NormalGL.jpg",
+        "licence": "CC0-1.0",
+        "author": "Lennart Demes",
+        "sha256Source": "dbd1a0de24e4a64480c0d80a3a3669eccafb26bb3b19aecf378af718f5b0ef8d"
+      },
+      "modified": true
+    },
     "tex/plaster_grey_04/arm": {
       "kind": "texture",
       "path": "/assets/tex/plaster_grey_04_arm.febfb8bb.ktx2",
@@ -3290,6 +4551,69 @@
       },
       "modified": true
     },
+    "tex/rectangular_facade_tiles/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/rectangular_facade_tiles_arm.a734f39b.ktx2",
+      "format": "ktx2",
+      "bytes": 38773,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Rectangular Facade Tiles",
+        "pageUrl": "https://polyhaven.com/a/rectangular_facade_tiles",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rectangular_facade_tiles/rectangular_facade_tiles_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Charlotte Baglioni",
+        "sha256Source": "6be9a4e34057fc90ab450624cf83d2f5bc67bf59d5c137617ea62d8206540011"
+      },
+      "modified": true
+    },
+    "tex/rectangular_facade_tiles/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/rectangular_facade_tiles_diff.cf138d8d.ktx2",
+      "format": "ktx2",
+      "bytes": 52876,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Rectangular Facade Tiles",
+        "pageUrl": "https://polyhaven.com/a/rectangular_facade_tiles",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rectangular_facade_tiles/rectangular_facade_tiles_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Charlotte Baglioni",
+        "sha256Source": "583eafdfc03da4a74509ba545c5ea808c8bdc6e883763a804fcbe859c120afb9"
+      },
+      "modified": true
+    },
+    "tex/rectangular_facade_tiles/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/rectangular_facade_tiles_nor_gl.4879a033.ktx2",
+      "format": "ktx2",
+      "bytes": 235880,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Rectangular Facade Tiles",
+        "pageUrl": "https://polyhaven.com/a/rectangular_facade_tiles",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rectangular_facade_tiles/rectangular_facade_tiles_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Charlotte Baglioni",
+        "sha256Source": "8a7d8db468fe5bd37a2fc14ff6012855b14bec03dd413e034a376902a723b44c"
+      },
+      "modified": true
+    },
     "tex/roofingtiles015a/arm": {
       "kind": "texture",
       "path": "/assets/tex/roofingtiles015a_arm.4e67eed1.webp",
@@ -3433,6 +4757,132 @@
         "licence": "CC0-1.0",
         "author": "Lennart Demes",
         "sha256Source": "9691dbe84d7c44ef9a2c84a8a55bdeb87e6a59fa649ccc4f3d47121f00028b5c"
+      },
+      "modified": true
+    },
+    "tex/square_floor_patern_01/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/square_floor_patern_01_arm.5c765497.ktx2",
+      "format": "ktx2",
+      "bytes": 61132,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 3,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Square Floor Patern 01",
+        "pageUrl": "https://polyhaven.com/a/square_floor_patern_01",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/square_floor_patern_01/square_floor_patern_01_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "106bd467e70a1738e719dd25d7998b4d5c2313a2cf1635f525e03f3c0b0dfd54"
+      },
+      "modified": true
+    },
+    "tex/square_floor_patern_01/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/square_floor_patern_01_diff.28377669.ktx2",
+      "format": "ktx2",
+      "bytes": 71407,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 3,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Square Floor Patern 01",
+        "pageUrl": "https://polyhaven.com/a/square_floor_patern_01",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/square_floor_patern_01/square_floor_patern_01_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "9d169406abb8a9961673cf8acae5ab29fb6c71dd89aa2fe10dc9e68eeef40b9f"
+      },
+      "modified": true
+    },
+    "tex/square_floor_patern_01/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/square_floor_patern_01_nor_gl.8c6bcc11.ktx2",
+      "format": "ktx2",
+      "bytes": 276530,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 3,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Square Floor Patern 01",
+        "pageUrl": "https://polyhaven.com/a/square_floor_patern_01",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/square_floor_patern_01/square_floor_patern_01_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Rob Tuytel",
+        "sha256Source": "5f7579bc7a080c575d91efa526072e8edd7f1f2e11fa9477493104f548faf27d"
+      },
+      "modified": true
+    },
+    "tex/tarred_gravel/arm": {
+      "kind": "texture",
+      "path": "/assets/tex/tarred_gravel_arm.fe9228b0.ktx2",
+      "format": "ktx2",
+      "bytes": 68869,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "arm",
+      "tile": 2.2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Tarred Gravel",
+        "pageUrl": "https://polyhaven.com/a/tarred_gravel",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/tarred_gravel/tarred_gravel_arm_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "f9ac62177978eb1e57fa9e1f8967e62aa1a3a4b1ce11b0f7b48108e6481d0866"
+      },
+      "modified": true
+    },
+    "tex/tarred_gravel/diff": {
+      "kind": "texture",
+      "path": "/assets/tex/tarred_gravel_diff.bdbcc939.ktx2",
+      "format": "ktx2",
+      "bytes": 64353,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "srgb",
+      "role": "diff",
+      "tile": 2.2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Tarred Gravel",
+        "pageUrl": "https://polyhaven.com/a/tarred_gravel",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/tarred_gravel/tarred_gravel_diff_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "7b866b32d73f74f2e493f98828391587aed5b2cd24c47619ce7188b40079e627"
+      },
+      "modified": true
+    },
+    "tex/tarred_gravel/nor_gl": {
+      "kind": "texture",
+      "path": "/assets/tex/tarred_gravel_nor_gl.aae2b0c8.ktx2",
+      "format": "ktx2",
+      "bytes": 315941,
+      "width": 512,
+      "height": 512,
+      "colorSpace": "linear",
+      "role": "nor_gl",
+      "tile": 2.2,
+      "source": {
+        "site": "Poly Haven",
+        "name": "Tarred Gravel",
+        "pageUrl": "https://polyhaven.com/a/tarred_gravel",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/tarred_gravel/tarred_gravel_nor_gl_1k.jpg",
+        "licence": "CC0-1.0",
+        "author": "Dimitrios Savva",
+        "sha256Source": "7b88d5d9e36f9f5978ec94b7b0a5b9d419eb43093bb94b001ced8605914931e8"
       },
       "modified": true
     },

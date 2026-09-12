@@ -32,6 +32,10 @@
  *                          reads it) becomes metallic-roughness + KHR_materials_specular
  *   retouch / dropParts    trademark surgery (retouch-glb.mjs: UV rectangles blurred / filled,
  *                          primitives dropped by material / mesh name regex)
+ *   retouchReviewed        vehicles (`model/vehicles/*`) and the ops layer (`model/ops/*`) must
+ *                          carry a non-empty `retouch` — or this string, saying why none is
+ *                          needed after every texture was dumped and read (a fictional-brand
+ *                          body). `import-misc.mjs --check` fails a source with neither.
  *   keepBox                { min?, max? } scene-space AABB (the model's own units, as
  *                          inspect-model.mjs prints them): triangles outside are dropped — for a
  *                          one-primitive drop that also holds a backdrop or a second prop
@@ -63,6 +67,22 @@ export const LICENCES = {
 }
 
 const PH_TEX = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg'
+
+/**
+ * The misc/<group>/ folders that receive Sketchfab CC-BY drops (the middle segment of a
+ * `model/<group>/<id>` key): `sketchfabModel` refuses a key outside this list, and
+ * `import-misc.mjs --check` accepts a shipped file only from a declared root. ops / trackside /
+ * pit are the I phase's (柵の内側): the drops named in the plan go there before their entries exist.
+ */
+export const MISC_GROUPS = ['trees', 'road', 'buildings', 'vehicles', 'seats', 'ops', 'trackside', 'pit']
+
+/**
+ * The KTX2 recipe every model pack ships with unless a source says otherwise: normals and
+ * alpha-tested colour UASTC, everything else ETC1S at qlevel 160 (the Sketchfab default below
+ * and the Poly Haven props since the I phase — a JPEG inside a GLB is decoded to RGBA8, 4× the
+ * VRAM of a transcoded KTX2).
+ */
+const KTX_PACK = { default: 'etc1s', normal: 'uastc', alpha: 'uastc', quality: 160 }
 
 /**
  * Poly Haven texture: predictable URL template, three maps (diff / nor_gl / arm) unless `maps`
@@ -172,7 +192,8 @@ function polyhavenModel (id, { name, author, res = '1k', use, maxTex, ...pack })
  * keepNodes / overrideImages / maxTex / simplify / texEncode); by default every pack ships KTX2
  * at ≤ 1K with the tree recipe (foliage alpha + normals UASTC, the rest ETC1S q160).
  */
-function sketchfabModel (key, { name, zip, author, authorUrl = `https://sketchfab.com/${author}`, pageUrl, use, maxTex = 1024, texEncode = { default: 'etc1s', normal: 'uastc', alpha: 'uastc', quality: 160 }, ...pack }) {
+function sketchfabModel (key, { name, zip, author, authorUrl = `https://sketchfab.com/${author}`, pageUrl, use, maxTex = 1024, texEncode = KTX_PACK, ...pack }) {
+  if (!MISC_GROUPS.includes(key.split('/')[1])) throw new Error(`${key}: group ${key.split('/')[1]} is not in MISC_GROUPS`)
   return {
     ...pack,
     key,
@@ -309,6 +330,61 @@ export const SOURCES = [
     maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
   }),
 
+  // ---- surfaces inside the fences (I phase, 柵の内側) ---------------------------------------
+  // 512 px KTX2 sets (fetched at 1k): the pit lane, garages, paddock, marshal cabins and the TV
+  // platforms are seen from 8–70 m, and a 512 tile at 2–3 m is 2–4 texels per cm. Tile sizes as
+  // api.polyhaven.com/info `dimensions` (mm) and ambientCG `dimensionX` (cm) list them, verified
+  // 2026-09-12; PaintedMetal010 and MetalWalkway012 carry none on the site — tiles read off the
+  // colour maps (rust patches of 10–20 cm; nine ≈ 10 cm expanded-mesh slots across), unverified.
+  polyhavenTexture('asphalt_track', {
+    name: 'Asphalt Track', author: 'Dimitrios Savva', res: '512', tile: 2.0,
+    use: 'race-track tarmac: the west loop\'s newer surface tone and the Spoon service apron',
+  }),
+  polyhavenTexture('square_floor_patern_01', {
+    name: 'Square Floor Patern 01', author: 'Rob Tuytel', res: '512', tile: 3.0,
+    use: 'clean cool-grey slabs: the paddock walkways',
+  }),
+  polyhavenTexture('concrete_floor_03', {
+    name: 'Concrete Floor 03', author: 'Rob Tuytel, Matterfield', res: '512', tile: 2.5,
+    use: 'rough concrete floor: the garages and the pit building\'s work area',
+  }),
+  polyhavenTexture('blue_metal_plate', {
+    name: 'Blue Metal Plate', author: 'Rob Tuytel', res: '512', tile: 2.5,
+    use: 'painted steel: the marshal cabins\' walls',
+  }),
+  polyhavenTexture('container_side', {
+    name: 'Container Side', author: 'Dimitrios Savva', res: '512', tile: 1.94,
+    use: 'corrugated container side: the paddock containers and the broadcast compound',
+  }),
+  polyhavenTexture('painted_metal_shutter', {
+    name: 'Painted Metal Shutter', author: 'Dario Barresi, Rico Cilliers, Charlotte Baglioni', res: '512', tile: 2.0,
+    use: 'roller shutter slats: the garage front shutters',
+  }),
+  polyhavenTexture('rectangular_facade_tiles', {
+    name: 'Rectangular Facade Tiles', author: 'Charlotte Baglioni', res: '512', tile: 2.0,
+    use: 'dark concrete facade strips: the pit building\'s rear 2F / 3F',
+  }),
+  polyhavenTexture('tarred_gravel', {
+    name: 'Tarred Gravel', author: 'Dimitrios Savva', res: '512', tile: 2.2,
+    use: 'tar-bound gravel: the cutting floors and the gravel pads of the infield',
+  }),
+  ambientcgTexture('PavingStones099', {
+    name: 'Paving Stones 099', res: '512', tile: 2.0, use: 'grey interlocking pavers (ILB): around the centre house',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
+  ambientcgTexture('PaintedMetal010', {
+    name: 'Painted Metal 010', res: '512', tile: 1.0, use: 'white painted panel, heavily rust-blistered: pit-wall stands, cabins, sign backs (the runtime should sample it sparingly or lighten it — the rust is ~20 % of the sheet)',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
+  ambientcgTexture('Asphalt033', {
+    name: 'Asphalt 033', res: '512', tile: 2.5, use: 'charcoal granular tarmac: the south course and the service roads inside the fences',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' } },
+  }),
+  ambientcgTexture('MetalWalkway012', {
+    name: 'Metal Walkway 012', res: '512', tile: 1.0, use: 'expanded-mesh grating (cut-out, with metalness): the TV platforms and the marshal-post decks',
+    maps: { diff: '_Color', nor_gl: '_NormalGL', arm: { ao: '_AmbientOcclusion?', rough: '_Roughness', metal: '_Metalness?' }, opacity: '_Opacity' },
+  }),
+
   // ---- trees (R Phase 2: Sketchfab CC-BY 4.0 drops in misc/trees/) --------------------------
   // The user downloads each model page's auto-converted glTF zip into misc/trees/ (the zip keeps
   // Sketchfab's title-derived name, matched by glob); license.txt inside supplies the credit
@@ -389,10 +465,68 @@ export const SOURCES = [
 
   // ---- props (small objects seen from > 20 m: 512 px textures) -------------------------------
   // Authors as api.polyhaven.com/info/<id> lists them (`authors`), verified 2026-09-11 / 09-12.
-  polyhavenModel('concrete_road_barrier', { maxTex: 512, name: 'Concrete Road Barrier', author: 'Amal Kumar', use: 'props: pit entry / paddock separation blocks' }),
-  polyhavenModel('security_camera_01', { maxTex: 512, name: 'Security Camera 01', author: 'Alexander Otterbeck, Yann Kervran', use: 'props: trackside TV camera stand-in' }),
-  polyhavenModel('street_lamp_02', { maxTex: 512, name: 'Street Lamp 02', author: 'Josh Dean', use: 'props: paddock / car-park lighting' }),
+  // The three R-phase props below are photogrammetry-dense (61 k / 20 k / 13.6 k tris) and shipped
+  // JPEG inside the GLB; since the I phase (柵の内側) they are decimated to what a prop that is
+  // instanced by the hundred (jersey blocks) or seen from ≥ 20 m needs, and GPU-compressed.
+  polyhavenModel('concrete_road_barrier', { maxTex: 512, name: 'Concrete Road Barrier', author: 'Amal Kumar', use: 'props: pit entry / paddock separation blocks', simplify: 0.08, texEncode: KTX_PACK }),
+  polyhavenModel('security_camera_01', { maxTex: 512, name: 'Security Camera 01', author: 'Alexander Otterbeck, Yann Kervran', use: 'props: trackside TV camera stand-in', simplify: 0.3, texEncode: KTX_PACK }),
+  polyhavenModel('street_lamp_02', { maxTex: 512, name: 'Street Lamp 02', author: 'Josh Dean', use: 'props: paddock / car-park lighting', simplify: 0.2, texEncode: KTX_PACK }),
   polyhavenModel('utility_box_02', { maxTex: 512, name: 'Utility Box 02', author: 'James Ray Cock', use: 'props: signal controller / distribution cabinet at the signal poles' }),
+
+  // ---- props of the pit lane, paddock, marshal posts and infield (I phase, 柵の内側) ----------
+  // Poly Haven CC0 scans, 1k download capped at 256 px (a sub-metre object seen from ≥ 8 m; the
+  // roller door and the fire escape, several metres across, keep 512), every texture KTX2, and
+  // `simplify` where the scan is far denser than the silhouette (ratios from the I0-e plan: a
+  // prop lands at ≈ 1–4 k tris). Trademark policy: the extinguisher's label and the generator's
+  // decals were dumped (`retouch-glb.mjs --dump`) and read before the entry was written — see
+  // each `retouch`. Authors as api.polyhaven.com/info/<id> lists them, verified 2026-09-12.
+  polyhavenModel('old_tyre', { maxTex: 256, name: 'Old Tyre', author: 'MP', use: 'props: tyre-barrier columns and the stacked spares behind the garages (painted per instance)', texEncode: KTX_PACK }),
+  polyhavenModel('korean_fire_extinguisher_01', {
+    maxTex: 256, name: 'Korean Fire Extinguisher 01', author: 'UM JOORIN', use: 'props: extinguishers at the pit wall, the garages and every marshal post',
+    simplify: 0.3, texEncode: KTX_PACK,
+    // The body sheet carries the maker's white instruction label and the stencilled 소화기 on the
+    // cylinder (filled with the body red — a blur would leave a pale smudge) and a small maker
+    // mark on the hose (blurred); the hanging inspection card (`paper`, handwritten names and
+    // dates) is dropped whole.
+    retouch: [
+      { image: /body_diff/, op: 'fill', colour: '#9c2a1c', rects: [[0.17, 0.58, 0.43, 0.68], [0.02, 0.02, 0.33, 0.12]] },
+      { image: /body_diff/, op: 'blur', rects: [[0.93, 0.07, 0.99, 0.17]] },
+    ],
+    dropParts: /paper/,
+  }),
+  polyhavenModel('plastic_monobloc_chair_01', { maxTex: 256, name: 'Plastic Monobloc Chair 01', author: 'Kuutti Siitonen', use: 'props: marshal-post and catering chairs', texEncode: KTX_PACK }),
+  polyhavenModel('security_light', { maxTex: 256, name: 'Security Light', author: 'Maximilian Schuster', use: 'props: wall flood lamp on the garages, cabins and gate huts', texEncode: KTX_PACK }),
+  polyhavenModel('rollershutter_door', { maxTex: 512, name: 'Rollershutter Door', author: 'MP', use: 'props: the garages\' rear doors and the marshal huts\' shutters', texEncode: KTX_PACK }),
+  polyhavenModel('tool_cart', { maxTex: 256, name: 'Tool Cart', author: 'Savva Zakharov', use: 'props: garage trolleys', simplify: 0.15, texEncode: KTX_PACK }),
+  polyhavenModel('metal_tool_chest', { maxTex: 256, name: 'Metal Tool Chest', author: 'Yann Kervran, John Hutcheson', use: 'props: roller chests along the garage back walls', simplify: 0.25, texEncode: KTX_PACK }),
+  polyhavenModel('Barrel_02', { maxTex: 256, name: 'Barrel 02', author: 'Jorge Camacho', use: 'props: blue plastic drums in the yards and the broadcast compound', texEncode: KTX_PACK }),
+  polyhavenModel('plastic_crate_02', { maxTex: 256, name: 'Plastic Crate 02', author: 'Fabi_G', use: 'props: stackable crates in the garages and behind the paddock offices', simplify: 0.5, texEncode: KTX_PACK }),
+  polyhavenModel('portable_generator', {
+    maxTex: 256, name: 'Portable Generator', author: 'James Ray Cock', use: 'props: petrol genset at the marquees and marshal posts',
+    simplify: 0.15, texEncode: KTX_PACK,
+    // The atlas carries the model script (EN2500, twice), the control-panel lettering, a dial
+    // brand and five warning / rating labels — every legible patch is blurred (sigma 6: the
+    // panel keeps its shading, the letters go).
+    retouch: [{
+      image: /portable_generator_diff/, op: 'blur', sigma: 6,
+      rects: [
+        [0.38, 0.965, 0.535, 0.995], [0.30, 0.86, 0.345, 0.875], [0.555, 0.86, 0.595, 0.875], [0.33, 0.9, 0.6, 0.955], [0.635, 0.948, 0.71, 0.983],
+        [0.695, 0.54, 0.755, 0.595], [0.68, 0.715, 0.815, 0.755], [0.64, 0.41, 0.71, 0.45], [0.14, 0.695, 0.21, 0.72], [0.855, 0.72, 0.91, 0.765], [0.94, 0.26, 0.98, 0.3],
+      ],
+    }],
+  }),
+  polyhavenModel('exterior_aircon_unit', {
+    maxTex: 256, name: 'Exterior Aircon Unit', author: 'Monsta3D', use: 'props: condenser units on the team offices and the centre house',
+    // The scan ships a clean and a rusted unit side by side (two nodes, 12 textures): only the
+    // clean one, so half the textures never leave the download.
+    keepNodes: /^exterior_aircon_unit$/,
+    simplify: 0.3, texEncode: KTX_PACK,
+  }),
+  polyhavenModel('metal_jerrycan', { maxTex: 256, name: 'Metal Jerrycan', author: 'Sean Buckley', use: 'props: fuel cans at the marshal posts and the recovery vehicles', simplify: 0.15, texEncode: KTX_PACK }),
+  polyhavenModel('modular_fire_escape', { maxTex: 512, name: 'Modular Fire Escape', author: 'Juniix', use: 'props: external stair of the TV platforms and the pit building\'s rear', texEncode: KTX_PACK }),
+  polyhavenModel('security_camera_02', { maxTex: 256, name: 'Security Camera 02', author: 'Garrison Gager, Yann Kervran', use: 'props: the second CCTV shape on the pit building and the paddock gates', simplify: 0.3, texEncode: KTX_PACK }),
+  polyhavenModel('steel_frame_shelves_01', { maxTex: 256, name: 'Steel Frame Shelves 01', author: 'James Ray Cock', use: 'props: garage shelving', texEncode: KTX_PACK }),
+  polyhavenModel('covered_car', { maxTex: 256, name: 'Covered Car', author: 'MP', use: 'props: a car under a cover in the paddock car parks (no badge, no plate)', simplify: 0.4, texEncode: KTX_PACK }),
 
   // ---- roadside furniture (R Phase 3: Sketchfab CC-BY 4.0 drops in misc/road/) ---------------
   // Addressed by node path at runtime (road-furniture.ts / outskirts.ts through modelPrototype,
@@ -614,27 +748,12 @@ export const SOURCES = [
     licenceFile: 'license.txt',
     licenceMarker: 'CC-BY-4.0',
   },
-  {
-    key: 'model/seats/bleacher',
-    kind: 'model',
-    site: 'Sketchfab',
-    name: 'Bleacher',
-    pageUrl: 'https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b',
-    author: 'JanStano',
-    authorUrl: 'https://sketchfab.com/JanStano',
-    licence: 'CC-BY-4.0',
-    resolver: 'misc-local',
-    use: 'bench seating for temporary stands',
-    miscRoots: ['seats', '.'],
-    zip: 'bleacher.zip',
-    entry: 'scene.gltf',
-    licenceFile: 'license.txt',
-    licenceMarker: 'CC-BY-4.0',
-  },
   // Baked in-repo from the CC0 Quaternius / Eclair figures above (scripts/assets/bake-crowd-atlas.mjs):
   // the far-field spectator impostor atlas. 128 px cells, one row per figure (14 poses, then the
-  // same 14 wearing a cap), columns = 8 yaws × 2 camera elevations. diff = lit RGBA with the
-  // clothing baked white / light grey; mask = R shirt+cap, G pants, B skin (what the runtime tints).
+  // same 14 wearing a cap, then 4 standing poses wearing a white helmet — the ops layer's
+  // marshals and crews), columns = 8 yaws × 2 camera elevations. diff = lit RGBA with the
+  // clothing baked white / light grey; mask = R shirt+cap, G pants, B skin (what the runtime
+  // tints), black for the helmet (never tinted).
   {
     key: 'tex/crowd_atlas',
     kind: 'texture',
@@ -648,7 +767,7 @@ export const SOURCES = [
     resolver: 'bake',
     bakeScript: 'node scripts/assets/bake-crowd-atlas.mjs',
     res: '4k', // keeps the 2048 × 4096 canvas as baked (loadRaw only shrinks above RES_PX)
-    use: 'far-field spectator impostors (8 yaws × 2 elevations × 28 figure rows)',
+    use: 'far-field spectator impostors and the ops layer\'s figures (8 yaws × 2 elevations × 32 rows: 14 bare, 14 capped, 4 helmeted)',
     files: { 'crowd_atlas_diff.png': 'bake://crowd-atlas/diff', 'crowd_atlas_mask.png': 'bake://crowd-atlas/mask' },
     maps: { diff: 'crowd_atlas_diff.png', mask: 'crowd_atlas_mask.png' },
   },
@@ -737,21 +856,121 @@ export const SOURCES = [
  * re-download no longer matches (upstream re-encode, CDN tampering, or a moved Kenney build hash).
  */
 export const PINS = {
+  'model/props/Barrel_02/Barrel_02.bin': 'a9a848743a7616710e2b3aee0b61c6fb69abc3910a150856ad21776a6089f29a',
+  'model/props/Barrel_02/Barrel_02_1k.gltf': '82204368af4d7211c440e7ebcd30979f48ba349d4439f3bf0212f86d4ba5d9d8',
+  'model/props/Barrel_02/textures/Barrel_02_arm_1k.jpg': 'bd69aa2c5c069482cb48a14aed1f3a1d079bd868d865247206427df5a53202e3',
+  'model/props/Barrel_02/textures/Barrel_02_diff_1k.jpg': '2dd828ce25b5b6b0ffc9b7901d1778767f1897be1c8004f4ec047fc91742cf12',
+  'model/props/Barrel_02/textures/Barrel_02_nor_gl_1k.jpg': 'f7029669d04979d20bbe1a80d34e689aff4b1ebe1bcc37a3ee62c8e384229a77',
   'model/props/concrete_road_barrier/concrete_road_barrier.bin': '64a4f9bc6e4af64d714a252c3c13428c430a60569deba3d52ca6b7dd3aa70d8c',
   'model/props/concrete_road_barrier/concrete_road_barrier_1k.gltf': 'c371e87d303fff3f0c9fbe88520f7837514364e5c66aac3244e115ffa673d061',
   'model/props/concrete_road_barrier/textures/concrete_road_barrier_arm_1k.jpg': 'b940847648012f2db8c24b16e07ad1e39b3bd33ea493203364deca209606e4b4',
   'model/props/concrete_road_barrier/textures/concrete_road_barrier_diff_1k.jpg': '88b2d79829ffec7b11ac4d9c8554328f30b665d2c17f634197fde4f1ca8696fe',
   'model/props/concrete_road_barrier/textures/concrete_road_barrier_nor_gl_1k.jpg': 'c1072f51ff5c3d7158f0fbb0aa26e82b816b745b9f03639c4816832af2b37c52',
+  'model/props/covered_car/covered_car.bin': 'dcbd7bf82d415e30d02c3e7056013b44729de7b712868b5ab9bf29f2b3b8bc57',
+  'model/props/covered_car/covered_car_1k.gltf': '80b210b08673833a8085812b9ee71286213b2af92654886e5a1a368977265aa7',
+  'model/props/covered_car/textures/covered_car_arm_1k.jpg': 'e77f73234311701dd8088ec572e61d4ec7838bd28e9ea13ffe5e28f79da8e085',
+  'model/props/covered_car/textures/covered_car_diff_1k.jpg': 'c4616a5c7c1327e4bc127b600e59d9dcb2123f8926f1570a1ca4a068d97f4d34',
+  'model/props/covered_car/textures/covered_car_nor_gl_1k.jpg': '6769694abe28c53e5c35ad1cefdd462b56416e7d89a6bcf5a9d9f6c922b46d05',
+  'model/props/exterior_aircon_unit/exterior_aircon_unit.bin': 'b4b9ad082bdaa8f8b437bc14d9981caeaf318334499d4bf65d616fb2ec0c5ca8',
+  'model/props/exterior_aircon_unit/exterior_aircon_unit_1k.gltf': 'f19d85c76948903047c2846068aeaa376d5e956a410675268cb6cb6aac5d97c2',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_01_arm_1k.jpg': '14671920f716691dc3b8940432f7aba5c469e3b466441ff8ad500de92d3178fb',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_01_diff_1k.jpg': '2ae5005b4836d2c91d1e712d9acf425c7dcc4973b7c0fc6f23da9afaa6381da6',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_01_nor_gl_1k.jpg': 'e5a6f3c135b942d6efe62a24496c575d03f6a4316188efe65079035d7faf1c38',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_01_opacity_1k.jpg': 'c19feb434c2b01923fbb3e16ace3aa6d9cb16b05c2a5c479ad237759b2d331d6',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_02_arm_1k.jpg': '1cdfa2d1c938c3af61a5f06510b0d94aeddddd4bdc1832008b3826240dd1535d',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_02_nor_gl_1k.jpg': '864c0fb1e55aff910d826a8c1f6a2ad459f7db0124b5846445d466cabf0cadf5',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_rusted_01_arm_1k.jpg': '51c103926b118bf00b902826001db802b15755c6eefa12b00afa24c60d7b341b',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_rusted_01_diff_1k.jpg': 'a8771db98ed7f3d46ce48fd70867f58a74a2530666c339f8dcc14f3e5de86d0b',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_rusted_01_nor_gl_1k.jpg': '14f105cda9172290be2e8b23b8e895099b65e222619850af3b13105901d922e2',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_rusted_02_arm_1k.jpg': '6ac4cfca6a8d8bec6ef1ff756652eb1f36b780d1ff7d70d9cb3e0f7fe1faf271',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_rusted_02_nor_gl_1k.jpg': '3af4716b42812b742577594c7a0a342accd79925f02037c152b1da1c5831bb78',
+  'model/props/exterior_aircon_unit/textures/exterior_aircon_unit_rusted_02_opacity_1k.jpg': 'a86bcaf9c4858cf250fd67c9a0ee362504454b9972ff6e1ac44e38bac3213421',
+  'model/props/korean_fire_extinguisher_01/korean_fire_extinguisher_01.bin': 'a460dd65b63477bb641196d77393258af0c8a6e2a64728156cb45d92658c86bd',
+  'model/props/korean_fire_extinguisher_01/korean_fire_extinguisher_01_1k.gltf': '565f9e41909165c2bead24b722746e29ba55e8eb5e541f61fe0d1ef7e66d2ecf',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_body_arm_1k.jpg': '2c8fa0a85d5acc5f4e784ecefd8bfd16e1aafd112e553bfcece0c81c9b129eea',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_body_diff_1k.jpg': '2d874513cfb6d7485b67e936ee32e7af14992da6a5eedf980dbdfc32a2119987',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_body_nor_gl_1k.jpg': 'b6ba7a7cafa04557c93dc63b44260b635863f0a95f8ba1445b75758dac3443d3',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_glass_arm_1k.jpg': '412712fddc3654d801949889f78c9ee92d8855624a1fe1057be29a38e766bda0',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_glass_diff_1k.jpg': 'ca7e49959126aa51e2d4ab440aeb9f7ff17a8a6d025b116f6327f2343ee041af',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_glass_nor_gl_1k.jpg': '3b299c54cb9b6f72d4f79e6ecd2f8cfcc618292c87881de1d17892b5ca668896',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_paper_arm_1k.jpg': '542b45184bb0ea66cdd2f180792148c45d45862a12f1ac341f798e53029015b9',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_paper_diff_1k.jpg': '2d56948aa72a9bad6133db3e6b17fa0df1a56cdf25db4b7e21e6ceb21999a038',
+  'model/props/korean_fire_extinguisher_01/textures/korean_fire_extinguisher_01_paper_nor_gl_1k.jpg': 'caaa26dd438e827e994c69605091d58ecc6a152813ece776cc561e0b24a8433a',
+  'model/props/metal_jerrycan/metal_jerrycan.bin': 'd84ce2528b28a477c5309fc289a50a3deb61287265a787bd728e639c5230408c',
+  'model/props/metal_jerrycan/metal_jerrycan_1k.gltf': '7ae6f2aa0b7f35e38baa89c1c243312848391a9d1c0e67acf02aa7dac32599ff',
+  'model/props/metal_jerrycan/textures/metal_jerrycan_arm_1k.jpg': 'fda20dd47d809fd5bd4cd29cd11e77fc2de97bd35569a7efb51fbf78705e659c',
+  'model/props/metal_jerrycan/textures/metal_jerrycan_diff_1k.jpg': '64781939c4b3f739c52c335d26473def75d736173f3cc11a50ac2876d511d123',
+  'model/props/metal_jerrycan/textures/metal_jerrycan_nor_gl_1k.jpg': '88dd8f6566cc5faa8fee658777115b518642508f23ffa1917128dba9539ae14d',
+  'model/props/metal_tool_chest/metal_tool_chest.bin': 'c2bde4e96af4aad171e57e00ff78f0aa9e3b603286a2c74cd6d7c2a20c487342',
+  'model/props/metal_tool_chest/metal_tool_chest_1k.gltf': '2f66fbb723cd52382f73daec184b68d9b36842a488ecaf120e5c3a6354e9dea4',
+  'model/props/metal_tool_chest/textures/metal_tool_chest_arm_1k.jpg': 'd5552ee63ac9bc53527ee1bf19bcbd31d8424bcc15fe9861f79bba917e857828',
+  'model/props/metal_tool_chest/textures/metal_tool_chest_diff_1k.jpg': 'da37ba2a8d064637c7206cb091597275986e788ce379bee58a96c949cce06511',
+  'model/props/metal_tool_chest/textures/metal_tool_chest_nor_gl_1k.jpg': 'bc5a4009a544a9504849b951afd984d6ac7c5adb0d43c5a08c0a834f8e811a01',
+  'model/props/modular_fire_escape/modular_fire_escape.bin': '5173033f47b33cbfe47fb38fb18ad99e6d78070ab7e1faf6fcc5a002afe98728',
+  'model/props/modular_fire_escape/modular_fire_escape_1k.gltf': '3a28e24cf2b6fc32c86f4fd378a372f9c3babfb9c2206036c6276d5bb47df2fd',
+  'model/props/modular_fire_escape/textures/modular_fire_escape_01_arm_1k.jpg': 'ca4ada942209b9b880b180f0646e1bf7c86f46b7599b12ff56b4ef6ad533c44d',
+  'model/props/modular_fire_escape/textures/modular_fire_escape_01_diff_1k.jpg': '50b15363269bee95c4c4aeb54a4a4df31a3e52680877fe286259c92885c17b74',
+  'model/props/modular_fire_escape/textures/modular_fire_escape_01_nor_gl_1k.jpg': '2db2bfc1d9d487cec32f68a846883ded440a1d10a328d81d8dcc522be45e7734',
+  'model/props/modular_fire_escape/textures/modular_fire_escape_02_arm_1k.jpg': 'b4b65ebcd05e6c4502240a46eebd6535e9f83c0c65e0baaebaf25dae207c7c95',
+  'model/props/modular_fire_escape/textures/modular_fire_escape_02_diff_1k.jpg': '9e969f5912b61aee6a6aa6dac3d98a4be3a4c92bf3b8f71e80fedc068493aa18',
+  'model/props/modular_fire_escape/textures/modular_fire_escape_02_nor_gl_1k.jpg': 'd9024407844f8baf514d005354ea4a729aff3659753e36cbab92fb09d0df3565',
+  'model/props/old_tyre/old_tyre.bin': '659e7982c2de92ca1d13194c97bf112b6dec22d91daecc88e3912d37ce1b7252',
+  'model/props/old_tyre/old_tyre_1k.gltf': 'ba7b417eb3dc747c356ac3cd1f125754755684eb664737a9f1fc9e490c0b766e',
+  'model/props/old_tyre/textures/old_tyre_arm_1k.jpg': '3bcf192f5b99a7a574f9e21e75927043e6726c601a5da15e3210a31db05e12d4',
+  'model/props/old_tyre/textures/old_tyre_diff_1k.jpg': '0e34ce658c0844c0c94022233226d495930d514c917a5fa15ffee4760567439e',
+  'model/props/old_tyre/textures/old_tyre_nor_gl_1k.jpg': '34b716e140408985ddbab7d4bf1d8d430edf834cd2fd4639d82b14cb393fa73e',
+  'model/props/plastic_crate_02/plastic_crate_02.bin': 'f51696aa04643b5c1948da88be8ce1d4e92596ae4908b0132cd690f8fb8e0b63',
+  'model/props/plastic_crate_02/plastic_crate_02_1k.gltf': '531f7ba7d4b501759b04fb704db1948bcaab34d8342e71e3f5877d9f0340dba7',
+  'model/props/plastic_crate_02/textures/plastic_crate_02_arm_1k.jpg': 'f0c667358c7afd46be37b40c30435b63ae3dba8432b45c507f3298fc6f163418',
+  'model/props/plastic_crate_02/textures/plastic_crate_02_diff_1k.jpg': 'f153478d5f44f39ab27a967850caac27b35ee8f04185d0d4eaf7ad501742fb15',
+  'model/props/plastic_crate_02/textures/plastic_crate_02_nor_gl_1k.jpg': '492b4cb03b043fb30a21b5de1cdf91dfbcd9bb7d080957af69a333d622050f30',
+  'model/props/plastic_monobloc_chair_01/plastic_monobloc_chair_01.bin': 'db5c778488d01d7e7d3409e2cda53ee8f6dd523a327c080000d549dd0f83b375',
+  'model/props/plastic_monobloc_chair_01/plastic_monobloc_chair_01_1k.gltf': '899bf148139ab8d1718c25ec06112a652631f9476b5aaeeacb9eb1da9b7f1d3a',
+  'model/props/plastic_monobloc_chair_01/textures/plastic_monobloc_chair_01_arm_1k.jpg': '78a67659a19a9df9efc0ef71789de0c949a727db62ade4c4c8887cd2c803c1a2',
+  'model/props/plastic_monobloc_chair_01/textures/plastic_monobloc_chair_01_diff_1k.jpg': 'fdd1255a02bf684cfcff2eae75c0e3eea0db1fb5ecbfbd8c4f9beab8fd83ff6c',
+  'model/props/plastic_monobloc_chair_01/textures/plastic_monobloc_chair_01_nor_gl_1k.jpg': '9ffa876b37d72ae1c0aed84d4dc1f62c956c844b3efec1f786f9080c10f63c9e',
+  'model/props/portable_generator/portable_generator.bin': 'fb7dcfedec1331ad541569e4ca8d4157284b2164084b7fe5a97928d4abc0ea2d',
+  'model/props/portable_generator/portable_generator_1k.gltf': 'd5afe27834f824dfe753391713c45be03479e8100831f320796030531f61b848',
+  'model/props/portable_generator/textures/portable_generator_arm_1k.jpg': '10236e967baddd90ec7d4ab68969b06fb419f98782a2796db94edc0249b0dad2',
+  'model/props/portable_generator/textures/portable_generator_diff_1k.jpg': '32acc300105a2df2290d872889b24e1b29ff1ca2c56c0a0cf8fbba0c5966a063',
+  'model/props/portable_generator/textures/portable_generator_nor_gl_1k.jpg': '8a868edab1a2f5ffa50b2b1680c2c342491b3eeeac443734178c445c7286c25d',
+  'model/props/portable_generator/textures/portable_generator_spec_1k.jpg': 'acf30e81c367898eb846f353d77e404f6831ac23bf071e0e718fddb8881b86cb',
+  'model/props/rollershutter_door/rollershutter_door.bin': '155cd44e199d4edd19769503c7ed22b0b4007869166d0193a7e2d5e3134dc38d',
+  'model/props/rollershutter_door/rollershutter_door_1k.gltf': '913b2689f88f99cb75f8a6575e315ee90437e59976a2a3ce0b260d5636a14d30',
+  'model/props/rollershutter_door/textures/rollershutter_door_arm_1k.jpg': '0a45cf8585a339ae542ef891f3aa697258079b98f1755b2d6716ea542d3de14a',
+  'model/props/rollershutter_door/textures/rollershutter_door_diff_1k.jpg': 'b8cd7ad14fe5c691484fe240213c379bf18f21336afe6622bfa20c731eca010d',
+  'model/props/rollershutter_door/textures/rollershutter_door_graffiti_diff_1k.jpg': '7438bee86fc32e3b6ca23ec694f179576749554dff7c3b281f30acd917c250af',
+  'model/props/rollershutter_door/textures/rollershutter_door_nor_gl_1k.jpg': '3eaad465ac23e4b3d5fbf2e315b738f8d3039cd244a69ab8adcc7a0e786cdffb',
   'model/props/security_camera_01/security_camera_01.bin': 'c43dd3576213c169d1b3a9968788c0da2d14073e59c7d2503bc230c05042bb21',
   'model/props/security_camera_01/security_camera_01_1k.gltf': 'd2468fe353cd9f992a5549709cf9efcfae67e9fd17f80bf7ff3866e2881dd2ae',
   'model/props/security_camera_01/textures/security_camera_01_arm_1k.jpg': '68bb728aff5af6bd4141201cd221c7e17ef537f49978c321b0e183677f8877ba',
   'model/props/security_camera_01/textures/security_camera_01_diff_1k.jpg': '572968d8c693682aa5c87d59428e1db234b0d81ec620af8a019c72e3f011d53f',
   'model/props/security_camera_01/textures/security_camera_01_nor_gl_1k.jpg': '80e791da5d975177d16d5f30202deac0b262ffe6b13311605c09c630b93d0de5',
+  'model/props/security_camera_02/security_camera_02.bin': '15512a4c0add24cd6ec38386e7707b02587f6bb873d9a0620ca6bbc548f1dc7b',
+  'model/props/security_camera_02/security_camera_02_1k.gltf': '912c8e01a7a3f3edc52ac39cc6f357bef9a967e5a1ded270c634c621f74d0b51',
+  'model/props/security_camera_02/textures/security_camera_02_arm_1k.jpg': 'dd55c2295a8c2265c97e7730d3dad436032413f2ca0b1a976f2e4314ac1efcbf',
+  'model/props/security_camera_02/textures/security_camera_02_diff_1k.jpg': '619756fa57b0972248d0f0100e99ca62d7cd95daa80c7439bb49ff8254eb7d12',
+  'model/props/security_camera_02/textures/security_camera_02_nor_gl_1k.jpg': '87e70382709059a3c0b85ff803c3e68aec622f13062debe103c2069a78b71fef',
+  'model/props/security_light/security_light.bin': '3d45d473d7ad4ace4ce93790db96dd7d6decbd0180b59a7a2774c690594e70e2',
+  'model/props/security_light/security_light_1k.gltf': 'd82d2191df1e30a75c2f2ce07a8abefcd52b0e8eabc819e2ac854da0f16fba18',
+  'model/props/security_light/textures/security_light_arm_1k.jpg': '4f8fe251eb31144de0eff820a7aef205d306b3b5dd4a19aff0ad4e87ca50a767',
+  'model/props/security_light/textures/security_light_diff_1k.jpg': '2e7064d89f03ef51bffda6f78c86baac1edba3346f82f243aa0c33b20fa8b0e5',
+  'model/props/security_light/textures/security_light_nor_gl_1k.jpg': '7d14ecdf5f6c70152ca6fdfc290c72a28553248f0e5a79e7b77c8f601b00ddc2',
+  'model/props/steel_frame_shelves_01/steel_frame_shelves_01.bin': '306d7e72d12a5d3047b8a189f8d0add51075eaf7f51f935286fda4e1c16dd066',
+  'model/props/steel_frame_shelves_01/steel_frame_shelves_01_1k.gltf': '4eff8994825d654e337f8dc425e959ed6add7f4773188c87ba64402d9edd9842',
+  'model/props/steel_frame_shelves_01/textures/steel_frame_shelves_01_arm_1k.jpg': '858629eeaa8f68ddb4fc1a813afe6ed988ded3d6d49184ec45a14611760f0bb3',
+  'model/props/steel_frame_shelves_01/textures/steel_frame_shelves_01_diff_1k.jpg': '85e205b334e15e05bec9b02be1258da6ab949ae908aa57e0bee6b94ba45b4415',
+  'model/props/steel_frame_shelves_01/textures/steel_frame_shelves_01_nor_gl_1k.jpg': '2a67ed7dd4f53c3e225396e6381992b768fe58b5261be703d540678e366e46ed',
   'model/props/street_lamp_02/street_lamp_02.bin': 'e544c04855dcf728ff2724f691f6784690b8ba3ac323a9a332e56b271ffe1d7c',
   'model/props/street_lamp_02/street_lamp_02_1k.gltf': '3a8a42486c5dc4538a8b44aeeef502c64a1c9d0d42fa5610e37886c355337ff8',
   'model/props/street_lamp_02/textures/street_lamp_02_arm_1k.jpg': 'a1e2d654e7d5d48a1fdfbf720840192d171df54e5ea5f055145d0472d617eede',
   'model/props/street_lamp_02/textures/street_lamp_02_diff_1k.jpg': '19882567313dd43fef60f9fa41a4c55f81a957f9fee539e931fc36a32e386b6c',
   'model/props/street_lamp_02/textures/street_lamp_02_nor_gl_1k.jpg': 'fdd9fb26ca853020ed156fdd84e90ce3f9a68bf94edf71c0ffe72add67e316c6',
+  'model/props/tool_cart/textures/tool_cart_arm_1k.jpg': '2b928779ab242468c90e6074ab72567bc58ecf3e0240fd709e4507b59764aef7',
+  'model/props/tool_cart/textures/tool_cart_diff_1k.jpg': '3a3e18efa54d18f2d01ad51cb40f8edd9af76e054a6a9c21324bc14fe49be965',
+  'model/props/tool_cart/textures/tool_cart_nor_gl_1k.jpg': 'fa995e77eacad81c78f650e28a6d4c1c7b9d6c74a3f314d5f5ebdddf6de510fc',
+  'model/props/tool_cart/tool_cart.bin': '3962637a4faec733b10d9970bfeea6696a48b6fd361fda085cc3d122138f6aaa',
+  'model/props/tool_cart/tool_cart_1k.gltf': 'ba4290f62b37dc08d4f99da2b3c78d8cb584bd229e8805ce586ed3f3b5303759',
   'model/props/utility_box_02/textures/utility_box_02_arm_1k.jpg': 'f85575f891c97354d2fff11d5d0e2bc5f7d3aeab853ff3d75100c30c177a9cc5',
   'model/props/utility_box_02/textures/utility_box_02_diff_1k.jpg': '78a0c93b1d8d394beee5989c0d3470a9c8c4e902f708acf3c11cd4edafbe08b1',
   'model/props/utility_box_02/textures/utility_box_02_nor_gl_1k.jpg': 'e7c85b37fa5420591b6fa5dcef7875c927c8dc51f38c39c5844d53284ef37c74',
@@ -760,13 +979,26 @@ export const PINS = {
   'ref/crowd_plates/bangabandhu_crowd_2019.jpg': '6557474c28a545cecfcf6e6859f3c368945f94ad4e95dbbfa3d9a56e0d9985a5',
   'ref/crowd_plates/front_row_audience_unsplash.jpg': '7585fefb4bcb4b14af078fb1d4eb71663f3ef740ebf060f09ff3c5d2fce0c392',
   'ref/kenney_racing_kit/kenney_racing-kit.zip': '8a71ea16219315a01d00d5a90c4f6b5c090faddbc56d80ecf727e2b3b853c6c0',
+  'tex/asphalt033/Asphalt033_1K-JPG.zip': 'c71801b342dbea594dbdd0bd2ddc0a6d13f813c923fca408b9f5b9ee5e58aba2',
   'tex/asphalt_04/asphalt_04_arm_1k.jpg': '35f582fb66d223d242d294616aec5749affdc6ca0a97067311cd6f247f7ef081',
   'tex/asphalt_04/asphalt_04_diff_1k.jpg': '837a78bb1e94864c221f847c85480484e953a9ee958772481dd2c501e18def2e',
   'tex/asphalt_04/asphalt_04_nor_gl_1k.jpg': '18b91c2a6d83a8fbaa8d7fe84e80a66bd6451e4ec2774a09bf4429498c8f3912',
   'tex/asphalt_pit_lane/asphalt_pit_lane_arm_1k.jpg': '3e4315b489f07ff88315017932bdf40d3b9670e3d04c07d4077aa86a16e98d37',
   'tex/asphalt_pit_lane/asphalt_pit_lane_diff_1k.jpg': '8aad5097f6de913aebc33f2b9b9271834b55c6942359955722db3196a9ce9bca',
   'tex/asphalt_pit_lane/asphalt_pit_lane_nor_gl_1k.jpg': 'a215356a1180664fbbf94076f3720a4620a1121e137780ce98059621bf8b444e',
+  'tex/asphalt_track/asphalt_track_arm_1k.jpg': '1ad38c055c97547802912facec609ee6deda2dc9bc2f048f36ea484e5f5ccb6e',
+  'tex/asphalt_track/asphalt_track_diff_1k.jpg': '05c4e79cd99160075969d37bfc6ef72be262153a410bb45510b2c23f7303894c',
+  'tex/asphalt_track/asphalt_track_nor_gl_1k.jpg': '18caf02427a7cd9cd577ceae5aa9daa7bb3ffba60598e2df8aaf75d1925a8a94',
+  'tex/blue_metal_plate/blue_metal_plate_arm_1k.jpg': '9321b539fe9cf0136ea04c3405b95ae82383f31c258b9c0e37ff8a1e577b637f',
+  'tex/blue_metal_plate/blue_metal_plate_diff_1k.jpg': 'a0162bffce47d4a35613a12af22571b28c18412dc5805cbb69eac343554ef750',
+  'tex/blue_metal_plate/blue_metal_plate_nor_gl_1k.jpg': '970f0273c9e2e3b4fc8338bfd58a28c413b70ac4d1734d9dc8a136724bde56e6',
   'tex/concrete046/Concrete046_1K-JPG.zip': '72bf4321acbb39ddbc3b786f5996813b2a3cede12efefb47955e97ea9668985b',
+  'tex/concrete_floor_03/concrete_floor_03_arm_1k.jpg': 'baaea8404331ead21e12306ab5a890eb74b80cb8a2e508aa209cc9dfa4423fa1',
+  'tex/concrete_floor_03/concrete_floor_03_diff_1k.jpg': '6403524d194100d80e3040435b953ddf44e90069bd404cfb116204dec3c35df7',
+  'tex/concrete_floor_03/concrete_floor_03_nor_gl_1k.jpg': 'f9f18d02c1e4e655aa321ddeaf2c696a87a9c4782fea7119c65310c510367f5a',
+  'tex/container_side/container_side_arm_1k.jpg': 'c5238fd9c6d234b1c6c9a62e2b1b97343636a4e42abd429e03faf58a613318b7',
+  'tex/container_side/container_side_diff_1k.jpg': '9d6a8a9a243b6111f9d13af12d90325f0f1d52e45c2e1731f2d496702f024452',
+  'tex/container_side/container_side_nor_gl_1k.jpg': '1e9e54d5816c97e5abeb448c3468b1eafb4add9acb41fcdc26817563c8f21f22',
   'tex/corrugatedsteel003/CorrugatedSteel003_1K-JPG.zip': '0bad36b34cf9d0e445c06b125fcbb7ea78074505d85051087fabb37acfa18ca1',
   'tex/corrugatedsteel007a/CorrugatedSteel007A_1K-JPG.zip': 'c70ff5a3a182ab14a010105bcfbdf26617877ca6985f95ef5c6677d0c3175899',
   'tex/corrugatedsteel009/CorrugatedSteel009_1K-JPG.zip': 'fa917cba8bbf4ceb645cf27e4c1a4a17621d3b1ad44a4125997cdd05662711fb',
@@ -781,6 +1013,12 @@ export const PINS = {
   'tex/grey_roof_tiles/grey_roof_tiles_arm_1k.jpg': 'cd00bc65d20defa8560adbe908bf9027e0e39b8ccf954eeab9fca7a3c5674281',
   'tex/grey_roof_tiles/grey_roof_tiles_diff_1k.jpg': 'f61107b70cf56074c9db09384a332620c94c678ed2baabfae78029a8242e49a3',
   'tex/grey_roof_tiles/grey_roof_tiles_nor_gl_1k.jpg': '99546fdc2978d0950a2c61fe94dbd4230bb7825944bb4e4e7ad586839fdc721d',
+  'tex/metalwalkway012/MetalWalkway012_1K-JPG.zip': 'ab3240a3b1fdab71ddf0eebd9f62a473e200f358c327402ec5e9355324b35709',
+  'tex/painted_metal_shutter/painted_metal_shutter_arm_1k.jpg': '26a49a8b60dd2e1fdb325c1488d55d2e6e7362f4505e400ac2243bf0ec67ca56',
+  'tex/painted_metal_shutter/painted_metal_shutter_diff_1k.jpg': '278394aabcb5a5bd560d9904358682acc5af23666b22bd1f12558789da4aa4d2',
+  'tex/painted_metal_shutter/painted_metal_shutter_nor_gl_1k.jpg': '7545d778669c55e3e9bdc89355ce7190077c3ffdfb324e988ff9803a5bae5a46',
+  'tex/paintedmetal010/PaintedMetal010_1K-JPG.zip': '1d57d7d4fcbab46ec9637b6d6b5d3ff9e405f8a1e52cb8a550f58e7f1365e1aa',
+  'tex/pavingstones099/PavingStones099_1K-JPG.zip': 'dbd1a0de24e4a64480c0d80a3a3669eccafb26bb3b19aecf378af718f5b0ef8d',
   'tex/plaster_grey_04/plaster_grey_04_arm_1k.jpg': '9c4a6d0dc9d019ebc4c2cefea095ae413ebce078189bd641fab2bdac49bfc52c',
   'tex/plaster_grey_04/plaster_grey_04_diff_1k.jpg': 'e78df7d6e762fe767634278e14316564e0d4510031986239458994ec9fc5410d',
   'tex/plaster_grey_04/plaster_grey_04_nor_gl_1k.jpg': '9d0eb5299f797c07eb841737eb7164755a2c8a2363540e175a76188a2aa5a2dc',
@@ -788,8 +1026,17 @@ export const PINS = {
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_arm_1k.jpg': '3c514c4f7983ab81ba4f715863c8f95945ecbf60f3a982780897835302b744cb',
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_diff_1k.jpg': 'da12ad78e4de12c0b38ca5c9fe2783a6b49c4362310844ded51b1acd8821fbe0',
   'tex/preconcrete_wall_001_long/preconcrete_wall_001_long_nor_gl_1k.jpg': 'd6edfa39844a4ef480ae2bfcf1c3cce549d8ce6080edd58c4493845aca9ce92d',
+  'tex/rectangular_facade_tiles/rectangular_facade_tiles_arm_1k.jpg': '6be9a4e34057fc90ab450624cf83d2f5bc67bf59d5c137617ea62d8206540011',
+  'tex/rectangular_facade_tiles/rectangular_facade_tiles_diff_1k.jpg': '583eafdfc03da4a74509ba545c5ea808c8bdc6e883763a804fcbe859c120afb9',
+  'tex/rectangular_facade_tiles/rectangular_facade_tiles_nor_gl_1k.jpg': '8a7d8db468fe5bd37a2fc14ff6012855b14bec03dd413e034a376902a723b44c',
   'tex/roofingtiles015a/RoofingTiles015A_1K-JPG.zip': '5bb040c4c08592b607bba47cbf7384c2769bea1b49d088c463fa296708c0f743',
   'tex/solarpanel003/SolarPanel003_1K-JPG.zip': '9691dbe84d7c44ef9a2c84a8a55bdeb87e6a59fa649ccc4f3d47121f00028b5c',
+  'tex/square_floor_patern_01/square_floor_patern_01_arm_1k.jpg': '106bd467e70a1738e719dd25d7998b4d5c2313a2cf1635f525e03f3c0b0dfd54',
+  'tex/square_floor_patern_01/square_floor_patern_01_diff_1k.jpg': '9d169406abb8a9961673cf8acae5ab29fb6c71dd89aa2fe10dc9e68eeef40b9f',
+  'tex/square_floor_patern_01/square_floor_patern_01_nor_gl_1k.jpg': '5f7579bc7a080c575d91efa526072e8edd7f1f2e11fa9477493104f548faf27d',
+  'tex/tarred_gravel/tarred_gravel_arm_1k.jpg': 'f9ac62177978eb1e57fa9e1f8967e62aa1a3a4b1ce11b0f7b48108e6481d0866',
+  'tex/tarred_gravel/tarred_gravel_diff_1k.jpg': '7b866b32d73f74f2e493f98828391587aed5b2cd24c47619ce7188b40079e627',
+  'tex/tarred_gravel/tarred_gravel_nor_gl_1k.jpg': '7b88d5d9e36f9f5978ec94b7b0a5b9d419eb43093bb94b001ced8605914931e8',
   'tex/white_plaster_02/white_plaster_02_arm_1k.jpg': '2bb1115821715dfd8bbd1c5a294a5bb43b97d5c46b1aa8aa8f744bcaf5eeeb10',
   'tex/white_plaster_02/white_plaster_02_diff_1k.jpg': 'a1ebbe091bd1ae93d2abd5de8d69f9003a8d0ee6532bcf9a87c2492c97051f23',
   'tex/white_plaster_02/white_plaster_02_nor_gl_1k.jpg': 'eb572ca3630d5bfde72e2601b1f02412da23ca005cd19384dced8690be4cb783',

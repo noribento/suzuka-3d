@@ -41,14 +41,15 @@ pnpm perf       # dev サーバー（:3100）に対して perf-probe → perf-ga
 
 ```bash
 node scripts/assets/fetch.mjs                 # Poly Haven / ambientCG / poly.pizza から misc/dl/ へ取得（ハッシュ検証）
-node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアトラスを焼く（Playwright、SwiftShader で可）
+node scripts/assets/bake-crowd-atlas.mjs      # 観客インポスターアトラスを焼く（Playwright、SwiftShader で可）— 行 0–13 素頭、14–27 キャップ、28–31 白ヘルメット（運営レイヤーのマーシャル／クルー、mask 黒 = 着色しない、`CROWD_HELMET_ROWS`）
 node scripts/assets/bake-tree-atlas.mjs       # 樹木インポスターアトラス（種ごと 1 行、8 方位 × 2 仰角）を焼く — 樹木パックの import 後に
 node scripts/assets/bake-car-atlas.mjs --glb  # 駐車場の車のアトラス（GLB 車体の行は GLB から、他は手続き車体）— 車両 GLB の import 後に
 node scripts/assets/import-misc.mjs           # misc/ を変換して public/assets/ と manifest・CREDITS.md・credits.ts を生成
 node scripts/assets/import-misc.mjs --check   # ライセンス・容量（≤ 200 MB）・VRAM 見積（≤ 512 MB）・KTX2 mip の検査
 node scripts/assets/inspect-model.mjs misc/trees/<zip>   # ドロップした GLB/zip のノードパス・三角形数・material 名・画像を表示（sources.mjs の正規表現を書くため）
 node scripts/assets/retouch-glb.mjs --dump <in.glb> <dir>  # GLB 内テクスチャの書き出し（バッジ・ナンバープレートの矩形を決める）/ --spec で blur・fill・dropParts・keepBox（AABB の外の三角形を落とす）
-# sources.mjs のモデル項目: maxTex / simplify（gltfpack -si -sa）/ texEncode（GLB 内 KTX2: uastc は法線と MASK/BLEND の色、etc1s は他）/ dropNodes / keepNodes / overrideImages（'@<image>' でパック内の別画像、'misc/…' で手元の画像）/ retouch / dropParts / keepBox。Sketchfab の CC-BY は misc/<group>/ に zip のまま置く（trees / road / buildings / vehicles）
+# sources.mjs のモデル項目: maxTex / simplify（gltfpack -si -sa）/ texEncode（GLB 内 KTX2: uastc は法線と MASK/BLEND の色、etc1s は他）/ dropNodes / keepNodes / overrideImages（'@<image>' でパック内の別画像、'misc/…' で手元の画像）/ retouch / dropParts / keepBox / retouchReviewed（retouch が要らない理由）。Sketchfab の CC-BY は misc/<group>/ に zip のまま置く（`MISC_GROUPS`: trees / road / buildings / vehicles / seats、I フェーズの受け口 ops / trackside / pit — 項目は各ドロップの取り込み時に追加）。`--check` は model/vehicles/* と model/ops/* に retouch か retouchReviewed を要求する
+# I フェーズ（柵の内側）の CC0: Poly Haven の小物 16 件（256 px、KTX2、消火器のラベルと発電機の銘板は retouch 済み）と再エンコード 3 件（concrete_road_barrier 0.08 / street_lamp_02 0.2 / security_camera_01 0.3 に間引き + KTX2）、路面・壁の 512 px 8 + 4 件（asphalt_track / square_floor_patern_01 / concrete_floor_03 / blue_metal_plate / container_side / painted_metal_shutter / rectangular_facade_tiles / tarred_gravel、PavingStones099 / PaintedMetal010 / Asphalt033 / MetalWalkway012）。bleacher（5.6 MB、消費者なし）は SOURCES から外した
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL、キャッシュは .cache/overpass/facilities.json）
 node scripts/facilities/build-facilities.mjs --add-ways-from .cache/overpass/surroundings.json --role "apron:467386920;tunnel:184101996" --dry-run
                                               # 網なしで way を差し込む: キャッシュ済み Overpass 応答から id で引き、役割（apron / parking / tunnel / footbridge / road）を付けて既存行に触れず splice（--dry-run で新行だけ表示）
@@ -188,7 +189,7 @@ app/
     surroundings-spec.ts       # 柵の外の手書き定数（色・幅・密度・LOD レンジ。ODbL 外）
     en-codec.ts                # 周辺データの EN 座標ストリームの復号（int16 デルタ base64 → EN / world）
     dem-codec.ts               # DEM グリッドの形と復号（`DemGrid`、海の sentinel、双線形サンプル）
-    crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対）
+    crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対；`CROWD_HELMET_ROWS` = 行 28–31 の白ヘルメット姿勢、運営レイヤー用）
     credits.ts                 # アプリ内クレジット（生成物）
     tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー

@@ -2,11 +2,14 @@
 <!--
   Spectator impostor bake page (driven by scripts/assets/bake-crowd-atlas.mjs).
 
-  Renders each posed figure from 8 yaws × 2 elevations into 128 px cells of one 2048² canvas
-  (one atlas row per figure: columns 0–7 = low camera, 8–15 = high camera, yaw 0 faces the
-  camera and increases clockwise seen from above). Two images come out of the same geometry:
+  Renders each posed figure from 8 yaws × 2 elevations into 128 px cells of one 2048 × 4096
+  canvas (one atlas row per figure: columns 0–7 = low camera, 8–15 = high camera, yaw 0 faces
+  the camera and increases clockwise seen from above). Two images come out of the same geometry:
     colour  — lit, RGBA; clothing baked white / light grey so the runtime multiplies its own tint
-    mask    — unlit, R = shirt, G = pants, B = skin (what the runtime tints), black = shoes/other
+    mask    — unlit, R = shirt (+ cap), G = pants, B = skin (what the runtime tints), black =
+              shoes / helmet / other (stays as baked)
+  Head variants per figure: bare, `cap` (a baseball cap that tints with the shirt) and `helmet`
+  (a full white dome that never tints — the marshals' and crews' white helmets of the ops layer).
   Every cell covers CELL_M × CELL_M metres with the figure's feet PAD_M above the bottom edge, so
   a fixed-size quad at runtime shows every figure at true scale.
 -->
@@ -63,18 +66,20 @@ const MASK_MATS = {
 }
 COLOUR_MATS.Cap = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 })
 MASK_MATS.Cap = MASK_MATS.Shirt
+// The helmet is baked white and masked black: the runtime's shirt / pants / skin tints leave it
+// alone, so an orange-overall marshal keeps a white helmet.
+COLOUR_MATS.Helmet = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45 })
+MASK_MATS.Helmet = MASK_MATS.Shoes
 
 /**
- * A baseball cap for the 'cap' variant rows: dome + brim sized for the pack's heads, placed on
- * the top of the Skin mesh (the head is its highest part; the brim points +z = the way the figure
- * faces at yaw 0). Team caps are the most visible single feature of a Suzuka crowd.
+ * Where the head is: the highest skin vertex near the torso axis (a raised arm — cheering,
+ * waving — reaches higher but sits well off the axis, so only vertices within ~13 cm of the
+ * shirt's centroid count) and the centroid of the skin's top 8 % inside that radius.
  */
-function makeCap (skinMesh, shirtMesh) {
+function headTop (skinMesh, shirtMesh) {
   const g = skinMesh.geometry
   g.computeBoundingBox()
   const pos = g.attributes.position
-  // The head is the highest skin near the torso axis — a raised arm (cheering, waving) reaches
-  // higher but sits well off the axis, so only vertices within ~13 cm of the shirt's centroid count.
   let ax = 0, az = 0, an = 0
   const sp = shirtMesh.geometry.attributes.position
   for (let i = 0; i < sp.count; i++) { ax += sp.getX(i); az += sp.getZ(i); an++ }
@@ -90,6 +95,16 @@ function makeCap (skinMesh, shirtMesh) {
     if (pos.getY(i) > top - h * 0.08 && Math.hypot(pos.getX(i) - ax, pos.getZ(i) - az) < rMax) { cx += pos.getX(i); cz += pos.getZ(i); n++ }
   }
   cx /= Math.max(1, n); cz /= Math.max(1, n)
+  return { cx, cz, top }
+}
+
+/**
+ * A baseball cap for the 'cap' variant rows: dome + brim sized for the pack's heads, placed on
+ * the top of the Skin mesh (the head is its highest part; the brim points +z = the way the figure
+ * faces at yaw 0). Team caps are the most visible single feature of a Suzuka crowd.
+ */
+function makeCap (skinMesh, shirtMesh) {
+  const { cx, cz, top } = headTop(skinMesh, shirtMesh)
   const r = 0.115 / SCALE
   const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), COLOUR_MATS.Cap)
   dome.scale.set(1, 0.62, 1)
@@ -103,17 +118,47 @@ function makeCap (skinMesh, shirtMesh) {
   return cap
 }
 
+/**
+ * A white helmet for the 'helmet' variant rows (marshals, pit crews, officials): one full sphere
+ * over the head, a shell a few cm larger than the pack's head and a little taller than wide,
+ * placed from the same head estimate as the cap — at 128 px a full-face and an open-face helmet
+ * read the same. Mask black: the runtime tints nothing there.
+ */
+function makeHelmet (skinMesh, shirtMesh) {
+  // The sphere sits on the centroid of the head — every skin vertex in the top 22 cm (a head's
+  // height) within 30 cm of the torso axis — not below the topmost vertex like the cap: a head
+  // tilted back (looking up) has its forehead on top and its centre well behind it.
+  const { top } = headTop(skinMesh, shirtMesh)
+  const pos = skinMesh.geometry.attributes.position
+  const sp = shirtMesh.geometry.attributes.position
+  let ax = 0, az = 0
+  for (let i = 0; i < sp.count; i++) { ax += sp.getX(i); az += sp.getZ(i) }
+  ax /= Math.max(1, sp.count); az /= Math.max(1, sp.count)
+  let cx = 0, cy = 0, cz = 0, n = 0
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) > top - 0.22 / SCALE && Math.hypot(pos.getX(i) - ax, pos.getZ(i) - az) < 0.3 / SCALE) { cx += pos.getX(i); cy += pos.getY(i); cz += pos.getZ(i); n++ }
+  }
+  cx /= Math.max(1, n); cy /= Math.max(1, n); cz /= Math.max(1, n)
+  const r = 0.128 / SCALE
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), COLOUR_MATS.Helmet)
+  dome.scale.set(1, 1.08, 1.06)
+  dome.position.set(cx, cy + 0.015 / SCALE, cz)
+  dome.name = 'Helmet'
+  return dome
+}
+
 const partOf = (mesh) => {
   const n = (mesh.name || '').toLowerCase()
   if (n.includes('shirt')) return 'Shirt'
   if (n.includes('pant')) return 'Pants'
   if (n.includes('skin')) return 'Skin'
   if (n.includes('shoe')) return 'Shoes'
+  if (n.includes('helmet')) return 'Helmet'
   if (n.includes('cap')) return 'Cap'
   return 'Shirt'
 }
 
-async function loadFigure (url, withCap) {
+async function loadFigure (url, withCap, withHelmet) {
   const gltf = await loader.loadAsync(url)
   const root = gltf.scene
   root.updateMatrixWorld(true)
@@ -126,13 +171,13 @@ async function loadFigure (url, withCap) {
   pivot.scale.setScalar(SCALE)
   const meshes = []
   root.traverse((o) => { if (o.isMesh) { meshes.push(o); o.castShadow = false; o.receiveShadow = false } })
-  if (withCap) {
+  if (withCap || withHelmet) {
     const skin = meshes.find((m) => partOf(m) === 'Skin')
     const shirt = meshes.find((m) => partOf(m) === 'Shirt')
     if (skin && shirt) {
-      const cap = makeCap(skin, shirt)
-      skin.parent.add(cap)
-      cap.traverse((o) => { if (o.isMesh) { o.name = 'Cap'; meshes.push(o) } })
+      const head = withHelmet ? makeHelmet(skin, shirt) : makeCap(skin, shirt)
+      skin.parent.add(head)
+      head.traverse((o) => { if (o.isMesh) { o.name = head.name; meshes.push(o) } })
     }
   }
   return { pivot, meshes, height: (box.max.y - box.min.y) * SCALE, width: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * SCALE }
@@ -169,7 +214,7 @@ window.bakeFigures = async function (figures, pass) {
   renderer.clear()
   const layout = []
   for (let f = 0; f < figures.length; f++) {
-    const fig = await loadFigure(figures[f].url, !!figures[f].cap)
+    const fig = await loadFigure(figures[f].url, !!figures[f].cap, !!figures[f].helmet)
     for (const m of fig.meshes) m.material = (pass === 'mask' ? MASK_MATS : COLOUR_MATS)[partOf(m)]
     scene.add(fig.pivot)
     for (let e = 0; e < ELEVS.length; e++) {

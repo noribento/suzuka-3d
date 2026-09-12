@@ -37,7 +37,7 @@ import { existsSync, readFileSync, writeFileSync, rmSync, copyFileSync, mkdirSyn
 import { basename, dirname, join, relative } from 'node:path'
 import sharp from 'sharp'
 import { read as readKtx, KHR_DF_TRANSFER_SRGB } from 'three/examples/jsm/libs/ktx-parse.module.js'
-import { SOURCES, LICENCES, RES_PX } from './sources.mjs'
+import { SOURCES, LICENCES, RES_PX, MISC_GROUPS } from './sources.mjs'
 import {
   ROOT, MISC, DL, DL_INDEX, PUBLIC_ASSETS, MANIFEST, WORK, GLTFPACK, GLTF_TRANSFORM,
   ensureDir, readJson, writeJson, sha256, sha256File, walk, zipExtract, findKtx, ktxEnv, npx, run,
@@ -801,7 +801,8 @@ function check () {
   const inManifest = new Set(Object.values(assets).map(a => a.path))
   for (const p of onDisk) if (!inManifest.has(p)) warn(`${p} is in public/assets but not in the manifest`)
   for (const p of inManifest) if (!onDisk.has(p)) warn(`${p} is in the manifest but not on disk`)
-  const localRoots = SOURCES.filter(s => s.resolver === 'misc-local').flatMap(s => s.miscRoots)
+  // A shipped drop must come from a declared misc/<group>/ (MISC_GROUPS) or a misc-local root.
+  const localRoots = [...MISC_GROUPS, ...SOURCES.filter(s => s.resolver === 'misc-local').flatMap(s => s.miscRoots)]
   let bytes = 0
   let vram = 0
   let vramRgba8 = 0
@@ -855,8 +856,14 @@ function check () {
   }
   // Trademark policy (CLAUDE.md): a vehicle body is a photo of a real car, so its maker emblems,
   // model scripts and plates must have been blurred / filled at import — no vehicle source
-  // may ship without a `retouch` (the rectangles come from `retouch-glb.mjs --dump`).
-  for (const s of SOURCES) if (s.kind === 'model' && s.key.startsWith('model/vehicles/') && !(s.retouch?.length)) warn(`${s.key}: vehicle model without \`retouch\` (badges / plates must be blurred before import)`)
+  // may ship without a `retouch` (the rectangles come from `retouch-glb.mjs --dump`). The ops
+  // layer (`model/ops/*`: course cars, ambulances, recovery trucks, marquees, gensets) is held to
+  // the same rule; a source whose dumped textures carry nothing to blur (a fictional-brand body)
+  // says so in `retouchReviewed` instead of an empty rectangle list.
+  for (const s of SOURCES) {
+    if (s.kind !== 'model' || !/^model\/(vehicles|ops)\//.test(s.key)) continue
+    if (!(s.retouch?.length) && !(typeof s.retouchReviewed === 'string' && s.retouchReviewed.trim())) warn(`${s.key}: ${s.key.split('/')[1]} model without \`retouch\` (badges / plates / lettering must be blurred before import, or \`retouchReviewed\` must say why none is needed)`)
+  }
   if (bytes > BUDGET_BYTES) warn(`public/assets is ${fmtMB(bytes)} > budget ${fmtMB(BUDGET_BYTES)}`)
   if (vram > BUDGET_VRAM) warn(`estimated RGBA8 VRAM ${fmtMB(vram)} > budget ${fmtMB(BUDGET_VRAM)}`)
   for (const f of BASIS_FILES) {

@@ -65,7 +65,7 @@ export const CROWD_LAYOUT: ImpostorLayout = {
   padM: CROWD_ATLAS.padM,
   quadW: 0.6,
   modelScale: CROWD_ATLAS.modelScale,
-  rowsMeta: { subjects: CROWD_ATLAS.figures, variants: 2, note: 'rows [0, figures) bare heads, [figures, 2·figures) the same figures with a cap' },
+  rowsMeta: { subjects: CROWD_ATLAS.figures, variants: 2, note: 'rows [0, figures) bare heads, [figures, 2·figures) the same figures with a cap; rows 28–31 four standing figures with a white helmet (CROWD_HELMET_ROWS, ops layer)' },
 }
 
 /**

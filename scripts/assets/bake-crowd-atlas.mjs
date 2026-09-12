@@ -5,11 +5,14 @@
  * Serves the repo root on a local port, drives scripts/assets/bake/impostor.html in headless
  * Chromium (SwiftShader is fine: 128 px cells, no post) and writes
  *   misc/dl/tex/crowd_atlas/crowd_atlas_diff.png   (2048×4096 RGBA, sRGB — lit figures, clothing white/grey)
- *   misc/dl/tex/crowd_atlas/crowd_atlas_mask.png   (RGB, linear — R shirt, G pants, B skin)
+ *   misc/dl/tex/crowd_atlas/crowd_atlas_mask.png   (RGB, linear — R shirt + cap, G pants, B skin, black helmet)
  *   misc/dl/tex/crowd_atlas/layout.json            (row → figure id, heights, cell geometry)
  * import-misc.mjs then encodes them like any other texture (source 'tex/crowd_atlas').
- * The layout (one row per figure, 8 yaws × 2 elevations) is also mirrored as constants in
- * app/data/crowd-atlas.ts so the runtime shader needs no JSON fetch.
+ * Rows: 0–13 the 14 figures bare-headed, 14–27 the same with a cap, 28–31 four standing figures
+ * with a white helmet (HELMET_FIGURES — the marshals / crews / officials of the ops layer; the
+ * atlas has exactly 32 rows, so the block is the four poses those figures use). The layout (one
+ * row per figure, 8 yaws × 2 elevations) is also mirrored as constants in app/data/crowd-atlas.ts
+ * (CROWD_ATLAS, CROWD_FIGURES, CROWD_HELMET_ROWS) so the runtime shader needs no JSON fetch.
  *
  *   node scripts/assets/bake-crowd-atlas.mjs            # bake
  *   node scripts/assets/bake-crowd-atlas.mjs --port 3111
@@ -44,6 +47,9 @@ export const FIGURES = [
   { id: 'female_standing_coveringeyes', file: 'Female_Female Poses_OBJ_Female_Standing_CoveringEyes.glb', pose: 'stand' },
 ]
 
+/** The helmet block (rows 2·N …): standing poses only, in this order — mirrored by CROWD_HELMET_ROWS. */
+export const HELMET_FIGURES = ['male_standing', 'female_standing', 'male_standing_hips', 'male_lookingup']
+
 const MISC_ROOTS = ['misc/crowd/eclair/quaternius_background_posed_humans_glb_cc0_v1', 'misc/crowd/eclair', 'misc/quaternius_background_posed_humans_glb_cc0_v1']
 const packRoot = MISC_ROOTS.map(r => join(ROOT, r)).find(r => existsSync(join(r, 'models_glb')))
 if (!packRoot) { console.error('Eclair GLB pack not found under misc/ (see plan §1b)'); process.exit(1) }
@@ -67,11 +73,15 @@ try {
   await page.waitForFunction(() => window.bakeReady === true, null, { timeout: 60000 })
   const rel = packRoot.slice(ROOT.length)
   // rows 0..N-1 bare heads, rows N..2N-1 the same figures wearing a cap (team caps are the most
-  // visible single feature of a Suzuka crowd; the runtime picks the variant per spectator)
+  // visible single feature of a Suzuka crowd; the runtime picks the variant per spectator),
+  // rows 2N.. the helmet block (white helmet, mask black — never tinted)
+  const helmets = HELMET_FIGURES.map(id => FIGURES.find(f => f.id === id) ?? (() => { throw new Error(`HELMET_FIGURES: ${id} is not in FIGURES`) })())
   const figures = [
     ...FIGURES.map(f => ({ id: f.id, url: `${rel}/models_glb/${f.file}`, cap: false })),
     ...FIGURES.map(f => ({ id: `${f.id}_cap`, url: `${rel}/models_glb/${f.file}`, cap: true })),
+    ...helmets.map(f => ({ id: `${f.id}_helmet`, url: `${rel}/models_glb/${f.file}`, helmet: true })),
   ]
+  if (figures.length * 128 > 4096) throw new Error(`${figures.length} rows do not fit a 4096 px atlas`)
   mkdirSync(OUT, { recursive: true })
   let layout = null
   for (const pass of ['colour', 'mask']) {
@@ -83,7 +93,7 @@ try {
     console.log(`${pass}: ${png.length} bytes → ${out} (${Date.now() - t0} ms)`)
     layout = result
   }
-  const meta = { cell: layout.cell, cellM: layout.cellM, scale: layout.scale, width: layout.width, height: layout.height, padM: layout.padM, yaws: layout.yaws, elevs: layout.elevs, cols: layout.cols, size: layout.size, figures: layout.layout.map((l, i) => ({ ...l, pose: FIGURES[i % FIGURES.length].pose, cap: i >= FIGURES.length })) }
+  const meta = { cell: layout.cell, cellM: layout.cellM, scale: layout.scale, width: layout.width, height: layout.height, padM: layout.padM, yaws: layout.yaws, elevs: layout.elevs, cols: layout.cols, size: layout.size, figures: layout.layout.map((l, i) => ({ ...l, pose: i < 2 * FIGURES.length ? FIGURES[i % FIGURES.length].pose : 'stand', cap: i >= FIGURES.length && i < 2 * FIGURES.length, helmet: i >= 2 * FIGURES.length })) }
   writeFileSync(join(OUT, 'layout.json'), JSON.stringify(meta, null, 2))
   console.table(meta.figures)
 } finally {

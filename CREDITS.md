@@ -8,6 +8,8 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 ### ambientCG
 
+- "Asphalt 033" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Asphalt033), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt033/arm`, `tex/asphalt033/diff`, `tex/asphalt033/nor_gl`
 - "Concrete 046" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Concrete046), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/concrete046/arm`, `tex/concrete046/diff`, `tex/concrete046/nor_gl`
 - "Corrugated Steel 003" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=CorrugatedSteel003), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
@@ -20,6 +22,12 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/facade001/arm`, `tex/facade001/diff`, `tex/facade001/nor_gl`
 - "Fence 003" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Fence003), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/fence003/diff`, `tex/fence003/nor_gl`, `tex/fence003/opacity`
+- "Metal Walkway 012" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=MetalWalkway012), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/metalwalkway012/arm`, `tex/metalwalkway012/diff`, `tex/metalwalkway012/nor_gl`, `tex/metalwalkway012/opacity`
+- "Painted Metal 010" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=PaintedMetal010), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/paintedmetal010/arm`, `tex/paintedmetal010/diff`, `tex/paintedmetal010/nor_gl`
+- "Paving Stones 099" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=PavingStones099), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/pavingstones099/arm`, `tex/pavingstones099/diff`, `tex/pavingstones099/nor_gl`
 - "Plastic 013 A" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=Plastic013A), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plastic013a/arm`, `tex/plastic013a/diff`, `tex/plastic013a/nor_gl`
 - "Roofing Tiles 015 A" by Lennart Demes (ambientCG, https://ambientcg.com/view?id=RoofingTiles015A), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
@@ -38,24 +46,72 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_04/arm`, `tex/asphalt_04/diff`, `tex/asphalt_04/nor_gl`
 - "Asphalt Pit Lane" by Dimitrios Savva (Poly Haven, https://polyhaven.com/a/asphalt_pit_lane), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_pit_lane/arm`, `tex/asphalt_pit_lane/diff`, `tex/asphalt_pit_lane/nor_gl`
-- "Concrete Road Barrier" by Amal Kumar (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
+- "Asphalt Track" by Dimitrios Savva (Poly Haven, https://polyhaven.com/a/asphalt_track), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/asphalt_track/arm`, `tex/asphalt_track/diff`, `tex/asphalt_track/nor_gl`
+- "Barrel 02" by Jorge Camacho (Poly Haven, https://polyhaven.com/a/Barrel_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/Barrel_02`
+- "Blue Metal Plate" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/blue_metal_plate), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/blue_metal_plate/arm`, `tex/blue_metal_plate/diff`, `tex/blue_metal_plate/nor_gl`
+- "Concrete Floor 03" by Rob Tuytel, Matterfield (Poly Haven, https://polyhaven.com/a/concrete_floor_03), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/concrete_floor_03/arm`, `tex/concrete_floor_03/diff`, `tex/concrete_floor_03/nor_gl`
+- "Concrete Road Barrier" by Amal Kumar (Poly Haven, https://polyhaven.com/a/concrete_road_barrier), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s), simplified to 0.08 of the triangles (gltfpack -si -sa))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/concrete_road_barrier`
+- "Container Side" by Dimitrios Savva (Poly Haven, https://polyhaven.com/a/container_side), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/container_side/arm`, `tex/container_side/diff`, `tex/container_side/nor_gl`
+- "Covered Car" by MP (Poly Haven, https://polyhaven.com/a/covered_car), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s), simplified to 0.4 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/covered_car`
 - "Dry Mud Field 001" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/dry_mud_field_001), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/dry_mud_field_001/diff`
+- "Exterior Aircon Unit" by Monsta3D (Poly Haven, https://polyhaven.com/a/exterior_aircon_unit), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), 1 mesh nodes dropped (keep /^exterior_aircon_unit$/), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s), simplified to 0.3 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/exterior_aircon_unit`
 - "Grass Medium 01 (dry albedo + alpha)" by Rob Tuytel, Rico Cilliers (Poly Haven, https://polyhaven.com/a/grass_medium_01), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/grass_medium_01/diff`, `tex/grass_medium_01/opacity`
 - "Gravel Road" by Amal Kumar (Poly Haven, https://polyhaven.com/a/gravel_road), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/gravel_road/arm`, `tex/gravel_road/diff`, `tex/gravel_road/nor_gl`
 - "Grey Roof Tiles" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/grey_roof_tiles), CC0 1.0 Universal — modified (resized / repacked (lossless WebP))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/grey_roof_tiles/arm`, `tex/grey_roof_tiles/diff`, `tex/grey_roof_tiles/nor_gl`
+- "Korean Fire Extinguisher 01" by UM JOORIN (Poly Haven, https://polyhaven.com/a/korean_fire_extinguisher_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, trademarks retouched (3 rectangles blurred / filled), parts dropped (1 primitives matching /paper/), textures GPU-compressed to KTX2 (3 uastc, 3 etc1s), simplified to 0.3 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/korean_fire_extinguisher_01`
+- "Metal Jerrycan" by Sean Buckley (Poly Haven, https://polyhaven.com/a/metal_jerrycan), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s), simplified to 0.15 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/metal_jerrycan`
+- "Metal Tool Chest" by Yann Kervran, John Hutcheson (Poly Haven, https://polyhaven.com/a/metal_tool_chest), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s), simplified to 0.25 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/metal_tool_chest`
+- "Modular Fire Escape" by Juniix (Poly Haven, https://polyhaven.com/a/modular_fire_escape), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (2 uastc, 4 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/modular_fire_escape`
+- "Old Tyre" by MP (Poly Haven, https://polyhaven.com/a/old_tyre), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/old_tyre`
+- "Painted Metal Shutter" by Dario Barresi, Rico Cilliers, Charlotte Baglioni (Poly Haven, https://polyhaven.com/a/painted_metal_shutter), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/painted_metal_shutter/arm`, `tex/painted_metal_shutter/diff`, `tex/painted_metal_shutter/nor_gl`
 - "Plaster Grey 04" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/plaster_grey_04), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/plaster_grey_04/arm`, `tex/plaster_grey_04/diff`, `tex/plaster_grey_04/nor_gl`
+- "Plastic Crate 02" by Fabi_G (Poly Haven, https://polyhaven.com/a/plastic_crate_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (2 uastc, 1 etc1s), simplified to 0.5 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/plastic_crate_02`
+- "Plastic Monobloc Chair 01" by Kuutti Siitonen (Poly Haven, https://polyhaven.com/a/plastic_monobloc_chair_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/plastic_monobloc_chair_01`
+- "Portable Generator" by James Ray Cock (Poly Haven, https://polyhaven.com/a/portable_generator), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, trademarks retouched (11 rectangles blurred / filled), textures GPU-compressed to KTX2 (2 uastc, 3 etc1s), simplified to 0.15 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/portable_generator`
 - "Preconcrete Wall 001 Long" by Dimitrios Savva, Rico Cilliers (Poly Haven, https://polyhaven.com/a/preconcrete_wall_001_long), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/preconcrete_wall_001_long/arm`, `tex/preconcrete_wall_001_long/diff`, `tex/preconcrete_wall_001_long/nor_gl`
-- "Security Camera 01" by Alexander Otterbeck, Yann Kervran (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
+- "Rectangular Facade Tiles" by Charlotte Baglioni (Poly Haven, https://polyhaven.com/a/rectangular_facade_tiles), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/rectangular_facade_tiles/arm`, `tex/rectangular_facade_tiles/diff`, `tex/rectangular_facade_tiles/nor_gl`
+- "Rollershutter Door" by MP (Poly Haven, https://polyhaven.com/a/rollershutter_door), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (1 uastc, 3 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/rollershutter_door`
+- "Security Camera 01" by Alexander Otterbeck, Yann Kervran (Poly Haven, https://polyhaven.com/a/security_camera_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (2 uastc, 2 etc1s), simplified to 0.3 of the triangles (gltfpack -si -sa))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/security_camera_01`
-- "Street Lamp 02" by Josh Dean (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
+- "Security Camera 02" by Garrison Gager, Yann Kervran (Poly Haven, https://polyhaven.com/a/security_camera_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (2 uastc, 2 etc1s), simplified to 0.3 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/security_camera_02`
+- "Security Light" by Maximilian Schuster (Poly Haven, https://polyhaven.com/a/security_light), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (2 uastc, 2 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/security_light`
+- "Square Floor Patern 01" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/square_floor_patern_01), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/square_floor_patern_01/arm`, `tex/square_floor_patern_01/diff`, `tex/square_floor_patern_01/nor_gl`
+- "Steel Frame Shelves 01" by James Ray Cock (Poly Haven, https://polyhaven.com/a/steel_frame_shelves_01), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/steel_frame_shelves_01`
+- "Street Lamp 02" by Josh Dean (Poly Haven, https://polyhaven.com/a/street_lamp_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (2 uastc, 2 etc1s), simplified to 0.2 of the triangles (gltfpack -si -sa))
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/street_lamp_02`
+- "Tarred Gravel" by Dimitrios Savva (Poly Haven, https://polyhaven.com/a/tarred_gravel), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `tex/tarred_gravel/arm`, `tex/tarred_gravel/diff`, `tex/tarred_gravel/nor_gl`
+- "Tool Cart" by Savva Zakharov (Poly Haven, https://polyhaven.com/a/tool_cart), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 256 px, textures GPU-compressed to KTX2 (1 uastc, 2 etc1s), simplified to 0.15 of the triangles (gltfpack -si -sa))
+  - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/tool_cart`
 - "Utility Box 02" by James Ray Cock (Poly Haven, https://polyhaven.com/a/utility_box_02), CC0 1.0 Universal — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px)
   - licence: [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) · files: `model/props/utility_box_02`
 - "White Plaster 02" by Rob Tuytel (Poly Haven, https://polyhaven.com/a/white_plaster_02), CC0 1.0 Universal — modified (resized / repacked / GPU-compressed)
@@ -74,8 +130,6 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/vehicles/van_h100`
 - This work is based on "bamboo" (https://sketchfab.com/3d-models/bamboo-a02bf0e3ffe44617ad49daf3cd94fe59) by evolveduk (https://sketchfab.com/evolveduk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bamboo`
-- This work is based on "Bleacher" (https://sketchfab.com/3d-models/bleacher-4960023d1ea340bfb07625aaa7f9713b) by JanStano (https://sketchfab.com/JanStano) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 1024 px)
-  - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/seats/bleacher`
 - This work is based on "Bush models pack (gameready, LODs)" (https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8) by LOLIPOP (https://sketchfab.com/lolipop_1707) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), 17 mesh nodes dropped (drop /Billboard|Ground|Man ref/), textures resized to ≤ 512 px, textures GPU-compressed to KTX2 (3 uastc, 3 etc1s))
   - licence: [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) · files: `model/trees/bush_pack`
 - This work is based on "Daihatsu Move Conte (Low Poly)" (https://sketchfab.com/3d-models/daihatsu-move-conte-low-poly-eff914331c194de0abe20a33d2c3a2c3) by NNXST (https://sketchfab.com/NNXST) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) — modified (meshopt compression (gltfpack -cc), textures resized to ≤ 512 px, trademarks retouched (7 rectangles blurred / filled), textures GPU-compressed to KTX2 (2 etc1s))
@@ -127,4 +181,4 @@ Suzuka 3D ships third-party textures and models in `public/assets/` (high-qualit
 
 - sharp 0.35.4 (resize, channel packing, WebP), KTX-Software 4.4.2 (KTX2 Basis-LZ / UASTC), gltfpack@1.2.0 (meshopt), @gltf-transform/cli@4.5.0 (texture resize)
 
-Generated 2026-09-11T19:06:16.408Z · 113 files · 57.35 MB
+Generated 2026-09-12T05:06:56.603Z · 165 files · 60.06 MB

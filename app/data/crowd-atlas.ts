@@ -6,10 +6,13 @@
  * Atlas: 2048 × 4096, 128 px cells, one ROW per figure (row 0 at the top), 16 columns:
  * columns 0–7 = low camera (8° pitch), 8–15 = high camera (32°), yaw 0 faces the camera and
  * increases clockwise seen from above (45° steps). Rows 0–13 bare heads, rows 14–27 the same
- * figures wearing a cap. A cell covers CELL_M × CELL_M metres with the figure's feet PAD_M above
- * the bottom edge, so one fixed-size quad shows every figure at true scale.
- * `diff` = lit RGBA, clothing baked white / light grey; `mask` = R shirt + cap, G pants, B skin
- * (the channels the runtime tints per spectator).
+ * figures wearing a cap, rows 28–31 four standing figures wearing a white helmet
+ * (`CROWD_HELMET_ROWS` — the marshals, crews and officials of the ops layer). A cell covers
+ * CELL_M × CELL_M metres with the figure's feet PAD_M above the bottom edge, so one fixed-size
+ * quad shows every figure at true scale.
+ * `diff` = lit RGBA, clothing baked white / light grey, helmet white; `mask` = R shirt + cap,
+ * G pants, B skin (the channels the runtime tints per spectator) — the helmet is black in the
+ * mask, so it stays white whatever the tints.
  */
 export const CROWD_ATLAS = {
   width: 2048,
@@ -56,6 +59,18 @@ export const CROWD_FIGURES: CrowdFigure[] = [
   { id: 'male_standing_coveringeyes', pose: 'stand', height: 1.79, width: 0.67 },
   { id: 'female_standing_coveringeyes', pose: 'stand', height: 1.75, width: 0.47 },
 ]
+
+/**
+ * Atlas rows of the helmet block (rows 2·figures …): the four standing poses baked with a white
+ * helmet, keyed by the figure id of `CROWD_FIGURES`. Not for spectators — the ops layer's
+ * marshals / crews / officials read them (a helmet row has no cheer pair: pass −1).
+ */
+export const CROWD_HELMET_ROWS = {
+  male_standing: 28,
+  female_standing: 29,
+  male_standing_hips: 30,
+  male_lookingup: 31,
+} as const satisfies Record<string, number>
 
 /** Flipbook pairs (rest row, cheer row) among the bare-head rows: a spectator alternates between them. */
 export const CROWD_CHEER_PAIRS: [number, number][] = [

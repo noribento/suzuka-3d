@@ -1,11 +1,12 @@
 {
-  "comment": "Words that must not appear in text the app paints onto textures (plan §0e): the championship, real sponsors and suppliers, other circuits, and the teams. Matched word-bounded and case-insensitive by scripts/textures-lint.mjs; existing hits are recorded verbatim in scripts/trademark-allow.json.",
+  "comment": "Words that must not appear in text the app paints onto textures (plan §0e): the championship, real sponsors and suppliers, other circuits, the teams, and (I phase) the makers whose names sit on the Sketchfab ops props — crowd barriers, cranes, tools, PA, canopies. Matched word-bounded and case-insensitive by scripts/textures-lint.mjs; existing hits are recorded verbatim in scripts/trademark-allow.json.",
   "terms": [
     "F1", "Formula 1", "Formula One",
     "Rolex", "Pirelli", "Aramco", "Heineken", "DHL", "Lenovo", "Qatar Airways", "Crypto.com", "MSC", "Salesforce", "AWS",
     "Shell", "Mobil", "Petronas",
     "Honda", "Toyota", "Nissan", "Bridgestone", "Yokohama", "Dunlop", "Michelin", "NGK", "Denso", "NIPPO", "Nissin", "Astemo", "Pokka Sapporo",
     "Mobility Resort", "Motegi", "Fuji Speedway",
-    "McLaren", "Mercedes", "Red Bull", "Ferrari", "Williams", "Racing Bulls", "Aston Martin", "Haas", "Sauber", "Audi", "Alpine", "Cadillac"
+    "McLaren", "Mercedes", "Red Bull", "Ferrari", "Williams", "Racing Bulls", "Aston Martin", "Haas", "Sauber", "Audi", "Alpine", "Cadillac",
+    "Mojo", "Kato", "Bosch", "JBL", "One Choice"
   ]
 }
