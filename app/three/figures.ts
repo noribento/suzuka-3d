@@ -256,7 +256,8 @@ function helmeted(figure: THREE.BufferGeometry): THREE.BufferGeometry {
     n++
   }
   if (!n || !Number.isFinite(top)) return figure
-  const dome = new THREE.SphereGeometry(0.135, 20, 14)
+  // 16 × 12 segments (352 triangles): a helmeted male prototype stays ≤ 1.4 k triangles (plan I3 --glb rule)
+  const dome = new THREE.SphereGeometry(0.135, 16, 12)
   dome.scale(1, 1.06, 1.1)
   dome.translate(cx / n, top - HELMET_DROP, cz / n)
   dome.deleteAttribute('uv')

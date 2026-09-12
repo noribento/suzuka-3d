@@ -147,7 +147,11 @@ pnpm test:e2e:report     # 失敗時の HTML レポート / トレースを表�
 ```
 
 テストは `tests/e2e/` にあり、シーンの描画確認には dev モードでのみ公開される
-`window.__suzuka` フックを使っています。
+`window.__suzuka` フックを使っています。`race.spec.ts` の 'infield and ops layer'（I3-d）は運営レイヤーの事実を読みます:
+`env.stats.ops.figures > 200`・`impostors + near3d === figures`・`byRole` の 5 役割・`mode` が baked / procedural、`vehicles ≥ 30`、
+`group.userData.ops` に 300 行超で truck / vehicle / cabin / tent / container / equipment / tyres / cone / flag の kind、静的車両は
+`models` に入らない（22 のまま）、`stats.crowd.impostors` の窓（0.9 × budget … budget）が動かない、`farField.stats().byKind.ops ≥ 1`
+と失敗 0、`ops-figures-` / `ops-vehicles-` / `ops-pitEquipment-` の接頭辞、`buildMs.ops`、`groundCensus()` の mismatch 0。
 
 ## Controls
 
@@ -254,7 +258,7 @@ app/
     ops.ts                     # 運営レイヤーの傘（I3-a）: ops-vehicles → ops-pit → ops-people を順に呼び、部分統計を `stats.ops`（figures / byRole / impostors / near3d / mode は people、vehicles は vehicles、equipment は pit + vehicles）に併合し、全配置を ctx.ops（= group.userData.ops）に積む
     ops-vehicles.ts            # 運営レイヤー (I3-b): 白箱トラックのトランスポーター（チーム色帯）、2 t トラック・バン、航空コンテナ、ホスピタリティ、ガゼボ／マーキー、放送コンパウンド、SC／メディカル／コース車両・クレーン（ops-spec B `vehiclePlacements()` 105 行 → registerPropSet 'ops-vehicles' / 'ops-hospitality' / 'ops-tents' / 'ops-containers' / 'ops-compound'；GLB 車両は部位毎 `carGlb|tint` + 共有白 map、遠段は手続き車体）
     ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー（支柱・梁・腕・信号灯・ホースのホイールガン）、タイヤスタック、ジャッキ、燃料台車、モニター台、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2、固定プラットホームの TV カメラ（ops-spec C `pitEquipmentPlacements()` / `PIT_EQUIPMENT`、registerPropSet 'ops-pitEquipment' / 'ops-perches' / 'ops-cones' / 'ops-cables'。「運営レイヤー」参照）
-    ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ（ops-spec D `figuresAt()` → figures.ts buildOpsFigures 'ops-figures'）と旗 `flagPlacements()`（I3-a は入口のみ）
+    ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ 298 体（ops-spec D `figuresAt()` → `figureToWorld` → figures.ts buildOpsFigures、役割毎の 'ops-figures-crew' / '-officials' / '-marshals' / '-photographers' / '-staff'）と E パドック縁の旗 8（`flagPlacements()` → registerPropSet 'ops-flags'、静止）。「人物配置」参照
     marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
     tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
     infield-ground.ts          # インフィールドの施設・壁・柵・池の岸・西／南コースのピット・車・街灯（I5。地面そのものは GROUND_AREAS の行が描く。I0 は入口のみ）
@@ -799,6 +803,55 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
 - GPU で確認すること: `pc_monitors` の画面の向き（`front: 'moreArea'` — ペルチでは座席側、モニター台では車側）、`impact_wrench` の
   吊り姿勢、`trolley_jack` のレバーの向き、`pit_board` の白パネル、120 m の L0 ↔ 手続き切替、キャノピー / ブランケットの instanceColor、
   信号灯の緑 2 灯（輝度 2.3、halo 無し）。
+
+#### 人物配置
+
+`app/three/ops-people.ts`（I3-d）が ops-spec **D 区画** `figuresAt()`（298 体）を描きます。行は `(s, lateral, yawDeg, pose, role, team?,
+y?, mount)` の純データで、座標はすべて `PIT_ENVELOPE.stop`（A 区画 `crewSlots`）、C 区画の `perchCentreS` / `perchOnPlatform` /
+`PIT_EQUIPMENT.perch`（`perchSeats` はスツールの位置に座らせる: 縁石側の縁から 0.3 m、トラック向き、原点 = 台床 + 0.05 — 座り姿のアトラスは腰 0.4 m
+の座席上で焼いてあるので原点は床）、`coreEdges()`、`PIT_WALL.platform`、`PIT_BUILDING.v2.podium / rostrum / floors`、`OPS_LAYOUT.officials /
+marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンドと車両基地の空き通路）から導きます。`figureToWorld` が
+`track.pointAt` で世界へ、高さは地面に立つ行が `ground.standAt`（路面基準の差分を `pointAt` の yOffset に）、'wall' / 'roof' の行が
+`y`（路面基準: ペルチ床、固定プラットホームのデッキ +1.3、表彰台 2F +5.05）、向きは `yawDeg`（0 = +s、+90 = +lateral）を群衆の
+`atan2(dx, dz)` に。役割毎に `buildOpsFigures`（figures.ts、kind 'ops' の 250 m セル、3D 段 `figures3dM` 80 m はパック時のみ、
+インポスター `figuresFarM` 600 m、`crowd|baked / crowd|figure / crowd|procedural` の共有 program、観客予算とは無関係）。
+
+- **ピットクルー 165** = 各チーム 12（ガンナー 4 `(boxS ± 1.7, stop ± 1.9)` crouch、タイヤ係 2 `(−6 / −7.5, −3.2)`、ジャッキ係 2
+  — 前は `(4.2, −0.8)`（停止線上だと前ジャッキ 3.95…5.25 の上に立つ）、後は `(−4.4, −2.7)` — ロリポップ `(5.5, +1.5)`、シャッター前 3
+  `(± 3 / 0, −27.0)`）+ ペルチ 3 座り。チーム色シャツ / 0x1e2126 / 白ヘルメット。**注意**: レーン側ガンナー 2（stop + 1.9）は隣ブロックへ
+  到着する車（車体 stop + 0.65…2.55）の通り道で、混雑した harness（22 台同一周回のストップ）では車が通り抜ける — sim は静的レイヤーと
+  衝突せず、chase-in-box の画のためのクルーなので受容（O1 の停止車矩形は守る）。
+- **オフィシャル 27**（白 / 0x14161a）: コア扉前 2 × 6（core.mid ± 1.2、−27.0）、固定プラットホーム 6（s 41.5 / 47 / 48 / 57.5 / 64 / 66
+  × −10.2、デッキ +1.3 — ペルチ 2 基・ボード・キャビネット・TV カメラの空き）、表彰台テラス 4（5632 ± 1.6 / 3.2 × −27.8: 黒ステップ
+  −27.2 と背景壁 −28.3 の間、mount 'roof'）、出口灯 2（129 / 130.3 × −21.7: 灯柱 (128, −21.5) と `pit-exit-outer` 壁面 −22.3 の間、
+  解析キープアウト縁 −21.0 の外 — 計画の (127, −22.5) は壁の中）、入口 3（5539…5542 × −21.7: 縁 −21.1 の外。計画の −20.5 は中）。
+- **マーシャル 18**（橙 0xf07020 上下 + 白ヘルメット）: コア面 12（面から 0.5 m 外、−26.6 — 計画の −27.5 はコア脇ピットの消火器
+  −27.85 と接触）、出口ヤード 4（145 / 157 / 169 / 181 × −26、レーン側車両列 −29…−31 の 3 m 手前）、入口 2（5548 / 5552 × −21.7）。
+  トラックサイドポストのスロットは I4-a: `marshalSlots(post)` の空実装を D 区画に置いた。
+- **写真家 11**（黒）: プラットホーム 5（39 / 44.3 / 58.5 / 65 / 67.5、`lookUp` をカメラ構えの代用）、出口ヤード壁裏 4（145…175 × −24.4
+  — 壁は −22.0…−20.4、エプロンは s 180 まで）、E パドックのメディアマーキー脇 2。
+- **スタッフ 77**（灰白 / 黒、walk / stand）: 63 がホスピタリティ歩廊（ユニット面 −74.5 から 0.7 m の歩き線 −75.2 ± 0.25 と、
+  オフィス側の立ち話ペア −76.6 — B / A 棟の OSM 外形はポーチ込みで −77.6 / −76.8 まで来るので O6 が −78.6 を弾いた；街灯 (…, −77) から
+  1.5 m 空ける、6.2 m ピッチ + seeded ±1 m）、ユニット間の隙間（バンの両脇 ±2.7）、センターハウス前庭 8、放送コンパウンド 8
+  （コンテナ列とパラボラの間の通路）、車両基地 6（扉列と後列の間、ロールドア前、帯の車の間）。
+- **旗**（I3-e）: E パドック縁の 9 m ポール 8 本（5410…5500 × −34 — 計画の 5350 からだと囲いフェンス 474537488 が 5360–5395 で
+  −34 を横切る）、架空 3 色（上下帯 + 白）を色対毎の手続きプロトタイプ（plain DoubleSide、paddock.ts の門旗と同じ program）で
+  `ops-flags` に IM。**静止**: 波打ちは props.ts の `onBeforeCompile` program で、§横断 7 の下では新 program を作れない（paddock.ts の
+  T1 キャップ／門の旗も静止）。
+- 検査: `facilities-check §16` O9 を mount 対応に（'wall' は歩廊帯、'roof' は O3 / O4 のみ、他は O1–O4）、さらに全人物が ops 足跡の外
+  （座りクルーの自ペルチ枠と 'roof' 行の下は除く）と建物外形の外（O6）— 298 体 0 faults、`--envelope` の実測包絡でも同じ；
+  `scripts/audit/ops-smoke.mjs checkPeople`（5 セット、インポスター 298 = 行数、各行の描画原点が `figureToWorld` の点 ± 5 cm、
+  standY からの高さが mount の帯 [地面 −0.05…0.3 / wall 0.4…2.6 / roof 4.5…5.5]、Node で mode 'procedural'、停止車矩形・レンズ経路・
+  ops 足跡・パドック駐車車両の中に誰もいない、旗 8 本が接地、`--glb` は eclair の姿勢 GLB を stub registry に積んで 3D プロトタイプ
+  ≤ 1.4 k tris — ヘルメットのドームを 20×14 → 16×12（352 tris）に落とした: 男性 + ヘルメット 1,240、女性素体 1,356）。
+  `pnpm sim -- --laps 8 --seeds 3 --envelope` の 181 ビン（進入ラグ 4.26 / 退出 1.99、停止 −23.50、重なり 0）で O1 再検証済み。
+  静的コスト（Node、高）: `farField/ops` 105,234 → 130,338 tris / 60 → 118 IM（人物の役割 × セル + 旗）、合計 3,961,823 tris / 970
+  メッシュ / **926 IM** / 1,044 エントリ — IM 予算 889 を超えたので実測 × 1.10 = **1,019** に置き直し（`measuredAt` I3-d）；低
+  2,097,733 / 733 / 752 / 812（予算内）。programs +0（群衆の 3 program と plain DoubleSide の再利用）。
+- GPU で確認すること: 80 m（`Quality.infield.figures3dM`）の 3D ↔ インポスター切替が pit-follow の chase（ガレージ前 8–25 m）と
+  ヘリで目立たないこと、白ヘルメット行（アトラス行 28–31 の再焼き後）とドームの継ぎ目、橙 0xf07020 の彩度が日陰のエプロンで
+  くすまず MSAA で縁がにじまないこと、座りクルーがスツールに沈まず浮かないこと（原点 = 台床 + 0.05）、表彰台の 4 人が黒ステップと
+  背景壁の間に立つこと、旗の帯が両面から見えること。
 
 ## GPU で確認すること
 

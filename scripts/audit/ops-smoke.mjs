@@ -26,6 +26,15 @@
  *  cable ramps sit ≥ 8 mm over the apron; `--glb` (the stub registry with the pit / props /
  *  trackside drops) builds the high tier once more: every `*-glb` near level has a procedural
  *  far level in its cell, its prototype ≤ 2.9 m tall and ≤ 6 k triangles.
+ *  I3-d `checkPeople` (ops-people.ts ← ops-spec section D): the five `ops-figures-<role>` sets
+ *  exist and draw exactly `figuresAt().length` impostor instances (= stats.ops.figures, by
+ *  role), every figure's drawn origin is `figureToWorld`'s point (matched within 5 cm) and its
+ *  height over `ground.standY` sits in its mount's band (ground mounts −0.05 … 0.3 m, the
+ *  perch / platform 'wall' rows 0.4 … 2.6 m, the podium 'roof' rows 4.5 … 5.5 m),
+ *  `stats.ops.mode` is 'procedural' in Node, no figure stands in a stopped-car rectangle, a
+ *  lens → car path, an ops footprint, a paddock building or beside a parked paddock car, the
+ *  eight `ops-flags` poles stand on the ground; `--glb` loads the crowd's posed GLBs too and
+ *  checks every 3D figure prototype (bare and helmeted) ≤ 1.4 k triangles.
  *
  *   node scripts/audit/ops-smoke.mjs [--tier high|low|both] [--glb]
  *
@@ -103,6 +112,7 @@ for (const tier of tiers) {
   console.log(`  note far-field entries of kind 'ops': ${ff.byKind?.ops ?? 0}`)
   checkVehicles(scene, tier, { glb: false })
   checkPitEquipment(scene, check, { glb: false })
+  await checkPeople(scene, check, { glb: false, reg: null })
 }
 
 // ===== I3-b: checkVehicles (ops-vehicles.ts) ======================================================
@@ -253,7 +263,7 @@ function checkVehicles(scene, tier, { glb: withGlb }) {
 // --- --glb: the ops GLB path on the high tier behind the stub registry ------------------------------------
 if (glb) {
   console.log('\nops-smoke: tier high + ops GLBs (stub registry)')
-  const reg = await stubRegistry(/^model\/(ops\/|pit\/|vehicles\/van_h100|props\/(modular_fire_escape|korean_fire_extinguisher_01|security_camera_01)|trackside\/cone_pack)/)
+  const reg = await stubRegistry(/^model\/(ops\/|vehicles\/van_h100|props\/modular_fire_escape|pit\/(impact_wrench|trolley_jack|pc_monitors|pit_board)|props\/(korean_fire_extinguisher_01|security_camera_01)|trackside\/cone_pack|crowd\/eclair\/)/)
   console.log(`  loaded ${reg.loaded.length} models`)
   const t0 = performance.now()
   const scene = await buildSceneWith('high', reg)
@@ -262,6 +272,120 @@ if (glb) {
   check(ff.failed === 0, `farField.stats().failed === 0 (${ff.failed})`)
   checkVehicles(scene, 'high', { glb: true })
   checkPitEquipment(scene, check, { glb: true })
+  await checkPeople(scene, check, { glb: true, reg })
+}
+
+// ===== I3-d: checkPeople (ops-people.ts ← ops-spec section D) =========================================
+/**
+ * The people's facts: the sets, the instance count against `figuresAt()`, every drawn origin
+ * against the row's world point and its mount's height band, the envelopes and footprints
+ * (the guard's O1 / O3 / O9 restated on the DRAWN positions), the flags; `--glb` measures the
+ * 3D prototypes the high tier would instance with the pack.
+ */
+async function checkPeople(scene, check, { glb, reg }) {
+  const { env, track, ground } = scene
+  const people = await import('../../app/three/ops-people.ts')
+  console.log(`  people${glb ? ' (GLB prototypes)' : ''}`)
+  const rows = ops.figuresAt()
+  const s = env.stats.ops
+  const byRole = {}
+  for (const r of rows) byRole[r.role] = (byRole[r.role] ?? 0) + 1
+  check(s.figures === rows.length && Object.keys(byRole).every((k) => s.byRole[k] === byRole[k]), `stats.ops.figures ${s.figures} = figuresAt() ${rows.length} (${Object.entries(byRole).map(([k, v]) => `${k} ${v}`).join(', ')})`)
+  check(s.mode === 'procedural', `stats.ops.mode 'procedural' in Node (${s.mode})`)
+  // --- the sets and their impostor instances --------------------------------------------------------
+  const SETS = ['ops-figures-crew', 'ops-figures-officials', 'ops-figures-marshals', 'ops-figures-photographers', 'ops-figures-staff']
+  const meshesOf = (name) => {
+    const out = []
+    const re = new RegExp(`^${name}-L\\d+-\\d+$`)
+    for (const o of env.farField.group.children) if (re.test(o.name ?? '')) { if (o.isInstancedMesh) out.push(o); o.traverse((m) => { if (m.isInstancedMesh && m !== o) out.push(m) }) }
+    return out
+  }
+  const bySet = new Map(SETS.map((n) => [n, meshesOf(n)]))
+  check(SETS.every((n) => bySet.get(n).length > 0), `sets registered: ${SETS.map((n) => `${n.replace('ops-figures-', '')} ${bySet.get(n).length} IM`).join(', ')}`)
+  const imps = SETS.flatMap((n) => bySet.get(n)).filter((m) => !/-3d-/.test(m.name))
+  const instances = imps.reduce((a, m) => a + m.count, 0)
+  check(instances === rows.length, `${instances} impostor instances = ${rows.length} rows (no 3D level without the pack: ${SETS.flatMap((n) => bySet.get(n)).filter((m) => /-3d-/.test(m.name)).length} 3D meshes)`)
+  // --- every row's drawn origin: the world point, the height band of its mount ------------------------
+  const m4 = new THREE.Matrix4(), v = new THREE.Vector3()
+  const drawn = []
+  for (const m of imps) {
+    m.updateWorldMatrix(true, false)
+    for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); v.setFromMatrixPosition(m4); drawn.push([v.x, v.y, v.z]) }
+  }
+  const BANDS = { wall: [0.4, 2.6], roof: [4.5, 5.5], ground: [-0.05, 0.3] }
+  let unmatched = 0, offBand = 0
+  const worst = []
+  const E = spec.PIT_ENVELOPE
+  const carRects = Array.from({ length: spec.PIT_GARAGE_COUNT }, (_, g) => ops.stoppedCarRect(g))
+  const columns = ops.lensColumns()
+  const inArc = (x, [a, b]) => ops.forwardS(a, x) <= ops.forwardS(a, b)
+  const within = (x, [a, b]) => x >= Math.min(a, b) && x <= Math.max(a, b)
+  let inCar = 0, inPath = 0
+  const footprints = ops.opsPlacements().filter((p) => p.mount !== 'roof' && !(p.kind === 'cabin' && p.mount === 'wall')).map((p) => ({ p, q: ops.placementCorners(p) }))
+  /** point in a footprint's (s, lateral) quad, in the frame of its first corner (signed s deltas, so a wrapping row compares in one frame) */
+  const inQuad = (sx, l, q) => {
+    const s0 = q[0][0]
+    const signed = (a, b) => { const d = ops.forwardS(a, b); return d > track.length / 2 ? d - track.length : d }
+    const pts = q.map(([cs, cl]) => [signed(s0, cs), cl])
+    const d = signed(s0, sx)
+    let inside = false
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j]
+      if ((a[1] > l) !== (b[1] > l) && d < ((b[0] - a[0]) * (l - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside
+    }
+    return inside
+  }
+  let inFootprint = 0
+  for (const r of rows) {
+    const w = people.figureToWorld({ track, ground }, r)
+    let best = null, bd = Infinity
+    for (const d of drawn) { const dd = Math.hypot(d[0] - w.x, d[2] - w.z); if (dd < bd) { bd = dd; best = d } }
+    if (!best || bd > 0.05) { unmatched++; if (worst.length < 4) worst.push(`${r.role} at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): no drawn instance within 5 cm (nearest ${bd.toFixed(2)} m)`); continue }
+    const band = BANDS[r.mount === 'wall' ? 'wall' : r.mount === 'roof' ? 'roof' : 'ground']
+    const dy = best[1] - 0.02 - ground.standY(w.x, w.z)
+    if (dy < band[0] || dy > band[1]) { offBand++; if (worst.length < 4) worst.push(`${r.role} (${r.mount}) at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): ${dy.toFixed(2)} m over standY, band ${band.join('…')}`) }
+    for (const c of carRects) if (inArc(r.s, c.s) && within(r.lateral, c.lat)) inCar++
+    for (const c of columns) if (inArc(r.s, c.path.s) && within(r.lateral, c.path.lat)) inPath++
+    for (const { p, q } of footprints) if (Math.abs(p.lateral - r.lateral) < 20 && inQuad(r.s, r.lateral, q)) { inFootprint++; if (worst.length < 4) worst.push(`${r.role} at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}) inside ops ${p.id}`) }
+  }
+  check(unmatched === 0, `every figuresAt() row has a drawn instance at figureToWorld's point (${unmatched} unmatched)`)
+  check(offBand === 0, `every figure's height over standY in its mount's band (ground ${BANDS.ground.join('…')}, wall ${BANDS.wall.join('…')}, roof ${BANDS.roof.join('…')}; ${offBand} off)`)
+  check(inCar === 0 && inPath === 0, `no figure in a stopped-car rectangle (${inCar}) or a lens → car path (${inPath})`)
+  check(inFootprint === 0, `no figure inside an ops footprint (${inFootprint})`)
+  // --- the paddock cars: nobody stands in one (the car's local box ± 0.2 m) ------------------------------
+  const cars = []
+  for (const o of infieldRoots(env, /^infield-paddock-cars-/)) o.traverse((m) => { if (m.isInstancedMesh && /-L0-/.test(m.name)) { m.updateWorldMatrix(true, false); for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); cars.push(m4.clone().invert()) } } })
+  let inCars = 0
+  const lp = new THREE.Vector3()
+  for (const d of drawn) for (const inv of cars) { lp.set(d[0], d[1], d[2]).applyMatrix4(inv); if (Math.abs(lp.x) < 1.1 && Math.abs(lp.z) < 2.6 && Math.abs(lp.y) < 2.5 && (Math.abs(lp.x) < 1.1 && Math.abs(lp.z) < 1.1 || Math.max(Math.abs(lp.x), Math.abs(lp.z)) < 2.6 && Math.min(Math.abs(lp.x), Math.abs(lp.z)) < 1.1)) { inCars++; break } }
+  check(cars.length > 0 && inCars === 0, `no figure inside a parked paddock car (${inCars} of ${drawn.length} vs ${cars.length} cars)`)
+  for (const w of worst) console.log(`    ${w}`)
+  // --- the flags ---------------------------------------------------------------------------------------------
+  const flagMeshes = meshesOf('ops-flags')
+  const flagInst = flagMeshes.filter((m) => /-L0-/.test(m.name)).reduce((a, m) => a + m.count, 0)
+  const flagRows = ops.flagPlacements()
+  let flagSunk = 0
+  for (const m of flagMeshes.filter((m) => /-L0-/.test(m.name))) { m.updateWorldMatrix(true, false); for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); v.setFromMatrixPosition(m4); if (Math.abs(v.y - ground.standY(v.x, v.z)) > 0.05) flagSunk++ } }
+  check(flagInst === flagRows.length && flagRows.length === 8 && flagSunk === 0, `ops-flags: ${flagInst} poles drawn for ${flagRows.length} rows, all standing on the ground (${flagSunk} off)`)
+  // --- the 3D prototypes the pack would instance ---------------------------------------------------------
+  if (glb && reg) {
+    const fig = await import('../../app/three/figures.ts')
+    const ids = fig.FIGURE_POSES.map((p) => fig.OPS_FIGURES[p].id)
+    const bare = fig.figurePrototypes(reg, ids, false), helmet = fig.figurePrototypes(reg, ids, true)
+    const tris = (g) => Math.floor((g.index ? g.index.count : g.getAttribute('position').count) / 3)
+    // the helmeted prototypes that get instanced: the poses the helmet roles (marshal / crew) use
+    const helmetPoses = new Set(rows.filter((r) => r.role === 'marshal' || r.role === 'crew').map((r) => r.pose ?? 'stand'))
+    const big = []
+    let maxT = 0
+    if (bare && helmet) fig.FIGURE_POSES.forEach((p, i) => {
+      for (const [k, g] of [['bare', bare[i]], ['helmet', helmet[i]]]) {
+        if (k === 'helmet' && !helmetPoses.has(p)) continue
+        maxT = Math.max(maxT, tris(g))
+        if (tris(g) > 1400) big.push(`${p} ${k} ${fmt(tris(g))}`)
+      }
+    })
+    check(!!bare && !!helmet && big.length === 0, `3D figure prototypes: ${ids.length} bare + ${helmetPoses.size} helmeted (${[...helmetPoses].join(', ')}), every instanced one ≤ 1,400 triangles (max ${fmt(maxT)}${big.length ? `; over: ${big.join(', ')}` : ''})`)
+  }
 }
 
 finish()

@@ -162,6 +162,59 @@ test.describe('Suzuka 3D broadcast', () => {
     expect(issues.errors, issues.errors.join('\n')).toEqual([])
   })
 
+  test('infield and ops layer', async ({ page }) => {
+    // the static operations layer (plan I3): the crews / officials / marshals / photographers /
+    // staff, the vehicles and the pit equipment stand as far-field entries of kind 'ops' with
+    // their own statistics — nothing of it enters the race `models` or the crowd's budget
+    const issues = await openRace(page)
+    const st = await page.evaluate(() => {
+      const d = (window as any).__suzuka
+      const ff = d.env.farField
+      const names: string[] = []
+      for (const parent of [d.env.group, ff.group]) for (const o of parent.children) if (typeof o.name === 'string') names.push(o.name)
+      const placed = d.env.group.userData.ops
+      return {
+        ops: d.env.stats.ops,
+        crowd: d.env.stats.crowd,
+        models: d.models.length,
+        far: ff.stats(),
+        pending: ff.pending,
+        buildMsOps: d.buildMs?.ops,
+        names,
+        placements: Array.isArray(placed) ? placed.length : -1,
+        placementKinds: Array.isArray(placed) ? [...new Set(placed.map((p: any) => p.kind))].sort() : [],
+      }
+    })
+    // --- the people: ≈ 300 figures split between impostors and the near 3D level ---------------
+    expect(st.ops.figures).toBeGreaterThan(200)
+    expect(st.ops.impostors + st.ops.near3d).toBe(st.ops.figures)
+    expect(Object.values(st.ops.byRole as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(st.ops.figures)
+    for (const role of ['crew', 'official', 'marshal', 'photographer', 'staff']) expect(st.ops.byRole[role], `no ${role}`).toBeGreaterThan(0)
+    // the low tier / no pack draws the procedural atlas; the pack the baked one — never nothing
+    expect(['baked', 'procedural']).toContain(st.ops.mode)
+    // --- the vehicles and equipment ------------------------------------------------------------
+    expect(st.ops.vehicles).toBeGreaterThanOrEqual(30)
+    expect(st.ops.equipment).toBeGreaterThan(0)
+    expect(st.placements).toBeGreaterThan(300)
+    for (const kind of ['truck', 'vehicle', 'cabin', 'tent', 'container', 'equipment', 'tyres', 'cone', 'flag']) expect(st.placementKinds, `no ${kind} placement`).toContain(kind)
+    // the static vehicles are not race cars, and the crowd's impostor window did not move
+    expect(st.models).toBe(22)
+    expect(st.crowd.impostors).toBeLessThanOrEqual(st.crowd.budget)
+    expect(st.crowd.impostors).toBeGreaterThanOrEqual(0.9 * st.crowd.budget)
+    // --- the far field carries the layer as kind 'ops' entries, drained with the rest -----------
+    expect(st.pending).toBe(0)
+    expect(st.far.failed).toBe(0)
+    expect(st.far.byKind.ops).toBeGreaterThanOrEqual(1)
+    expect(st.names.some((n) => n.startsWith('ops-figures-'))).toBe(true)
+    expect(st.names.some((n) => n.startsWith('ops-vehicles-'))).toBe(true)
+    expect(st.names.some((n) => n.startsWith('ops-pitEquipment-'))).toBe(true)
+    expect(typeof st.buildMsOps).toBe('number')
+    // R1 still holds with the layer standing on the ground: nothing of it is a ground face
+    const census = await page.evaluate(() => (window as any).__suzuka.groundCensus())
+    expect(census.mismatch, JSON.stringify(census.worst)).toBe(0)
+    expect(issues.errors, issues.errors.join('\n')).toEqual([])
+  })
+
   test('runs the start sequence and the race gets under way', async ({ page }) => {
     const issues = await openRace(page)
     await startRace(page)

@@ -31,7 +31,7 @@ import type { TeamId } from './drivers'
 import { CIRCUIT } from './suzuka'
 import {
   GARAGE_ORDER, PIT_GARAGE_COUNT, PIT_CORES, PIT_BOX_STRIP, PIT_ENVELOPE, PIT_BUILDING, PIT_WALL,
-  PADDOCK_OFFICE, PADDOCK_PARKING, garageS,
+  PADDOCK_BUILDINGS, PADDOCK_LAMPS, PADDOCK_OFFICE, PADDOCK_PARKING, garageS,
 } from './suzuka-facilities-spec'
 
 export type OpsMount = 'apron' | 'lane' | 'wall' | 'paddock' | 'yard' | 'interior' | 'roof' | 'fencePost' | 'barrierTop' | 'pitWallTop'
@@ -213,32 +213,61 @@ export const OPS_LAYOUT = {
   /**
    * The pit crew per block (plan I3-d, 12 = the real 3 per wheel + 2 jacks condensed): four
    * gunners at the wheels (both sides of the car), two tyre men beside the stacks, the front
-   * and rear jack men (the rear one stands beside his jack on the garage side, out of the
+   * and rear jack men (the front one crouches beside his jack's handle on the garage side —
+   * on the stop line at boxS + 4.2 he would stand on the jack itself, PIT_EQUIPMENT.jacks at
+   * boxS + 4.6 spans 3.95 … 5.25; the rear one beside his jack on the garage side, out of the
    * chase-lens path s ∈ [boxS − 11, boxS − 3] × stop ± 1.5), the lollipop / release man at the
    * front on the lane side, three at the shutter. Offsets (dS from boxS, dLat from the stop).
+   * CAVEAT (I3-c/d): the two lane-side gunners at stop + 1.9 stand where a car arriving at the
+   * NEXT block passes (its body stop + 0.65 … + 2.55 at s = boxS) — the sim does not collide
+   * with the static layer, so in the crowded harness case (all 22 cars pitting on one lap) an
+   * arriving neighbour drives through them; a real crew steps back. Accepted: they are what the
+   * chase-in-box shot is about, and O1 (the stopped car's rectangle) holds.
    */
   crew: [
     { dS: 1.7, dLat: 1.9, pose: 'crouch', yawDeg: -90 }, { dS: -1.7, dLat: 1.9, pose: 'crouch', yawDeg: -90 },
     { dS: 1.7, dLat: -1.9, pose: 'crouch', yawDeg: 90 }, { dS: -1.7, dLat: -1.9, pose: 'crouch', yawDeg: 90 },
     { dS: -6, dLat: -3.2, pose: 'stand', yawDeg: 90 }, { dS: -7.5, dLat: -3.2, pose: 'hips', yawDeg: 0 },
-    { dS: 4.2, dLat: 0, pose: 'crouch', yawDeg: 180 }, { dS: -4.4, dLat: -2.7, pose: 'crouch', yawDeg: 45 },
+    { dS: 4.2, dLat: -0.8, pose: 'crouch', yawDeg: 180 }, { dS: -4.4, dLat: -2.7, pose: 'crouch', yawDeg: 45 },
     { dS: 5.5, dLat: 1.5, pose: 'hips', yawDeg: 180 },
     { dS: -3, dLat: -3.5, pose: 'stand', yawDeg: 90 }, { dS: 0, dLat: -3.5, pose: 'hips', yawDeg: 90 }, { dS: 3, dLat: -3.5, pose: 'stand', yawDeg: 90 },
   ] as readonly { dS: number; dLat: number; pose: string; yawDeg: number }[],
   /** the officials (white): two at every core door, on the fixed platform, at the podium (2F), at the pit-exit light, at the pit entry (apron, outside the keep-out) */
   officials: {
     coreDoors: { dS: [-1.2, 1.2], lat: V2.shutter + 1.3 },
-    platform: { n: 6, lat: WALKWAY_CENTRE + 0.2, y: PIT_WALL.platform.y },
-    podium: { s: V2.podium.s, dS: [-3, -1, 1, 3], lat: -27.5, y: V2.floors[1] },
-    exitLight: { s: 127, lat: -22.5, n: 2 },
-    entry: { s: 5540, lat: E.lanes[0] - 2.2, n: 3 },
+    /** the fixed platform 31 → 69: the deck's free slots between the perches, boards, cabinets and TV cameras of pit-lane.ts / ops-pit.ts */
+    platform: { s: [41.5, 47.0, 48.0, 57.5, 64.0, 66.0], lat: WALKWAY_CENTRE + 0.2, y: PIT_WALL.platform.y },
+    /** the podium's flat 2F terrace: between the rostrum's black steps (PIT_BUILDING.v2.rostrum, to −27.2) and the backdrop wall (−28.3) */
+    podium: { s: V2.podium.s, dS: [-3.2, -1.6, 1.6, 3.2], lat: V2.rostrum.lateral - V2.rostrum.size / 2 - 0.6, y: V2.floors[1] },
+    /**
+     * At the pit-exit light (SIGNS pit-exit-light, s 128 at −21.5): on the apron between the
+     * light's post and the pit-exit-outer wall (its face −22.3 at s 129), 0.6 m outside the
+     * analytic keep-out's edge (c − keepOut.back = −21.0 at s 129, the exit ramp)
+     */
+    exitLight: { s: [129, 130.3], lat: E.lanes[0] - 2.6 },
+    /** the pit entry: on the apron (it begins at 5520) 0.6 m outside the keep-out edge (−21.1) */
+    entry: { s: [5539, 5540.5, 5542], lat: E.lanes[0] - 2.6 },
   },
-  /** the orange marshals: at the block boundaries on the apron, in the pit-exit yard, behind the entry W-beam */
-  marshals: { boundaries: { lat: V2.shutter + 0.8 }, exitYard: { s: [140, 180] as [number, number], lat: -26 }, entry: { s: [5548, 5552] as [number, number], lat: -21.5 } },
-  /** the photographers (black): the fixed platform's lane edge, the pit-exit yard fence, the E paddock */
-  photographers: { platform: { n: 5, lat: WALKWAY_CENTRE + 0.2, y: PIT_WALL.platform.y }, exitYard: { s: [140, 180] as [number, number], lat: -24 } },
-  /** the flags (I3-e): T1 cap roof, the paddock gates (paddock.ts), the E paddock edge — 9 m poles, fictional colours */
-  flags: { ePaddock: { s: [5350, 5520] as [number, number], lat: -34, n: 8, h: 9 } },
+  /**
+   * The orange marshals: at the twelve core faces on the apron (0.5 m past each face, 1.7 m in
+   * front of the shutter line — the pit-3 extinguisher of the block beside a core stands at the
+   * face − 0.2 at −27.85), four in the pit-exit yard along the lane-side vehicles, two on the
+   * entry apron behind the W-beam section (its start at 5538, on the apron the guard allows)
+   */
+  marshals: { boundaries: { lat: V2.shutter + 1.7, dS: 0.5 }, exitYard: { s: [145, 157, 169, 181], lat: -26 }, entry: { s: [5548, 5552], lat: E.lanes[0] - 2.6 } },
+  /**
+   * The photographers (black): the fixed platform's lane edge, the pit-exit yard behind the
+   * pit-exit-outer wall (−22.0 … −20.4 over s 140 → 180; the apron reaches s 180), two by the
+   * E paddock's media marquee (LAYOUT_B.marqueeE at 5491 → 5501 × −78 … −98)
+   */
+  photographers: { platform: { s: [39.0, 44.3, 58.5, 65.0, 67.5], lat: WALKWAY_CENTRE + 0.2, y: PIT_WALL.platform.y }, exitYard: { s: [145, 155, 165, 175], lat: -24.4 }, ePaddock: [[5489, -85], [5490, -88.5]] as readonly [number, number][] },
+  /**
+   * The flags (I3-e): T1 cap roof and the paddock gates stay in paddock.ts; eight 9 m poles
+   * along the E paddock's track-side edge, inside its enclosure — the fence 474537488 crosses
+   * −34 between s 5360 and 5395 on its way from (5401, −29.5) to the car park's west end, so the
+   * row runs from 5410 to 5500 (the mast at (5480, −38) is 4 m off the line)
+   */
+  flags: { ePaddock: { s: [5410, 5500] as [number, number], lat: -34, n: 8, h: 9, size: [0.12, 0.12, 9] as [number, number, number] } },
 } as const
 
 /**
@@ -249,6 +278,8 @@ export const OPS_LAYOUT = {
 export const OPS_WINDOWS = {
   /** the garage row ± 20 m */
   pitStrip: [wrapS(PIT_BOX_STRIP[0] - 20), wrapS(PIT_BOX_STRIP[1] + 20)] as [number, number],
+  /** the entry end of the garage apron (ground-plan: the apron begins 40 m before the limit line, 5520) up to the strip window */
+  entryApron: [5520, wrapS(PIT_BOX_STRIP[0] - 20)] as [number, number],
   /** the pit-exit yard (GROUND_AREAS 'ピット出口ヤード') */
   yard: YARD.s,
   /** the paddock behind the pit building (GROUND_AREAS 'パドック（ピットビル裏）'), the B paddock and the SMSC included */
@@ -321,13 +352,23 @@ export function crewSlots(block: number): OpsFigure[] {
   return OPS_LAYOUT.crew.map((o) => ({ s: wrapS(c + o.dS), lateral: E.stop + o.dLat, role: 'crew' as const, team, pose: o.pose, yawDeg: o.yawDeg, mount: 'apron' as const }))
 }
 
-/** the three seated crew of `block`'s pit-wall perch (mount 'wall', seat height over the walkway) */
+/**
+ * The three seated crew of `block`'s pit-wall perch (mount 'wall'): on the stools ops-pit.ts
+ * draws — the perch of section C (`perchCentreS`, on the walkway or the fixed platform's deck,
+ * `perchOnPlatform`), the stools on its kerb-side edge (frame width / 2 − 0.3 from its centre;
+ * the desk and monitors are on the wall side) at `PIT_EQUIPMENT.perch.seatsDS`. `y` is the figure's origin in the road frame: the seated
+ * impostor / prototype was baked on a seat with its hips 0.4 m up, so the origin is the perch
+ * floor (base + floor) plus the stool's 0.05 m over that (0.45 seat). They face the track.
+ */
 export function perchSeats(block: number): OpsFigure[] {
   const team = GARAGE_ORDER[block]
   if (!team) return []
-  const c = garageS(block)
-  const P = OPS_LAYOUT.pitWallPerch
-  return P.seatsDS.map((d) => ({ s: wrapS(c + d), lateral: P.lat, role: 'crew' as const, team, pose: 'sit', yawDeg: 90, y: P.seat, mount: 'wall' as const }))
+  const c = perchCentreS(block)
+  const onDeck = perchOnPlatform(block)
+  const P = PIT_EQUIPMENT.perch
+  const lat = (onDeck ? P.onPlatform.lat : P.lat) - (onDeck ? P.onPlatform.width : P.size[1]) / 2 + 0.3
+  const y = (onDeck ? PIT_WALL.platform.y : PIT_WALL.walkway.y) + P.floor + 0.05
+  return P.seatsDS.map((d) => ({ s: wrapS(c + d), lateral: lat, role: 'crew' as const, team, pose: 'sit', yawDeg: 90, y, mount: 'wall' as const }))
 }
 
 /** Every static object the ops layer places: sections B + C (+ the non-figure rows of D). */
@@ -839,33 +880,201 @@ export function pitEquipmentPlacements(): OpsPlacement[] {
 //
 
 /**
- * I3-d — `figuresAt()` must produce (plan §I3-d, ≈ 310; the terrace guests are the pit
- * building's own `ops-terrace`):
- *  - the pit crew: `crewSlots(block)` for every team block (12 each) + `perchSeats(block)`
- *    (3 seated, mount 'wall');
- *  - officials (white): OPS_LAYOUT.officials — two at every core door (coreEdges()), six on the
- *    fixed platform (y platform.y), four on the podium (2F: y floors[1], mount 'roof'), two at
- *    the pit-exit light, three at the pit entry;
- *  - marshals (orange, white helmets): OPS_LAYOUT.marshals — one at every block boundary on
- *    the apron (12), four in the exit yard, two behind the entry W-beam; the MARSHAL_POSTS
- *    slots are I4's;
- *  - photographers (black): five on the platform's lane edge, four at the exit-yard fence, two
- *    in the E paddock;
- *  - staff (grey / black, walking / standing): ≈ 60 in the paddock (in front of the offices,
- *    between the hospitality units, in front of the centre house), 8 in the compound, 6 at
- *    the vehicle base.
- * Facing: `yawDeg` 0 = +s, +90 = +lateral; the crew face the car, the wall-top rows face the
- * track. Rules: O1–O4 and O9 for every figure (inside the circuit ring, outside the pit
- * keep-out, the lane band, every stopped-car rectangle, every lens → car path and the grid),
- * O12 (inside some OPS_WINDOWS window).
- * `flagPlacements()` (I3-e): `kind 'flag'` rows — five on the T1 cap's roof (mount 'roof'),
- * eight along the E paddock's edge (OPS_LAYOUT.flags.ePaddock, mount 'paddock'); the paddock
- * gates' flags stay in paddock.ts.
+ * I3-d — the people of the ops layer (plan §I3-d, `figuresAt()` ≈ 295: the terrace guests are
+ * the pit building's own `ops-terrace`, the trackside posts' marshals are I4-a's `marshalSlots`):
+ *  - the pit crew: `crewSlots(block)` for every team block (12 each, section A) and
+ *    `perchSeats(block)` (3 seated on the perch's stools, mount 'wall');
+ *  - officials (white over dark): OPS_LAYOUT.officials — two at every core's pit-side door,
+ *    six on the fixed platform's deck (y platform.y, mount 'wall'), four on the podium's flat
+ *    2F terrace (y floors[1], mount 'roof'), two at the pit-exit light, three at the pit entry;
+ *  - marshals (orange, white helmets): OPS_LAYOUT.marshals — one at each of the twelve core
+ *    faces on the apron, four in the pit-exit yard, two on the entry apron;
+ *  - photographers (black): five on the platform's lane edge, four behind the exit-yard wall,
+ *    two by the E paddock's media marquee;
+ *  - staff (grey over black, walking / standing): 60 in the paddock — the 5 m walkway between
+ *    the hospitality units and the team offices' pit-side porch (walkers at `STAFF.walkLat`,
+ *    standing pairs at `STAFF.standLat`, the office rows E / D / C / WC / B / A), the gaps
+ *    between the hospitality units (beside the vans), the centre house's forecourt — 8 in the
+ *    broadcast compound's free aisles, 6 at the vehicle base between its parked rows.
+ * Facing: `yawDeg` 0 = +s, +90 = +lateral (the track side); the crew face the car, the
+ * wall-top rows and the marshals face the track, walkers look along the walkway. Every point
+ * passes §16 O1–O4 / O9 / O12 (the guard) and stands outside every ops footprint, building
+ * ring and parked car (ops-smoke `checkPeople`). Heights: ground figures carry no `y` (the
+ * builder reads `ground.standAt`); 'wall' / 'roof' figures carry the road-frame height of what
+ * they stand on (the perch floor, the platform deck, the 2F floor).
+ * `flagPlacements()` (I3-e): eight `kind 'flag'` rows along the E paddock's edge
+ * (OPS_LAYOUT.flags.ePaddock, mount 'paddock'); the T1 cap's and the paddock gates' poles
+ * stay in paddock.ts.
  */
-export function figuresAt(): OpsFigure[] {
+
+/** the paddock staff's lines (track frame): where they walk and stand in the hospitality walkway */
+export const STAFF = {
+  /** the walkers' line: 0.7 m off the hospitality units' paddock face (OPS_LAYOUT.hospitality.lat − across / 2), ± 0.25 m */
+  walkLat: OPS_LAYOUT.hospitality.lat - OPS_LAYOUT.hospitality.size[1] / 2 - 0.7,
+  /**
+   * The standing pairs' line, 2.9 m in front of the offices' pit-side porch line (PADDOCK_OFFICE):
+   * the OSM outlines of rows B / A (184430911 / 184430909, what §16 O6 tests) carry their
+   * porches out to −77.6 / −76.8, so the pairs keep off them
+   */
+  standLat: OFFICE_PORCH_PIT + 2.9,
+  /** the lamps of PADDOCK_LAMPS.extra at −77 stand between the two lines: keep this much s clear of them */
+  lampClearS: 1.5,
+  /** the walkers' pitch along an office row (a seeded ± 1 m jitter on top) */
+  pitch: 6.2,
+  /** the centre house's forecourt: the strip between its north face (−82 at s 5759 → 5792) and the hospitality walkway */
+  forecourt: { s: [5760, 5790] as [number, number], lat: [-77.5, -80.5] as [number, number], n: 8 },
+  /** between the hospitality units: the free s on either side of a gap's van (or the gap's centre when it has none) */
+  gapDS: 2.7,
+  /** the broadcast compound's free aisles (LAYOUT_B.compound: between the container rows and the dishes, past the dishes) */
+  compound: [[5467, -57], [5468, -63], [5467.5, -70], [5468.5, -77], [5473, -61], [5473.5, -69], [5480, -62], [5480.5, -66]] as readonly [number, number][],
+  /** the vehicle base: between the door row and the back row, before the roll doors, between the strip's cars */
+  base: [[138.6, -37.5], [138.6, -40.8], [139, -44.2], [147, -38.5], [148, -41.8], [164, -30]] as readonly [number, number][],
+} as const
+
+/** a tiny deterministic hash → [0, 1) for the staff's jitter and poses (no Rng in the data layer) */
+function unit(i: number, k: number): number {
+  const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453
+  return x - Math.floor(x)
+}
+
+const STAND_POSES = ['stand', 'standF', 'hips', 'hipsF'] as const
+const WALK_POSES = ['walk', 'walk', 'stand', 'standF'] as const
+
+function crewFigures(): OpsFigure[] {
+  const out: OpsFigure[] = []
+  for (let g = 0; g < PIT_GARAGE_COUNT; g++) out.push(...crewSlots(g), ...perchSeats(g))
+  return out
+}
+
+function officialFigures(): OpsFigure[] {
+  const O = OPS_LAYOUT.officials
+  const out: OpsFigure[] = []
+  const fig = (s: number, lateral: number, pose: string, yawDeg: number, mount: OpsMount, y?: number): OpsFigure => ({ s: wrapS(s), lateral, role: 'official', pose, yawDeg, mount, ...(y !== undefined ? { y } : {}) })
+  // two at every core's pit-side door, facing the lane
+  coreEdges().forEach((core, i) => O.coreDoors.dS.forEach((d, k) => out.push(fig(core.mid + d, O.coreDoors.lat, k === 0 ? 'stand' : 'hips', 90 + (i % 2 ? -20 : 20), 'apron'))))
+  // on the fixed platform's deck, facing the track
+  O.platform.s.forEach((s, i) => out.push(fig(s, O.platform.lat, i % 3 === 1 ? 'standF' : 'stand', 90, 'wall', O.platform.y)))
+  // on the podium terrace, facing the track (the fascia's banner behind them)
+  O.podium.dS.forEach((d, i) => out.push(fig(O.podium.s + d, O.podium.lat, i % 2 ? 'hips' : 'stand', 90, 'roof', O.podium.y)))
+  // at the pit-exit light, facing −s (the cars coming up the lane)
+  O.exitLight.s.forEach((s, i) => out.push(fig(s, O.exitLight.lat, i ? 'hips' : 'stand', 180, 'yard')))
+  // at the pit entry, facing +s (the cars arriving)
+  O.entry.s.forEach((s, i) => out.push(fig(s, O.entry.lat, i === 1 ? 'standF' : 'stand', 0, 'apron')))
+  return out
+}
+
+function marshalFigures(): OpsFigure[] {
+  const M = OPS_LAYOUT.marshals
+  const out: OpsFigure[] = []
+  const fig = (s: number, lateral: number, pose: string, yawDeg: number, mount: OpsMount): OpsFigure => ({ s: wrapS(s), lateral, role: 'marshal', pose, yawDeg, mount })
+  // the twelve core faces on the apron, 0.5 m past each face, facing the lane
+  coreEdges().forEach((core, i) => {
+    out.push(fig(core.s[0] - M.boundaries.dS, M.boundaries.lat, i % 2 ? 'hips' : 'stand', 90, 'apron'))
+    out.push(fig(core.s[1] + M.boundaries.dS, M.boundaries.lat, i % 2 ? 'stand' : 'lookUp', 90, 'apron'))
+  })
+  M.exitYard.s.forEach((s, i) => out.push(fig(s, M.exitYard.lat, i % 2 ? 'hips' : 'stand', 90 + (i % 2 ? 30 : -30), 'yard')))
+  M.entry.s.forEach((s, i) => out.push(fig(s, M.entry.lat, i ? 'stand' : 'hips', 90, 'apron')))
+  return out
+}
+
+/**
+ * The marshals of a trackside post (plan I4-a): I4 fills this from MARSHAL_POSTS v2's
+ * `figureSlots` (the cabin's platform, the flag point beside the fence window) and adds the
+ * rows to `figuresAt()`; until then a post offers none, and §16 O8 already checks the slots'
+ * points. Kept here so the guard, the smoke and ops-people.ts read one function.
+ */
+export function marshalSlots(_post: { s: number; lateral: number }): OpsFigure[] {
   return []
 }
 
+function photographerFigures(): OpsFigure[] {
+  const P = OPS_LAYOUT.photographers
+  const out: OpsFigure[] = []
+  const fig = (s: number, lateral: number, pose: string, yawDeg: number, mount: OpsMount, y?: number): OpsFigure => ({ s: wrapS(s), lateral, role: 'photographer', pose, yawDeg, mount, ...(y !== undefined ? { y } : {}) })
+  // the platform's lane edge, cameras up (the looking-up pose stands in for a raised camera), facing the pit lane's box side
+  P.platform.s.forEach((s, i) => out.push(fig(s, P.platform.lat, i % 2 ? 'lookUp' : 'stand', -90 + (i % 2 ? 25 : -25), 'wall', P.platform.y)))
+  // behind the exit-yard wall, facing the pit-exit lane
+  P.exitYard.s.forEach((s, i) => out.push(fig(s, P.exitYard.lat, i % 2 ? 'stand' : 'lookUp', 90, 'yard')))
+  // by the media marquee in the E paddock, facing each other
+  P.ePaddock.forEach(([s, lateral], i) => out.push(fig(s, lateral, i ? 'hips' : 'stand', i ? 180 : 0, 'paddock')))
+  return out
+}
+
+/** the team-office rows' s extents the staff walk along (1.5 m trimmed off each end; the OSM rows B / A carry their porches) */
+function officeRowsS(): [number, number][] {
+  return PADDOCK_BUILDINGS.filter((b) => b.kind === 'teamOffices' || b.kind === 'officeBlock').map((b) => [wrapS(b.sRange[0] + 1.5), wrapS(b.sRange[1] - 1.5)] as [number, number])
+}
+
+/** the signed s distance from `a` to `b`, in (−LAP / 2, LAP / 2] */
+function deltaS(a: number, b: number): number {
+  const d = forwardS(a, b)
+  return d > LAP / 2 ? d - LAP : d
+}
+
+function staffFigures(): OpsFigure[] {
+  const out: OpsFigure[] = []
+  const fig = (s: number, lateral: number, pose: string, yawDeg: number, mount: OpsMount): OpsFigure => ({ s: wrapS(s), lateral, role: 'staff', pose, yawDeg, mount })
+  const lamps = PADDOCK_LAMPS.extra.filter(([, l]) => l < -70 && l > -85).map(([s]) => wrapS(s))
+  const nearLamp = (s: number) => lamps.some((ls) => Math.abs(deltaS(ls, s)) < STAFF.lampClearS)
+  // --- the hospitality walkway along the office rows: walkers on the units' side, standing pairs at the porch line
+  let i = 0
+  for (const [a, b] of officeRowsS()) {
+    const len = forwardS(a, b)
+    const steps = Math.floor(len / STAFF.pitch)
+    for (let k = 0; k <= steps; k++) {
+      const s0 = wrapS(a + (len - steps * STAFF.pitch) / 2 + k * STAFF.pitch + (unit(i, 1) - 0.5) * 2.0)
+      i++
+      if (nearLamp(s0)) continue
+      if (k % 3 === 2) {
+        // a standing pair at the porch line, facing each other along s
+        out.push(fig(s0 - 0.45, STAFF.standLat, STAND_POSES[Math.floor(unit(i, 2) * 4)]!, 0, 'paddock'))
+        out.push(fig(s0 + 0.45, STAFF.standLat + 0.15, STAND_POSES[Math.floor(unit(i, 3) * 4)]!, 180, 'paddock'))
+      } else {
+        // a walker along the units' face, either way
+        out.push(fig(s0, STAFF.walkLat + (unit(i, 4) - 0.5) * 0.5, WALK_POSES[Math.floor(unit(i, 5) * 4)]!, unit(i, 6) < 0.5 ? 0 : 180, 'paddock'))
+      }
+    }
+  }
+  // --- between the hospitality units (beside the gap's van where it has one)
+  const H = OPS_LAYOUT.hospitality
+  const units = GARAGE_ORDER.map((_, g) => hospitalityS(g))
+  const vans = vanSlots()
+  for (let g = 0; g + 1 < units.length; g++) {
+    const hi = units[g]!, lo = units[g + 1]!
+    const gap = forwardS(lo + H.size[0] / 2, hi - H.size[0] / 2)
+    if (gap < 8) continue
+    const mid = wrapS(lo + H.size[0] / 2 + gap / 2)
+    const hasVan = vans.some((v) => Math.abs(deltaS(v, mid)) < 0.1)
+    const at = hasVan ? [mid - STAFF.gapDS, mid + STAFF.gapDS] : [mid - 0.6, mid + 0.6]
+    at.forEach((s, k) => out.push(fig(s, H.lat + (k ? 0.4 : -0.4), k ? 'stand' : 'standF', k ? 180 : 0, 'paddock')))
+  }
+  // --- the centre house's forecourt
+  const F = STAFF.forecourt
+  for (let k = 0; k < F.n; k++) {
+    const s = F.s[0] + ((k + 0.5) / F.n) * (F.s[1] - F.s[0]) + (unit(k, 7) - 0.5) * 1.5
+    if (nearLamp(s)) continue
+    out.push(fig(s, F.lat[0] + unit(k, 8) * (F.lat[1] - F.lat[0]), k % 2 ? WALK_POSES[k % 4]! : STAND_POSES[k % 4]!, k % 2 ? (k % 4 === 1 ? 0 : 180) : -90, 'paddock'))
+  }
+  // --- the broadcast compound and the vehicle base
+  STAFF.compound.forEach(([s, lateral], k) => out.push(fig(s, lateral, k % 2 ? 'stand' : 'walk', k % 3 === 0 ? 0 : k % 3 === 1 ? 180 : 90, 'paddock')))
+  STAFF.base.forEach(([s, lateral], k) => out.push(fig(s, lateral, k % 2 ? 'hips' : 'stand', k < 3 ? 0 : 180, 'yard')))
+  return out
+}
+
+export function figuresAt(): OpsFigure[] {
+  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...photographerFigures(), ...staffFigures()]
+}
+
+/** the flags' [upper band, lower band] colours (fictional tricolours: the middle band is white) */
+export const FLAG_COLOURS: readonly [string, string][] = [['#c8102e', '#1d5bb5'], ['#1d5bb5', '#c8102e'], ['#2e8b57', '#c8102e'], ['#c8102e', '#2e8b57']]
+
+/** the eight flag poles along the E paddock's edge (kind 'flag', 9 m, three fictional colours in turn — ops-people.ts draws them) */
 export function flagPlacements(): OpsPlacement[] {
-  return []
+  const F = OPS_LAYOUT.flags.ePaddock
+  const out: OpsPlacement[] = []
+  for (let i = 0; i < F.n; i++) {
+    const s = F.s[0] + (i / (F.n - 1)) * (F.s[1] - F.s[0])
+    out.push({ id: `flag-e-${i}`, kind: 'flag', s: wrapS(s), lateral: F.lat, yawDeg: 0, size: F.size, mount: 'paddock', tint: FLAG_COLOURS[i % FLAG_COLOURS.length]! })
+  }
+  return out
 }

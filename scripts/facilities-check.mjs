@@ -1321,7 +1321,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *       I3-a), warnings on the remaining v1 aerial-read huts until I4-a re-keys them; v2:
  *       unique `number`, monotonic in s, `type 'building'` carries osmWay or size, the cabin /
  *       stair / panel / cabinet / figure-slot rectangles under O1 / O2 / O5.
- *   O9  every figure of figuresAt() passes O1–O4 and stands inside the circuit ring.
+ *   O9  every figure of figuresAt() passes O1–O4 (a 'wall' figure the walkway band instead, a
+ *       'roof' one — the podium terrace — only O3 / O4) and stands inside the circuit ring,
+ *       outside every ops footprint (a seated crew inside its own perch frame excepted, and
+ *       nothing under a 'roof' row is a fault) and outside every building footprint (O6).
  *   O10 INFIELD_TREES: |lateral| ≥ hw + 6, outside paved aprons and stand footprints, inside the ring.
  *   O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES: osmWay in OSM_FEATURES, outlines pairwise
  *       disjoint, the anchor projects inside its s window (fold rows placed from EN are exempt).
@@ -1413,7 +1416,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   if (lensColumns.length !== spec.PIT_GARAGE_COUNT) fail(`lensColumns(): ${lensColumns.length} columns for ${spec.PIT_GARAGE_COUNT} blocks — O3`)
   // O12: the s windows (ops-spec OPS_WINDOWS)
   const WINDOWS = Object.entries(ops.OPS_WINDOWS)
-  const APRON_WINDOWS = ['pitStrip', 'yard']
+  const APRON_WINDOWS = ['pitStrip', 'entryApron', 'yard']
   const windowFaults = (id, s, mount) => {
     const names = WINDOWS.filter(([, r]) => inArc(s, r)).map(([n]) => n)
     if (!names.length) return [`${id}: s ${fmt(s, 0)} is in no OPS_WINDOWS window (${WINDOWS.map(([n, r]) => `${n} ${r.join('→')}`).join(', ')}) — O12`]
@@ -1676,11 +1679,34 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   }
 
   // --- O9 figures --------------------------------------------------------------------------------------
+  /** point in the (s, lateral) quad of a footprint's corners (even–odd, in the frame of the first corner's s) */
+  const pointInCorners = (s, l, corners) => {
+    const s0 = corners[0][0]
+    const pts = corners.map(([cs, cl]) => [signedDelta(s0, cs, L), cl])
+    const ds = signedDelta(s0, s, L)
+    let inside = false
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j]
+      if ((a[1] > l) !== (b[1] > l) && ds < ((b[0] - a[0]) * (l - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside
+    }
+    return inside
+  }
+  const footprints = placements.filter((p) => p.mount !== 'roof').map((p) => ({ p, corners: cornersOf(p) }))
   let figureFaults = 0
   figures.forEach((f, i) => {
     const id = `figure ${i} (${f.role ?? '?'}${f.team ? ' ' + f.team : ''})`
-    const faults = pointFaults(id, f.s, f.lateral)
+    const mount = f.mount ?? 'free'
+    const faults = mount === 'wall'
+      ? (within(f.lateral, WALL_BAND.lat) && inArc(f.s, WALL_BAND.s) ? [] : [`${id}: wall figure outside the walkway band lateral ${WALL_BAND.lat.join('…')} / s ${WALL_BAND.s.join('→')} — O1`])
+      : mount === 'roof' ? [] : pointFaults(id, f.s, f.lateral)
     for (const { g, path } of lensColumns) if (pointInZone(f.s, f.lateral, path.s0, path.s1, path.l0, path.l1)) faults.push(`${id}: between the chase lens and the car of block ${g} — O3`)
+    // O9: outside every ops footprint (the perch frame a seated crew sits in excepted), outside the buildings
+    for (const { p, corners } of footprints) {
+      if (mount === 'wall' && p.kind === 'cabin' && p.mount === 'wall') continue
+      if (Math.abs(f.lateral - p.lateral) > 20) continue
+      if (pointInCorners(f.s, f.lateral, corners)) faults.push(`${id}: at (s ${fmt(f.s, 1)}, lateral ${fmt(f.lateral)}) stands inside the footprint of ops ${p.id} — O9`)
+    }
+    if (mount !== 'wall') faults.push(...buildingFaults(id, { s: f.s, lateral: f.lateral, mount }))
     if (pointInZone(f.s, f.lateral, GRID.s0, GRID.s1, -GRID.halfLat, GRID.halfLat)) faults.push(`${id}: on the grid — O4`)
     const [x, z] = worldOf(f.s, f.lateral)
     if (!ring.insideRing(x, z)) faults.push(`${id}: stands outside the circuit ring — O9`)
