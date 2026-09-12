@@ -134,10 +134,10 @@
     "highNoAssets": {
       "triangles": 4039200,
       "meshes": 982,
-      "instancedMeshes": 889,
+      "instancedMeshes": 998,
       "farFieldEntries": 1090,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured (the team-office module buckets 4, the fence posts 4, the paddock prop sets infield-office-shutters / -aircon / -lamps / -fuel / -garage-shutters / -base-shutters / -flood-heads 14 per cell), +10 %"
+      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured (the team-office module buckets 4, the fence posts 4, the paddock prop sets infield-office-shutters / -aircon / -lamps / -fuel / -garage-shutters / -base-shutters / -flood-heads 14 per cell), +10 %; instancedMeshes re-based again at I3-b/c merge: 907 measured (ops-vehicles / -hospitality / -tents / -containers / -compound sets per 250 m cell + ops-pitEquipment / -perches / -cones / -cables — the two steps were re-based separately in their worktrees and their union exceeds both), +10 %"
     },
     "lowNoAssets": {
       "triangles": 2243800,
