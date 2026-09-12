@@ -81,10 +81,27 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
   const g = PLANAR_UV.grass!
   const grass = grassSurfaceMaterial(assets, g, [250, 250], 0.8, cover)
 
-  // the paddock aprons: flat grey asphalt with a macro period of 250 m (uv unit = 40 m)
+  // --- the paddock aprons and car parks (I2-a): Poly Haven asphalt_04 (the public roads' tile,
+  // 4.04 m, lighter and coarser than the pit lane) sampled world-planar (uv unit = 40 m) with the
+  // same 250 m macro period; the pack-less tiers keep the grey noise, darkened to the photo's
+  // mid grey. pbrFromAssets + addMacro is the pit lane's own combination (program key 'macro').
   const pad = PLANAR_UV.paddock!
-  const paddock = new THREE.MeshStandardMaterial({ map: paddockAsphaltTexture(), color: 0xb8b8b8, roughness: 0.95 })
-  addMacro(paddock, new THREE.Vector2(pad[0] / 250, pad[1] / 250))
+  const proceduralPaddock = () => new THREE.MeshStandardMaterial({ map: paddockAsphaltTexture(), color: 0x9a9a9a, roughness: 0.95 })
+  let paddock: THREE.MeshStandardMaterial
+  if (assets && (['diff', 'nor_gl', 'arm'] as const).every((r) => assets.has(`tex/asphalt_04/${r}`))) {
+    paddock = pbrFromAssets(assets, 'asphalt_04', { fallback: proceduralPaddock, ground: true, handBuiltUv: true, normalScale: 0.8 })
+    const tile = tileMetres(assets, 'tex/asphalt_04/diff', 4.04)
+    paddock.map = repeatMetres(paddock.map!.clone(), tile, pad)
+    paddock.normalMap = repeatMetres(paddock.normalMap!.clone(), tile, pad)
+    const arm = repeatMetres(paddock.aoMap!.clone(), tile, pad)
+    paddock.aoMap = paddock.roughnessMap = paddock.metalnessMap = arm
+    // vMapUv carries the map's repeat: the macro period is stated per uv unit and divided back out
+    const rep = paddock.map.repeat
+    addMacro(paddock, new THREE.Vector2(pad[0] / 250 / rep.x, pad[1] / 250 / rep.y))
+  } else {
+    paddock = proceduralPaddock()
+    addMacro(paddock, new THREE.Vector2(pad[0] / 250, pad[1] / 250))
+  }
 
   const helipad = new THREE.MeshStandardMaterial({ map: helipadTexture(), roughness: 0.45 })
 

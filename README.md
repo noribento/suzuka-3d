@@ -215,12 +215,12 @@ app/
     ground-plan.ts             # 地面の区画（XZ で 1 点 1 オーナー）: 駅・カラム・範囲（fold／二等分線／橋の上限）・PRECEDENCE・RULE_OF・ownerAt
     ground-field.ts            # 唯一の連続した高さ場（路肩 2 m のストリップ規則、2〜8 m の混合、地形 + RUNOFF_LIFT）
     ground-mesh.ts             # 区画をメッシュにする: 頂点プール（共有頂点・1 頂点 1 高さ）、ラスター、縫い合わせ帯、リングのワールド部、種類別 ground:<kind>
-    ground-materials.ts        # 種類別マテリアル（路面・縁石・帯・エリア・パドック・ヘリパッド・池）
+    ground-materials.ts        # 種類別マテリアル（路面・縁石・帯・エリア・パドック = 高ティアは asphalt_04 PBR + マクロ、パック無しは灰ノイズ・ヘリパッド・池）
     track-mesh.ts              # 地面でないもの: ソーセージ（地面に立つ物）、塗装エプロン・緑帯・DRS 線（描画済み面を切り出して持ち上げたデカール）、スタートゲートリー（白バナー 2.0 m、5 列 × 4 段のランプパネル — レースが点けるのは上 2 段、EM 情報板、右脚はピットウォールの歩廊上）
     barriers.ts                # 全周のバリア（実データ表 `BARRIERS` から: コンクリート壁・タイヤ壁・ガードレール・デブリフェンス）
     trackside.ts               # OSM way／実測サンプル → 所属道路の lateral(s) 解決（図 8 の折り返し対策つき）
     lines.ts                   # 白線レイヤー（全周のエッジライン、ピット各線、グリッド。描画済み面を切り出したデカール。画面上の最小幅を保つ頂点シェーダ）
-    lanes.ts                   # 二輪シケイン・スリップロードの縁石（地面に立つ物: standY 上、幅は GROUND_OBJECTS で有界。舗装そのものは OFFSET_LANES の足跡として地面の区画が描く）
+    lanes.ts                   # 二輪シケイン・スリップロードの縁石（地面に立つ物: standY 上、幅は GROUND_OBJECTS で有界。舗装そのものは OFFSET_LANES の足跡として地面の区画が描く）。`sweepKerb`（規則・閉ループ可）はパドックの島縁石も掃く
     environment.ts             # 地形（高さ場: 路面 IDW → 実 DEM のクロスフェード、施設のリリーフ、格子縁のスナップと粗いリングの高さ・法線）と各ビルダーの共有コンテキスト、観覧車
     dem.ts                     # 実 DEM の高さ場（内側は双三次、遠景は双線形、外周 300 m でクロスフェード、水面ポリゴンの底）— 1 Track に 1 つ
     terrain-far.ts             # 格子の外: 粗いリング `terrainRing-0..3`（継ぎ目の頂点・法線を共有）、DEM_FAR の山並み `terrainFar`（頂点色、フォグの傾斜パッチ）、水面 `water-far`
@@ -251,7 +251,7 @@ app/
     pit-building.ts            # ピットビル v2（2009 図面の断面を勾配追従スイープ: 1F ガレージ列・ファシア梁・2F/3F テラス・曲面キャノピー、折戸・シャッター・番号札、階段塔、銀灰のコントロールポッドとメディア区間、T1 ノーズ、ビジョン 8、ガレージ内装とウォッシュ・機材の prop set 'ops-garage'、裏キャノピー／タイル壁／窓帯／スパー橋、屋上設備、表彰台、テラスの観客 'ops-terrace'。canopyTopAt を export。§ピットビル v2）
     infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
     pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、v1 の prat perch（I3-c が置き換える）、リーダータワー
-    paddock.ts                 # パドック: BUILDINGS と OSM 建物の押出し、プレハブ列、トランスポーター、テント、旗、駐車場（v1。I2 がチームオフィス列・センターハウス・フェンスと門に建て替える）
+    paddock.ts                 # パドック: BUILDINGS と OSM 建物の押出し、プレハブ列、トランスポーター、テント、旗、駐車場（v1。I2 がチームオフィス列・センターハウス・フェンスと門に建て替える）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング（GROUND_OBJECTS.islandKerb、markObject）。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
     ops.ts                     # 運営レイヤー（I3: トランスポーター、ホスピタリティ、ピット機材、人物、SC／メディカル／コース車両、クレーン。ops-spec の行を置き ctx.ops に積む。I0 は入口のみ）
     marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
     tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）

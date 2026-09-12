@@ -1023,6 +1023,14 @@ export const BUILDINGS: BuildingDef[] = [
  */
 export const HELIPAD = { s: 5566, lateral: -78, radius: 8 }
 
+/**
+ * The grass island in the centre house's round drive (I2-a): OSM landuse=grass 469896637, a
+ * 4.2 m circle 10 m off the round facade of 184430907 (its SW end is at lateral −124), which is
+ * where pad-14.png shows the lawn and the kerbed drive. The GROUND_AREAS disc and the concrete
+ * kerb ring (paddock.ts, GROUND_OBJECTS.islandKerb) read the same numbers.
+ */
+export const PADDOCK_ISLAND = { s: 5774, lateral: -134, radius: 4.2 }
+
 // ---------------------------------------------------------------- pit complex
 
 /** Pit-lane face of the pit building (m from the centreline, right side). OSM way 184422099. */
@@ -1561,6 +1569,61 @@ export const GROUND_AREAS: GroundArea[] = [
   { name: 'ピットビル裏の歩廊', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [5590, 88], lat: [-57.3, -51.6] }, note: 'the rear canopy row: open rear doors, φ0.30 columns at −55.6 and the stair towers stand on it' },
   { name: 'ピット出口ヤード', kind: 'paddock', source: 'photo', footprint: { band: -1, sRange: [103, 205], lat: [-52, -24.9] }, note: 'around the former medical room (course_vehicle_base, way 184429429)' },
   { name: 'ヘリパッド', kind: 'helipad', layer: 1, source: 'osm', footprint: { disc: { s: HELIPAD.s, lateral: HELIPAD.lateral, r: HELIPAD.radius } }, note: 'GSI z18 aerial: the H sits beside the former medical room (course_vehicle_base) at the final-corner end' },
+  // --- the paddock car parks (I2-a) ---------------------------------------------------------------
+  // The wedge between the pit straight and the S-curve / NIPPO leg is paved edge to edge in the
+  // 国土地理院 aerial (misc/audit/sections/01-main-straight-pit): the A car park behind the team
+  // offices (OSM 184423997, lateral −98…−141), the centre house's round drive, the B car park by
+  // the SMSC (469650858 / 469896636) and the S car park with the marquee yard (469896634) beyond
+  // the paddock road. The `パドック（ピットビル裏）` band reaches −125 (the relief core's full
+  // width, stands.ts paddockZone); these rings carry the paving on from −124 (1 m inside the band,
+  // layer 1 above it, so no thread of verge shows between the two) to the paddock road at −144.
+  // Every hand ring is a rectangle in the pit straight's frame (the straight has no curvature to
+  // fold it), nodes every 20 m so the resampled edges and the shared edges between neighbouring
+  // rings coincide vertex for vertex. Beyond the relief core (A0(s) = min(125, D_nippo − 56)) the
+  // rows ride the field's DEM fade like the pond banks do (surface-check WHY.infieldRings).
+  {
+    name: 'A パドック南列', kind: 'paddock', layer: 1, source: 'photo',
+    footprint: { sRange: [5600, 5742], straight: true, ring: [[5600, -124], [5620, -124], [5640, -124], [5660, -124], [5680, -124], [5700, -124], [5720, -124], [5742, -124], [5742, -144], [5720, -144], [5700, -144], [5680, -144], [5660, -144], [5640, -144], [5620, -144], [5600, -144]] },
+    note: 'the south row of the A car park: OSM 184423997 reaches −141, the bays run to the paddock road',
+    unverified: ['outer edge −144 (aerial, ±2 m)'],
+  },
+  {
+    name: 'センターハウス回廊', kind: 'paddock', layer: 1, source: 'photo',
+    footprint: { sRange: [5742, 5806], straight: true, ring: [[5742, -124], [5762, -124], [5782, -124], [5806, -124], [5806, -144], [5782, -144], [5762, -144], [5742, -144]] },
+    note: 'the round drive in front of the centre house (184430907, round end at −124) between the A and B car parks; the grass island (PADDOCK_ISLAND) sits in it',
+  },
+  {
+    name: 'B パドック', kind: 'paddock', layer: 1, source: 'photo',
+    // crosses s = 0: the window [5806, 48] is a forward range (forwardDelta), the nodes are lap-wrapped
+    footprint: { sRange: [5806, 48], straight: true, ring: [[5806, -108], [10, -108], [30, -108], [48, -108], [48, -144], [30, -144], [10, -144], [5806, -144]] },
+    note: 'OSM 469650858 (s 5802–45, lateral −97…−133) and the building 469650857 beside it; paved on to the paddock road',
+    unverified: ['outer edge −144 (aerial, ±2 m)'],
+  },
+  {
+    name: 'B パドック斜め区画', kind: 'paddock', layer: 1, source: 'photo',
+    // stops at s 96, the end of the relief core: beyond it the ground fades to the DEM
+    footprint: { sRange: [66, 96], straight: true, ring: [[66, -124], [80, -124], [96, -124], [96, -160], [80, -160], [66, -160]] },
+    note: 'the 45° bays south-east of the B car park (OSM 469896636 ends at −132; the aerial reads paving to the wall 468336109 at −159)',
+    unverified: ['extent (aerial, ±3 m)'],
+  },
+  // E paddock: the car park inside the pit entry (OSM amenity=parking 474537492, s 5338–5490,
+  // lateral −29…−94) — one OSM row, windowed to the pit-entry straight (its far vertices project
+  // onto the NIPPO leg in the global frame). OSM stops at s 5490; the paving runs on to the
+  // paddock band at 5536 (the helipad compound's approach), so a second ring closes the gap on
+  // the polygon's own end edge (vertices 31–32) — the two share that edge vertex for vertex.
+  { name: 'E パドック（ピット入口駐車場）', kind: 'paddock', layer: 0, source: 'osm', footprint: { osm: [474537492], sRange: [5340, 5510], straight: true } },
+  {
+    name: 'E パドック接続', kind: 'paddock', layer: 0, source: 'photo',
+    footprint: { sRange: [5480, 5536], straight: true, ring: [{ way: 474537492, verts: [31, 32] }, [5536, -57.3], [5536, -90]] },
+    unverified: ['the join between the OSM lot and the band (aerial, ±3 m)'],
+  },
+  // the S car park (paddock S in the circuit map) with the marquee yard, beyond the paddock road
+  // on the natural ground: the OSM polygon itself — a pit-frame rectangle (−146…−222) would cut
+  // across the S-curve road at its west corner, the polygon keeps 34 m off that centreline
+  { name: 'サービスハウス前庭', kind: 'paddock', layer: 1, source: 'osm', footprint: { osm: [469896634], sRange: [5600, 5770], straight: true }, note: 'OSM 469896634: the S car park in front of the service house (184423960 / 184423962) and the tyre garage' },
+  // the centre house's grass island, a layer over the drive; its concrete kerb is an OBJECT
+  // (paddock.ts, GROUND_OBJECTS.islandKerb), not a face
+  { name: 'センターハウス芝島', kind: 'grassArea', layer: 2, source: 'osm', footprint: { disc: { s: PADDOCK_ISLAND.s, lateral: PADDOCK_ISLAND.lateral, r: PADDOCK_ISLAND.radius } }, note: 'OSM landuse=grass 469896637' },
   // --- secondary paving: OSM raceways that are not the lap (props.ts used to filter OSM_RACEWAY at runtime)
   { name: '南コース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525062, width: 10 } },
   { name: 'カートコース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525698, width: 7 } },

@@ -1,11 +1,13 @@
 import * as THREE from 'three'
 import { TEAMS } from '~/data/drivers'
-import { BUILDINGS, COLOURS, GARAGE_ORDER, PIT_BOX_STRIP, garageS } from '~/data/suzuka-facilities-spec'
+import { BUILDINGS, COLOURS, GARAGE_ORDER, PADDOCK_ISLAND, PIT_BOX_STRIP, garageS } from '~/data/suzuka-facilities-spec'
 import { OSM_BUILDINGS, osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import type { EnvBuildContext } from './environment'
-import { LAYER, markDecal } from './ground'
+import { GROUND_OBJECTS, LAYER, markDecal, markObject } from './ground'
+import { sweepKerb } from './lanes'
 import { canopyTopAt } from './pit-building'
 import { addMerged, enMatrix, frameAt, pitMaterials, slice } from './pit-geometry'
+import type { LanePoint } from './trackside'
 
 /**
  * The paddock behind the pit building (plan I2): the team-office row, the centre house, the
@@ -130,9 +132,13 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     for (const lat0 of [-104, -116]) {
       for (let s = 5600; s <= 5735; s += 2.6) {
         // only where the paddock is level under the whole 5 m bay: the car park steps down a bank
-        // at its west end, and a slab (or a car) across the bank would hang in the air
-        const level = [lat0 - 5, lat0 - 2.5, lat0].map((l) => { track.pointAt(s, l, _p, 0); return ground.standY(_p.x, _p.z) })
-        if (Math.max(...level) - Math.min(...level) > 0.02) { ci++; continue }
+        // at its west end, and a slab (or a car) across the bank would hang in the air. The slab's
+        // underside is LAYER.pit.line (22 mm) over the face at its centre, so the face may rise
+        // by less than 22 − LAYER_MIN_STEP under the whole bay or one end of the slab z-fights
+        // it (surface-check G3-decal counts a sample under 8 mm as buried; I2-c replaces the
+        // slabs with ground.decal lines)
+        const level = [lat0 - 5, lat0 - 3.75, lat0 - 2.5, lat0 - 1.25, lat0].map((l) => { track.pointAt(s, l, _p, 0); return ground.standY(_p.x, _p.z) })
+        if (Math.max(...level) - Math.min(...level) > 0.01) { ci++; continue }
         // bay lines: 1 cm slabs whose underside is LAYER.pit.line over the drawn paddock (a decal)
         lines.push({ m: boxes.matrix(s, lat0 - 2.5, 0.01, LAYER.pit.line, false, new THREE.Matrix4()), color: new THREE.Color(0xf4f4f0) })
         if (ci++ % 3 !== 1) cars.push({ m: boxes.matrix(s + 1.3, lat0 - 2.5, 1.45, 0, false, new THREE.Matrix4()), color: new THREE.Color(carColours[ci % carColours.length]!) })
@@ -140,5 +146,32 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     }
     markDecal(boxes.instanced(0.12, 5, 0.01, lines, 0.8, false, 'parkingLines'), LAYER.pit.line)
     boxes.instanced(1.8, 4.4, 1.45, cars, 0.45, true, 'parkedCars')
+  }
+
+  // --- the centre house's grass island (I2-a): its kerb ring ---------------------------------------
+  // The island itself is the GROUND_AREAS disc 'センターハウス芝島' (a grass face cut out of the
+  // drive); the cast concrete kerb around it is an OBJECT on the drawn ground: a 0.3 m ribbon
+  // centred on the disc's rim, half on the grass and half on the asphalt, edges sunk 20 mm and the
+  // upstand 120 mm proud (GROUND_OBJECTS.islandKerb). The circle is walked in the frame's positive
+  // sense (s, then lateral), which winds counter-clockwise seen from above like a lane's left kerb.
+  {
+    const { pierMat } = pitMaterials(ctx)
+    const rule = GROUND_OBJECTS.islandKerb
+    const { s, lateral, radius } = PADDOCK_ISLAND
+    const segs = Math.max(24, Math.ceil((2 * Math.PI * radius) / 0.8))
+    const pts: LanePoint[] = []
+    for (let i = 0; i < segs; i++) {
+      const t = (i / segs) * Math.PI * 2
+      const si = track.wrap(s + radius * Math.cos(t)), li = lateral + radius * Math.sin(t)
+      track.pointAt(si, li, _p, 0)
+      pts.push({ x: _p.x, z: _p.z, s: si, lat: li, d: (i / segs) * 2 * Math.PI * radius })
+    }
+    const geo = sweepKerb(ground, pts, rule.maxWidth, 0, rule, true)
+    const mesh = new THREE.Mesh(geo, pierMat)
+    mesh.name = 'paddockIslandKerb'
+    mesh.receiveShadow = true
+    markObject(mesh, 'islandKerb', 2 * Math.PI * radius)
+    group.add(mesh)
+    ctx.infieldStats['paddock-islandKerb'] = (ctx.infieldStats['paddock-islandKerb'] ?? 0) + 1
   }
 }
