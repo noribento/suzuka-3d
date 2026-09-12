@@ -397,7 +397,7 @@ for (const tier of tiers) {
   // names
   const missing = Object.entries(V1_NAMES).filter(([n, c]) => (byName.get(n)?.length ?? 0) !== c)
   check(missing.length === 0, `v1 meshes under env.group: ${Object.keys(V1_NAMES).length} names${missing.length ? ` — wrong: ${missing.map(([n, c]) => `${n} (${byName.get(n)?.length ?? 0} ≠ ${c})`).join(', ')}` : ''}`)
-  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'perchCanopies', 'perchBacks', 'teamOffices']
+  const instanced = ['pitSeats', 'pitRailPosts', 'pitColumns', 'pitDoorLeaves', 'pitRearColumns', 'pitInteriorBands', 'teamOffices']
   // the bucketed sets carry a '-<bay>' suffix per 60 m bay
   const noInst = instanced.filter((n) => ![...byName.entries()].some(([k, ms]) => (k === n || k.startsWith(`${n}-`)) && ms.some((o) => o.isInstancedMesh)))
   check(noInst.length === 0, `instanced sets: ${instanced.length}${noInst.length ? ` — missing: ${noInst.join(', ')}` : ''}`)
@@ -500,7 +500,7 @@ function checkLane(scene, check, byName) {
   check(!!decal && decal.uncovered < 1e-3 && Math.abs(decal.rung - 0.012) < 1e-9 && Array.isArray(band.material) && band.material.length === 2, `pitBlueBand: decal on LAYER.pit.band (${decal?.rung} m), ${decal?.area.toFixed(0)} m², uncovered ${decal?.uncovered.toExponential(1)} m² (< 1e-3), ${Array.isArray(band?.material) ? band.material.length : 1} material groups`)
   // every lane vertex: finite, on the road plane's side of the ground, outside the envelope
   // the lane's own meshes (the building's are I1-b's smoke): the names above and the instanced sets
-  const lanePrefix = /^(pitHoops-|pitFencePosts|pitWBeamPosts-|perchCanopies|perchBacks)/
+  const lanePrefix = /^(pitHoops-|pitFencePosts|pitWBeamPosts-)/
   const laneMeshes = [...byName.entries()].filter(([n]) => (names.includes(n) || lanePrefix.test(n)) && n !== 'pitBlueBand').flatMap(([, ms]) => ms)
   const road = new THREE.Vector3(), v = new THREE.Vector3(), m4 = new THREE.Matrix4()
   const [S0, S1] = spec.PIT_BOX_STRIP

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { DRIVERS, TEAMS } from '~/data/drivers'
-import { COLOURS, GARAGE_CENTRES, GARAGE_ORDER, LEADER_TOWER, PIT_BLOCK, PIT_BOX_STRIP, PIT_WALL, PRAT_PERCH, garageS } from '~/data/suzuka-facilities-spec'
+import { DRIVERS } from '~/data/drivers'
+import { COLOURS, GARAGE_CENTRES, LEADER_TOWER, PIT_BLOCK, PIT_BOX_STRIP, PIT_WALL } from '~/data/suzuka-facilities-spec'
 import { SIGNS } from '~/data/suzuka-barriers-spec'
 import { forwardDelta } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
@@ -30,8 +30,8 @@ import { armcoMaps } from './textures'
  *    (`concretePitKerb`, +0.45) with the inverted-U pipe hoops every 1.3 m (`pitHoops-<bay>`,
  *    one 76-triangle prototype instanced per 60 m bay), the fixed platform 31–69 (+1.3 with its
  *    parapet and pipe rail, `concretePitPlatform`), the starter's rostrum beside the gantry leg
- *    (`pitRostrum`), the equipment cabinets at the block boundaries (`pitCabinets`) and the v1
- *    team perches on the walkway (the ops layer, I3-c, replaces them);
+ *    (`pitRostrum`) and the equipment cabinets at the block boundaries (`pitCabinets`); the
+ *    teams' pit-wall perches on the walkway are the ops layer's (ops-pit.ts, I3-c);
  *  - the W-beam guardrail with round posts and a white pipe rail before and after the concrete
  *    (`pitWBeam`, `pitWBeamPosts-<bay>`);
  *  - the blue band of the auxiliary lane and its white edge line as a decal on the drawn lane
@@ -194,12 +194,11 @@ export function buildPitLane(ctx: EnvBuildContext): void {
   const lat = W.lateral
   const half = W.wallWidth / 2
   const wallTop = W.wallTop
-  // the box strip (12 blocks + 6 cores, 270 m): the mesh is lower there, the perches span it
+  // the box strip (12 blocks + 6 cores, 270 m): the mesh is lower there
   const S0 = track.wrap(PIT_BOX_STRIP[0]) // 5625, final-corner end
   const S1 = track.wrap(PIT_BOX_STRIP[1]) // 88, T1 end
   const [c0, c1] = W.concrete
   const concreteLen = forwardDelta(c0, c1, L)
-  const teams = GARAGE_ORDER.map((id) => TEAMS[id])
   const [p0, p1] = W.platform.sRange
   const onPlatform = (s: number) => forwardDelta(p0, s, L) <= forwardDelta(p0, p1, L)
   /** the walkway top at s: the platform deck between p0 and p1, the walkway elsewhere */
@@ -520,32 +519,6 @@ export function buildPitLane(ctx: EnvBuildContext): void {
       markDecal(mesh, LAYER.pit.band, stats)
       group.add(mesh)
     }
-  }
-
-  // --- the v1 team perches, moved onto the walkway (the ops layer's v2 perches replace them, I3-c)
-  {
-    const perch = PRAT_PERCH
-    // as wide as the walkway (the v1 1.8 would hang over the kerb into the hoops)
-    const pw = Math.min(perch.width, W.walkway.from - W.walkway.to)
-    const r = W.rostrum
-    const rostrumSpan: [number, number] = [r.s - r.size[0] / 2 - 0.5, r.s + r.size[0] / 2 + r.steps * 0.28 + 0.5]
-    const canopies: { m: THREE.Matrix4; color: THREE.Color }[] = []
-    const backs: { m: THREE.Matrix4; color: THREE.Color }[] = []
-    teams.forEach((team, g) => {
-      const s = garageS(g)
-      // the block whose perch would stand in the rostrum's footprint goes without (the ops layer places it)
-      if (s + perch.length / 2 > rostrumSpan[0] && s - perch.length / 2 < rostrumSpan[1]) return
-      const colour = new THREE.Color(team.body)
-      const base = walkTop(s)
-      const pl = walkCentre
-      boxes.place(s, pl, perch.length, pw, 0.9, darkMat, base, true, false)
-      for (const ds of [-perch.length / 2 + 0.05, perch.length / 2 - 0.05]) boxes.place(s + ds, pl, 0.1, pw, perch.height - 0.9, darkMat, base + 0.9, true, false)
-      for (let i = 0; i < 4; i++) boxes.place(s - 1.8 + i * 1.2, pl - 0.3, 0.5, 0.5, 0.5, darkMat, base + 0.9, true, false)
-      canopies.push({ m: boxes.matrix(s, pl, 0.2, base + perch.height - 0.2, true, new THREE.Matrix4()), color: colour })
-      backs.push({ m: boxes.matrix(s, pl - pw / 2 + 0.05, perch.height - 0.9, base + 0.9, true, new THREE.Matrix4()), color: colour })
-    })
-    boxes.instanced(perch.length, pw, 0.2, canopies, 0.5, false, 'perchCanopies')
-    boxes.instanced(perch.length, 0.1, perch.height - 0.9, backs, 0.5, false, 'perchBacks')
   }
 
   // the pipe rails share the building's white rail material; the small steel is galvanised grey

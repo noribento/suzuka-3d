@@ -16,12 +16,23 @@
  *  I3-b/c/d add: every placement has a drawn instance (bbox within its footprint ± 0.3 m), no
  *  `ops-*-glb` entry in Node, vehicles y ≥ standY − 0.05, figures = figuresAt().length, the
  *  pit cell's visible Σtris ≤ 1.2 M (high), `--glb` prototype tris ≤ 1.4 k.
+ *  I3-c `checkPitEquipment` (its own block at the end): the four `ops-pitEquipment /
+ *  ops-perches / ops-cones / ops-cables` sets exist, `userData.ops` holds every
+ *  `pitEquipmentPlacements()` row by id and kind, every near-level instance's world bbox (IM
+ *  instances included) lies in the working area, the walkway band or the garage interior,
+ *  nothing lower than 1.0 m is inside any of the 12 stopped-car rectangles (the wheel guns
+ *  hang over the car), nothing taller than chaseLens.maxH stands in a lens column and nothing
+ *  at all in a lens → car path, the gantry tops never reach left of the lane band's edge, the
+ *  cable ramps sit ≥ 8 mm over the apron; `--glb` (the stub registry with the pit / props /
+ *  trackside drops) builds the high tier once more: every `*-glb` near level has a procedural
+ *  far level in its cell, its prototype ≤ 2.9 m tall and ≤ 6 k triangles.
  *
  *   node scripts/audit/ops-smoke.mjs [--tier high|low|both] [--glb]
  *
  * `--glb` builds the high tier once more with the pack's ops / vehicle GLBs behind a stub
  * registry (stub-registry.mjs, like furniture-smoke --glb) and runs the I3-b GLB facts
- * (`checkVehicles`: the 3D prototypes' triangles, the pit cell's visible Σtris).
+ * (`checkVehicles`: the 3D prototypes' triangles, the pit cell's visible Σtris) and the I3-c GLB
+ * facts (`checkPitEquipment`: prototype heights / triangles).
  * Exit 1 on any failure.
  */
 import { buildScene, THREE } from './app-runtime.mjs'
@@ -91,6 +102,7 @@ for (const tier of tiers) {
   check(Array.isArray(placed) && placed.length === ops.opsPlacements().length, `every placement pushed into ctx.ops (${placed?.length} of ${ops.opsPlacements().length})`)
   console.log(`  note far-field entries of kind 'ops': ${ff.byKind?.ops ?? 0}`)
   checkVehicles(scene, tier, { glb: false })
+  checkPitEquipment(scene, check, { glb: false })
 }
 
 // ===== I3-b: checkVehicles (ops-vehicles.ts) ======================================================
@@ -241,12 +253,140 @@ function checkVehicles(scene, tier, { glb: withGlb }) {
 // --- --glb: the ops GLB path on the high tier behind the stub registry ------------------------------------
 if (glb) {
   console.log('\nops-smoke: tier high + ops GLBs (stub registry)')
-  const reg = await stubRegistry(/^model\/(ops\/|vehicles\/van_h100|props\/modular_fire_escape)/)
+  const reg = await stubRegistry(/^model\/(ops\/|pit\/|vehicles\/van_h100|props\/(modular_fire_escape|korean_fire_extinguisher_01|security_camera_01)|trackside\/cone_pack)/)
   console.log(`  loaded ${reg.loaded.length} models`)
+  const t0 = performance.now()
   const scene = await buildSceneWith('high', reg)
+  console.log(`  built + drained in ${((performance.now() - t0) / 1000).toFixed(1)} s (loaded: ${reg.loaded.join(', ')})`)
   const ff = scene.env.farField.stats()
   check(ff.failed === 0, `farField.stats().failed === 0 (${ff.failed})`)
   checkVehicles(scene, 'high', { glb: true })
+  checkPitEquipment(scene, check, { glb: true })
 }
 
 finish()
+
+// ===== I3-c: checkPitEquipment ======================================================================
+
+/**
+ * The pit-lane equipment's facts (I3-c, ops-pit.ts ← ops-spec section C): the sets, the rows,
+ * every drawn instance's world bbox against the envelopes the guard checks on paper, the
+ * cable ramps' lift, and with `glb` the pack prototypes.
+ */
+function checkPitEquipment(scene, check, { glb }) {
+  const { env, track, ground } = scene
+  const E = spec.PIT_ENVELOPE
+  const L = track.length
+  const fwd = (a, b) => ((b - a) % L + L) % L
+  const within = (v, [a, b]) => v >= Math.min(a, b) && v <= Math.max(a, b)
+  const rows = ops.pitEquipmentPlacements()
+  const ids = new Set(rows.map((r) => r.id))
+  console.log(`  pit equipment${glb ? ' (GLB near levels)' : ''}`)
+  // --- the rows in userData.ops -----------------------------------------------------------------
+  const placed = (env.group.userData.ops ?? []).filter((p) => ids.has(p.id))
+  check(placed.length === rows.length && sameTally(tally(placed), tally(rows)), `userData.ops holds every pitEquipmentPlacements() row (${placed.length} of ${rows.length}: ${fmtTally(tally(rows))})`)
+  const perches = rows.filter((r) => r.kind === 'cabin')
+  const onDeck = perches.filter((r) => Math.abs(r.y - spec.PIT_WALL.platform.y) < 1e-9)
+  check(perches.length === spec.GARAGE_ORDER.length && rows.filter((r) => r.kind === 'board').length === perches.length, `${perches.length} perches (one per team) + ${rows.filter((r) => r.kind === 'board').length} pit boards; ${onDeck.length} on the fixed platform's deck (${onDeck.map((r) => `s ${r.s.toFixed(1)}`).join(', ')})`)
+  // --- the sets -------------------------------------------------------------------------------------
+  const SETS = ['ops-pitEquipment', 'ops-perches', 'ops-cones', 'ops-cables']
+  const meshesOf = (name) => {
+    const out = []
+    const re = new RegExp(`^${name}-L\\d+-\\d+$`)
+    for (const o of env.farField.group.children) if (re.test(o.name ?? '')) o.traverse((m) => { if (m.isInstancedMesh) out.push(m) })
+    return out
+  }
+  const bySet = new Map(SETS.map((n) => [n, meshesOf(n)]))
+  check(SETS.every((n) => bySet.get(n).length > 0), `sets registered: ${SETS.map((n) => `${n} ${bySet.get(n).length} IM`).join(', ')}`)
+  const allMeshes = SETS.flatMap((n) => bySet.get(n))
+  const L0 = allMeshes.filter((m) => /-L0-\d+$/.test(m.name))
+  const glbMeshes = allMeshes.filter((m) => /-glb-L\d+-/.test(m.name))
+  if (!glb) check(glbMeshes.length === 0, `no *-glb prototype without the pack (${glbMeshes.length})`)
+  const instances = L0.reduce((a, m) => a + m.count, 0)
+  const tris = L0.reduce((a, m) => a + trisOf(m), 0)
+  check(instances >= rows.length, `near level: ${fmt(instances)} instances ≥ ${rows.length} rows, ${fmt(tris)} triangles`)
+  // --- every instance's world bbox against the envelopes ---------------------------------------------
+  const carRects = Array.from({ length: spec.PIT_GARAGE_COUNT }, (_, g) => ops.stoppedCarRect(g))
+  const columns = ops.lensColumns()
+  const WALL_BAND = [-12.0, -9.05]
+  const INTERIOR = [spec.PIT_BUILDING.back + 5.1, E.workArea[0] - 0.7]
+  const v = new THREE.Vector3(), road = new THREE.Vector3(), m4 = new THREE.Matrix4()
+  let n = 0, outOfBand = 0, inCar = 0, inColumn = 0, inPath = 0, beamLeft = 0, rampLow = 0, ramps = 0
+  const offenders = []
+  const note = (what, name) => { if (offenders.length < 8) offenders.push(`${name} (${what})`) }
+  for (const m of L0) {
+    m.updateWorldMatrix(true, false)
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox()
+    const bb = m.geometry.boundingBox
+    const isRamp = /-cable-ramp-/.test(m.name), isGantryTop = /-gantry-top-/.test(m.name)
+    for (let i = 0; i < m.count; i++) {
+      m.getMatrixAt(i, m4)
+      m4.premultiply(m.matrixWorld)
+      let d0 = Infinity, d1 = -Infinity, l0 = Infinity, l1 = -Infinity, y0 = Infinity, y1 = -Infinity, ref = null
+      for (const cx of [bb.min.x, bb.max.x]) for (const cy of [bb.min.y, bb.max.y]) for (const cz of [bb.min.z, bb.max.z]) {
+        v.set(cx, cy, cz).applyMatrix4(m4)
+        const hit = track.nearestOnRange(v.x, v.z, 5530, 135)
+        if (ref === null) ref = track.wrap(hit.s)
+        const d = fwd(ref, hit.s)
+        const ds = d > L / 2 ? d - L : d
+        d0 = Math.min(d0, ds); d1 = Math.max(d1, ds); l0 = Math.min(l0, hit.lateral); l1 = Math.max(l1, hit.lateral)
+        track.pointAt(hit.s, hit.lateral, road, 0)
+        y0 = Math.min(y0, v.y - road.y); y1 = Math.max(y1, v.y - road.y)
+      }
+      n++
+      const sA = track.wrap(ref + d0), sB = track.wrap(ref + d1)
+      const name = `${m.name}[${i}]`
+      const band = within(l0, E.workArea) && within(l1, E.workArea) ? 'apron' : within(l0, WALL_BAND) && within(l1, WALL_BAND) ? 'wall' : within(l0, INTERIOR) && within(l1, INTERIOR) ? 'interior' : null
+      if (!band) { outOfBand++; note(`lateral ${l0.toFixed(2)}…${l1.toFixed(2)} in no band`, name) }
+      /** does the bbox (s sA→sB, lateral l0…l1) overlap the zone (forward arc zs, lateral zl)? */
+      const overlaps = (zs, zl) => {
+        const len = fwd(zs[0], zs[1])
+        const a = fwd(zs[0], sA), b = fwd(zs[0], sB)
+        const sOverlap = a <= len || b <= len || a > b
+        return sOverlap && l1 >= Math.min(zl[0], zl[1]) && l0 <= Math.max(zl[0], zl[1])
+      }
+      if (band === 'apron' && y0 < 1.0) for (const r of carRects) if (overlaps(r.s, r.lat)) { inCar++; note(`in the stopped car of block ${r.block + 1}, bottom ${y0.toFixed(2)}`, name); break }
+      for (const c of columns) {
+        if (y1 > c.column.maxH && overlaps(c.column.s, c.column.lat)) { inColumn++; note(`${y1.toFixed(2)} m tall in the lens column of block ${c.block + 1}`, name); break }
+        if (overlaps(c.path.s, c.path.lat)) { inPath++; note(`in the lens → car path of block ${c.block + 1} (lateral ${l0.toFixed(2)}…${l1.toFixed(2)}, s ${sA.toFixed(1)}→${sB.toFixed(1)})`, name); break }
+      }
+      if (isGantryTop && l1 > E.lanes[0]) { beamLeft++; note(`gantry top reaches ${l1.toFixed(2)} (lane edge ${E.lanes[0]})`, name) }
+      if (isRamp) {
+        ramps++
+        v.setFromMatrixPosition(m4)
+        // the instance origin is the ramp's base: its lift over the drawn ground there
+        const lift = v.y - ground.standY(v.x, v.z)
+        if (lift < 0.008 - 1e-6) { rampLow++; note(`cable ramp ${(1000 * lift).toFixed(1)} mm over the apron`, name) }
+      }
+    }
+  }
+  check(outOfBand === 0, `${fmt(n)} instance bboxes: every one inside the working area [${E.workArea.join(', ')}], the walkway band [${WALL_BAND.join(', ')}] or the garage interior (${outOfBand} outside${outOfBand ? `: ${offenders.filter((o) => o.includes('band')).slice(0, 3).join('; ')}` : ''})`)
+  check(inCar === 0, `nothing lower than 1.0 m inside any of the ${carRects.length} stopped-car rectangles (${inCar}${inCar ? `: ${offenders.filter((o) => o.includes('stopped car')).slice(0, 3).join('; ')}` : ''})`)
+  check(inColumn === 0 && inPath === 0, `chase lens: nothing taller than ${E.chaseLens.maxH} m in a lens column (${inColumn}), nothing in a lens → car path (${inPath})${inColumn + inPath ? `: ${offenders.filter((o) => o.includes('lens')).slice(0, 3).join('; ')}` : ''}`)
+  check(beamLeft === 0, `gantry tops never reach left of the lane band's edge ${E.lanes[0]} (${beamLeft})`)
+  check(ramps > 0 && rampLow === 0, `${ramps} cable ramp segments ≥ 8 mm over the apron (${rampLow} low)`)
+  // --- the pack prototypes ----------------------------------------------------------------------------
+  if (glb) {
+    const near = allMeshes.filter((m) => /-glb-L0-/.test(m.name))
+    const protoOf = (m) => m.name.replace(/-L\d+-\d+$/, '')
+    const protos = [...new Set(near.map(protoOf))]
+    check(protos.length >= 5, `GLB near levels: ${protos.length} prototypes (${protos.map((p) => p.replace(/^ops-\w+-/, '')).join(', ')})`)
+    let tall = 0, heavy = 0, noFar = 0
+    const facts = []
+    for (const m of near) {
+      if (!m.geometry.boundingBox) m.geometry.computeBoundingBox()
+      const h = m.geometry.boundingBox.max.y - m.geometry.boundingBox.min.y
+      const t = trisOf({ geometry: m.geometry, isInstancedMesh: false })
+      if (h > E.chaseLens.maxH) tall++
+      if (t > 6000) heavy++
+      const cell = m.name.match(/-(\d+)$/)[1]
+      const setName = m.name.match(/^(ops-\w+)-/)[1]
+      // the same set and cell must hold a procedural prototype at level 1 (the far level)
+      const far = allMeshes.filter((o) => o.name.startsWith(`${setName}-`) && o.name.endsWith(`-L1-${cell}`) && !/-glb-/.test(o.name))
+      if (!far.length) noFar++
+      if (!facts.some((f) => f.startsWith(protoOf(m).replace(/^ops-\w+-/, '')))) facts.push(`${protoOf(m).replace(/^ops-\w+-/, '')} ${h.toFixed(2)} m / ${fmt(t)} tris`)
+    }
+    check(tall === 0 && heavy === 0, `every GLB prototype ≤ ${E.chaseLens.maxH} m tall (${tall} taller) and ≤ 6 k triangles (${heavy} heavier): ${facts.join(', ')}`)
+    check(noFar === 0, `every GLB near level has a procedural far level in its cell (${noFar} without)`)
+  }
+}

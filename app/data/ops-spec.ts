@@ -634,36 +634,192 @@ export function vehiclePlacements(): OpsPlacement[] {
 //
 
 /**
- * I3-c — `pitEquipmentPlacements()` must produce per team block (plan §I3-c; every apron row
- * inside PIT_ENVELOPE.workArea and outside `stoppedCarRect(block)`; coordinates from
- * PIT_ENVELOPE.stop through OPS_LAYOUT):
- *  - the gantry: two posts `kind 'equipment'` at (boxS ± gantry.dS, stop + gantry.dLat), h
- *    gantry.h (outside the lens column s ∈ [boxS − 13, boxS − 9] and the lens → car path
- *    s ∈ [boxS − 11, boxS − 3] — the posts and the beam end at ± 2.9); the beam / signal box
- *    / lamps / wheel guns are the builder's, hung from the posts (a beam row, if registered,
- *    spans boxS ± gantry.dS × stop ± beamHalf at y gantry.h);
- *  - `kind 'tyres'` × 3 at (boxS + tyreStacks.dS[i], stop + tyreStacks.dLat);
- *  - `kind 'trolley'` (the jacks) at (boxS + jacks.dS, stop) and (boxS − jacks.dS, stop +
- *    jacks.rearDLat);
- *  - the fuel drum + hose trolley at (boxS + fuel.dS, fuel.lat), mount 'interior';
- *  - the monitor stand 'equipment' at (boxS + monitor.dS, stop + monitor.dLat), h monitor.h;
- *  - `kind 'cone'` × 30 along OPS_LAYOUT.cones.lat at the block boundaries (mount 'apron');
- *  - cable ramps 'equipment' at every core boundary from cableRamps.lat[0] to [1] (long 0.3 m
- *    rows, or one row with yawDeg 90);
- *  - a fire extinguisher 'equipment' per pier pair (48), mount 'apron' at the shutter line;
- *  - the pit board 'board' beside every perch (mount 'wall');
- *  - the pit-wall perches v2: one `kind 'cabin'` per team at (boxS, pitWallPerch.lat), size
- *    pitWallPerch.size, mount 'wall' (the walkway band of §16), with monitors 'equipment' and
- *    umbrellas; pit-lane.ts's v1 perches (perchCanopies / perchBacks) are removed in the same
- *    commit;
- *  - the fixed platform's two TV cameras 'camera' (mount 'wall', y platform.y).
- * Rules: O1 (apron rows in the working area, outside the car rectangles; wall rows in the
- * walkway band), O3 (nothing taller than 2.9 m in a lens column; nothing at all in a lens →
- * car path s ∈ [boxS − 11, boxS − 3] × stop ± 1.5 — every row behind the car keeps
- * |dLat| > 1.5 or s > boxS − 3), O5, O12 (inside OPS_WINDOWS.pitStrip).
+ * I3-c — the pit-lane equipment and the pit-wall perches v2 (plan §I3-c). Every apron row
+ * lies inside PIT_ENVELOPE.workArea, outside `stoppedCarRect(block)` of every block and out
+ * of every `lensColumns()` path; every coordinate derives from PIT_ENVELOPE.stop (through
+ * `fromStop`), the garage table and PIT_WALL — no literal stop lateral. The rows are what
+ * ops-pit.ts draws and what facilities-check §16 / ops-smoke `checkPitEquipment` verify.
+ *
+ * Two envelope facts shape the layout beyond OPS_LAYOUT (section A):
+ *  - §16 O1 keeps the analytic pit keep-out [c − keepOut.back, …] = [−21.1, −9.1] along the
+ *    whole box strip, so nothing static may stand left of `KEEP_OUT_EDGE` (−21.1): the cones
+ *    cannot line the working lane's edge (OPS_LAYOUT.cones.lat −19.5) and the cable ramps
+ *    cannot start at −19.3 — both start at the keep-out edge instead;
+ *  - a car arriving at the NEXT block passes the stop line's lane side at ≈ stop + 1.6 (its
+ *    body stop + 0.65 … + 2.55) as it crosses this block, and a car leaving crosses the next
+ *    block's working area diagonally: the lane-side row of everything on the apron therefore
+ *    stays ≤ stop + 1.2 (the front jack on the stop line, the cones at stop + 0.8 in front of
+ *    the cores) — the band stop + 1.2 … + 2.4 stays empty (caveat: the sim does not collide
+ *    with the static layer; the crew rows of section A at stop + 1.9 are I3-d's to judge).
+ *
+ * The fallback stop (§横断 2, stop inside the auxiliary lane): `fromStop` folds every offset
+ * to the right of the lane's outer edge (FOLD_BASE), the lane-side reach of the gantry arms
+ * goes to zero — the same function, numbers only (not exercised: PIT_PLANNED.stopLateral is
+ * in the working area).
+ *
+ * Heights: apron / interior rows stand on the ground (`y` omitted); the gantry's beam row is
+ * mount 'roof' with `y` = its underside over the apron (it hangs on the posts, which carry the
+ * ground rules — O3 still sees it); wall rows carry in `y` the road-frame height of what they
+ * stand on (the walkway +0.5 or the fixed platform's deck +1.3), the builder places them in
+ * the road frame like pit-lane.ts.
  */
+
+/** the lane-side limit of anything static along the box strip: the analytic keep-out's right edge (§16 O1) */
+export const KEEP_OUT_EDGE = CIRCUIT.pit.laneOffset - E.keepOut.back
+/** is the stop line inside the working area (the planned −23.5) or in the auxiliary lane (the fallback −17.1)? */
+const FOLDED = !inWorkArea(E.stop, E.carHalf * 2)
+/** the fallback's reference line: 0.4 m right of the working lane's outer edge, where the garage-side offsets hang from */
+const FOLD_BASE = E.lanes[0] - 0.4
+/** the lateral of a row placed `dLat` from the stop line (lane side positive); folded onto the lane edge in the fallback */
+export function fromStop(dLat: number): number {
+  return FOLDED ? FOLD_BASE + Math.min(dLat, 0) : E.stop + dLat
+}
+
+/**
+ * The pit equipment's own numbers (plan §I3-c), read by `pitEquipmentPlacements()` and by
+ * ops-pit.ts for the parts that hang on a row (the gantry's arms, lamps and guns; the perch's
+ * monitors, stools, umbrellas). Offsets: `dS` from boxS, `dLat` from the stop line.
+ */
+export const PIT_EQUIPMENT = {
+  /**
+   * The gantry: OPS_LAYOUT.gantry's two posts on the garage side; a beam along s between the
+   * post tops; two arms across the car at the wheel lines (dS ± 1.7) from the posts' line to
+   * `laneReach` on the lane side — never past the keep-out edge (2.3 m at the planned stop,
+   * 0 in the fallback); the signal box hangs under the front arm over the car's centre line,
+   * the four wheel guns hang on hoses under the arms over the wheels (`gunLat` ± = the car's
+   * track), their bottoms `gunBottom` above the apron (over the car — the one thing that is
+   * allowed inside the stopped-car rectangle, 1.15 m up).
+   */
+  gantry: {
+    ...OPS_LAYOUT.gantry,
+    laneReach: Math.max(0, Math.min(OPS_LAYOUT.gantry.beamHalf, KEEP_OUT_EDGE - 0.1 - E.stop)),
+    beam: 0.2,
+    arm: { dS: [-1.7, 1.7] as readonly number[], section: 0.15 },
+    guns: { dLat: [-0.85, 0.85] as readonly number[], size: [0.35, 0.12, 0.25] as [number, number, number], bottom: 1.15 },
+    lights: { dS: 1.7, size: [0.5, 0.3, 0.4] as [number, number, number], top: 3.7, lamps: 4 },
+  },
+  /**
+   * Three tyre stacks (4 tyres in a team-colour blanket, a bare tyre on top) on the garage side
+   * at OPS_LAYOUT.tyreStacks.dS, 0.7 m further back than the layout's dLat (−3.9): the two
+   * tyre men of the crew table stand at (−6 / −7.5, −3.2) — beside, not inside, the stacks.
+   */
+  tyreStacks: { dS: OPS_LAYOUT.tyreStacks.dS, dLat: OPS_LAYOUT.tyreStacks.dLat - 0.7, size: [0.7, 0.7, 1.3] as [number, number, number] },
+  /** the front jack on the stop line at +dS, the rear jack on the garage side (OPS_LAYOUT.jacks; long side along s) */
+  jacks: OPS_LAYOUT.jacks,
+  /**
+   * The fuel drum + hose trolley inside the garage, 1.5 m behind the equipment front (−30.5):
+   * OPS_LAYOUT.fuel.lat (−33) is where pit-building.ts stacks the garage tyres, so the trolley
+   * stands in front of them, behind the shutter line.
+   */
+  fuel: { dS: OPS_LAYOUT.fuel.dS, lat: V2.interior.equipmentFront - 1.5, size: [1.2, 0.8, 1.2] as [number, number, number] },
+  /**
+   * The monitor stand (1.9 m, two screens on a frame) on the garage side at +dS: the layout's
+   * (−7, −3.5) sat on the second tyre stack, and the −s garage front is where the crew table
+   * puts the rear-jack man; the +s side is free of everything but the front jack and the fuel.
+   */
+  monitor: { dS: 6, dLat: OPS_LAYOUT.monitor.dLat - 0.4, size: [1.2, 0.5, OPS_LAYOUT.monitor.h] as [number, number, number] },
+  /**
+   * Five green cones per core in front of the core's doors (no stopped car there): from the
+   * core's −s face + 0.4 every 0.9 m (none on the centre line: the cable ramps run there),
+   * stopping 3 m short of its +s face — the lens → car path of the block beyond the core
+   * starts 1.5 m before that face. Lane side at stop + 0.8.
+   */
+  cones: { perCore: 5, fromFace: 0.4, pitch: 0.9, dLat: 0.8, size: [0.35, 0.35, 0.5] as [number, number, number] },
+  /** the cable ramps (yellow / black, 1 m segments across the apron) at every core's centre line, from the keep-out edge to the shutter */
+  cableRamps: { lat: [KEEP_OUT_EDGE - 0.1, V2.shutter + 0.1] as [number, number], segment: 1.0, size: [0.3, 1.0, 0.05] as [number, number, number] },
+  /** one wheeled extinguisher (red) in front of every pit's +s pier, 0.45 m off the shutter line */
+  extinguishers: { lat: V2.shutter + 0.45, dS: V2.garage.boxPitch / 2, blockPierInset: 0.2, size: [0.4, 0.4, 1.0] as [number, number, number] },
+  /**
+   * The pit-wall perches v2: OPS_LAYOUT.pitWallPerch's frame on the walkway (or on the fixed
+   * platform's deck, 1.0 m wide between its parapet and the wall), the desk at `desk`, four
+   * monitors on it facing the seated crew, three stools (seat +1.45 ≈ OPS_LAYOUT.pitWallPerch.seat),
+   * the team-colour canopy on top, two umbrellas (3.2 m, over the canopy) standing on the walkway
+   * `umbrella.dS` past the frame's ends — the pit board keeps `board.dS` clear of the +s one.
+   */
+  perch: { ...OPS_LAYOUT.pitWallPerch, onPlatform: { width: 1.0, lat: WALKWAY_CENTRE + 0.05 }, desk: 1.75, monitors: { n: 4, size: [0.55, 0.35] as [number, number] }, umbrella: { d: 1.4, top: 3.2, dS: 0.4 }, canopy: 0.06 },
+  /** the pit board (a panel 0.8 × 0.5 propped upright, handle down, 1.2 m in all) leaning on the wall's lane face past every perch's +s umbrella (off the cabinets' lateral) */
+  board: { dS: OPS_LAYOUT.pitWallPerch.size[0] / 2 + 1.0, lat: PIT_WALL.walkway.from - 0.1, size: [0.8, 0.1, 1.2] as [number, number, number] },
+  /** the fixed platform: two TV cameras on tripods and a monitor stand on the deck, at s clear of the perches and the cabinets */
+  platform: { cameras: [40, 60] as readonly number[], monitor: 45.5, lat: WALKWAY_CENTRE + 0.15, cameraSize: [0.5, 0.5, 1.7] as [number, number, number], monitorSize: [0.6, 0.5, 1.2] as [number, number, number], head: 1.4 },
+} as const
+
+/** the fixed platform's s range, the perches / boards on it stand on the deck (PIT_WALL.platform.y) */
+const PLATFORM = PIT_WALL.platform.sRange
+/** does the frame [s − half, s + half] lie entirely on the fixed platform / entirely off it? */
+function platformSpan(s: number, half: number): 'on' | 'off' | 'straddles' {
+  const on0 = inArcS(wrapS(s - half), PLATFORM), on1 = inArcS(wrapS(s + half), PLATFORM)
+  return on0 && on1 ? 'on' : !on0 && !on1 ? 'off' : 'straddles'
+}
+
+/**
+ * The centre s of `block`'s pit-wall perch: boxS, unless the frame would stand in the
+ * starter's rostrum (PIT_WALL.rostrum + its stair, block 4 at s 7.5: the perch moves past the
+ * +s end of the stair with its −s umbrella, s ≈ 10.1 → 15.6) or straddle the fixed platform's end (block 3 at
+ * s 33.5, the platform starts at 31: the perch moves onto the deck, s ≈ 31.5 → 37.0).
+ */
+export function perchCentreS(block: number): number {
+  const c = garageS(block)
+  const half = OPS_LAYOUT.pitWallPerch.size[0] / 2
+  const r = PIT_WALL.rostrum
+  const rostrum: [number, number] = [wrapS(r.s - r.size[0] / 2 - 0.3), wrapS(r.s + r.size[0] / 2 + r.steps * 0.28 + 0.3)]
+  if (inArcS(wrapS(c - half), rostrum) || inArcS(wrapS(c + half), rostrum) || inArcS(r.s, [wrapS(c - half), wrapS(c + half)])) return wrapS(rostrum[1] + PIT_EQUIPMENT.perch.umbrella.dS + 0.2 + half)
+  const span = platformSpan(c, half)
+  if (span === 'straddles') {
+    const d0 = forwardS(PLATFORM[0], c), d1 = forwardS(c, PLATFORM[1])
+    return d0 < d1 ? wrapS(PLATFORM[0] + 0.5 + half) : wrapS(PLATFORM[1] - 0.5 - half)
+  }
+  return c
+}
+
+/** whether `block`'s perch stands on the fixed platform's deck (a narrower frame, base PIT_WALL.platform.y) */
+export function perchOnPlatform(block: number): boolean {
+  return platformSpan(perchCentreS(block), OPS_LAYOUT.pitWallPerch.size[0] / 2) === 'on'
+}
+
 export function pitEquipmentPlacements(): OpsPlacement[] {
-  return []
+  const out: OpsPlacement[] = []
+  const Q = PIT_EQUIPMENT
+  const row = (p: OpsPlacement) => out.push({ ...p, s: wrapS(p.s) })
+  for (let g = 0; g < PIT_GARAGE_COUNT; g++) {
+    const c = garageS(g)
+    const team = GARAGE_ORDER[g]
+    // the extinguishers stand at every pit of the row, the empty bay included
+    for (let pit = 0; pit < 4; pit++) {
+      const pitCentre = c + (pit - 1.5) * V2.garage.boxPitch
+      const pier = pit === 3 ? pitCentre + Q.extinguishers.dS - Q.extinguishers.blockPierInset : pitCentre + Q.extinguishers.dS
+      row({ id: `extinguisher-${g}-${pit}`, kind: 'equipment', s: pier, lateral: Q.extinguishers.lat, yawDeg: 0, size: Q.extinguishers.size, mount: 'apron', tint: ['#c8201c', '#2a2a2c'] })
+    }
+    if (!team) continue
+    // the gantry: two posts on the garage side, the beam / arms / lights / guns as one row with its underside 3.85 m up
+    const G = Q.gantry
+    for (const [i, sign] of [-1, 1].entries()) row({ id: `gantry-post-${g}-${i}`, kind: 'equipment', s: c + sign * G.dS, lateral: fromStop(G.dLat), yawDeg: 0, size: [G.post, G.post, G.h], mount: 'apron', team })
+    const garageEdge = fromStop(G.dLat) - G.post / 2, laneEdge = fromStop(G.laneReach)
+    row({ id: `gantry-beam-${g}`, kind: 'equipment', s: c, lateral: (garageEdge + laneEdge) / 2, yawDeg: 0, y: G.h - G.beam - G.arm.section, size: [2 * G.dS, Math.max(0.3, laneEdge - garageEdge), G.beam + G.arm.section], mount: 'roof', team })
+    // the tyre stacks, the jacks, the fuel trolley, the monitor stand
+    Q.tyreStacks.dS.forEach((dS, i) => row({ id: `tyres-${g}-${i}`, kind: 'tyres', s: c + dS, lateral: fromStop(Q.tyreStacks.dLat), yawDeg: 0, size: Q.tyreStacks.size, mount: 'apron', team }))
+    row({ id: `jack-${g}-front`, kind: 'trolley', s: c + Q.jacks.dS, lateral: fromStop(0), yawDeg: 0, size: Q.jacks.size, mount: 'apron', team })
+    row({ id: `jack-${g}-rear`, kind: 'trolley', s: c - Q.jacks.dS, lateral: fromStop(Q.jacks.rearDLat), yawDeg: 0, size: Q.jacks.size, mount: 'apron', team })
+    row({ id: `fuel-${g}`, kind: 'trolley', s: c + Q.fuel.dS, lateral: Q.fuel.lat, yawDeg: 0, size: Q.fuel.size, mount: 'interior', team })
+    row({ id: `monitor-${g}`, kind: 'equipment', s: c + Q.monitor.dS, lateral: fromStop(Q.monitor.dLat), yawDeg: 0, size: Q.monitor.size, mount: 'apron', team })
+    // the pit-wall perch v2 and its pit board
+    const ps = perchCentreS(g)
+    const onDeck = perchOnPlatform(g)
+    const P = Q.perch
+    row({ id: `perch-${g}`, kind: 'cabin', s: ps, lateral: onDeck ? P.onPlatform.lat : P.lat, yawDeg: 0, y: onDeck ? PIT_WALL.platform.y : PIT_WALL.walkway.y, size: [P.size[0], onDeck ? P.onPlatform.width : P.size[1], P.size[2]], mount: 'wall', team })
+    row({ id: `board-${g}`, kind: 'board', s: ps + Q.board.dS, lateral: Q.board.lat, yawDeg: 0, y: onDeck ? PIT_WALL.platform.y : PIT_WALL.walkway.y, size: Q.board.size, mount: 'wall', team })
+  }
+  // the cores: five cones in front of the doors, the cable ramps across the apron on the centre line
+  for (const core of coreEdges()) {
+    for (let i = 0; i < Q.cones.perCore; i++) row({ id: `cone-${core.core}-${i}`, kind: 'cone', s: core.s[0] + Q.cones.fromFace + i * Q.cones.pitch, lateral: fromStop(Q.cones.dLat), yawDeg: 0, size: Q.cones.size, mount: 'apron', tint: ['#2f9e4a', '#111214'] })
+    const [l0, l1] = Q.cableRamps.lat
+    const n = Math.floor((l0 - l1) / Q.cableRamps.segment + 1e-6)
+    for (let i = 0; i < n; i++) row({ id: `cable-${core.core}-${i}`, kind: 'equipment', s: core.mid, lateral: l0 - (i + 0.5) * Q.cableRamps.segment, yawDeg: 0, size: Q.cableRamps.size, mount: 'apron', tint: ['#e8b400', '#141414'] })
+  }
+  // the fixed platform: two TV cameras and a monitor stand on the deck
+  const F = Q.platform
+  F.cameras.forEach((s, i) => row({ id: `tvcam-${i}`, kind: 'camera', s, lateral: F.lat, yawDeg: 0, y: PIT_WALL.platform.y, size: F.cameraSize, mount: 'wall' }))
+  row({ id: 'platform-monitor', kind: 'equipment', s: F.monitor, lateral: F.lat, yawDeg: 0, y: PIT_WALL.platform.y, size: F.monitorSize, mount: 'wall' })
+  return out
 }
 
 //

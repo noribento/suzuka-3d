@@ -198,7 +198,7 @@ app/
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対；`CROWD_HELMET_ROWS` = 行 28–31 の白ヘルメット姿勢、運営レイヤー用）
     credits.ts                 # アプリ内クレジット（生成物）
     tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
-    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（three 非依存。ops.ts の 3 ビルダー、facilities-check §16、ops-smoke が同じ行を読む）。4 区画: A 型と配置 `OPS_LAYOUT`（全座標を PIT_ENVELOPE.stop / GARAGE_CENTRES / PADDOCK_* から導く、停止位置のリテラル無し）+ 共有ヘルパー `stoppedCarRect(block)` / `lensColumns()` / `inWorkArea` / `crewSlots(block)` / `perchSeats(block)` / `coreEdges()` / `OPS_WINDOWS` / `OPS_TEXTS`（I3-a）、B `vehiclePlacements()`（I3-b）、C `pitEquipmentPlacements()`（I3-c）、D `figuresAt()` / `flagPlacements()`（I3-d）。`opsPlacements()` = B + C + D の連結
+    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（three 非依存。ops.ts の 3 ビルダー、facilities-check §16、ops-smoke が同じ行を読む）。4 区画: A 型と配置 `OPS_LAYOUT`（全座標を PIT_ENVELOPE.stop / GARAGE_CENTRES / PADDOCK_* から導く、停止位置のリテラル無し）+ 共有ヘルパー `stoppedCarRect(block)` / `lensColumns()` / `inWorkArea` / `crewSlots(block)` / `perchSeats(block)` / `coreEdges()` / `OPS_WINDOWS` / `OPS_TEXTS`（I3-a）、B `vehiclePlacements()`（I3-b）、C `pitEquipmentPlacements()` + `PIT_EQUIPMENT` / `fromStop` / `KEEP_OUT_EDGE` / `perchCentreS` / `perchOnPlatform`（I3-c）、D `figuresAt()` / `flagPlacements()`（I3-d）。`opsPlacements()` = B + C + D の連結
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
   sim/
     track.ts                   # スプライン（5807 m 正規化）、曲率、幅・カント・勾配、最小曲率レーシングライン、立体交差、ピットレーン
@@ -249,11 +249,11 @@ app/
     pit-geometry.ts            # ピット系の純幾何・キャンバス補助（frameAt / sweep / texturedWall / trackPrism / podLoft の弾丸ロフトと podBand / podFlank（帯・丸窓）、smoothProfile / remapV、canvas / label、PIT_TEXTS、3 ビルダーが共有する材質 pitMaterials(ctx) — soffitShellMat / railGlassMat を含む、addMerged）
     pit-building.ts            # ピットビル v2（2009 図面の断面を勾配追従スイープ: 1F ガレージ列・ファシア梁・2F/3F テラス・曲面キャノピー、折戸・シャッター・番号札、階段塔、銀灰のコントロールポッドとメディア区間、T1 ノーズ、ビジョン 8、ガレージ内装とウォッシュ・機材の prop set 'ops-garage'、裏キャノピー／タイル壁／窓帯／スパー橋、屋上設備、表彰台、テラスの観客 'ops-terrace'。canopyTopAt を export。§ピットビル v2）
     infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
-    pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、v1 の prat perch（I3-c が置き換える）、リーダータワー
+    pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、リーダータワー（チームの prat perch は ops-pit.ts、I3-c）
     paddock.ts                 # パドック（I2-b/c、表 PADDOCK_BUILDINGS / PADDOCK_OFFICE / PADDOCK_FENCE / PADDOCK_LAMPS / PADDOCK_MASTS / PADDOCK_PARKING / PADDOCK_BAY）: チームオフィス段状モジュール（IM `teamOffices`）と A 棟 2 階、センターハウス（OSM 押出し + 楕円キャノピー + 丸柱 16 + 舗石デカール）、SMSC、給油所（島縁石 = islandKerb）、サービスハウス・タイヤガレージ、車両基地、トンネル頭 2、緑金網フェンス（`paddockFence` 垂直面のみ + 支柱 IM）と門 3、街灯（`infield-lamps`、手続きポール）、照明マスト 2、駐車場（I2-c: `paddockBays` が世界座標 m で列を歩き paddock 面上・包絡外・フットプリント外・平らな区画だけ残し、白線デカール `paddockBayLines-<id>`、黄ハッチ `paddockHatches`、車 `infield-paddock-cars` = carBody / carGlb + covered_car）。v1 から残すのはトランスポーター・テント・旗（I3 まで）と BUILDINGS の他行の押出し（`paddockBuildings`）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
     ops.ts                     # 運営レイヤーの傘（I3-a）: ops-vehicles → ops-pit → ops-people を順に呼び、部分統計を `stats.ops`（figures / byRole / impostors / near3d / mode は people、vehicles は vehicles、equipment は pit + vehicles）に併合し、全配置を ctx.ops（= group.userData.ops）に積む
     ops-vehicles.ts            # 運営レイヤー (I3-b): 白箱トラックのトランスポーター（チーム色帯）、2 t トラック・バン、航空コンテナ、ホスピタリティ、ガゼボ／マーキー、放送コンパウンド、SC／メディカル／コース車両・クレーン（ops-spec B `vehiclePlacements()` 105 行 → registerPropSet 'ops-vehicles' / 'ops-hospitality' / 'ops-tents' / 'ops-containers' / 'ops-compound'；GLB 車両は部位毎 `carGlb|tint` + 共有白 map、遠段は手続き車体）
-    ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー、タイヤスタック、ジャッキ、燃料台車、モニター、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2（ops-spec C `pitEquipmentPlacements()`。I3-a は入口のみ）
+    ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー（支柱・梁・腕・信号灯・ホースのホイールガン）、タイヤスタック、ジャッキ、燃料台車、モニター台、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2、固定プラットホームの TV カメラ（ops-spec C `pitEquipmentPlacements()` / `PIT_EQUIPMENT`、registerPropSet 'ops-pitEquipment' / 'ops-perches' / 'ops-cones' / 'ops-cables'。「運営レイヤー」参照）
     ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ（ops-spec D `figuresAt()` → figures.ts buildOpsFigures 'ops-figures'）と旗 `flagPlacements()`（I3-a は入口のみ）
     marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
     tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
@@ -573,7 +573,7 @@ pphi-3/4、平面 pp4t-4、ピット仕様 p5spec、テラス pitph-12、コン�
 | 横位置 | 何 | 高さ・材 |
 |---|---|---|
 | −9.05…−9.75 | コンクリート壁（`pitWall`、concrete046、s 5556→95、トラック面は路面下 0.1 まで沈めて描画帯との隙間を消す）。入口端の 10 m は白ブロック（`pitWallBlock`）で、60 リングと FIRE STATION の板（SIGNS の mount `pitWallTop`、`pitWallSigns`）が天端 +0.4 の 2 本の支柱に立つ（横向きの板の支柱は壁の幅内 ±0.30 に収める） | 天端 1.8。両面に広告帯 y 0.9–1.8（`pitWallBoards` / `pitWallBoardsLane`、4096 × 64 のキャンバス = 64 m × 0.9 m の 8 m スロット 8 枚、レーン面は 64 m ごとの 80 リング = SIGNS `pit-lane-80`）。天端の金網（`pitDebrisFence`、fence003 / 手続き）はボックス帯 [5625, 88] で 1.0 m、入口・出口区間で 1.8 m、支柱 φ0.09 を 4 m 毎に IM |
-| −9.75…−11.05 | 歩廊（`concretePitWalkway`） | +0.5。チームの prat perch（v1、I3-c で置き換え）、ブロック境界のキャビネット 0.6 × 0.9 × 1.2（`pitCabinets`、13）、スターター台（`pitRostrum`: 3 × 2.4 × 2.6 の暗鋼キャビン、床 +3.0、脚 φ0.1 × 4、8 段の階段、金網窓、白パネル。s 5.5 = ゲートリー脚の T1 側） |
+| −9.75…−11.05 | 歩廊（`concretePitWalkway`） | +0.5。チームの prat perch v2 は運営レイヤー（`ops-pit.ts`、mount 'wall'）、ブロック境界のキャビネット 0.6 × 0.9 × 1.2（`pitCabinets`、13）、スターター台（`pitRostrum`: 3 × 2.4 × 2.6 の暗鋼キャビン、床 +3.0、脚 φ0.1 × 4、8 段の階段、金網窓、白パネル。s 5.5 = ゲートリー脚の T1 側） |
 | −9.75…−11.05（s 31–69） | 固定プラットホーム（`concretePitPlatform`） | デッキ +1.3、レーン側に 0.35 のパラペット、その上に白パイプ柵 1.1 |
 | −11.05…−11.5 | 白縁石（`concretePitKerb`、plaster_grey_04 白） | +0.45。逆 U のパイプフープ（幅 1.2、高 1.0、φ50）を 1.3 m ピッチで ⌊346 / 1.3⌋ = 266 体（`pitHoops-<bay>`、76 tris の 1 プロトタイプを 60 m ベイで IM） |
 | −11.5…−16.05 | 速走レーン | 破線 divider −16.05 は `LINES` |
@@ -754,9 +754,51 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
   （plain / plain + instanceColor / {map} / pbrFromAssets / `carBody|tint` / `carGlb|tint`）。GPU 未確認: GLB 車両の着色（luma 帯の
   写真部位）、テントキャノピーの非等方 fit、ホスピタリティの PBR パネル。
 
-#### ピットレーン機材・プラットペルチ v2
+#### ピットレーン機材とプラットペルチ
 
-（I3-c）
+`app/three/ops-pit.ts`（I3-c）が ops-spec **C 区画** `pitEquipmentPlacements()`（255 行）を描きます。行の座標は `fromStop(dLat)` =
+`PIT_ENVELOPE.stop + dLat`（フォールバック停止 −17.1 なら補助レーン外 −19.5 に畳む同じ関数、未使用）と `PIT_EQUIPMENT` 表から。
+
+- **包絡の 2 つの事実が配置を決める**: (1) §16 O1 はボックス帯でも解析キープアウト `[c − 6.5, …]` = [−21.1, −9.1] を保つので、静的な物は
+  `KEEP_OUT_EDGE` −21.1 より左に立てない — 計画の「走行レーン縁 −19.5 のコーン」「−19.3 からのケーブルランプ」は不可能で、どちらも
+  キープアウト縁から始める。(2) 隣ブロックへ到着する車は s = boxS を stop + 1.6 付近（車体 stop + 0.65…2.55）で通過し、退出車は隣の
+  作業エリアを斜めに横切るので、エプロン上の物のレーン側は **stop + 1.2 以下**（前ジャッキは停止線上、コーンはコア前 stop + 0.8）、
+  stop + 1.2…2.4 の帯は空。**注意**: sim は静的レイヤーと衝突判定しない。A 区画のクルー行（stop + 1.9 のガンナー）は I3-d の判断。
+- **チームブロック毎**（11、空きベイ 12 は消火器のみ）: ガントリー = 0.25² 支柱 2（`(boxS ± 2.9, stop − 2.4)` 4.2 m、OPS_LAYOUT.gantry の
+  2.9 — 計画の 3.6 は梁端がレンズ経路 boxS − 3 に入る）+ 梁行 1（mount `'roof'`、y 3.85、boxS ± 2.9 × stop − 2.4…**+ 2.3**
+  = キープアウト縁 −21.2 まで。s 方向の梁は支柱天端間 5.8、ホイールライン ±1.7 の腕 2 本が車の上を渡り、前腕の下に信号灯箱
+  0.5 × 0.4 × 0.3（下段 2 灯 = `EMISSIVE.pitExitLight` 緑・上段 2 灯は消灯の暗赤）、腕からホース（φ0.024 の管 — LineSegments は
+  +1 program で IM に入らない）で 4 丁のホイールガン（`impact_wrench` Object_2 / 箱 0.35、底 1.15 m）を車輪の上に吊る = 停止車矩形
+  内にある唯一の物）；タイヤスタック 3（`(boxS − 6 / −7.5 / −9, stop − 3.9)`: 計画の −3.2 はクルー表のタイヤ係と同点なので 0.7 m 奥、
+  白ブランケット φ0.72 × 1.0 を instanceColor チーム色 + 上に `tyreMaps` の裸タイヤ、手続きのみ）；ジャッキ 2（`trolley_jack` / 箱、
+  前 (boxS + 4.6, stop)・後 (boxS − 4.6, stop − 1.8)）；燃料ドラム + ホース台車 (boxS + 7, **−30.5**) interior（OPS_LAYOUT.fuel の −33 は
+  pit-building のガレージ内タイヤ山と同点）；モニター台 1.9 m (boxS **+ 6**, stop − 3.9)（計画の (−7, −3.5) は第 2 タイヤスタックの
+  上、−s 側は後ジャッキ係の位置。画面 2 枚 = `pc_monitors` / 箱 0.55 × 0.35 の `opsMonitor` 発光面）。
+- **コア毎**（6）: 緑コーン 5（コアの −s 面 + 0.4 から 0.9 m ピッチ、中心線は空ける、レーン側 stop + 0.8 — `cone_pack` Object_3 / 円錐）、
+  ケーブルランプ 1 × 0.3 × 0.05 黄黒を中心線上に −21.2 → −28.2 の 7 枚（IM `ops-cables`、エプロン +10 mm ≥ LAYER_MIN_STEP）。
+  消火器 48（各ピットの +s ピア前、−27.85、`korean_fire_extinguisher_01` / 赤の車輪付き筒 φ0.32 × 1.0）。
+- **プラットペルチ v2**（mount `'wall'`、`perch-<b>`）: アルミ φ0.04 管の枠 5.5 × 1.3 × 2.6 を歩廊 +0.5 の中心 −10.4 に、床 +1.0、
+  壁側にデスク +1.75 とモニター 4（座席側 −lateral 向き）、スツール 3（座面 +1.45 = `perchSeats` の y 1.4、I3-d が座らせる）、
+  後隅に傘 2（φ1.4、天 +3.2）、天端にチーム色キャノピー（instanceColor）。**固定プラットホーム 31–69 上のペルチ**（ブロック 2 と、
+  端 31 に跨るブロック 3 → 31.5–37.0 に移動）はデッキ +1.3 の上に幅 1.0（パラペット −11.05…−10.85 と壁の間、中心 −10.35）。
+  **ブロック 4（s 7.5）はスターター台 + 階段（3.7…9.5）と重なるので s 9.5–15.0** に置く（`perchCentreS(block)`、
+  `perchOnPlatform(block)` を C 区画から export。A 区画の `perchSeats` は boxS のままなので I3-d はこれを読む）。
+  ピットボード（`pit_board` / 0.8 × 0.5 板 + 柄、全高 1.2 で歩廊に立て掛け）を各ペルチの +s 側 3.2 m に。固定プラットホームに TV カメラ 2
+  （s 40 / 60、三脚 1.4 + `security_camera_01` / 箱）とモニター台 1 (45.5)。v1 の `perchCanopies` / `perchBacks`（pit-lane.ts）は削除。
+- LOD / コスト: 4 セット `registerPropSet(ctx, 'ops', 'ops-pitEquipment' | 'ops-perches' | 'ops-cones' | 'ops-cables', …)`、段
+  [GLB `Quality.infield.propsNearM` 120 m, 手続き `propsFarM` 600 m, 空]（Node / 低は手続き 1 段 1 バケット）、受けのみ（建物級無し）。
+  GLB / 手続きの対は長辺を local x に揃え同じ四半回転で置く（pit-building と同じ規約）。静的コスト（Node、高）: 近段 489 体 / 39.2 k tris、
+  `farField/ops` 66,010 → 105,234 tris / 21 → 60 IM / 1,962 → 2,459 体；合計 3,938,843 tris / 975 メッシュ / 867 IM / 1,022 エントリ
+  （予算内、再ベース無し）、低 2,080,257 / 738 / 708 / 801。programs は増えません（plain / plain + instanceColor / plain + emissive /
+  {map, normalMap, roughnessMap} のタイヤ、いずれも既存）。
+- 検査: `facilities-check §16`（255 行すべて O1 / O3 / O5 / O12、梁行は 'roof' で地面規則を支柱に委ね O3 は受ける）、
+  `scripts/audit/ops-smoke.mjs checkPitEquipment`（4 セットの存在、`userData.ops` に C 区画の全行、近段 489 体の世界 bbox がすべて作業
+  エリア / 歩廊帯 [−12, −9.05] / ガレージ内のどれかに入る、底 1.0 m 未満の物が 12 の停止車矩形に無い、レンズ柱に 2.9 m 超無し・
+  レンズ→車の経路に何も無し、ガントリー天端が −19.1 より左に出ない、ケーブルランプ 42 枚が +8 mm 以上、`--glb` で stub registry の
+  7 プロトタイプが ≤ 2.9 m / ≤ 6 k tris で手続き遠段を持つ）、`pit-smoke checkLane`（レーン帯・レンズ柱、v1 ペルチ名を外した）。
+- GPU で確認すること: `pc_monitors` の画面の向き（`front: 'moreArea'` — ペルチでは座席側、モニター台では車側）、`impact_wrench` の
+  吊り姿勢、`trolley_jack` のレバーの向き、`pit_board` の白パネル、120 m の L0 ↔ 手続き切替、キャノピー / ブランケットの instanceColor、
+  信号灯の緑 2 灯（輝度 2.3、halo 無し）。
 
 ## GPU で確認すること
 
