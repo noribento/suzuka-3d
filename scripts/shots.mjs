@@ -7,14 +7,16 @@
  *   node scripts/shots.mjs --preset t1-b-c,pit   # a subset
  *   node scripts/shots.mjs --tier 1 --url http://localhost:3100 --out .perf/shots
  *
- * Viewpoints are given in track coordinates (s along the lap, lateral +left, height above the
- * road) for both the camera and its look-at point; the page converts them with
- * window.__suzuka.track.pointAt so they follow the road wherever the profile moves. The overview
- * camera (OrbitControls) is driven directly; the race is paused so cars do not blur the compare.
+ * Viewpoints (scripts/shot-presets.mjs PRESETS, shared with perf-probe --views) are given in
+ * track coordinates (s along the lap, lateral +left, height above the road) for both the camera
+ * and its look-at point; the page converts them with window.__suzuka.track.pointAt so they follow
+ * the road wherever the profile moves. The overview camera (OrbitControls) is driven directly;
+ * the race is paused so cars do not blur the compare.
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
+import { PRESETS } from './shot-presets.mjs'
 
 const args = process.argv.slice(2)
 const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : d }
@@ -31,34 +33,6 @@ const customs = args.flatMap((a, i) => (a === '--custom' && args[i + 1] ? [args[
 })
 const width = Number(flag('--width', 1280))
 const height = Number(flag('--height', 720))
-
-/** [name, camera (s, lateral, h), look-at (s, lateral, h), fov] */
-export const PRESETS = [
-  ['main-grandstand', [5700, -14, 5], [5720, 40, 14], 45],
-  ['main-grandstand-far', [5560, -60, 22], [5760, 40, 12], 40],
-  ['pit-building', [5760, 30, 9], [5700, -45, 8], 45],
-  ['pit-straight-onboard', [5880, -14, 1.4], [40, -12, 1], 65],
-  ['leader-tower-t1', [5900, 12, 6], [130, -10, 12], 35],
-  ['t1-b-c', [520, -25, 10], [640, 70, 12], 50],
-  ['c-stand', [720, -18, 8], [820, 60, 14], 45],
-  ['esses-d', [1150, -14, 8], [1280, 40, 12], 45],
-  ['nippo-e', [1480, -18, 8], [1560, 45, 18], 45],
-  ['degner', [2050, 30, 12], [2150, -20, 4], 45],
-  ['hairpin', [2600, 20, 12], [2690, -25, 6], 45],
-  ['spoon', [3620, 25, 14], [3740, -45, 8], 45],
-  ['130r', [4700, -30, 10], [4830, 40, 8], 45],
-  ['chicane', [5120, -18, 10], [5210, 40, 10], 45],
-  ['final-corner', [5330, -20, 10], [5430, 45, 16], 45],
-  // the surroundings (plan §0f): Motopia and the hotel from the straight, the forests behind
-  // Degner and Spoon, the west car parks and the crossover bridge, the hotel from the air
-  ['motopia-from-straight', [5600, -16, 6], [5470, 300, 25], 38],
-  ['forest-degner', [2050, 30, 12], [2200, 140, 35], 45],
-  ['forest-spoon', [3600, -20, 10], [3720, -220, 40], 45],
-  ['carparks-heli', [5250, -200, 110], [5450, -380, 0], 45],
-  ['west-bridge', [4470, -16, 5], [4570, 0, 9], 40],
-  ['hotel-heli', [5500, 200, 120], [5480, 520, 10], 45],
-  ['overview', null, null, 45],
-]
 
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] })
 try {

@@ -314,7 +314,8 @@ export const OPS_FIGURES: Record<FigurePose, { id: string; row: number; helmetRo
 }
 export const FIGURE_POSES = Object.keys(OPS_FIGURES) as FigurePose[]
 
-export type FigureRole = 'marshal' | 'official' | 'crew' | 'photographer' | 'staff' | 'guest'
+export type { FigureRole } from '~/data/ops-spec'
+import type { FigureRole } from '~/data/ops-spec'
 
 /** One figure of the ops layer, in world space (`y` = what it stands on, `ground.standY`). */
 export interface FigurePlacement {

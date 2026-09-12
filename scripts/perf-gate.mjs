@@ -15,7 +15,10 @@
  *   loadMs:   WARN > budget (never FAIL)
  *   programs: max over the tier's mode walk (first sampled row skipped) must be ≤ budget
  *   errors:   every row's errors[] must be empty
- * Rows are keyed by tier + modeKey (1 overview … 5 tv); modeKey 6 (director) is report-only.
+ * Rows are keyed by tier + modeKey (1 overview … 5 tv); modeKey 6 (director) and the fixed
+ * viewpoints of perf-probe --views (modeKey 'view:<name>') are report-only — they never gate,
+ * and the views are left out of the programs walk (they come after it; their own max is a
+ * report row).
  * Exit code 1 only with --strict and at least one FAIL.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -54,7 +57,9 @@ const TIER_OF = { 0: 'low', 1: 'high' }
 const { band, warnAt } = budgets.policy
 
 const tierOf = (r) => r.tier ?? TIER_OF[r.tierParam] ?? String(r.tierParam)
-const modeOf = (r) => MODE_OF[r.modeKey] ?? r.mode ?? String(r.modeKey)
+/** a fixed viewpoint row from perf-probe --views: reported, never gated */
+const isView = (r) => typeof r.modeKey === 'string' && r.modeKey.startsWith('view:')
+const modeOf = (r) => (isView(r) ? r.modeKey : MODE_OF[r.modeKey] ?? r.mode ?? String(r.modeKey))
 const rowKey = (r) => `${tierOf(r)}/${r.modeKey}`
 const againstRows = new Map((against?.results ?? []).map((r) => [rowKey(r), r]))
 
@@ -80,7 +85,7 @@ const gateMean = (measured, budget, b) => (measured > budget * (1 + b) ? 'FAIL' 
 for (const r of run.results) {
   const tier = tierOf(r), mode = modeOf(r)
   const tb = budgets.tiers[tier]
-  const mb = tb?.modes?.[mode]
+  const mb = isView(r) ? undefined : tb?.modes?.[mode]
   const reportOnly = !mb
   const prev = againstRows.get(rowKey(r))
   if (!r.calls) {
@@ -101,17 +106,19 @@ for (const r of run.results) {
 // per-tier figures: setupMs / loadMs are the same on every row of a tier; programs is the max over
 // the mode walk with the first sampled row skipped (compiles are still landing during it)
 const byTier = new Map()
+const viewsByTier = new Map()
 for (const r of run.results) {
   if (!r.calls) continue
   const tier = tierOf(r)
-  if (!byTier.has(tier)) byTier.set(tier, [])
-  byTier.get(tier).push(r)
+  const bucket = isView(r) ? viewsByTier : byTier
+  if (!bucket.has(tier)) bucket.set(tier, [])
+  bucket.get(tier).push(r)
 }
 for (const [tier, list] of byTier) {
   const tb = budgets.tiers[tier]
   if (!tb) continue
   const first = list[0]
-  const prev = (against?.results ?? []).filter((r) => tierOf(r) === tier)
+  const prev = (against?.results ?? []).filter((r) => tierOf(r) === tier && !isView(r))
   if (tb.setupMs !== undefined) {
     const s = first.setupMs
     const status = typeof s !== 'number' ? 'FAIL' : s > tb.setupMs * (1 + band.setupMs) ? 'FAIL' : s > tb.setupMs ? 'warn' : 'ok'
@@ -124,6 +131,12 @@ for (const [tier, list] of byTier) {
     const prevWalk = prev.length > 1 ? prev.slice(1) : prev
     const prevPrograms = prevWalk.length ? Math.max(...prevWalk.map((r) => r.programs ?? 0)) : undefined
     push(tier, '*', 'programs.max', fmtN(tb.programs), fmtN(programs), fmtDelta(programs, prevPrograms), programs > tb.programs ? 'FAIL' : 'ok')
+    const viewRows = viewsByTier.get(tier) ?? []
+    if (viewRows.length) {
+      const viewPrograms = Math.max(...viewRows.map((r) => r.programs ?? 0))
+      const prevViews = (against?.results ?? []).filter((r) => tierOf(r) === tier && isView(r))
+      push(tier, 'views', 'programs.max', '(report)', fmtN(viewPrograms), fmtDelta(viewPrograms, prevViews.length ? Math.max(...prevViews.map((r) => r.programs ?? 0)) : undefined), 'ok')
+    }
   }
 }
 

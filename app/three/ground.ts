@@ -40,8 +40,8 @@ export const LAYER_MIN_STEP = 0.008
 
 /**
  * The rungs of the decals, per face they lie on: `road` on the racing surface, `pit` on the pit
- * lane and the garage apron, `verge` on every field-frame face (grass, bands, areas, lanes — the
- * flat strip included). Each stack is a ladder (surface-check G0): ascending, and ≥ LAYER_MIN_STEP
+ * lane and the garage apron, `paddock` on the paddock plane, `verge` on every field-frame face
+ * (grass, bands, areas, lanes — the flat strip included). Each stack is a ladder (surface-check G0): ascending, and ≥ LAYER_MIN_STEP
  * apart unless one of the pair is soft (LAYER_SOFT).
  */
 export const LAYER = {
@@ -58,8 +58,16 @@ export const LAYER = {
     drs: 0.03,
   },
   pit: {
+    /** pit-lane.ts: the blue working-lane band and the white edge strips of the lane cross-section */
+    band: 0.012,
     /** lines.ts: the limit / divider / box lines; pit-complex.ts: the car-park bay lines */
     line: 0.022,
+  },
+  paddock: {
+    /** paddock.ts: the hatched no-parking / walkway fills on the paddock plane */
+    hatch: 0.010,
+    /** paddock.ts: bay lines, kerb paint and the helipad H over the hatch */
+    line: 0.020,
   },
   verge: {
     /** track-mesh.ts: the painted aprons and the green strips */
@@ -91,6 +99,12 @@ export const GROUND_OBJECTS = {
   laneKerb: { maxWidth: 1.0, sink: 0.02, crown: 0.05, why: 'a kerb has a profile the flat lane face cannot carry; its edges are sunk so no seam shows' },
   /** track-mesh.ts: the yellow anti-cut sausages behind an exit kerb */
   sausage: { maxWidth: 0.4, sink: 0.02, crown: 0.10, why: 'a bump on the kerb; its base is sunk into the kerb face' },
+  /** pit-lane.ts / ops.ts: the foam sponge blocks marking the working-lane edge and the box ends */
+  sponge: { maxWidth: 1.1, sink: 0.015, crown: 0.02, why: 'a soft block laid on the apron; its underside is sunk so no seam shows and its top stands 20 mm proud' },
+  /** ops.ts: the stacked spare tyres beside a garage or a marshal post (one column = one footprint) */
+  tyreStack: { maxWidth: 0.7, sink: 0.015, crown: 0.02, why: 'a stack rests on its bottom tyre; the tread is sunk into the face so the contact ring never lies on it' },
+  /** infield-ground.ts: the low concrete kerb around the pond island and the paddock traffic islands */
+  islandKerb: { maxWidth: 0.3, sink: 0.02, crown: 0.12, why: 'a cast kerb standing on the face with a 120 mm upstand; its base is sunk like a lane kerb' },
 } as const satisfies Record<string, GroundObjectRule>
 export type GroundObjectKind = keyof typeof GROUND_OBJECTS
 

@@ -22,10 +22,13 @@
  *   A10. Every stand's front is screened by a fence-carrying BARRIERS run (world space, ≥ 95 %).
  *   A11. SCREENS / SIGNS / LEADER_TOWER clear the road, the stand footprints and the pit lane;
  *        boards only on concrete runs; UNDERPASSES reference 'road' ways.
+ *   16. ops-check O1–O11 (I phase): the static ops layer (app/data/ops-spec.ts), the marshal
+ *       posts, TV cameras, infield tables against PIT_ENVELOPE, the chase lens, the grid, the
+ *       barrier lines, the building footprints and the circuit ring (see the section header).
  */
 import './ts-hooks.mjs'
 
-const { Track } = await import('../app/sim/track.ts')
+const { Track, signedDelta } = await import('../app/sim/track.ts')
 const { CIRCUIT, CENTERLINE_EN } = await import('../app/data/suzuka.ts')
 const { TEAM_ORDER } = await import('../app/data/drivers.ts')
 const spec = await import('../app/data/suzuka-facilities-spec.ts')
@@ -1182,6 +1185,391 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   for (const r of layerRows) console.log(`${r.layer.padEnd(14)} ${String(r.count).padStart(5)}  ${String(r.verts).padStart(8)}`)
   console.log(`extract ${sur.SUR_EXTRACT_DATE}, SUR_RECT [${sur.SUR_RECT.join(', ')}]`)
   console.log(`bytes: surroundings ${surBytes} + dem ${demBytes} = ${surBytes + demBytes} of ${CAP} (${((100 * (surBytes + demBytes)) / CAP).toFixed(1)} %)`)
+}
+
+// ---------------------------------------------------------------- 16. ops-check (O1–O11)
+/**
+ * §16 ops-check — the static operations layer (app/data/ops-spec.ts `opsPlacements()` /
+ * `figuresAt()`) and the trackside / infield tables against what the moving cars, the cameras
+ * and the ground already claim. Every rule is an error whether or not `--strict` is given; the
+ * one exception is noted at O8. Tables a later phase adds (TV_CAMERAS, the MARSHAL_POSTS v2
+ * fields, PADDOCK_BUILDINGS, INFIELD_FACILITIES, INFIELD_TREES, CUTS, FOOTBRIDGES) are skipped
+ * with a "(table absent, skipped)" line until they exist, so the checker runs today on empty
+ * inputs and grows with the phases.
+ *
+ *   O1  pit envelope: over the entry → exit span no footprint corner inside
+ *       [c − keepOut.back, max(c + keepOut.front, −hw)] (c = Track.pitLateralAt — entering cars
+ *       lag it toward the track by up to 5 m); along the box strip nothing in the lane band
+ *       PIT_ENVELOPE.lanes; apron / lane rows inside PIT_ENVELOPE.workArea and outside every
+ *       block's stopped-car rectangle (stop ± (carHalf + margin) × boxS ± (halfS + margin));
+ *       wall rows in the walkway band; interior rows inside the building. Rows that hang on a
+ *       structure the barrier checks cover (wall, pitWallTop, barrierTop, fencePost) skip the
+ *       band rules. Free-standing SIGNS are judged by A11's inPitLane, not here.
+ *   O2  everywhere else: |lateral| ≥ hw + 1.5 for every corner (the road is car space).
+ *   O3  chase lens: per block, nothing taller than chaseLens.maxH in the lens column
+ *       s ∈ [boxS − columnS[0], boxS − columnS[1]] × stop ± halfLat, and nothing at all (figures
+ *       included) between the lens and the car, s ∈ [boxS − back, boxS − 3] × stop ± halfLat.
+ *   O4  the grid s ∈ [5620, 5798] × |lateral| ≤ 4.2 (race.ts placeOnGrid: 14 + 8k, ± 2.6) is empty.
+ *   O5  every BARRIERS run's resolved line stays ≥ w/2 + 0.2 from the footprint (mounted rows and
+ *       boards / lights / cameras exempt).
+ *   O6  no row that is not interior / roof inside PIT_BUILDING (shutter line → back), the centre
+ *       house 184430907, the medical centre 184429429, PADDOCK_BUILDINGS, INFIELD_FACILITIES.
+ *   O7  TV_CAMERAS: lens rows 1:1 with TV_CAMERA_SPOTS; the tower footprint on the spectator
+ *       side of the barrier line and 0.6 m outside it, |lateral| ≥ hw + 1.5, outside stands and
+ *       paved aprons; platform / rails clear of the lens point (r 0.5, or below y_lens − 0.5).
+ *   O8  MARSHAL_POSTS: |lateral| ≥ hw + 2 (existing), O1 / O2 / O5 on the hut footprint (O1 / O5
+ *       warnings on the v1 rows until I4-a); v2:
+ *       unique `number`, monotonic in s, `type 'building'` carries osmWay or size, the cabin /
+ *       stair / panel / cabinet / figure-slot rectangles under O1 / O2 / O5.
+ *   O9  every figure of figuresAt() passes O1–O4 and stands inside the circuit ring.
+ *   O10 INFIELD_TREES: |lateral| ≥ hw + 6, outside paved aprons and stand footprints, inside the ring.
+ *   O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES: osmWay in OSM_FEATURES, outlines pairwise
+ *       disjoint, the anchor projects inside its s window (fold rows placed from EN are exempt).
+ */
+{
+  const ops = await import('../app/data/ops-spec.ts')
+  const ring = await import('./audit/ring.mjs')
+  await ring.circuitRing()
+  const E = spec.PIT_ENVELOPE
+  const notes = []
+  const skip = (what) => notes.push(`${what} (table absent, skipped)`)
+  const placements = ops.opsPlacements()
+  const figures = ops.figuresAt()
+  /** the footprint's four corners in (s, lateral): size [long, across], yaw about up (0 = long side along +s) */
+  const cornersOf = (p) => {
+    const a = (p.size?.[0] ?? 0) / 2, b = (p.size?.[1] ?? 0) / 2
+    const yaw = ((p.yawDeg ?? 0) * Math.PI) / 180
+    const c = Math.cos(yaw), sn = Math.sin(yaw)
+    return [[a, b], [a, -b], [-a, -b], [-a, b]].map(([u, v]) => [wrap(p.s + u * c - v * sn), p.lateral + u * sn + v * c])
+  }
+  /** the footprint's bounding box as forward distances from `s0` (so a wrapping zone compares in one frame) */
+  const bboxFrom = (corners, s0) => {
+    let d0 = Infinity, d1 = -Infinity, l0 = Infinity, l1 = -Infinity
+    for (const [s, l] of corners) {
+      const d = signedDelta(s0, s, L)
+      if (d < d0) d0 = d
+      if (d > d1) d1 = d
+      if (l < l0) l0 = l
+      if (l > l1) l1 = l
+    }
+    return { d0, d1, l0, l1 }
+  }
+  /** does the footprint overlap the zone s ∈ [zs0, zs1] (forward), lateral ∈ [zl0, zl1]? */
+  const overlapsZone = (corners, zs0, zs1, zl0, zl1) => {
+    const b = bboxFrom(corners, zs0)
+    const len = arcLen(zs0, zs1)
+    return b.d1 >= 0 && b.d0 <= len && b.l1 >= zl0 && b.l0 <= zl1
+  }
+  const pointInZone = (s, lat, zs0, zs1, zl0, zl1) => inArc(s, [zs0, zs1]) && lat >= zl0 && lat <= zl1
+  const within = (v, [a, b]) => v >= Math.min(a, b) && v <= Math.max(a, b)
+  const keepOutAt = (s) => {
+    const c = track.pitLateralAt(s)
+    if (c === null) return null
+    return [c - E.keepOut.back, Math.max(c + E.keepOut.front, -track.halfWidthAt(s))]
+  }
+  // the stopped car of every block, from PIT_ENVELOPE.stop (no literal stop lateral anywhere)
+  const stop = E.stop
+  const carRects = []
+  for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
+    const c = spec.garageS(g)
+    carRects.push({ g: g + 1, s0: wrap(c - E.carBox.halfS - E.carBox.margin), s1: wrap(c + E.carBox.halfS + E.carBox.margin), l0: stop - E.carHalf - E.carBox.margin, l1: stop + E.carHalf + E.carBox.margin })
+  }
+  const lensColumns = []
+  for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
+    const c = spec.garageS(g)
+    lensColumns.push({
+      g: g + 1,
+      column: { s0: wrap(c - E.chaseLens.columnS[0]), s1: wrap(c - E.chaseLens.columnS[1]), l0: stop - E.chaseLens.halfLat, l1: stop + E.chaseLens.halfLat },
+      path: { s0: wrap(c - E.chaseLens.back), s1: wrap(c - 3), l0: stop - E.chaseLens.halfLat, l1: stop + E.chaseLens.halfLat },
+    })
+  }
+  /** the grid: race.ts placeOnGrid slots at s = −(14 + 8k), lateral ± 2.6, a 2.9 m half-length car */
+  const GRID = { s0: 5620, s1: 5798, halfLat: 4.2 }
+  /** the pit wall's pit-side walkway: wall face −9.05 to the kerb at the fast lane, over the wall's run */
+  const WALL_BAND = { lat: [-12.0, -9.05], s: [5556, 95] }
+  /** inside the building: 0.7 m behind the shutter line to 5.1 m short of the paddock face (the rear corridor) */
+  const INTERIOR = [spec.PIT_BUILDING.back + 5.1, E.workArea[0] - 0.7]
+  const STRUCT_MOUNTS = new Set(['wall', 'pitWallTop', 'barrierTop', 'fencePost'])
+  const O5_EXEMPT_MOUNTS = new Set(['barrierTop', 'pitWallTop', 'pitWallBoard', 'wall', 'fencePost'])
+  const O5_EXEMPT_KINDS = new Set(['board', 'light', 'camera'])
+
+  const worldOf = (s, lat) => { track.pointAt(s, lat, v3, 0); return [v3.x, v3.z] }
+  const worldRingOf = (id) => {
+    const f = osm.osmFeature(id)
+    return f?.closed ? f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale })) : null
+  }
+  const inWorldRing = (x, z, r) => {
+    let inside = false
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const a = r[i], b = r[j]
+      if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+    }
+    return inside
+  }
+
+  // --- O1 / O2 on a footprint ------------------------------------------------------------------
+  /** O1 + O2 for one footprint; returns the messages (empty = ok) */
+  const envelopeFaults = (id, p, corners) => {
+    const out = []
+    const mount = p.mount ?? 'free'
+    if (STRUCT_MOUNTS.has(mount)) {
+      if (mount === 'wall') {
+        for (const [s, l] of corners) if (!within(l, WALL_BAND.lat) || !inArc(s, WALL_BAND.s)) { out.push(`${id}: wall-mounted row leaves the walkway band lateral ${WALL_BAND.lat.join('…')} / s ${WALL_BAND.s.join('→')} (corner s ${fmt(s, 0)}, lateral ${fmt(l)})`); break }
+      }
+      return out
+    }
+    for (const [s, l] of corners) {
+      const hw = track.halfWidthAt(s)
+      // O2: the road and its 1.5 m margin are car space everywhere
+      if (Math.abs(l) < hw + 1.5) { out.push(`${id}: corner at s ${fmt(s, 0)} lateral ${fmt(l)} is inside hw + 1.5 (${fmt(hw + 1.5)}) — O2`); break }
+      // O1: the pit path incl. the entry lag
+      const ko = keepOutAt(s)
+      if (ko && l >= ko[0] && l <= ko[1]) { out.push(`${id}: corner at s ${fmt(s, 0)} lateral ${fmt(l)} is inside the pit keep-out [${fmt(ko[0])}, ${fmt(ko[1])}] — O1`); break }
+      if (inArc(s, E.boxStrip) && within(l, E.lanes)) { out.push(`${id}: corner at s ${fmt(s, 0)} lateral ${fmt(l)} is in the pit lane band [${E.lanes.join(', ')}] along the box strip — O1`); break }
+    }
+    if (mount === 'apron' || mount === 'lane') {
+      for (const [s, l] of corners) if (!within(l, E.workArea)) { out.push(`${id}: ${mount} row leaves the working area [${E.workArea.join(', ')}] (corner s ${fmt(s, 0)}, lateral ${fmt(l)}) — O1`); break }
+      for (const r of carRects) if (overlapsZone(corners, r.s0, r.s1, r.l0, r.l1)) { out.push(`${id}: ${mount} row overlaps the stopped car of block ${r.g} (s ${fmt(r.s0, 0)}→${fmt(r.s1, 0)}, lateral ${fmt(r.l0)}…${fmt(r.l1)}) — O1`); break }
+    }
+    if (mount === 'interior') {
+      for (const [s, l] of corners) if (!within(l, INTERIOR)) { out.push(`${id}: interior row leaves the building interior lateral [${fmt(INTERIOR[0])}, ${fmt(INTERIOR[1])}] (corner s ${fmt(s, 0)}, lateral ${fmt(l)}) — O1`); break }
+    }
+    return out
+  }
+  /** O1 + O2 for a standing point */
+  const pointFaults = (id, s, l) => {
+    const out = []
+    const hw = track.halfWidthAt(s)
+    if (Math.abs(l) < hw + 1.5) out.push(`${id}: at s ${fmt(s, 0)} lateral ${fmt(l)} is inside hw + 1.5 (${fmt(hw + 1.5)}) — O2`)
+    const ko = keepOutAt(s)
+    if (ko && l >= ko[0] && l <= ko[1]) out.push(`${id}: at s ${fmt(s, 0)} lateral ${fmt(l)} is inside the pit keep-out [${fmt(ko[0])}, ${fmt(ko[1])}] — O1`)
+    if (inArc(s, E.boxStrip) && within(l, E.lanes)) out.push(`${id}: at s ${fmt(s, 0)} lateral ${fmt(l)} is in the pit lane band along the box strip — O1`)
+    for (const r of carRects) if (pointInZone(s, l, r.s0, r.s1, r.l0, r.l1)) out.push(`${id}: stands in the stopped car of block ${r.g} — O1`)
+    return out
+  }
+  // --- O3 / O4 -------------------------------------------------------------------------------------
+  const lensFaults = (id, p, corners) => {
+    const out = []
+    const top = (p.y ?? 0) + (p.size?.[2] ?? 0)
+    for (const { g, column, path } of lensColumns) {
+      if (top > E.chaseLens.maxH && overlapsZone(corners, column.s0, column.s1, column.l0, column.l1)) out.push(`${id}: ${fmt(top)} m tall in the chase-lens column of block ${g} (s ${fmt(column.s0, 0)}→${fmt(column.s1, 0)}, lateral ${fmt(column.l0)}…${fmt(column.l1)}, max ${E.chaseLens.maxH} m) — O3`)
+      if (overlapsZone(corners, path.s0, path.s1, path.l0, path.l1)) out.push(`${id}: between the chase lens and the car of block ${g} (s ${fmt(path.s0, 0)}→${fmt(path.s1, 0)}, lateral ${fmt(path.l0)}…${fmt(path.l1)}) — O3`)
+    }
+    return out
+  }
+  const gridFaults = (id, corners) => (overlapsZone(corners, GRID.s0, GRID.s1, -GRID.halfLat, GRID.halfLat) ? [`${id}: on the grid (s ${GRID.s0}→${GRID.s1}, |lateral| ≤ ${GRID.halfLat}) — O4`] : [])
+  // --- O5 ------------------------------------------------------------------------------------------
+  const barrierLines = bar.BARRIERS.map((run) => ({ run, line: trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6) })).filter((r) => r.line.samples.length >= 2)
+  const barrierFaults = (id, p, corners) => {
+    const out = []
+    if (O5_EXEMPT_MOUNTS.has(p.mount) || O5_EXEMPT_KINDS.has(p.kind)) return out
+    const half = (p.size?.[1] ?? 0) / 2
+    for (const { run, line } of barrierLines) {
+      const len = arcLen(run.sRange[0], run.sRange[1])
+      const d = arcLen(run.sRange[0], p.s)
+      if (d > len + 5 && d < L - 5) continue
+      const centre = Math.abs(p.lateral - line.lat(p.s))
+      let corner = Infinity
+      for (const [s, l] of corners) corner = Math.min(corner, Math.abs(l - line.lat(s)))
+      if (centre < half + 0.2 || corner < 0.2) { out.push(`${id}: ${fmt(Math.min(centre - half, corner), 2)} m from the resolved line of barrier run ${run.id} at s ${fmt(p.s, 0)} (needs w/2 + 0.2) — O5`); break }
+    }
+    return out
+  }
+  // --- O6 ------------------------------------------------------------------------------------------
+  const buildingRings = []
+  for (const id of [184430907, 184429429]) {
+    const r = worldRingOf(id)
+    if (r) buildingRings.push({ name: `OSM ${id}`, ring: r })
+    else notes.push(`O6: OSM building ${id} not in OSM_FEATURES — its footprint is not checked`)
+  }
+  for (const [table, rows] of [['PADDOCK_BUILDINGS', spec.PADDOCK_BUILDINGS], ['INFIELD_FACILITIES', spec.INFIELD_FACILITIES]]) {
+    if (!rows) continue
+    for (const b of rows) {
+      const r = b.osmWay ? worldRingOf(b.osmWay) : null
+      if (r) buildingRings.push({ name: `${table} ${b.id ?? b.osmWay}`, ring: r })
+    }
+  }
+  const buildingFaults = (id, p) => {
+    if (p.mount === 'interior' || p.mount === 'roof') return []
+    const out = []
+    if (inArc(p.s, spec.PIT_BUILDING.sRange) && p.lateral >= spec.PIT_BUILDING.back && p.lateral <= E.workArea[0]) out.push(`${id}: centre (s ${fmt(p.s, 0)}, lateral ${fmt(p.lateral)}) is inside the pit building — O6`)
+    const [x, z] = worldOf(p.s, p.lateral)
+    for (const b of buildingRings) if (inWorldRing(x, z, b.ring)) out.push(`${id}: centre is inside the footprint of ${b.name} — O6`)
+    return out
+  }
+
+  // --- the placements --------------------------------------------------------------------------------
+  const seenIds = new Set()
+  let placementFaults = 0
+  for (const p of placements) {
+    const id = `ops ${p.id}`
+    if (seenIds.has(p.id)) fail(`${id}: duplicate id`)
+    seenIds.add(p.id)
+    if (!(p.size?.length === 3 && p.size.every((v) => Number.isFinite(v) && v > 0))) { fail(`${id}: size must be [long, across, height] > 0`); continue }
+    const corners = cornersOf(p)
+    const faults = [...envelopeFaults(id, p, corners), ...lensFaults(id, p, corners), ...gridFaults(id, corners), ...barrierFaults(id, p, corners), ...buildingFaults(id, p)]
+    for (const f of faults) fail(f)
+    if (faults.length) placementFaults++
+    const [x, z] = worldOf(p.s, p.lateral)
+    if (!ring.insideRing(x, z)) fail(`${id}: stands outside the circuit ring 775428456`)
+  }
+
+  // --- O7 TV_CAMERAS ---------------------------------------------------------------------------------
+  if (bar.TV_CAMERAS) {
+    const { TV_CAMERA_SPOTS } = await import('../app/data/suzuka.ts')
+    const lensRows = bar.TV_CAMERAS.filter((c) => c.lens !== false)
+    const spots = new Set(TV_CAMERA_SPOTS)
+    if (lensRows.length !== spots.size) fail(`TV_CAMERAS: ${lensRows.length} lens rows for ${spots.size} TV_CAMERA_SPOTS — O7`)
+    for (const c of lensRows) if (!spots.has(c.s)) fail(`TV_CAMERAS ${c.id ?? c.s}: s ${c.s} is not a TV_CAMERA_SPOTS entry — O7`)
+    for (const sp of spots) if (!lensRows.some((c) => c.s === sp)) fail(`TV_CAMERAS: TV_CAMERA_SPOTS ${sp} has no lens row — O7`)
+    for (const c of bar.TV_CAMERAS) {
+      const id = `TV_CAMERAS ${c.id ?? c.s}`
+      const hw = track.halfWidthAt(c.s)
+      if (Math.abs(c.lateral) < hw + 1.5) fail(`${id}: lateral ${fmt(c.lateral)} is inside hw + 1.5 — O7`)
+      const [x, z] = worldOf(c.s, c.lateral)
+      const inStand = standFootprintAt(x, z)
+      if (inStand) fail(`${id}: tower inside the footprint of stand ${inStand} — O7`)
+      const paved = pavedApronAt(x, z)
+      if (paved) fail(`${id}: tower on the paved apron "${paved}" — O7`)
+      const side = Math.sign(c.lateral)
+      const half = (c.footprint ?? c.size?.[0] ?? 2.4) / 2
+      for (const { run, line } of barrierLines) {
+        if (run.side !== side) continue
+        const len = arcLen(run.sRange[0], run.sRange[1])
+        const d = arcLen(run.sRange[0], c.s)
+        if (d > len) continue
+        const lineLat = line.lat(c.s)
+        if (Math.sign(c.lateral - lineLat) !== side) fail(`${id}: tower on the track side of barrier run ${run.id} (line ${fmt(lineLat)}, tower ${fmt(c.lateral)}) — O7`)
+        else if (Math.abs(c.lateral - lineLat) < half + 0.6) fail(`${id}: tower ${fmt(Math.abs(c.lateral - lineLat) - half, 2)} m from barrier run ${run.id} (needs 0.6) — O7`)
+      }
+    }
+    let tvLens = null
+    try { tvLens = await import('../app/three/tv-lens.ts') } catch { /* I4-b adds tv-lens.ts */ }
+    if (tvLens?.tvLensAt && typeof tvLens.tvLensAt === 'function') {
+      for (const c of lensRows) {
+        const lens = tvLens.tvLensAt(track, c)
+        for (const part of c.parts ?? []) {
+          const dx = part.x - lens.x, dz = part.z - lens.z
+          if (Math.hypot(dx, dz) < 0.5 && part.top > lens.y - 0.5) fail(`TV_CAMERAS ${c.id ?? c.s}: ${part.name} within 0.5 m of the lens point and above y_lens − 0.5 — O7`)
+        }
+      }
+    } else notes.push('O7: tvLensAt (app/three/tv-lens.ts) absent — the platform / rail vs lens rule is skipped')
+  } else skip('O7 TV_CAMERAS')
+
+  // --- O8 MARSHAL_POSTS -------------------------------------------------------------------------------
+  {
+    const HUT = [2.4, 1.8, 1.3] // props.ts: the v1 hut (along s × across × high)
+    const v2 = bar.MARSHAL_POSTS.some((m) => 'number' in m || 'type' in m || 'size' in m)
+    const numbers = new Map()
+    let o1Warnings = 0
+    for (const m of bar.MARSHAL_POSTS) {
+      const id = `marshal post ${m.number ?? ''}@${m.s}`.replace(' @', ' s ')
+      const p = { s: m.s, lateral: m.lateral, yawDeg: m.yawDeg ?? 0, size: m.size ?? HUT, mount: 'free', kind: 'cabin' }
+      const corners = cornersOf(p)
+      // O1 and O5 on the v1 rows (no `size`) are WARNINGS for now: {5395, −11.5} sits in the
+      // pit-entry path (gap_Sim §2) and the huts at 650 / 4536 straddle their wall line — the v1
+      // rows are only aerial-read hut centres and I4-a re-keys every post (plan-i §I4-a:
+      // MARSHAL_POSTS v2 with cabin / stair / panel rectangles outside the keep-out and off the
+      // barrier line). O2 (the road) stays an error.
+      // TODO(I4-a): make O1 / O5 errors once the rows carry `size` (the v2 rows already are).
+      const v1 = !m.size
+      const soften = (f) => /— O[15]$/.test(f) && v1
+      const env = envelopeFaults(id, p, corners)
+      for (const f of [...env, ...gridFaults(id, corners), ...barrierFaults(id, p, corners)]) {
+        if (soften(f)) { fail(`${f} (warning until I4-a re-keys the post)`, true); o1Warnings++ }
+        else fail(f)
+      }
+      if (v2) {
+        if (m.number !== undefined) {
+          if (numbers.has(m.number)) fail(`${id}: duplicate post number ${m.number} — O8`)
+          numbers.set(m.number, m.s)
+        }
+        if (m.type === 'building' && !m.osmWay && !m.size) fail(`${id}: type 'building' needs osmWay or size — O8`)
+        for (const [name, rect] of Object.entries(m.rects ?? {})) {
+          const sub = { s: rect.s ?? m.s, lateral: rect.lateral ?? m.lateral, yawDeg: rect.yawDeg ?? p.yawDeg, size: rect.size, mount: 'free', kind: name === 'panel' ? 'board' : 'cabin' }
+          const sc = cornersOf(sub)
+          for (const f of [...envelopeFaults(`${id} ${name}`, sub, sc), ...barrierFaults(`${id} ${name}`, sub, sc)]) fail(f)
+        }
+        for (const slot of m.figureSlots ?? []) for (const f of pointFaults(`${id} figure slot`, slot.s ?? m.s, slot.lateral)) fail(f)
+      }
+    }
+    if (v2) {
+      // numbers ascend with s around the lap: sorted by s, the sequence descends at most once (the wrap)
+      const byS = [...numbers.entries()].sort((a, b) => a[1] - b[1])
+      let descents = 0
+      for (let i = 1; i < byS.length; i++) if (byS[i][0] < byS[i - 1][0]) descents++
+      if (descents > 1) fail(`MARSHAL_POSTS: post numbers are not monotonic in s (${descents} descents) — O8`)
+    } else skip('O8 MARSHAL_POSTS v2 fields (number / type / size / rects / figureSlots)')
+    if (o1Warnings) notes.push(`O8: ${o1Warnings} v1 marshal post hut(s) in the pit keep-out or on a barrier line — warnings until I4-a`)
+  }
+
+  // --- O9 figures --------------------------------------------------------------------------------------
+  let figureFaults = 0
+  figures.forEach((f, i) => {
+    const id = `figure ${i} (${f.role ?? '?'}${f.team ? ' ' + f.team : ''})`
+    const faults = pointFaults(id, f.s, f.lateral)
+    for (const { g, path } of lensColumns) if (pointInZone(f.s, f.lateral, path.s0, path.s1, path.l0, path.l1)) faults.push(`${id}: between the chase lens and the car of block ${g} — O3`)
+    if (pointInZone(f.s, f.lateral, GRID.s0, GRID.s1, -GRID.halfLat, GRID.halfLat)) faults.push(`${id}: on the grid — O4`)
+    const [x, z] = worldOf(f.s, f.lateral)
+    if (!ring.insideRing(x, z)) faults.push(`${id}: stands outside the circuit ring — O9`)
+    for (const m of faults) fail(m)
+    if (faults.length) figureFaults++
+  })
+
+  // --- O10 INFIELD_TREES --------------------------------------------------------------------------------
+  if (spec.INFIELD_TREES) {
+    spec.INFIELD_TREES.forEach((t, i) => {
+      const id = `infield tree ${t.id ?? i}`
+      if (t.s === undefined || t.lateral === undefined) return
+      const hw = track.halfWidthAt(t.s)
+      if (Math.abs(t.lateral) < hw + 6) fail(`${id}: lateral ${fmt(t.lateral)} is inside hw + 6 — O10`)
+      const [x, z] = worldOf(t.s, t.lateral)
+      const paved = pavedApronAt(x, z)
+      if (paved) fail(`${id}: on the paved apron "${paved}" — O10`)
+      const inStand = standFootprintAt(x, z)
+      if (inStand) fail(`${id}: inside the footprint of stand ${inStand} — O10`)
+      if (!ring.insideRing(x, z)) fail(`${id}: outside the circuit ring — O10`)
+    })
+  } else skip('O10 INFIELD_TREES')
+
+  // --- O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES ------------------------------------------------------
+  {
+    /** fold rows: fences placed from EN only, no windowed s test */
+    const FOLD_WAYS = new Set([474537488, 474537494, 474099241])
+    const segHit = (a, b, c, d) => {
+      const o = (p, q, r) => Math.sign((q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x))
+      return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b)
+    }
+    const ringsCross = (r1, r2) => {
+      for (let i = 0; i < r1.length; i++) for (let j = 0; j < r2.length; j++) if (segHit(r1[i], r1[(i + 1) % r1.length], r2[j], r2[(j + 1) % r2.length])) return true
+      return false
+    }
+    for (const [table, rows] of [['PADDOCK_BUILDINGS', spec.PADDOCK_BUILDINGS], ['INFIELD_FACILITIES', spec.INFIELD_FACILITIES]]) {
+      if (!rows) { skip(`O11 ${table}`); continue }
+      const outlines = []
+      for (const b of rows) {
+        const id = `${table} ${b.id ?? b.osmWay}`
+        if (b.osmWay) {
+          const f = osm.osmFeature(b.osmWay)
+          if (!f) { fail(`${id}: OSM way ${b.osmWay} missing from OSM_FEATURES (build-facilities.mjs --add-ways-from) — O11`); continue }
+          const r = worldRingOf(b.osmWay)
+          if (r) outlines.push({ id, ring: r })
+          if (b.sRange && !FOLD_WAYS.has(b.osmWay)) {
+            const [cx, cz] = [f.centroid[0] * track.enScale, -f.centroid[1] * track.enScale]
+            const near = track.nearestOnRange(cx, cz, b.sRange[0], b.sRange[1])
+            if (!inArc(near.s, b.sRange)) fail(`${id}: centroid projects to s ${fmt(near.s, 0)} outside its window ${b.sRange.join('→')} — O11`)
+          }
+        }
+      }
+      for (let i = 0; i < outlines.length; i++) for (let j = i + 1; j < outlines.length; j++) if (ringsCross(outlines[i].ring, outlines[j].ring)) fail(`${outlines[i].id} and ${outlines[j].id}: outlines cross — O11`)
+    }
+  }
+  for (const table of ['CUTS', 'FOOTBRIDGES']) if (!spec[table]) skip(`O6 / O11 ${table}`)
+
+  console.log('\nops-check (§16)')
+  console.log(`  ${placements.length} placement(s) (${placementFaults} with faults), ${figures.length} figure(s) (${figureFaults} with faults), ${bar.MARSHAL_POSTS.length} marshal posts, ${barrierLines.length} barrier lines, ${buildingRings.length} building footprints`)
+  console.log(`  PIT_ENVELOPE: stop ${stop}, box strip ${fmt(E.boxStrip[0], 1)}→${fmt(E.boxStrip[1], 1)}, lanes [${E.lanes.join(', ')}], work area [${E.workArea.join(', ')}], chase lens column ${E.chaseLens.columnS.join('/')} m back × ±${E.chaseLens.halfLat} m, max ${E.chaseLens.maxH} m`)
+  for (const n of notes) console.log(`  - ${n}`)
 }
 
 // ---------------------------------------------------------------- summary

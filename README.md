@@ -120,6 +120,7 @@ pnpm dev --port 3100                          # 別シェルで（:3000 は通�
 pnpm perf                                     # perf-probe（両ティア、モード 1〜5）→ perf-gate --latest --strict
 LABEL=after-C2 pnpm perf                      # .perf/after-C2-<timestamp>.json に保存
 node scripts/perf-probe.mjs --modes 1,2,3,4,5,6 --tiers 0   # 6 = ディレクター（ゲートは報告のみ）
+node scripts/perf-probe.mjs --views paddock-heli,garage-front --tiers 1   # モード歩行の後に固定視点（shot-presets.mjs）を `view:<name>` 行で採取（既定 3 視点、`--views none` で無し。ゲートは報告のみ）
 pnpm perf:gate                                # 最新の .perf/*.json を scripts/perf-budgets.json と照合
 node scripts/perf-gate.mjs --file .perf/after-C2-….json --against .perf/after-phase6-….json   # Δ 列付き
 ```
@@ -192,6 +193,7 @@ app/
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対；`CROWD_HELMET_ROWS` = 行 28–31 の白ヘルメット姿勢、運営レイヤー用）
     credits.ts                 # アプリ内クレジット（生成物）
     tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
+    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（`opsPlacements()` / `figuresAt()` / `OPS_TEXTS`、three 非依存。facilities-check §16 と smoke が読む。I3 が埋めるまで空）
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
     ops-spec.ts                # 運営レイヤーのデータ（行の形 OpsPlacement / OpsMount と `opsPlacements()`。three 非依存、ops-check と ops.ts が同じ行を読む。表は I3 で）
   sim/
@@ -268,20 +270,23 @@ app/
     textures.ts                # ノイズ生成の PBR テクスチャ（カラー／ノーマル／ラフネス）— 低負荷ティアと、アセットが無いときのフォールバック
 scripts/
   sim-harness.mjs              # Node 用シミュレーションハーネス（pnpm sim、--brakes でディスク温度表）
-  perf-probe.mjs               # 描画コストの計測（draw call、三角形数、区間時間をカメラ／ティアごとに採取、遠景の完成を待ってから）
-  perf-gate.mjs                # .perf の計測を perf-budgets.json の天井と照合（pnpm perf:gate、--strict で FAIL なら exit 1）
+  perf-probe.mjs               # 描画コストの計測（draw call、三角形数、区間時間をカメラ／ティアごとに採取、遠景の完成を待ってから。各行に race の時計と先頭車／選択車の s、`--views` で shot-presets の固定視点も `view:<name>` 行として採取）
+  perf-gate.mjs                # .perf の計測を perf-budgets.json の天井と照合（pnpm perf:gate、--strict で FAIL なら exit 1。`view:` 行とディレクター行は報告のみ）
   perf-budgets.json            # ティア／モードごとの天井（平均・最大・setupMs・programs）と scene-cost 用の static/data 予算
   textures-lint.mjs            # テクスチャに描く文字列の商標リント（trademark-denylist.json / trademark-allow.json）
   sun-model-check.mjs          # 太陽モデルの不変条件（空の膝 < bloom 閾値 < 発光体 < プローブ < ディスク、露出の有界性、Sky.js のアンカー文字列）を Node で検証
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
-  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生、表が参照する OSM id の実在（§6、--strict で error）
+  shot-presets.mjs             # 固定視点の表 PRESETS（shots.mjs と perf-probe --views が共用。柵の内側の視点を含み、chase-in-box は PIT_ENVELOPE.stop から生成）
+  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生、表が参照する OSM id の実在（§6、--strict で error）、§16 ops-check O1–O11（運営レイヤー・マーシャルポスト・TV・インフィールドの表をピット包絡 PIT_ENVELOPE・chase レンズ・グリッド・バリア線・建物足跡・サーキットのリングと照合。無い表は「absent, skipped」）
   assets/                      # fetch / import-misc / bake-crowd-atlas / bake-car-atlas / sources（アセットパイプライン）、inspect-model（ドロップの中身）、retouch-glb（GLB 内画像の矩形修正・部品の削除）
   facilities/                  # build-facilities（Overpass → TS、--add-ways-from でキャッシュから役割付きの way を網なしで splice）、build-power、build-surroundings（柵の外の OSM → suzuka-surroundings.ts）、osm-common（Overpass 取得・EN 投影・DP・int16 デルタの共通部）、
                                #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
                                #   surface-check（面のガード）、scene-cost（三角形／メッシュ／遠景の静的コスト）、app-runtime（アプリのビルダーを Node で走らせる土台）、
-                               #   stub-registry（manifest の GLB をテクスチャ無しで読むスタブ登録簿と buildSceneWith — *-smoke の --glb が使う）
+                               #   stub-registry（manifest の GLB をテクスチャ無しで読むスタブ登録簿と buildSceneWith — *-smoke の --glb が使う）、
+                               #   ring（サーキットのリング 775428456 の復号と内外判定、Node 用）、smoke-common（I フェーズの smoke 共通部: 遠景の失敗 0・ops-*/infield-* の頂点有限とリング内・buildMs）、
+                               #   pit-smoke / paddock-smoke / ops-smoke / trackside-smoke / infield-smoke（各フェーズの smoke 雛形、`--tier high|low|both`、check には入れない）
 ```
 
 ## Rendering notes
@@ -387,8 +392,8 @@ scripts/
     （8 行、双線形セルの弦 1.2 mm）と、端の外 0.5 m で路肩へ収束する平らなくさび（縁石の所有）です。
   - **R7 ワールドリングは入れ子か素**。リングと範囲の交差ごとに駅を入れ、駅の法線上でリングは区間の列（`MAX_RING_INTERVALS`）。
     区間の合流・分岐はトラックを閉じて新しく始めます。部分的に重なるリングはビルドエラー（行を割る）。
-  - **R8 地面の上に立つ物**（レーン縁石・ソーセージ）は `GROUND_OBJECTS` の行（幅の上限、縁の沈み 20 mm、天端 50／100 mm）で
-    `settle()` 後に `standY` に立ちます。G2 は幅を面積／延長で、G3 は沈みと天端を全頂点で測ります。
+  - **R8 地面の上に立つ物**（レーン縁石・ソーセージ、I フェーズのスポンジ・タイヤ積み・島の縁石）は `GROUND_OBJECTS` の行（幅の上限、縁の沈み
+    15〜20 mm、天端 20〜120 mm）で `settle()` 後に `standY` に立ちます。G2 は幅を面積／延長で、G3 は沈みと天端を全頂点で測ります。
   - **R9 デカール**は `Ground.decal` で**描画済みの面の三角形そのものをクアッドで切り出し**、`LAYER` の段（8〜30 mm）だけ持ち上げた
     ものです。面のどんな折れとも共面。`polygonOffset` には頼りません（対数深度では無効）。G3-decal：台 +6 mm 未満のサンプル 0。
   - **R10 解像度**。面の XZ 辺は地形グリッド（13.3 m、低ティア 17.7 m）の半分以下、場フレームは 4 m 以下（`refine`：
