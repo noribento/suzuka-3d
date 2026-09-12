@@ -198,9 +198,8 @@ app/
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対；`CROWD_HELMET_ROWS` = 行 28–31 の白ヘルメット姿勢、運営レイヤー用）
     credits.ts                 # アプリ内クレジット（生成物）
     tree-species.ts            # 樹種の表（役割 → パックのノード正規表現・LOD・高さ・色味・樹冠色・風、TREE_MIX の配植比率。手書き）
-    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（`opsPlacements()` / `figuresAt()` / `OPS_TEXTS`、three 非依存。facilities-check §16 と smoke が読む。I3 が埋めるまで空）
+    ops-spec.ts                # 柵の内側の運営レイヤーの純データ・純関数（three 非依存。ops.ts の 3 ビルダー、facilities-check §16、ops-smoke が同じ行を読む）。4 区画: A 型と配置 `OPS_LAYOUT`（全座標を PIT_ENVELOPE.stop / GARAGE_CENTRES / PADDOCK_* から導く、停止位置のリテラル無し）+ 共有ヘルパー `stoppedCarRect(block)` / `lensColumns()` / `inWorkArea` / `crewSlots(block)` / `perchSeats(block)` / `coreEdges()` / `OPS_WINDOWS` / `OPS_TEXTS`（I3-a）、B `vehiclePlacements()`（I3-b）、C `pitEquipmentPlacements()`（I3-c）、D `figuresAt()` / `flagPlacements()`（I3-d）。`opsPlacements()` = B + C + D の連結
     drivers.ts                 # 2026 年グリッド（11 チーム 22 名）、チームカラー
-    ops-spec.ts                # 運営レイヤーのデータ（行の形 OpsPlacement / OpsMount と `opsPlacements()`。three 非依存、ops-check と ops.ts が同じ行を読む。表は I3 で）
   sim/
     track.ts                   # スプライン（5807 m 正規化）、曲率、幅・カント・勾配、最小曲率レーシングライン、立体交差、ピットレーン
     race.ts                    # 車両モデル（ライン曲率のキャリブレーション、グリップサークル、勾配、燃料/レースモード、タイヤ、追い越し、ピット、計時、ギア）
@@ -252,7 +251,10 @@ app/
     infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
     pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、v1 の prat perch（I3-c が置き換える）、リーダータワー
     paddock.ts                 # パドック（I2-b/c、表 PADDOCK_BUILDINGS / PADDOCK_OFFICE / PADDOCK_FENCE / PADDOCK_LAMPS / PADDOCK_MASTS / PADDOCK_PARKING / PADDOCK_BAY）: チームオフィス段状モジュール（IM `teamOffices`）と A 棟 2 階、センターハウス（OSM 押出し + 楕円キャノピー + 丸柱 16 + 舗石デカール）、SMSC、給油所（島縁石 = islandKerb）、サービスハウス・タイヤガレージ、車両基地、トンネル頭 2、緑金網フェンス（`paddockFence` 垂直面のみ + 支柱 IM）と門 3、街灯（`infield-lamps`）、照明マスト 2、駐車場（I2-c: `paddockBays` が paddock 面上・包絡外・フットプリント外・平らな区画だけ残し、白線デカール `paddockBayLines-<id>`、黄ハッチ `paddockHatches`、車 `infield-paddock-cars` = carBody / carGlb + covered_car）。v1 から残すのはトランスポーター・テント・旗（I3 まで）と BUILDINGS の他行の押出し（`paddockBuildings`）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
-    ops.ts                     # 運営レイヤー（I3: トランスポーター、ホスピタリティ、ピット機材、人物、SC／メディカル／コース車両、クレーン。ops-spec の行を置き ctx.ops に積む。I0 は入口のみ）
+    ops.ts                     # 運営レイヤーの傘（I3-a）: ops-vehicles → ops-pit → ops-people を順に呼び、部分統計を `stats.ops`（figures / byRole / impostors / near3d / mode は people、vehicles は vehicles、equipment は pit + vehicles）に併合し、全配置を ctx.ops（= group.userData.ops）に積む
+    ops-vehicles.ts            # 運営レイヤー (I3-b): 白箱トラックのトランスポーター、航空コンテナ、ホスピタリティ、ガゼボ／マーキー、放送コンパウンド、SC／メディカル／コース車両・クレーン（ops-spec B `vehiclePlacements()`、registerPropSet 'ops-vehicles' 等。I3-a は入口のみ）
+    ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー、タイヤスタック、ジャッキ、燃料台車、モニター、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2（ops-spec C `pitEquipmentPlacements()`。I3-a は入口のみ）
+    ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ（ops-spec D `figuresAt()` → figures.ts buildOpsFigures 'ops-figures'）と旗 `flagPlacements()`（I3-a は入口のみ）
     marshal-posts.ts           # マーシャルポスト（I4: 架台上のキャビン、低ポスト、番号板、ライトパネル、人物スロット。I0 は入口のみ）
     tv-towers.ts               # TV カメラ塔（I4: 足場塔・格子塔・架台、レンズ点。I0 は入口のみ）
     infield-ground.ts          # インフィールドの施設・壁・柵・池の岸・西／南コースのピット・車・街灯（I5。地面そのものは GROUND_AREAS の行が描く。I0 は入口のみ）
@@ -285,7 +287,7 @@ scripts/
   ts-hooks.mjs                 # `~/` エイリアスと .ts 解決のためのモジュールフック
   shots.mjs                    # 固定視点スクリーンショット（実写との比較用）
   shot-presets.mjs             # 固定視点の表 PRESETS（shots.mjs と perf-probe --views が共用。柵の内側の視点を含み、chase-in-box は PIT_ENVELOPE.stop から生成）
-  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生、表が参照する OSM id の実在（§6、--strict で error）、§16 ops-check O1–O11（運営レイヤー・マーシャルポスト・TV・インフィールドの表をピット包絡 PIT_ENVELOPE・chase レンズ・グリッド・バリア線・建物足跡・サーキットのリングと照合。無い表は「absent, skipped」）
+  facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生、表が参照する OSM id の実在（§6、--strict で error）、§16 ops-check O1–O12（運営レイヤー・マーシャルポスト・TV・インフィールドの表をピット包絡 PIT_ENVELOPE・chase レンズ・グリッド・バリア線・建物足跡・サーキットのリング・s 窓 OPS_WINDOWS と照合。停止車矩形 12 と chase レンズ柱 12 は ops-spec の `stoppedCarRect` / `lensColumns` から取り、全ブロックの `crewSlots` / `perchSeats` も今から検査。自由立ちの SIGNS は O2/O3/O4/O6 とレーン帯（ピット包絡は A11 の inPitLane）。`--envelope <json>`（`pnpm sim -- --envelope` の 5 m ビン）で箱帯の外の解析的キープアウトを実測に置き換え。無い表は「absent, skipped」）
   assets/                      # fetch / import-misc / bake-crowd-atlas / bake-car-atlas / sources（アセットパイプライン）、inspect-model（ドロップの中身）、retouch-glb（GLB 内画像の矩形修正・部品の削除）
   facilities/                  # build-facilities（Overpass → TS、--add-ways-from でキャッシュから役割付きの way を網なしで splice）、build-power、build-surroundings（柵の外の OSM → suzuka-surroundings.ts）、osm-common（Overpass 取得・EN 投影・DP・int16 デルタの共通部）、
                                #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合）
@@ -740,6 +742,10 @@ sim の包絡: ボックス帯の走行レーン [−19.1, −11.5] にはレー
   実測（`pnpm sim -- --laps 8 --seeds 3 --pit-trace`、22 台が同じ周に入る混雑ケース）：停止 −23.5 ± 0.1、退出 30 m で
   中心線 +2 m 以内（交通に譲ると最大 83 m）、進入ランプの遅れは分岐点で 4.3 m・s 5300 以降 1.7 m 以下、ピットロス平均
   26.0 s（旧 25.5 s、53 周では 21.7 s で同じ）。包絡は `PIT_ENVELOPE` が持ち、ops-check §16 と `--pit-trace` が同じ表を読みます。
+  `pnpm sim -- --laps 8 --seeds 3 --envelope out.json` は 5 m ビンごとの実測（車体中心 lateral の min / max）を書き出し、
+  `node scripts/facilities-check.mjs --strict --envelope out.json` がそれで箱帯（PIT_BOX_STRIP）の外の解析的キープアウト
+  [c − 6.5, max(c + 5.5, −hw)] を [min − 0.95 − 1, max + 0.95 + 1] に置き換えて再検証します（箱帯の中は車が作業エリアへ
+  斜めに渡るのでビンが作業エリアを覆ってしまい、レーン帯 + 停止車矩形の明示規則のまま）。ファイルはコミットしません。
 - ギアは 8 速（12,000 rpm リミッター、11,800 でシフトアップ、7,600 未満でシフトダウン、減速時はエンジンブレーキ側へ早めにシフトダウン）。
   1 速はローンチ専用で、最高速 332 km/h は 8 速 ≈ 11,900 rpm、ヘアピン（約 70 km/h）は 2 速 ≈ 8,200 rpm、130R は 8 速になります。
 - ギャップ／インターバルは 20 m ごとのチェックポイント通過時刻から算出しています。

@@ -28,9 +28,11 @@
  *   A10. Every stand's front is screened by a fence-carrying BARRIERS run (world space, ≥ 95 %).
  *   A11. SCREENS / SIGNS / LEADER_TOWER clear the road, the stand footprints and the pit lane;
  *        boards only on concrete runs; UNDERPASSES reference 'road' ways.
- *   16. ops-check O1–O11 (I phase): the static ops layer (app/data/ops-spec.ts), the marshal
+ *   16. ops-check O1–O12 (I phase): the static ops layer (app/data/ops-spec.ts), the marshal
  *       posts, TV cameras, infield tables against PIT_ENVELOPE, the chase lens, the grid, the
  *       barrier lines, the building footprints and the circuit ring (see the section header).
+ *       `--envelope <json>` (written by `pnpm sim -- --envelope out.json`) replaces the analytic
+ *       pit keep-out with the measured 5 m bins outside the box strip.
  */
 import './ts-hooks.mjs'
 
@@ -41,6 +43,7 @@ const spec = await import('../app/data/suzuka-facilities-spec.ts')
 const osm = await import('../app/data/suzuka-facilities.ts')
 
 const STRICT = process.argv.includes('--strict')
+const ENVELOPE_ARG = (() => { const i = process.argv.indexOf('--envelope'); return i >= 0 ? process.argv[i + 1] ?? null : null })()
 const FENCE_SETBACK = 12 // m between the asphalt edge and the first seat row (fence + walkway)
 const RACEWAY_TOL = 5 // m — OSM raceway ways sit within ±4 m of the app centreline
 
@@ -1285,16 +1288,25 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *
  *   O1  pit envelope: over the entry → exit span no footprint corner inside
  *       [c − keepOut.back, max(c + keepOut.front, −hw)] (c = Track.pitLateralAt — entering cars
- *       lag it toward the track by up to 5 m); along the box strip nothing in the lane band
- *       PIT_ENVELOPE.lanes; apron / lane rows inside PIT_ENVELOPE.workArea and outside every
- *       block's stopped-car rectangle (stop ± (carHalf + margin) × boxS ± (halfS + margin));
- *       wall rows in the walkway band; interior rows inside the building. Rows that hang on a
- *       structure the barrier checks cover (wall, pitWallTop, barrierTop, fencePost) skip the
- *       band rules. Free-standing SIGNS are judged by A11's inPitLane, not here.
+ *       lag it toward the track by up to 5 m); with `--envelope <json>` (the 5 m bins of
+ *       `pnpm sim -- --envelope`) the measured [min − carHalf − 1, max + carHalf + 1] replaces
+ *       that outside the box strip (inside it the bins cover the working area — the cars cross
+ *       it to their boxes — so the strip keeps the explicit rules below). Along the box strip
+ *       nothing in the lane band PIT_ENVELOPE.lanes; apron / lane rows inside
+ *       PIT_ENVELOPE.workArea and outside every block's stopped-car rectangle (ops-spec
+ *       `stoppedCarRect`: stop ± (carHalf + margin) × boxS ± (halfS + margin)); wall rows in
+ *       the walkway band; interior rows inside the building. Rows that hang on a structure
+ *       the barrier checks cover (wall, pitWallTop, barrierTop, fencePost) skip the band
+ *       rules. All 12 rectangles are checked to lie inside the working area and outside the
+ *       lane band, and `crewSlots` / `perchSeats` of every block (the rows I3-d's figuresAt()
+ *       reads) pass O1 / O3 / O4 / O12 today. Free-standing SIGNS (numeric lateral, no mount)
+ *       go through O2 / O3 / O4 / O6 / O12 and the box-strip lane band here; their pit
+ *       keep-out is A11's inPitLane (a board stands at the lane's edge by design).
  *   O2  everywhere else: |lateral| ≥ hw + 1.5 for every corner (the road is car space).
- *   O3  chase lens: per block, nothing taller than chaseLens.maxH in the lens column
- *       s ∈ [boxS − columnS[0], boxS − columnS[1]] × stop ± halfLat, and nothing at all (figures
- *       included) between the lens and the car, s ∈ [boxS − back, boxS − 3] × stop ± halfLat.
+ *   O3  chase lens (ops-spec `lensColumns`, 12): per block, nothing taller than chaseLens.maxH
+ *       in the lens column s ∈ [boxS − columnS[0], boxS − columnS[1]] × stop ± halfLat, and
+ *       nothing at all (figures included) between the lens and the car, s ∈ [boxS − back,
+ *       boxS − 3] × stop ± halfLat.
  *   O4  the grid s ∈ [5620, 5798] × |lateral| ≤ 4.2 (race.ts placeOnGrid: 14 + 8k, ± 2.6) is empty.
  *   O5  every BARRIERS run's resolved line stays ≥ w/2 + 0.2 from the footprint (mounted rows and
  *       boards / lights / cameras exempt).
@@ -1304,14 +1316,19 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *   O7  TV_CAMERAS: lens rows 1:1 with TV_CAMERA_SPOTS; the tower footprint on the spectator
  *       side of the barrier line and 0.6 m outside it, |lateral| ≥ hw + 1.5, outside stands and
  *       paved aprons; platform / rails clear of the lens point (r 0.5, or below y_lens − 0.5).
- *   O8  MARSHAL_POSTS: |lateral| ≥ hw + 2 (existing), O1 / O2 / O5 on the hut footprint (O1 / O5
- *       warnings on the v1 rows until I4-a); v2:
+ *   O8  MARSHAL_POSTS: |lateral| ≥ hw + 2 (existing), O1 / O2 / O5 on the hut footprint — errors
+ *       on rows that carry `type` / `size` (the re-keyed ones: the pit-entry cabin at 5450 since
+ *       I3-a), warnings on the remaining v1 aerial-read huts until I4-a re-keys them; v2:
  *       unique `number`, monotonic in s, `type 'building'` carries osmWay or size, the cabin /
  *       stair / panel / cabinet / figure-slot rectangles under O1 / O2 / O5.
  *   O9  every figure of figuresAt() passes O1–O4 and stands inside the circuit ring.
  *   O10 INFIELD_TREES: |lateral| ≥ hw + 6, outside paved aprons and stand footprints, inside the ring.
  *   O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES: osmWay in OSM_FEATURES, outlines pairwise
  *       disjoint, the anchor projects inside its s window (fold rows placed from EN are exempt).
+ *   O12 windows: the lap is a figure-8, so a row is only projected back to s inside a window
+ *       (ops-spec OPS_WINDOWS) — every apron / lane row's centre lies in PIT_BOX_STRIP ± 20 m or
+ *       the pit-exit yard; every other row and every figure in some window (the paddock, the
+ *       E paddock / compound, the yard, the strip).
  */
 {
   const ops = await import('../app/data/ops-spec.ts')
@@ -1349,26 +1366,59 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   }
   const pointInZone = (s, lat, zs0, zs1, zl0, zl1) => inArc(s, [zs0, zs1]) && lat >= zl0 && lat <= zl1
   const within = (v, [a, b]) => v >= Math.min(a, b) && v <= Math.max(a, b)
-  const keepOutAt = (s) => {
+  const analyticKeepOut = (s) => {
     const c = track.pitLateralAt(s)
     if (c === null) return null
     return [c - E.keepOut.back, Math.max(c + E.keepOut.front, -track.halfWidthAt(s))]
   }
-  // the stopped car of every block, from PIT_ENVELOPE.stop (no literal stop lateral anywhere)
+  // --envelope <json>: the measured 5 m bins (car-centre lateral min / max while pitState ≠ 'none')
+  // replace the analytic keep-out outside the box strip; a bin with no sample keeps the analytic one
+  let measured = null
+  if (ENVELOPE_ARG) {
+    const fs = await import('node:fs')
+    const env = JSON.parse(fs.readFileSync(ENVELOPE_ARG, 'utf8'))
+    if (env.stop !== E.stop) fail(`--envelope ${ENVELOPE_ARG}: measured with stop ${env.stop}, PIT_ENVELOPE.stop is ${E.stop} — re-run pnpm sim -- --envelope`)
+    measured = new Map(env.bins.map((b) => [b.s, b]))
+    notes.push(`O1: measured envelope ${ENVELOPE_ARG} (${env.bins.length} bins, seeds ${env.seeds?.join(', ')}, ${env.laps} laps) replaces the analytic keep-out outside the box strip`)
+  }
+  const keepOutAt = (s) => {
+    const a = analyticKeepOut(s)
+    if (!a || !measured || inArc(s, E.boxStrip)) return a
+    const b = measured.get(Math.floor(wrap(s) / 5) * 5)
+    if (!b) return a
+    return [b.min - E.carHalf - 1.0, Math.max(b.max + E.carHalf + 1.0, -track.halfWidthAt(s))]
+  }
+  // the stopped car and the chase lens of every block come from the ops-spec helpers (from
+  // PIT_ENVELOPE.stop — no literal stop lateral anywhere); the helpers themselves are checked first
   const stop = E.stop
   const carRects = []
   for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
-    const c = spec.garageS(g)
-    carRects.push({ g: g + 1, s0: wrap(c - E.carBox.halfS - E.carBox.margin), s1: wrap(c + E.carBox.halfS + E.carBox.margin), l0: stop - E.carHalf - E.carBox.margin, l1: stop + E.carHalf + E.carBox.margin })
+    const r = ops.stoppedCarRect(g)
+    carRects.push({ g: g + 1, s0: r.s[0], s1: r.s[1], l0: r.lat[0], l1: r.lat[1] })
+    if (!(within(r.lat[0], E.workArea) && within(r.lat[1], E.workArea))) fail(`stoppedCarRect(${g}): lateral ${fmt(r.lat[0])}…${fmt(r.lat[1])} leaves the working area [${E.workArea.join(', ')}] — O1`)
+    if (within(r.lat[0], E.lanes) || within(r.lat[1], E.lanes)) fail(`stoppedCarRect(${g}): lateral ${fmt(r.lat[0])}…${fmt(r.lat[1])} reaches into the lane band [${E.lanes.join(', ')}] — O1`)
+    if (Math.abs(arcLen(r.s[0], r.s[1]) - 2 * (E.carBox.halfS + E.carBox.margin)) > 1e-6 || !inArc(spec.garageS(g), r.s)) fail(`stoppedCarRect(${g}): s ${fmt(r.s[0])}→${fmt(r.s[1])} is not boxS ± (halfS + margin) — O1`)
   }
   const lensColumns = []
-  for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
-    const c = spec.garageS(g)
+  for (const c of ops.lensColumns()) {
     lensColumns.push({
-      g: g + 1,
-      column: { s0: wrap(c - E.chaseLens.columnS[0]), s1: wrap(c - E.chaseLens.columnS[1]), l0: stop - E.chaseLens.halfLat, l1: stop + E.chaseLens.halfLat },
-      path: { s0: wrap(c - E.chaseLens.back), s1: wrap(c - 3), l0: stop - E.chaseLens.halfLat, l1: stop + E.chaseLens.halfLat },
+      g: c.block + 1,
+      column: { s0: c.column.s[0], s1: c.column.s[1], l0: c.column.lat[0], l1: c.column.lat[1] },
+      path: { s0: c.path.s[0], s1: c.path.s[1], l0: c.path.lat[0], l1: c.path.lat[1] },
     })
+    if (Math.abs(arcLen(c.column.s[0], c.column.s[1]) - (E.chaseLens.columnS[0] - E.chaseLens.columnS[1])) > 1e-6 || Math.abs(arcLen(c.column.s[1], c.boxS) - E.chaseLens.columnS[1]) > 1e-6) fail(`lensColumns()[${c.block}]: column s ${fmt(c.column.s[0])}→${fmt(c.column.s[1])} is not boxS − columnS — O3`)
+    if (Math.abs(arcLen(c.path.s[0], c.boxS) - E.chaseLens.back) > 1e-6 || Math.abs(arcLen(c.path.s[1], c.boxS) - 3) > 1e-6) fail(`lensColumns()[${c.block}]: path s ${fmt(c.path.s[0])}→${fmt(c.path.s[1])} is not boxS − back → boxS − 3 — O3`)
+    if (c.lens.lateral !== stop || c.column.maxH !== E.chaseLens.maxH) fail(`lensColumns()[${c.block}]: lens lateral / maxH differ from PIT_ENVELOPE — O3`)
+  }
+  if (lensColumns.length !== spec.PIT_GARAGE_COUNT) fail(`lensColumns(): ${lensColumns.length} columns for ${spec.PIT_GARAGE_COUNT} blocks — O3`)
+  // O12: the s windows (ops-spec OPS_WINDOWS)
+  const WINDOWS = Object.entries(ops.OPS_WINDOWS)
+  const APRON_WINDOWS = ['pitStrip', 'yard']
+  const windowFaults = (id, s, mount) => {
+    const names = WINDOWS.filter(([, r]) => inArc(s, r)).map(([n]) => n)
+    if (!names.length) return [`${id}: s ${fmt(s, 0)} is in no OPS_WINDOWS window (${WINDOWS.map(([n, r]) => `${n} ${r.join('→')}`).join(', ')}) — O12`]
+    if ((mount === 'apron' || mount === 'lane') && !names.some((n) => APRON_WINDOWS.includes(n))) return [`${id}: ${mount} row at s ${fmt(s, 0)} is outside the box strip ± 20 m / the yard (${names.join(', ')}) — O12`]
+    return []
   }
   /** the grid: race.ts placeOnGrid slots at s = −(14 + 8k), lateral ± 2.6, a 2.9 m half-length car */
   const GRID = { s0: 5620, s1: 5798, halfLat: 4.2 }
@@ -1494,11 +1544,43 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     seenIds.add(p.id)
     if (!(p.size?.length === 3 && p.size.every((v) => Number.isFinite(v) && v > 0))) { fail(`${id}: size must be [long, across, height] > 0`); continue }
     const corners = cornersOf(p)
-    const faults = [...envelopeFaults(id, p, corners), ...lensFaults(id, p, corners), ...gridFaults(id, corners), ...barrierFaults(id, p, corners), ...buildingFaults(id, p)]
+    const faults = [...envelopeFaults(id, p, corners), ...lensFaults(id, p, corners), ...gridFaults(id, corners), ...barrierFaults(id, p, corners), ...buildingFaults(id, p), ...windowFaults(id, p.s, p.mount)]
     for (const f of faults) fail(f)
     if (faults.length) placementFaults++
     const [x, z] = worldOf(p.s, p.lateral)
     if (!ring.insideRing(x, z)) fail(`${id}: stands outside the circuit ring 775428456`)
+  }
+  // the crew rows I3-d reads (ops-spec crewSlots / perchSeats) for every block: O1 / O3 / O4 / O12 today
+  let crewChecked = 0
+  for (let g = 0; g < spec.PIT_GARAGE_COUNT; g++) {
+    for (const f of [...ops.crewSlots(g), ...ops.perchSeats(g)]) {
+      const id = `crewSlots(${g}) ${f.pose} (${fmt(f.s, 1)}, ${fmt(f.lateral)})`
+      crewChecked++
+      const faults = f.mount === 'wall'
+        ? (within(f.lateral, WALL_BAND.lat) && inArc(f.s, WALL_BAND.s) ? [] : [`${id}: wall seat outside the walkway band — O1`])
+        : [...pointFaults(id, f.s, f.lateral), ...(ops.inWorkArea(f.lateral, 0) ? [] : [`${id}: outside the working area [${E.workArea.join(', ')}] — O1`])]
+      for (const { g: b, path } of lensColumns) if (pointInZone(f.s, f.lateral, path.s0, path.s1, path.l0, path.l1)) faults.push(`${id}: between the chase lens and the car of block ${b} — O3`)
+      if (pointInZone(f.s, f.lateral, GRID.s0, GRID.s1, -GRID.halfLat, GRID.halfLat)) faults.push(`${id}: on the grid — O4`)
+      faults.push(...windowFaults(id, f.s, f.mount))
+      for (const m of faults) fail(m)
+    }
+  }
+  // free-standing SIGNS (a numeric lateral, no mount): the board's width runs across the facing
+  // direction (facing ±s → across lateral); the pit keep-out itself is A11's inPitLane
+  let signsChecked = 0
+  for (const sg of bar.SIGNS) {
+    if (sg.mount || typeof sg.lateral !== 'number') continue
+    signsChecked++
+    const alongS = sg.facing === '-lat' || sg.facing === '+lat'
+    const p = { s: sg.s, lateral: sg.lateral, yawDeg: alongS ? 0 : 90, size: [sg.width ?? 1, 0.1, sg.height ?? 1], mount: 'free', kind: 'board' }
+    const id = `SIGNS ${sg.id}`
+    const corners = cornersOf(p)
+    const faults = [...lensFaults(id, p, corners), ...gridFaults(id, corners), ...buildingFaults(id, p)]
+    for (const [cs, cl] of corners) {
+      if (Math.abs(cl) < track.halfWidthAt(cs) + 1.5) { faults.push(`${id}: corner at s ${fmt(cs, 0)} lateral ${fmt(cl)} is inside hw + 1.5 — O2`); break }
+      if (inArc(cs, E.boxStrip) && within(cl, E.lanes)) { faults.push(`${id}: corner at s ${fmt(cs, 0)} lateral ${fmt(cl)} is in the pit lane band along the box strip — O1`); break }
+    }
+    for (const f of faults) fail(f)
   }
 
   // --- O7 TV_CAMERAS ---------------------------------------------------------------------------------
@@ -1545,21 +1627,24 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
 
   // --- O8 MARSHAL_POSTS -------------------------------------------------------------------------------
   {
-    const HUT = [2.4, 1.8, 1.3] // props.ts: the v1 hut (along s × across × high)
-    const v2 = bar.MARSHAL_POSTS.some((m) => 'number' in m || 'type' in m || 'size' in m)
+    // props.ts: the v1 hut (along s × across × high) — what every row without `size` draws today.
+    // NOTE(I4-a): the 2.5 m cabin at (5450, −22.3) reaches lateral −21.05, 5 cm inside the
+    // analytic keep-out's −21.1 (c − keepOut.back): give that row `size` and a lateral ≤ −22.4.
+    const HUT = [2.4, 1.8, 1.3]
+    const v2 = bar.MARSHAL_POSTS.some((m) => 'number' in m || 'size' in m || 'rects' in m)
     const numbers = new Map()
     let o1Warnings = 0
     for (const m of bar.MARSHAL_POSTS) {
       const id = `marshal post ${m.number ?? ''}@${m.s}`.replace(' @', ' s ')
       const p = { s: m.s, lateral: m.lateral, yawDeg: m.yawDeg ?? 0, size: m.size ?? HUT, mount: 'free', kind: 'cabin' }
       const corners = cornersOf(p)
-      // O1 and O5 on the v1 rows (no `size`) are WARNINGS for now: {5395, −11.5} sits in the
-      // pit-entry path (gap_Sim §2) and the huts at 650 / 4536 straddle their wall line — the v1
-      // rows are only aerial-read hut centres and I4-a re-keys every post (plan-i §I4-a:
-      // MARSHAL_POSTS v2 with cabin / stair / panel rectangles outside the keep-out and off the
-      // barrier line). O2 (the road) stays an error.
-      // TODO(I4-a): make O1 / O5 errors once the rows carry `size` (the v2 rows already are).
-      const v1 = !m.size
+      // O1 and O5 on the v1 rows (no `type` / `size`) are WARNINGS for now: the huts at 650 /
+      // 4536 straddle their wall line — the v1 rows are only aerial-read hut centres and I4-a
+      // re-keys every post (plan-i §I4-a: MARSHAL_POSTS v2 with cabin / stair / panel
+      // rectangles outside the keep-out and off the barrier line). A row that has been re-keyed
+      // (`type` or `size`: the pit-entry cabin at 5450 since I3-a, formerly {5395, −11.5} in the
+      // pit-entry path) is an error like any placement. O2 (the road) is always an error.
+      const v1 = !m.size && !m.type
       const soften = (f) => /— O[15]$/.test(f) && v1
       const env = envelopeFaults(id, p, corners)
       for (const f of [...env, ...gridFaults(id, corners), ...barrierFaults(id, p, corners)]) {
@@ -1599,6 +1684,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     if (pointInZone(f.s, f.lateral, GRID.s0, GRID.s1, -GRID.halfLat, GRID.halfLat)) faults.push(`${id}: on the grid — O4`)
     const [x, z] = worldOf(f.s, f.lateral)
     if (!ring.insideRing(x, z)) faults.push(`${id}: stands outside the circuit ring — O9`)
+    faults.push(...windowFaults(id, f.s, f.mount))
     for (const m of faults) fail(m)
     if (faults.length) figureFaults++
   })
@@ -1656,7 +1742,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   for (const table of ['CUTS', 'FOOTBRIDGES']) if (!spec[table]) skip(`O6 / O11 ${table}`)
 
   console.log('\nops-check (§16)')
-  console.log(`  ${placements.length} placement(s) (${placementFaults} with faults), ${figures.length} figure(s) (${figureFaults} with faults), ${bar.MARSHAL_POSTS.length} marshal posts, ${barrierLines.length} barrier lines, ${buildingRings.length} building footprints`)
+  console.log(`  ${placements.length} placement(s) (${placementFaults} with faults), ${figures.length} figure(s) (${figureFaults} with faults), ${crewChecked} crew slots of ${spec.PIT_GARAGE_COUNT} blocks, ${signsChecked} free-standing signs, ${bar.MARSHAL_POSTS.length} marshal posts, ${barrierLines.length} barrier lines, ${buildingRings.length} building footprints, ${WINDOWS.length} windows`)
   console.log(`  PIT_ENVELOPE: stop ${stop}, box strip ${fmt(E.boxStrip[0], 1)}→${fmt(E.boxStrip[1], 1)}, lanes [${E.lanes.join(', ')}], work area [${E.workArea.join(', ')}], chase lens column ${E.chaseLens.columnS.join('/')} m back × ±${E.chaseLens.halfLat} m, max ${E.chaseLens.maxH} m`)
   for (const n of notes) console.log(`  - ${n}`)
 }

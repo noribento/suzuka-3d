@@ -133,7 +133,7 @@ export const BARRIERS: BarrierRun[] = [
   // so a rail at -9 stood in the middle of the tarmac. It now follows the outer edge of that apron.
   { id: 'chicane-approach-right-b', kind: 'guardrail', side: -1, sRange: [5150, 5203], minGap: 2.0, source: { samples: P([[5150, -16.0], [5160, -17.5], [5175, -17.5], [5185, -15.0], [5195, -14.0], [5203, -13.5]]) }, note: 'gap at 5134–5150 for the two-wheel pit-in slip road (OSM 467219908 stops at the slip)', unverified: ['no OSM way and not resolvable at 0.49 m/px — read from the edge of the paved run-off, ±3 m'] },
   { id: 'chicane-exit-tyres', kind: 'tyre', side: -1, sRange: [5203, 5252], source: { osm: [467219893, 467219895, 467219896, 467219894] } },
-  { id: 'pit-entry-outer-fence', kind: 'fence', side: -1, sRange: [5250, 5450], source: { samples: P([[5250, -21.0], [5300, -21.5], [5350, -21.6], [5400, -22.0], [5450, -24.0]]) }, note: 'car-park fence behind the pit-entry lane' },
+  { id: 'pit-entry-outer-fence', kind: 'fence', side: -1, sRange: [5250, 5450], source: { samples: P([[5250, -21.0], [5300, -21.5], [5350, -21.6], [5400, -22.0], [5450, -24.8]]) }, note: 'car-park fence behind the pit-entry lane; the 5450 sample sits 1.2 m behind the marshal cabin at (5450, −22.3)' },
   { id: 't18-pit-entry-separator', kind: 'concrete', side: -1, sRange: [5389, 5538], fence: 2.2, source: { osm: [471532694], samples: P([[5520, -10.5], [5538, -9.7]]) }, note: 'between the track and the pit-entry lane; the pit wall (pit-lane.ts) continues from 5538' },
 ]
 
@@ -283,6 +283,11 @@ export const OFFSET_LANES: OffsetLaneDef[] = [
 export interface MarshalPostDef {
   s: number
   lateral: number
+  /**
+   * 'cabin' — a 2.5 m cabin on a stand (I4-a builds it; props.ts's v1 hut stands in until then);
+   * absent = a v1 aerial-read hut. I4-a extends the row (number / size / rects / figureSlots).
+   */
+  type?: 'cabin'
   unverified?: boolean
   note?: string
 }
@@ -315,7 +320,10 @@ export const MARSHAL_POSTS: MarshalPostDef[] = [
   { s: 4840, lateral: 10.5, unverified: true, note: '130R inside' },
   { s: 5140, lateral: 27, unverified: true, note: 'chicane escape road' },
   { s: 5235, lateral: -19.5, unverified: true, note: 'beside the chicane exit tyres' },
-  { s: 5395, lateral: -11.5, unverified: true, note: 'pit-entry island end' },
+  // moved from {5395, −11.5} (I3-a): that spot is inside the sim's pit-entry path (entering cars
+  // lag Track.pitLateralAt toward the track and drive through it; gap_Sim §2). Now on the apron
+  // between the lane's keep-out and the car-park fence (its 5450 sample is 1.2 m behind the cabin).
+  { s: 5450, lateral: -22.3, type: 'cabin', unverified: true, note: 'pit entry: outside the keep-out (−20.1) and inside the car-park fence' },
 ]
 
 /** TV camera masts whose default (outside of the nearest corner, hw + 9) lands in a run-off. */
