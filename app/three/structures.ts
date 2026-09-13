@@ -2,7 +2,7 @@
  * Circuit structures that are not ground, barriers or stands: the crossover bridge with its
  * abutments, the 2 m advertising fascia and the white / blue guard beam along its parapets
  * (I4-c), the service road under it, the parapet railings over the roads that pass under the
- * lap, the chicane service bridge, and the trackside signs (DRS boards, the pit-exit boards and
+ * lap, and the trackside signs (DRS boards, the pit-exit boards and
  * signal, the 'PIT ENTRY' board on the separator wall's top). The screens are pit-building.ts,
  * the Leader Tower and the pit wall pit-lane.ts, the start gantry track-mesh.ts.
  *
@@ -31,7 +31,6 @@ import { DECK_REACH, DECK_SHOULDER } from './ground-plan'
 import { profileRibbonGeometry, ribbonGeometry, wallGeometry } from './track-mesh'
 import { texturedWall } from './pit-geometry'
 import { barrierProfile, barrierRun } from './barriers'
-import { osmWay } from './trackside'
 import { cameraSide } from './props'
 import { bridgeRailTexture, cached, canvas, concreteMaps, makeTexture, scaled } from './textures'
 import { assetAspect, pbr, pbrFromAssets, tileMetres } from './materials'
@@ -281,7 +280,7 @@ export function buildStructures(ctx: EnvBuildContext, _mats: { buildingRoofMat: 
   const rails = new THREE.Group()
   rails.name = 'structures-underpass'
   group.add(rails)
-  buildUnderpasses(track, ground, boxes, rails, { steelMat, slabMat, concreteTile })
+  buildUnderpasses(track, ground, boxes, rails, { steelMat })
   buildSigns(track, ground, boxes, { signMat, postMat, steelMat, lensMat })
 
   // the furniture is worth drawing only near the crossing: a near level, then nothing
@@ -428,20 +427,19 @@ function splitAt(a: number, b: number, cuts: number[]): [number, number][] {
   return out
 }
 
-// ---------------------------------------------------------------- underpass parapets and the chicane service bridge
+// ---------------------------------------------------------------- underpass parapets
 
 interface UnderpassMats {
   steelMat: THREE.Material
-  slabMat: THREE.Material
-  concreteTile: number
 }
 
 /**
- * What is drawn of the UNDERPASSES today: a railing along the top of the parapet the county road
- * passes under at Dunlop and at the chicane, and the chicane service bridge's slab on the ground.
- * THE CUTTINGS ARE NOT DUG (plan §9 P8): the road bed under the lap stays at the field's height
- * until ground-field.ts can follow a declared cut (R6), so the railings stand on the existing
- * walls and the bridge lies on the grass it will one day span.
+ * What structures.ts draws of the UNDERPASSES: a railing along the top of the parapet the county
+ * road passes under at Dunlop and at the chicane (`structures-underpass-rails`). The cuts
+ * themselves are the field's CUTS corridors (I6-a, R6), their walls and portals cuttings.ts
+ * (I6-b), and the chicane service bridge over the chicaneLeft cut is FOOTBRIDGES 467219905
+ * (cuttings.ts `buildFootbridges`, `structures-footbridge-467219905`) — v1's 6 m slab on the
+ * grass is gone.
  */
 function buildUnderpasses(track: Track, ground: Ground, boxes: BoxPlacer, into: THREE.Group, m: UnderpassMats) {
   const rails: THREE.BufferGeometry[] = []
@@ -455,37 +453,6 @@ function buildUnderpasses(track: Track, ground: Ground, boxes: BoxPlacer, into: 
     rails.push(railTube(track, s0, s1, lat, (s) => top(s) + PARAPET_RAIL_H, 0.02), railTube(track, s0, s1, lat, (s) => top(s) + PARAPET_RAIL_H * 0.55, 0.015))
   }
   merged(into, rails, m.steelMat, 'structures-underpass-rails', false)
-
-  // the chicane service bridge (OSM 467219905): a 6 m × 0.6 m slab, 4 m wide, two rail tubes
-  const row = UNDERPASSES.find((u) => u.osmWay === 467219905)
-  const way = row ? osmWay(row.osmWay) : undefined
-  if (way && way.en.length >= 2) {
-    const a = track.enToWorld(way.en[0]![0], way.en[0]![1], new THREE.Vector3())
-    const b = track.enToWorld(way.en[way.en.length - 1]![0], way.en[way.en.length - 1]![1], new THREE.Vector3())
-    const dir = b.clone().sub(a).setY(0).normalize()
-    const c = a.clone().add(b).multiplyScalar(0.5)
-    c.y = ground.standY(c.x, c.z)
-    const frame = new THREE.Matrix4().makeBasis(dir, new THREE.Vector3(0, 1, 0), new THREE.Vector3(-dir.z, 0, dir.x)).setPosition(c)
-    const slab = new THREE.BoxGeometry(6, 0.6, 4)
-    slab.translate(0, 0.3, 0)
-    const uv = slab.attributes.uv as THREE.BufferAttribute
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * 6) / m.concreteTile, (uv.getY(i) * 4) / m.concreteTile)
-    merged(into, [slab.applyMatrix4(frame)], m.slabMat, 'structures-underpass-bridge', true)
-    const parts: THREE.BufferGeometry[] = []
-    for (const z of [-1.9, 1.9]) {
-      for (const y of [0.6 + PARAPET_RAIL_H, 0.6 + PARAPET_RAIL_H * 0.55]) {
-        const r = new THREE.BoxGeometry(6, 0.04, 0.04)
-        r.translate(0, y, z)
-        parts.push(r)
-      }
-      for (const x of [-2.8, 0, 2.8]) {
-        const p = new THREE.BoxGeometry(0.05, PARAPET_RAIL_H, 0.05)
-        p.translate(x, 0.6 + PARAPET_RAIL_H / 2, z)
-        parts.push(p)
-      }
-    }
-    merged(into, parts.map((g) => g.applyMatrix4(frame)), m.steelMat, 'structures-underpass-bridge-rails', false)
-  }
 }
 
 // ---------------------------------------------------------------- signs

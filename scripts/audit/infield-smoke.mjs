@@ -261,8 +261,8 @@ async function checkCuts(scene, check, tier) {
   for (const c of cuts.corridors) {
     const len = c.endD - c.startD
     const isPit = c.def.kind === 'stairPit'
-    const min = isPit ? spec.STAIR_PIT.length - 0.01 : (SHORT_CUTS[c.id]?.min ?? 30)
-    const max = isPit ? spec.STAIR_PIT.length + 0.01 : 120
+    const min = isPit ? (c.def.length ?? spec.STAIR_PIT.length) - 0.01 : (SHORT_CUTS[c.id]?.min ?? 30)
+    const max = isPit ? (c.def.length ?? spec.STAIR_PIT.length) + 0.01 : 120
     if (!(len >= min && len <= max)) endBad.push(`${c.id} ${len.toFixed(1)} m (${c.end})`)
     if (Math.abs(c.floorStart - (c.fieldAtPortal - c.def.depth + c.def.grade * c.startD)) > 1e-6) floorBad.push(c.id)
     const poly = cuts.corridor(c.id)
@@ -301,7 +301,7 @@ async function checkCuts(scene, check, tier) {
     })
     console.log(`    ${c.id.padEnd(14)} portal (${c.portal.s.toFixed(0)}, ${c.portal.lateral.toFixed(1)}) hdg ${c.portal.heading.toFixed(0).padStart(3)}°${(c.portal.pushed ? ` pushed ${c.portal.pushed.toFixed(2)}` : '').padEnd(13)}  d ${String(c.startD).padStart(4)} → ${String(c.endD).padStart(5)} (${c.end.padEnd(8)})  floor ${c.floorStart.toFixed(2)} → ${c.floorEnd.toFixed(2)}  built−field max ${worst.toFixed(2)} m`)
   }
-  check(endBad.length === 0, `every road cut daylights within 30–120 m of its portal (SHORT_CUTS: ${Object.keys(SHORT_CUTS).join(', ')}) and every stair pit runs ${spec.STAIR_PIT.length} m${endBad.length ? ` — not: ${endBad.join('; ')}` : ''}`)
+  check(endBad.length === 0, `every road cut daylights within 30–120 m of its portal (SHORT_CUTS: ${Object.keys(SHORT_CUTS).join(', ')}) and every stair pit runs its length (${spec.STAIR_PIT.length} m, pedNippo_L 10)${endBad.length ? ` — not: ${endBad.join('; ')}` : ''}`)
   check(floorBad.length === 0, `the floor at every corridor's start is the portal's field − depth (+ grade · start)${floorBad.length ? ` — not: ${floorBad.join(', ')}` : ''}`)
   check(barrierHits.length === 0, `no corridor polygon crosses a BARRIERS resolved line (${lines.length} lines)${barrierHits.length ? ` — ${barrierHits.join('; ')}` : ''}`)
   check(standHits.length === 0, `no corridor polygon crosses or starts inside a STANDS footprint (${stands.length} footprints)${standHits.length ? ` — ${standHits.join('; ')}` : ''}`)
@@ -322,6 +322,98 @@ async function checkCuts(scene, check, tier) {
   const b = env.buildMs
   const base = BASE_MS[tier]
   console.log(`  buildMs.cuts ${b.cuts?.toFixed(0)} ms; plan ${b.plan?.toFixed(0)} ms (base ${base.plan}, Δ ${(b.plan - base.plan >= 0 ? '+' : '') + (b.plan - base.plan).toFixed(0)}), meshes ${b.meshes?.toFixed(0)} ms (base ${base.meshes}, Δ ${(b.meshes - base.meshes >= 0 ? '+' : '') + (b.meshes - base.meshes).toFixed(0)}) — report-only`)
+
+  // ===== I6-b: the walls, portals, stairs and footbridges (cuttings.ts, group.userData.cuttings) =====
+  const facts = env.group.userData.cuttings
+  check(!!facts, 'group.userData.cuttings carries the cuttings facts (walls / portals / stairs / footbridges)')
+  if (!facts) return
+  const O5 = 0.6
+  const segDist = (p, a, b) => { const dx = b.x - a.x, dz = b.z - a.z; const l2 = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2)); return Math.hypot(p.x - (a.x + dx * t), p.z - (a.z + dz * t)) }
+  /** the least distance between a polyline / ring and every BARRIERS line, and whether any segment crosses one */
+  const barrierClear = (pts, closed) => {
+    let min = Infinity, crossed = null
+    for (const l of lines) {
+      for (let i = 0; i + 1 < l.pts.length; i++) {
+        const a = l.pts[i], bb = l.pts[i + 1]
+        for (let j = 0; j + 1 < pts.length + (closed ? 1 : 0); j++) {
+          const p = pts[j], q = pts[(j + 1) % pts.length]
+          if (cross(a, bb, p, q)) crossed = l.id
+          min = Math.min(min, segDist(p, a, bb), segDist(q, a, bb), segDist(a, p, q), segDist(bb, p, q))
+        }
+      }
+    }
+    return { min, crossed }
+  }
+  const standClear = (pts, closed) => {
+    let min = Infinity, hit = null
+    for (const st of stands) {
+      if (polyCrosses(pts, st.ring, true) || inRing(pts[0].x, pts[0].z, st.ring)) hit = st.id
+      for (let i = 0; i < st.ring.length; i++) { const a = st.ring[i], bb = st.ring[(i + 1) % st.ring.length]; for (const p of pts) min = Math.min(min, segDist(p, a, bb)) }
+    }
+    void closed
+    return { min, hit }
+  }
+  // the walls: two per corridor, every run's inner face ≥ O5 from every BARRIERS line and STANDS footprint, its height ≥ 0.5 m over the floor
+  const wallsPer = new Map()
+  for (const w of facts.walls) wallsPer.set(w.cut, (wallsPer.get(w.cut) ?? 0) + 1)
+  const wallMissing = cuts.corridors.filter((c) => (wallsPer.get(c.id) ?? 0) < 2).map((c) => `${c.id} (${wallsPer.get(c.id) ?? 0})`)
+  check(wallMissing.length === 0, `every corridor has a retaining wall on both sides (${facts.walls.length} runs over ${cuts.corridors.length} corridors)${wallMissing.length ? ` — fewer: ${wallMissing.join(', ')}` : ''}`)
+  const wallBad = []
+  for (const w of facts.walls) {
+    const bc = barrierClear(w.inner, false), sc = standClear(w.inner, false)
+    if (bc.crossed || bc.min < O5) wallBad.push(`${w.cut}/${w.side}: ${bc.crossed ? `crosses ${bc.crossed}` : `${bc.min.toFixed(2)} m from a BARRIERS line`}`)
+    if (sc.hit || sc.min < O5) wallBad.push(`${w.cut}/${w.side}: ${sc.hit ? `inside / across stand ${sc.hit}` : `${sc.min.toFixed(2)} m from a STANDS footprint`}`)
+    if (w.hMin < 0.5) wallBad.push(`${w.cut}/${w.side}: ${w.hMin.toFixed(2)} m over the floor`)
+  }
+  check(wallBad.length === 0, `every wall run stays ≥ ${O5} m from the BARRIERS lines and the STANDS footprints and stands ≥ 0.5 m over the floor (O5)${wallBad.length ? ` — ${wallBad.slice(0, 5).join('; ')}` : ''}`)
+  // the portals: one at every corridor's start, a second at the end of the cut that ends at the next tunnel; the opening's sill
+  // never crosses a BARRIERS line, the headwall's back (on the cap) ≥ O5 from it
+  const roadCuts = cuts.corridors.filter((c) => c.def.kind !== 'stairPit')
+  const expectedPortals = cuts.corridors.length + roadCuts.filter((c) => c.end === 'wayEnd').length
+  const portalMissing = cuts.corridors.filter((c) => !facts.portals.some((p) => p.cut === c.id && p.at === 'start')).map((c) => c.id)
+  check(facts.portals.length === expectedPortals && portalMissing.length === 0, `${facts.portals.length} portals = ${cuts.corridors.length} starts + ${expectedPortals - cuts.corridors.length} tunnel-end${portalMissing.length ? ` — no start portal: ${portalMissing.join(', ')}` : ''}`)
+  const portalBad = []
+  for (const p of facts.portals) {
+    const s = barrierClear(p.sill, false), bk = barrierClear(p.back, false)
+    if (s.crossed) portalBad.push(`${p.cut}/${p.at}: the opening's sill crosses ${s.crossed}`)
+    if (bk.crossed || bk.min < O5 - 0.01) portalBad.push(`${p.cut}/${p.at}: the headwall's back ${bk.crossed ? `crosses ${bk.crossed}` : `${bk.min.toFixed(2)} m from a BARRIERS line`}`)
+    const minH = p.cut.startsWith('ped') ? 2.4 : 1.8
+    if (p.openH < minH) portalBad.push(`${p.cut}/${p.at}: opening ${p.openH.toFixed(2)} m high`)
+  }
+  check(portalBad.length === 0, `no portal opening crosses a BARRIERS line, every headwall's back is ≥ ${O5} m from them, openings ≥ 2.4 m (pedestrian) / 1.8 m${portalBad.length ? ` — ${portalBad.join('; ')}` : ''}`)
+  const pits = cuts.corridors.filter((c) => c.def.kind === 'stairPit')
+  check(facts.stairs.length === pits.length && pits.every((c) => facts.stairs.includes(c.id)), `stairs in every stair pit (${facts.stairs.length} of ${pits.length})`)
+  // the footbridges: every FOOTBRIDGES row is a `structures-footbridge-<id>` mesh, its soffit ≥ clearance over a cut floor / road face
+  // under it (≥ minGap over the ground), its abutments and steps ≥ O5 from the BARRIERS lines and the STANDS footprints
+  const fbBad = []
+  for (const def of spec.FOOTBRIDGES) {
+    const mesh = env.group.getObjectByName(`structures-footbridge-${def.osmWay}`)
+    if (!mesh || !mesh.geometry?.attributes?.position?.count) { fbBad.push(`${def.osmWay}: no mesh`); continue }
+    const f = facts.footbridges.find((q) => q.osmWay === def.osmWay)
+    if (!f) { fbBad.push(`${def.osmWay}: no facts`); continue }
+    const need = f.under === 'ground' ? spec.FOOTBRIDGE.minGap : def.clearance
+    if (f.headroom < need - 1e-6) fbBad.push(`${def.osmWay}: headroom ${f.headroom.toFixed(2)} over ${f.under} (needs ${need})`)
+    // the corridor under the chicane service bridge: the soffit over every corridor sample within the deck's width of its line
+    if (f.under === 'cut') {
+      let worst = Infinity
+      for (const c of cuts.corridors) for (const q of c.samples) if (segDist(q, f.ends[0], f.ends[1]) <= def.deckW / 2) worst = Math.min(worst, f.soffit - q.floor)
+      if (worst < def.clearance - 1e-6) fbBad.push(`${def.osmWay}: soffit ${worst.toFixed(2)} m over a corridor sample (needs ${def.clearance})`)
+    }
+    for (const fp of f.footprints) {
+      const bc = barrierClear(fp, true), sc = standClear(fp, true)
+      if (bc.crossed || bc.min < O5) fbBad.push(`${def.osmWay}: a footprint ${bc.crossed ? `crosses ${bc.crossed}` : `${bc.min.toFixed(2)} m from a BARRIERS line`}`)
+      if (sc.hit || sc.min < O5) fbBad.push(`${def.osmWay}: footprint #${f.footprints.indexOf(fp)} ${sc.hit ? `inside / across stand ${sc.hit}` : `${sc.min.toFixed(2)} m from a STANDS footprint`}`)
+    }
+    console.log(`    footbridge ${def.osmWay} ${def.name.padEnd(10)} top ${f.top.toFixed(2)} soffit ${f.soffit.toFixed(2)} headroom ${f.headroom.toFixed(2)} over ${f.under}, ${f.footprints.length} footprints`)
+  }
+  check(fbBad.length === 0, `every FOOTBRIDGES row is a structures-footbridge-<id> mesh with its soffit ≥ clearance over what passes under it and its abutments / steps ≥ ${O5} m from the BARRIERS lines and stands${fbBad.length ? ` — ${fbBad.join('; ')}` : ''}`)
+  check(!env.group.getObjectByName('structures-underpass-bridge') && !!env.group.getObjectByName('structures-underpass-rails'), 'the v1 6 m slab (structures-underpass-bridge) is gone and structures-underpass-rails stays')
+  for (const name of ['furniture-cut-walls', 'furniture-cut-portals', 'furniture-cut-copings', 'furniture-cut-tunnelInterior', 'props-cut-stairs']) {
+    const o = env.group.getObjectByName(name)
+    check(!!o && o.geometry.attributes.position.count > 0, `  mesh '${name}' exists (${o ? o.geometry.attributes.position.count / 3 : 0} tris)`)
+  }
+  const st = env.stats?.infield ?? {}
+  console.log(`  stats.infield cuttings-walls ${st['cuttings-walls']} / -portals ${st['cuttings-portals']} / -stairs ${st['cuttings-stairs']} / -footbridges ${st['cuttings-footbridges']}`)
 }
 
 // ===== I5-b: checkFacilities (infield-ground.ts buildInfieldFacilities) ===========================

@@ -22,12 +22,11 @@
  *        plane at the module's −s end, |y − (roadPlane(s0) − drop + floor)| ≤ 0.02; the A block,
  *        the centre house (16 columns, the canopy, the glass band, the paving decal with
  *        uncovered ≈ 0), the SMSC, the fuel station (2 island kerbs = markObject islandKerb, the
- *        canopy), the service house / tyre garage, the vehicle base, the tunnel heads and the
- *        masts exist as named meshes with finite vertices; the 16 canopy columns (XZ clusters of
+ *        canopy), the service house / tyre garage, the vehicle base and the masts exist as
+ *        named meshes with finite vertices (the I2-b tunnel heads are gone since I6-b); the 16 canopy columns (XZ clusters of
  *        `centreHouseColumns`) stand inside 0.97 of the canopy ellipse (`centreHouseCanopy`
  *        userData.canopy, track frame) and ≥ 2.4 m outside the OSM ring 184430907 (off the 2 m
- *        balcony and its rail); the masts are 2 vertex clusters of `paddockMasts` and the tunnel
- *        heads 2 of `paddockTunnelHeads`; the fence (`paddockFence`, vertical faces only — every
+ *        balcony and its rail); the masts are 2 vertex clusters of `paddockMasts`; the fence (`paddockFence`, vertical faces only — every
  *        triangle normal |ny| < 0.05, and every card's bottom edge within 0.15 m of ground.standY at
  *        1 m samples off the ground's seams: the cards are split at the post pitch over the relief;
  *        a sample where the ground steps ≥ 0.2 m within 1 m — the drawn faces' edges against the
@@ -199,7 +198,7 @@ for (const tier of tiers) {
     check(instances === expected, `teamOffices instances ${instances} = table ${expected} (${offices.length} IM buckets)`)
     check(worstFloor <= 0.02, `  every module floor within 20 mm of roadPlane(s0) − ${P.drop} + ${P.floor} (worst ${(worstFloor * 1000).toFixed(0)} mm)`)
     check(infield['paddock-offices'] === expected, `  stats.infield['paddock-offices'] = ${infield['paddock-offices']}`)
-    for (const name of ['paddockOfficeA', 'centreHouse', 'centreHouseRoof', 'centreHouseGlass', 'centreHouseWindows', 'centreHouseBalcony', 'centreHouseCanopy', 'centreHouseColumns', 'paddockPaving', 'paddockSmsc', 'paddockFuelCanopy', 'paddockFuelColumns', 'paddockFuelIslands', 'paddockFuelKiosk', 'paddock-service_house', 'paddock-tyre_garage', 'paddockVehicleBase', 'paddockTunnelHeads', 'paddockRetainingWalls', 'paddockFence', 'paddockGates', 'paddockMasts', 'paddockGlass', 'paddockRails', 'concretePaddockSteps', 'paddockOpenings']) {
+    for (const name of ['paddockOfficeA', 'centreHouse', 'centreHouseRoof', 'centreHouseGlass', 'centreHouseWindows', 'centreHouseBalcony', 'centreHouseCanopy', 'centreHouseColumns', 'paddockPaving', 'paddockSmsc', 'paddockFuelCanopy', 'paddockFuelColumns', 'paddockFuelIslands', 'paddockFuelKiosk', 'paddock-service_house', 'paddock-tyre_garage', 'paddockVehicleBase', 'paddockFence', 'paddockGates', 'paddockMasts', 'paddockGlass', 'paddockRails', 'concretePaddockSteps']) {
       const o = env.group.getObjectByName(name)
       check(!!o && o.geometry.attributes.position.count > 0, `  mesh '${name}' exists (${o ? trisOf(o) : 0} tris)`)
     }
@@ -286,11 +285,10 @@ for (const tier of tiers) {
       }
       check(doorS.length > 0 && inHatch === 0, `  no lamp inside a roller door's no-parking hatch (${inHatch} of ${lp.length}, ${doorS.length} doors)`)
     }
-    // the masts and the tunnel heads: vertex clusters of the merged meshes
+    // the masts: vertex clusters of the merged mesh (the I2-b tunnel heads are gone since I6-b: the ramps are CUTS corridors, their portals cuttings.ts')
     const mastClusters = xzClusters(env.group.getObjectByName('paddockMasts'), 6)
-    const headClusters = xzClusters(env.group.getObjectByName('paddockTunnelHeads'), 12)
     check(mastClusters.length === spec.PADDOCK_MASTS.at.length && infield['paddock-masts'] === spec.PADDOCK_MASTS.at.length && (infield['infield-flood-heads'] ?? 0) === spec.PADDOCK_MASTS.at.length * spec.PADDOCK_MASTS.heads, `masts ${mastClusters.length} lattice clusters = table ${spec.PADDOCK_MASTS.at.length} (stats ${infield['paddock-masts']}), flood heads ${infield['infield-flood-heads']}`)
-    check(headClusters.length === 2 && infield['paddock-tunnelHeads'] === 2, `tunnel heads ${headClusters.length} vertex clusters (stats ${infield['paddock-tunnelHeads']})`)
+    check(!env.group.getObjectByName('paddockTunnelHeads') && infield['paddock-tunnelHeads'] === undefined, 'no paddockTunnelHeads (I6-b: the portals are cuttings.ts furniture-cut-portals)')
     check((infield['infield-office-shutters'] ?? 0) === (expected - 1) * O.rooms && (infield['infield-office-aircon'] ?? 0) === (expected - 1) * O.rooms, `office shutters ${infield['infield-office-shutters']} / aircon ${infield['infield-office-aircon']} = ${(expected - 1) * O.rooms}`)
     check(infield['paddock-buildings'] === spec.PADDOCK_BUILDINGS.length, `buildings ${infield['paddock-buildings']} = table ${spec.PADDOCK_BUILDINGS.length}`)
   }

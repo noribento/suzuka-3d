@@ -1110,7 +1110,7 @@ export const PADDOCK_OFFICE = {
   sidingTile: 1.0,
 } as const
 
-export type PaddockBuildingKind = 'teamOffices' | 'officeBlock' | 'centreHouse' | 'smsc' | 'fuel' | 'serviceHouse' | 'tyreGarage' | 'vehicleBase' | 'tunnelHead' | 'portal'
+export type PaddockBuildingKind = 'teamOffices' | 'officeBlock' | 'centreHouse' | 'smsc' | 'fuel' | 'serviceHouse' | 'tyreGarage' | 'vehicleBase'
 
 export interface PaddockBuildingDef {
   id: string
@@ -1164,10 +1164,8 @@ export const PADDOCK_BUILDINGS: PaddockBuildingDef[] = [
   { id: 'tyre_garage', name: 'タイヤサービスガレージ', kind: 'tyreGarage', sRange: [5685, 5757], lateral: [-219, -187], floor: 'ground', eaves: 6.0, levels: 1, wall: 'corrugated009', doors: { face: '+lateral', n: 6, w: 3.5, h: 4.0 }, unverified: ['height', 'footprint (pphi-3 ±5 m)', '6 roll doors on the service-house face'] },
   // --- the former medical room (BUILDINGS course_vehicle_base carries the height): 3 roll doors on the −s face, a window band
   { id: 'course_vehicle_base', name: '旧医務室（コース車両基地）', kind: 'vehicleBase', osmWay: 184429429, sRange: [140, 190], floor: 'plane', eaves: 5.0, levels: 1, wall: 'plaster', doors: { face: '-s', n: 3, w: 2.2, h: 3.2 }, unverified: ['use', 'doors (lights.jpg shows the vehicles parked beside it)'] },
-  // --- tunnel heads: the 逆バンクトンネル's paddock-side ramp head (reno-09: a mid-tunnel ramp to the paddock beside the
-  //     control-tower nose; the cut itself is I6) and the works-road tunnel's south-west head (UNDERPASSES 175231859 `portal`)
-  { id: 'gyaku_bank_head', name: '逆バンクトンネル パドック側ランプ頭', kind: 'tunnelHead', sRange: [5540.5, 5546.5], lateral: [-68, -60], floor: 'plane', eaves: 3.2, levels: 1, wall: 'concrete', doors: { face: '-lateral', n: 1, w: 4.0, h: 2.8 }, unverified: ['position (reno-09 aerial: beside the control-tower nose, ±10 m; kept 0.5 m clear of the helipad compound fence 474537494 at s 5547)', 'size 6 × 8 × 3.2'] },
-  { id: 'works_road_head', name: '構内道路トンネル 南西頭', kind: 'portal', sRange: [114.5, 119.5], lateral: [-42, -34], floor: 'plane', eaves: 3.4, levels: 1, wall: 'concrete', unverified: ['the head at (117, −38) with two 8 m retaining-wall stubs 1.2 high along the road (OSM 175231859 crosses the lap at s 119 and runs across it, so the stubs run along lateral)'] },
+  // (the I2-b tunnel heads — the 逆バンクトンネル ramp head box and the works-road head frame — are gone: since I6 the
+  //  ramps are CUTS corridors (gyakuTunnelR / worksSW) and their portals are cuttings.ts headwalls)
 ]
 
 /**
@@ -1619,8 +1617,9 @@ export interface UnderpassDef {
   /** the BARRIERS run whose top carries the 1.1 m parapet railing over the tunnel, and where along it */
   parapet?: { run: string; sRange: [number, number] }
   /**
-   * A portal head paddock.ts dresses before the cut exists (I6 digs it): where the road comes
-   * out, and which way the opening looks (track frame: the road leaves the portal in that direction)
+   * Where the road came out, as I2-b's paddock head frame read it (track frame; the opening
+   * looked `facing`). Kept as a record only: since I6 the portals are the CUTS corridors' start
+   * caps (cuttings.ts headwalls) and nothing reads this field.
    */
   portal?: { s: number; lateral: number; facing: '+s' | '-s' | '+lateral' | '-lateral' }
   unverified: string[]
@@ -1633,20 +1632,19 @@ export interface UnderpassDef {
  * 5110–5125 are these roads (dem-profile.mjs repaired them on the centreline). The crossover
  * bridge (4676–4713) is not one — it is the lap crossing itself (structures.ts).
  *
- * What is built today (structures.ts): the 1.1 m tube railing on the parapets the roads pass
- * under (the 'dunlop-inside' wall over 1775–1800, the chicane-approach rail over 5110–5125) and
- * the chicane service bridge's 6 m slab with its two rails. The CUTTINGS THEMSELVES ARE DEFERRED
- * (plan §9 P8): the county road is one 39 m cut from the chicane's right (5112, −8.3) to the
- * Dunlop north side (1790, −37.8), 5 m deep, which ground-field.ts's 2–8 m blend and PolyZone's
- * bank semantics cannot express without an R6 rule change.
+ * What is built: structures.ts draws the 1.1 m tube railing on the parapets the roads pass under
+ * (the 'dunlop-inside' wall over 1775–1800, the chicane-approach rail over 5110–5125); the cuts
+ * themselves are CUTS (I6-a, the field's R6 corridors), their walls and portals cuttings.ts
+ * (I6-b), and the chicane service bridge is FOOTBRIDGES 467219905 (a rigid deck over the
+ * chicaneLeft corridor — v1's 6 m slab on the grass is gone).
  */
 export const UNDERPASSES: UnderpassDef[] = [
-  { name: '構内道路トンネル（メインストレート）', kind: 'road', osmWay: 175231859, sRange: [100, 140], portal: { s: 117, lateral: -38, facing: '-lateral' }, unverified: ['a works road, not a spectator tunnel (OSM yh:TYPE 構内道路, 3.0–5.5 m wide); crosses the lap at s 119', 'the south-west portal (117, −38): the way ends at lateral −25.8 under the pit apron and the road runs across the lap (constant s), so the head looks −lateral toward the paddock road it joins at (116, −53); the plan wrote facing −s'] },
+  { name: '構内道路トンネル（メインストレート）', kind: 'road', osmWay: 175231859, sRange: [100, 140], portal: { s: 117, lateral: -38, facing: '-lateral' }, unverified: ['a works road, not a spectator tunnel (OSM yh:TYPE 構内道路, 3.0–5.5 m wide); crosses the lap at s 119', 'the south-west portal (117, −38): the way ends at lateral −25.8 under the pit apron and the road runs across the lap (constant s), so the head looks −lateral toward the paddock road it joins at (116, −53); the plan wrote facing −s (I6: CUTS worksSW starts at −28 heading 231, the way\'s own bearing)'] },
   { name: '県道三行庄野線 トンネル（ダンロップ側）', kind: 'road', osmWay: 34096664, sRange: [1760, 1810], parapet: { run: 'dunlop-inside', sRange: [1775, 1800] }, unverified: ['the tunnel way is 2 nodes (s 1779–1790, lateral −37.8 → +17); portal positions from the DEM notch ±5 m', 'the parapet stretch is the run\'s own note (1775–1800)'] },
   { name: '県道三行庄野線 トンネル（シケイン側）', kind: 'road', osmWay: 411291884, sRange: [5095, 5145], parapet: { run: 'chicane-approach-right-a', sRange: [5110, 5125] }, unverified: ['the tunnel way is 3 nodes (s 5112–5129, lateral −8.3 → +15.1); portal positions from the DEM notch ±5 m', 'the railing stands on the guardrail\'s top (the wall the road passes under is not tabled)'] },
-  { name: '県道三行庄野線 切通し（シケイン右 ↔ ダンロップ北）', kind: 'road', osmWay: 183309812, sRange: [5080, 5120], unverified: ['the 39 m open cut between the two tunnels, from (5112, −8.3) to (1790, −37.8): depth from dem-profile.mjs (P8)'], note: 'not drawn yet (P8); the way spans both legs of the figure-8, so its window is the chicane end only' },
-  { name: '県道三行庄野線 進入路（シケイン左）', kind: 'road', osmWay: 34096665, sRange: [5125, 5400], unverified: ['the surface road from the chicane tunnel\'s left portal out past Q1 / R (lateral +15 → +248); drawn only as a far-field road (plan §2b)'], note: 'not drawn yet (P8)' },
-  { name: 'シケイン側道橋', kind: 'road', osmWay: 467219905, sRange: [5120, 5160], unverified: ['a 6 m service bridge over the cutting (OSM bridge=yes, layer 1, s 5131–5147 at lateral +27…+34); width 4 m assumed'] },
+  { name: '県道三行庄野線 切通し（シケイン右 ↔ ダンロップ北）', kind: 'road', osmWay: 183309812, sRange: [5080, 5120], unverified: ['the 39 m open cut between the two tunnels, from (5112, −8.3) to (1790, −37.8): depth 5.0 at the Dunlop end, 7 % up (CUTS cut643)'], note: 'the cut is CUTS cut643 (I6); the way spans both legs of the figure-8, so its window is the chicane end only' },
+  { name: '県道三行庄野線 進入路（シケイン左）', kind: 'road', osmWay: 34096665, sRange: [5125, 5400], unverified: ['the surface road from the chicane tunnel\'s left portal out past Q1 / R (lateral +15 → +248); its first 60 m are CUTS chicaneLeft, the rest a far-field road (plan §2b)'] },
+  { name: 'シケイン側道橋', kind: 'road', osmWay: 467219905, sRange: [5120, 5160], unverified: ['a service bridge over the cutting (OSM bridge=yes, layer 1, s 5131–5147 at lateral +27…+34); width 4 m assumed'], note: 'built as FOOTBRIDGES 467219905 (I6-b)' },
 ]
 
 /** Water bodies drawn as flat planes from their OSM polygons. */
@@ -1717,9 +1715,9 @@ export const CUT_WALL_FOOT = 0.6
 /** a pedestrian tunnel's stair pit (both ends): width across, length along the tunnel, depth */
 export const STAIR_PIT = { width: 3.5, length: 7, depth: 3.0 }
 
-const stairPit = (id: string, name: string, osmWay: number, s: number, lateral: number, heading: number, window: [number, number], unverified: string[] = []): CutDef => ({
-  id, name, osmWay, kind: 'stairPit', portal: { s, lateral, heading }, window, depth: STAIR_PIT.depth, grade: 0, halfWidth: STAIR_PIT.width / 2, wall: 'concrete', level: true, length: STAIR_PIT.length,
-  unverified: ['a stair pit at the tunnel way\'s node (aerial: the portals are not resolved), 3.5 × 7 m, 3.0 m deep', ...unverified],
+const stairPit = (id: string, name: string, osmWay: number, s: number, lateral: number, heading: number, window: [number, number], unverified: string[] = [], depth = STAIR_PIT.depth, length = STAIR_PIT.length): CutDef => ({
+  id, name, osmWay, kind: 'stairPit', portal: { s, lateral, heading }, window, depth, grade: 0, halfWidth: STAIR_PIT.width / 2, wall: 'concrete', level: true, length,
+  unverified: [`a stair pit at the tunnel way's node (aerial: the portals are not resolved), ${STAIR_PIT.width} × ${length} m, ${depth} m deep`, ...unverified],
 })
 
 /**
@@ -1765,9 +1763,55 @@ export const CUTS: CutDef[] = [
   stairPit('pedWest2_L', '歩行者トンネル 西ストレート 第 2 左', 184417647, 4548, 9, 29, [4500, 4600]),
   stairPit('pedWest2_R', '歩行者トンネル 西ストレート 第 2 右', 184417647, 4544, -11, 209, [4500, 4600]),
   stairPit('pedNippo_R', '歩行者トンネル NIPPO 右', 467945734, 1547, -30, 55, [1440, 1600]),
-  stairPit('pedNippo_L', '歩行者トンネル NIPPO 左', 467945734, 1483, 30, 205, [1440, 1600]),
+  // the ground beside this pit falls 30 % across (the NIPPO corner's outer bank): at 3.0 m its low side stood 1.7 m over the
+  // floor, under a 2.5 m opening whose tunnel box would have broken the surface — 4.5 m deep, a 10 m pit for the longer flight
+  stairPit('pedNippo_L', '歩行者トンネル NIPPO 左', 467945734, 1483, 30, 205, [1440, 1600], ['depth 4.5 / length 10 (I6-b: the cross-slope beside the portal)'], 4.5, 10),
   stairPit('pedPaddock_R', '歩行者トンネル 最終コーナー パドック側', 469010267, 5529, -32, 220, [5480, 5560]),
   stairPit('pedPaddock_L', '歩行者トンネル 最終コーナー GP スクエア側', 469010267, 5520, 26, 40, [5480, 5560]),
+]
+
+// ---------------------------------------------------------------- the footbridges (I6-b)
+
+/**
+ * A rigid deck on abutments (cuttings.ts `buildFootbridges`): a footway bridge of the OSM
+ * extract (`bridge=yes`, `layer=1`) or the chicane service bridge. The deck is one straight slab
+ * between the way's first and last node at ONE height — the greater of the ground under the span
+ * + `FOOTBRIDGE.minGap` and, over a cut floor or a road face under the span, that surface +
+ * `clearance` — never a ground face (R11); its abutments and the stairs / ramps at its ends stand
+ * on `ground.standY`. `ramp` gives that end a 1 : 8 slab instead of stairs ('north' = the end with
+ * the smaller world z). Every row is unverified: the aerials resolve a deck line, not a height.
+ */
+export interface FootbridgeDef {
+  osmWay: number
+  name: string
+  /** the stretch of lap the way's nodes project into (R14) */
+  window: [number, number]
+  /** deck width across (m) */
+  deckW: number
+  /** rail (footway) or parapet (road) height over the deck (m) */
+  railH: number
+  ramp?: 'north' | 'south' | 'both'
+  /** the deck line moved across from the OSM way (m, + = the left of the way's first → last direction): the Q2 gaps are 3.1–3.5 m and the ways are digitised off their centres */
+  shift?: number
+  /** the soffit's headroom over a cut floor or a road face under the span (m) */
+  clearance: number
+  /** a footway (steel rails, stairs) or a service road (concrete parapets, ramps, a thicker slab) */
+  kind: 'foot' | 'road'
+  unverified: string[]
+}
+
+/** the decks' constants (m): slab thickness by kind, the soffit's minimum gap over the ground under the span, the stairs' riser / tread, the ramps' slope, the rail post pitch */
+export const FOOTBRIDGE = { slab: { foot: 0.35, road: 0.6 }, minGap: 0.6, riser: 0.17, tread: 0.3, rampSlope: 1 / 8, railPitch: 2 } as const
+
+export const FOOTBRIDGES: FootbridgeDef[] = [
+  // the three footway bridges in the gaps between the Q2 bars (each ≈ 11 m, front to back); nothing but
+  // the terrace's ground passes under them, so they ride FOOTBRIDGE.minGap over it with stairs
+  { osmWay: 184103165, name: 'Q2 歩道橋 北', window: [5150, 5200], deckW: 2.0, railH: 1.1, ramp: 'north', shift: 0.3, clearance: 4.5, kind: 'foot', unverified: ['height (a deck minGap over the ground under it)', 'the north ramp (aerial 16-13 "footbridge with north ramp", ±)', 'shifted 0.3 m to the centre of the 3.5 m gap between bars 183393102 / 183393101 (O5: the abutments ≥ 0.6 m from both)'] },
+  { osmWay: 184103564, name: 'Q2 歩道橋 中', window: [5260, 5310], deckW: 2.0, railH: 1.1, shift: -0.44, clearance: 4.5, kind: 'foot', unverified: ['height', 'stairs at both ends', 'shifted 0.44 m to the centre of the 3.1 m gap between bars 183393101 / 183393103 (the way runs 1.1 m from 183393103)'] },
+  { osmWay: 184103565, name: 'Q2 歩道橋 南', window: [5290, 5340], deckW: 2.0, railH: 1.1, clearance: 4.5, kind: 'foot', unverified: ['height', 'stairs at both ends'] },
+  // the chicane service bridge over the county road's left exit cut (CUTS chicaneLeft): a 4 m vehicle deck whose
+  // soffit keeps `clearance` over the cut floor, ramped at both ends (v2 — v1 was a 6 m slab lying on the grass)
+  { osmWay: 467219905, name: 'シケイン側道橋', window: [5110, 5170], deckW: 4.0, railH: 0.9, ramp: 'both', clearance: 4.5, kind: 'road', unverified: ['width 4 m (OSM has none)', 'headroom 4.5 over the cut floor', 'the 1 : 8 ramps at both ends (the aerial shows the deck line only)'] },
 ]
 
 // ---------------------------------------------------------------- run-off surfaces

@@ -916,6 +916,8 @@ export interface EnvBuildContext {
   track: Track
   terrain: Terrain
   ground: Ground
+  /** the cut corridors the field follows (R6, ground-field.ts): cuttings.ts stands the walls, portals and stairs along them */
+  cuts: CutField
   /** the environment root every builder adds to */
   group: THREE.Group
   quality: Quality
@@ -1065,7 +1067,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   const farField = new FarField(terrain.grid(), quality)
   group.add(farField.group)
   const ctx: EnvBuildContext = {
-    track, terrain, ground, group, quality, assets, boxes, rng,
+    track, terrain, ground, cuts, group, quality, assets, boxes, rng,
     standZones: [
       ...STANDS.map((d) => ({ from: d.sRange[0], to: d.sRange[1], side: d.side, lateralBack: lateralBackMax(d.lateralBack) })),
       // the spectator banks (banks.ts) keep trees off the lawn people sit on, but only just

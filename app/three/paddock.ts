@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { enPairs } from '~/data/en-codec'
 import {
   BUILDINGS, COLOURS, HELIPAD, PADDOCK_BAY, PADDOCK_BUILDINGS, PADDOCK_FENCE, PADDOCK_ISLAND, PADDOCK_LAMPS, PADDOCK_MASTS, PADDOCK_OFFICE, PADDOCK_PARKING, PADDOCK_PLANE,
-  PIT_BOX_STRIP, PIT_BUILDING, PIT_ENVELOPE, UNDERPASSES, type PaddockBuildingDef, type PaddockParkingRow,
+  PIT_BOX_STRIP, PIT_BUILDING, PIT_ENVELOPE, type PaddockBuildingDef, type PaddockParkingRow,
 } from '~/data/suzuka-facilities-spec'
 import { placementCorners, vehiclePlacements } from '~/data/ops-spec'
 import { osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
@@ -46,10 +46,11 @@ import { CAR_PARK } from './vehicles'
  *   (canopy on four columns, two island kerbs = GROUND_OBJECTS.islandKerb, four dispensers,
  *   a kiosk) oriented on the two OSM pump ways, the service house and the tyre garage on the
  *   natural ground, the former medical room (course-vehicle base) with its roll doors;
- * - the tunnel heads (the 逆バンク ramp head, the works-road portal's retaining-wall stubs —
- *   the cuts themselves are I6), the green chain-link enclosure from the OSM fence ways with
- *   its three gates (`paddockFence`: vertical cards only, posts `paddockFencePosts`), the street
- *   lamps (`infield-lamps`) and the two 22 m floodlight masts (`paddockMasts`).
+ * - the green chain-link enclosure from the OSM fence ways with its three gates
+ *   (`paddockFence`: vertical cards only, posts `paddockFencePosts`), the street lamps
+ *   (`infield-lamps`) and the two 22 m floodlight masts (`paddockMasts`). The I2-b tunnel heads
+ *   are gone: the 逆バンク ramp and the works road are CUTS corridors and cuttings.ts stands
+ *   their portals (I6).
  *
  * - the car parks (plan I2-c, `PADDOCK_PARKING` / `PADDOCK_BAY`): `paddockBays` walks every
  *   block's bays in world metres along the row (the track frame shrinks inside the final corner:
@@ -607,8 +608,6 @@ interface PaddockMaterials {
   windowBand: THREE.MeshStandardMaterial
   paving: THREE.MeshStandardMaterial
   pavingTile: number
-  retaining: THREE.MeshStandardMaterial
-  retainingTile: [number, number]
   fence: THREE.MeshStandardMaterial
   fenceTile: number
   green: THREE.MeshStandardMaterial
@@ -640,10 +639,6 @@ function paddockMaterials(ctx: EnvBuildContext, buildingRoofMat: THREE.Material)
   const pavingTile = tileMetres(reg, 'tex/pavingstones099/diff', 2)
   const pavingFallback = () => new THREE.MeshStandardMaterial({ map: pavingTexture(k), roughness: 0.85 })
   const paving = reg ? pbrFromAssets(reg, 'pavingstones099', { fallback: pavingFallback, handBuiltUv: true, normalScale: 0.7 }) : pavingFallback()
-  const rtU = tileMetres(reg, 'tex/preconcrete_wall_001_long/diff', 4)
-  const retainingTile: [number, number] = [rtU, rtU / assetAspect(reg, 'tex/preconcrete_wall_001_long/diff', 3)]
-  const retainingFallback = () => new THREE.MeshStandardMaterial({ color: 0x9a9894, roughness: 0.9 })
-  const retaining = reg ? pbrFromAssets(reg, 'preconcrete_wall_001_long', { fallback: retainingFallback, handBuiltUv: true, normalScale: 0.8, extra: { color: 0x9a9894 } }) : retainingFallback()
   const fenceTile = 2.0
   const fence = cutoutFromAssets(reg, 'fence003', {
     quality: ctx.quality, tile: fenceTile, handBuiltUv: true, normalScale: 0.5, extra: { color: PADDOCK_FENCE.colour, metalness: 0.3 },
@@ -657,7 +652,7 @@ function paddockMaterials(ctx: EnvBuildContext, buildingRoofMat: THREE.Material)
   const steel = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.45, metalness: 0.6 })
   return {
     siding, sidingTile, siding009, siding009Tile, openings, officeRoof, concrete: pm.pierMat, shell: pm.shellMat, white: pm.whiteMat, glass: pm.glassMat,
-    glassBand, glassBandTile, windowBand, paving, pavingTile, retaining, retainingTile, fence, fenceTile, green, steel, dark: pm.darkMat, rail: pm.railMat, roof: buildingRoofMat,
+    glassBand, glassBandTile, windowBand, paving, pavingTile, fence, fenceTile, green, steel, dark: pm.darkMat, rail: pm.railMat, roof: buildingRoofMat,
   }
 }
 
@@ -722,7 +717,6 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   const rails: THREE.BufferGeometry[] = []
   const glassGeos: THREE.BufferGeometry[] = []
   const concreteGeos: THREE.BufferGeometry[] = []
-  const darkGeos: THREE.BufferGeometry[] = []
 
   // --- the prop prototypes shared by several buildings ------------------------------------------------
   const plain = (color: number, roughness = 0.6, metalness = 0.2) => propMaterial(ctx.props, { color, roughness, metalness })
@@ -1288,51 +1282,8 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     }
   }
 
-  // ================================================================ tunnel heads (the cuts are I6)
-  {
-    // the 逆バンクトンネル's paddock-side ramp head: a concrete box with a dark opening on its paddock (−lateral) face
-    const row = rowOf('gyaku_bank_head')
-    const [s0, s1] = row.sRange
-    const [l0, l1] = row.lateral!
-    const floorW = roadY((s0 + s1) / 2, (l0 + l1) / 2) - plane.drop
-    const b = trackWalls(s0, s1, l0, l1, floorW - 0.5, floorW + row.eaves, [2, 2])
-    const heads: THREE.BufferGeometry[] = [b.sides, b.top]
-    const dark = new Sheet()
-    if (row.doors) {
-      const d = row.doors
-      const sc = (s0 + s1) / 2
-      faceQuad(dark, sc - d.w / 2, sc + d.w / 2, l0 - 0.03, floorW + 0.1, floorW + 0.1 + d.h, -1)
-    }
-    // the works-road portal (UNDERPASSES 175231859 `portal`): two retaining-wall stubs along the road and the head frame
-    const up = UNDERPASSES.find((u) => u.osmWay === 175231859)
-    const portal = up?.portal
-    const wallGeos: THREE.BufferGeometry[] = []
-    if (portal) {
-      const prow = rowOf('works_road_head')
-      const [ps0, ps1] = prow.sRange
-      const [pl0, pl1] = prow.lateral!
-      const gy = standWorld(portal.s, portal.lateral)
-      // the stubs: 0.25 thick, 1.2 high above the ground at their ends, either side of the 5 m road
-      for (const s of [ps0, ps1]) {
-        const w = trackWalls(s - 0.125, s + 0.125, pl0, pl1, Math.min(standWorld(s, pl0), standWorld(s, pl1)) - 0.3, Math.max(standWorld(s, pl0), standWorld(s, pl1)) + 1.2, M.retainingTile)
-        wallGeos.push(w.sides)
-        heads.push(w.top)
-      }
-      // the head frame at the +lateral end of the stubs (the tunnel is under the apron beyond): two piers and a lintel, the dark mouth looking −lateral
-      const frameLat = pl1 - 0.4
-      const lintel = trackWalls(ps0 - 0.3, ps1 + 0.3, frameLat - 0.4, frameLat, gy + 3.0, gy + prow.eaves, [2, 2])
-      heads.push(lintel.sides, lintel.top, lintel.bottom)
-      for (const s of [ps0, ps1]) {
-        const pier = trackWalls(s - 0.25, s + 0.25, frameLat - 0.4, frameLat, gy - 0.3, gy + 3.0, [2, 2])
-        heads.push(pier.sides, pier.top)
-      }
-      faceQuad(dark, ps0 + 0.25, ps1 - 0.25, frameLat - 0.42, gy - 0.05, gy + 3.0, -1)
-    }
-    add(heads, M.concrete, 'paddockTunnelHeads', true)
-    add(wallGeos, M.retaining, 'paddockRetainingWalls', true)
-    darkGeos.push(dark.build())
-    stat('paddock-tunnelHeads', portal ? 2 : 1)
-  }
+  // (the I2-b tunnel heads — the 逆バンクトンネル ramp head box and the works-road head frame with its
+  //  retaining stubs — are gone: the ramps are CUTS corridors and cuttings.ts stands their portals)
 
   // ================================================================ the enclosure: chain-link fence, posts, gates
   {
@@ -1549,7 +1500,6 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   add(rails, railMat, 'paddockRails', false)
   add(glassGeos, M.glass, 'paddockGlass', false)
   add(concreteGeos, M.concrete, 'concretePaddockSteps', true)
-  add(darkGeos, M.dark, 'paddockOpenings', false)
 
   // ================================================================ v1 pieces kept until I3: the other BUILDINGS extrusions, the flags
   {

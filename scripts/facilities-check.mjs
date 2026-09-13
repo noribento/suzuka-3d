@@ -1988,7 +1988,25 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       for (let i = 0; i < outlines.length; i++) for (let j = i + 1; j < outlines.length; j++) if (ringsCross(outlines[i].ring, outlines[j].ring)) fail(`${outlines[i].id} and ${outlines[j].id}: outlines cross — O11`)
     }
   }
-  for (const table of ['CUTS', 'FOOTBRIDGES']) if (!spec[table]) skip(`O6 / O11 ${table}`)
+  if (!spec.CUTS) skip('O6 / O11 CUTS')
+  // --- O11 FOOTBRIDGES (I6-b): the way exists with ≥ 2 nodes (§6 holds the id), both end nodes project into the row's window
+  //     (R14: the Q2 gaps sit in the figure-8 fold), a shift stays within a metre of the digitised line, the deck is 1.5–6 m wide
+  if (spec.FOOTBRIDGES) {
+    for (const fb of spec.FOOTBRIDGES) {
+      const id = `FOOTBRIDGES ${fb.osmWay}`
+      const f = osm.osmFeature(fb.osmWay)
+      if (!f) continue
+      if (f.en.length < 2) { fail(`${id}: OSM way has ${f.en.length} node(s) — O11`); continue }
+      for (const [e, n] of [f.en[0], f.en[f.en.length - 1]]) {
+        const near = track.nearestOnRange(e * track.enScale, -n * track.enScale, fb.window[0], fb.window[1])
+        if (!inArc(near.s, fb.window)) fail(`${id}: an end node projects to s ${fmt(near.s, 0)} outside its window ${fb.window.join('→')} — O11`)
+      }
+      if (Math.abs(fb.shift ?? 0) > 1) fail(`${id}: shift ${fb.shift} m moves the deck more than a metre off the OSM line — O11`)
+      if (!(fb.deckW >= 1.5 && fb.deckW <= 6)) fail(`${id}: deckW ${fb.deckW} outside 1.5–6 m — O11`)
+      if (!(fb.clearance >= 2.5)) fail(`${id}: clearance ${fb.clearance} < 2.5 m — O11`)
+    }
+    notes.push(`O11: ${spec.FOOTBRIDGES.length} footbridges (${spec.FOOTBRIDGES.filter((b) => b.kind === 'road').length} vehicle)`)
+  } else skip('O11 FOOTBRIDGES')
   // --- O2 / O5 / the ring on the hand-placed INFIELD_FACILITIES rows (I5-b) ---------------------------
   // (an OSM-footprint row is O11 above and §6; a fence / wall / compound is a line, so only its
   // corners' 0.2 m rule applies — O5's w/2 + 0.2 is for a box with a size)

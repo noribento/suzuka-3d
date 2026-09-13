@@ -61,6 +61,13 @@ test.describe('Suzuka 3D broadcast', () => {
     for (const name of ['structures-bridge-slab', 'structures-bridge-fascia', 'structures-bridge-abutments', 'structures-bridge-furniture', 'structures-underpass-rails', 'leaderTowerLattice']) {
       expect(built.names, `missing ${name}`).toContain(name)
     }
+    // the cuttings (I6-b, cuttings.ts): the retaining walls and portals along the CUTS corridors, and the four
+    // FOOTBRIDGES decks (the three Q2 walkways and the chicane service bridge over the chicaneLeft cut, which
+    // replaced the v1 'structures-underpass-bridge' slab)
+    for (const name of ['furniture-cut-walls', 'furniture-cut-portals', 'structures-footbridge-184103165', 'structures-footbridge-184103564', 'structures-footbridge-184103565', 'structures-footbridge-467219905']) {
+      expect(built.names, `missing ${name}`).toContain(name)
+    }
+    expect(built.names).not.toContain('structures-underpass-bridge')
     // the white lines carry the screen-width attributes and cover the whole lap
     expect(built.lineAttrs).toContain('aAcross')
     expect(built.lineAttrs).toContain('aHalf')
