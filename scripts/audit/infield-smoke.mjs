@@ -23,6 +23,9 @@
  *        middle of it), and the asphaltArea material is its own (not the lanes'); on the low
  *        tier the plan / meshes build times are PRINTED against the numbers held in BASE_MS
  *        (report-only; the I5-a rows had doubled them, the partition speed-up took them back).
+ *        The I5 review (F5 / V3): the Spoon entry's hard-standing edge is the aerial's line —
+ *        grass 1.5 m inside it, paddock 1.5 m outside it over s 3430–3530 (the I4-c wall stood
+ *        5–7 m inside the sheet; trackside-smoke asserts the run is gone).
  *  I5-c  the ponds and trees (`checkPondsTrees` below): the water planes of the `surface`
  *        BASINS rows, the dry basins' shore rings, reeds and puddles, the material
  *        combinations (the reed cards are the one new program), INFIELD_TREES planted by the
@@ -102,6 +105,29 @@ for (const tier of tiers) {
     const owner = plan.ownerAt(v.x, v.z, [h.s - 30, h.s + 30])
     check(owner.name === '第 2 ヘリパッド' && ground.builtY(v.x, v.z)?.kind === 'helipad', `the second helipad (s ${h.s}, lat ${h.lateral}) is owned by '${owner.name}' on a ${ground.builtY(v.x, v.z)?.kind ?? 'bare'} face`)
     check(spec.HELIPADS.length === 2 && spec.HELIPADS[1].mark === 1, `HELIPADS: ${spec.HELIPADS.length} discs, the second on atlas tile ${spec.HELIPADS[1]?.mark}`)
+  }
+  // --- the Spoon infield's edge (the I5 review, F5 / V3) ---------------------------------------------
+  // The hard-standing's inner edge over the Spoon entry is the aerial's line (hand vertices of
+  // the 'スプーン インフィールド硬地' ring, s 3405–3530): grass 1.5 m inside it (the verge between
+  // the kerb and the sheet), the sheet 1.5 m outside it (the I4-c wall stood 5–7 m inside the
+  // sheet with paving on both sides).
+  {
+    const edge = [[3405, 13], [3430, 15], [3455, 16.8], [3480, 18.6], [3500, 20], [3530, 22.5]]
+    const latAt = (s) => { for (let i = 1; i < edge.length; i++) { const [s0, l0] = edge[i - 1], [s1, l1] = edge[i]; if (s >= s0 && s <= s1) return l0 + ((l1 - l0) * (s - s0)) / (s1 - s0) } return NaN }
+    const bad = []
+    for (let s = 3430; s <= 3530; s += 10) {
+      const l = latAt(s)
+      track.pointAt(s, l - 1.5, v, 0)
+      const inner = plan.ownerAt(v.x, v.z, [3380, 3820]).kind
+      track.pointAt(s, l + 1.5, v, 0)
+      const outer = plan.ownerAt(v.x, v.z, [3380, 3820]).kind
+      if (inner !== 'grass' || outer !== 'paddock') bad.push(`s ${s} lat ${l.toFixed(1)}: ${inner} / ${outer}`)
+    }
+    check(bad.length === 0, `Spoon entry s 3430–3530: grass 1.5 m inside the hard-standing's edge and paddock 1.5 m outside it${bad.length ? ` (${bad.join('; ')})` : ''}`)
+    // no BARRIERS run inside Spoon at all (truth-aerial 11): trackside-smoke asserts it on the
+    // table. A general "no wall with paving on both sides" rule is NOT a fact of this circuit:
+    // the pit wall, the T1 island wall and the paddock road's walls all stand between two
+    // paved sheets by design (tried in the I5 review: 8 legitimate runs hit it).
   }
   // --- I5-a: the way-line decals ------------------------------------------------------------------
   {
@@ -205,7 +231,8 @@ finish()
  *    islands' kerbs islandKerb (every InstancedMesh level of the tyres);
  *  - every parked car of `infield-cars` (L0) stands on a drawn `paddock` face and ≥ hw + 8 off
  *    the centreline (plan.project's d); the cars per lot are what `group.userData.infieldParking`
- *    reports and their sum is ≤ Quality.infield.infieldCars;
+ *    reports and their sum is ≤ Quality.infield.infieldCars; no two cars are closer than 2.3 m
+ *    (the C lot's folded legs, the I5 review V1; `rejects.overlap` printed per lot);
  *  - the service roads' lamps (`infield-service-lamps`) ≥ 30, none on a road-frame / water face;
  *  - buildMs.infield < 1500 ms (the whole infield-ground builder, I5-a lines included);
  *  - report-only: for every non-instanced mesh named `props*` / `furniture*` under env.group, the
@@ -283,6 +310,16 @@ function checkFacilities(scene, check, tier, { glb: withGlb = false } = {}) {
     const placed = lots.reduce((a, l) => a + l.cars, 0)
     check(pts.length > 0 && pts.length === placed && placed <= scene.quality.infield.infieldCars, `infield-cars: ${pts.length} L0 instances = ${placed} placed over ${lots.length} lots (≤ Quality.infield.infieldCars ${scene.quality.infield.infieldCars}); bays ${st['infield-bays']}, bay lines ${st['infield-bayLinesM']} m`)
     check(offFace === 0 && nearRoad === 0, `  every car on a drawn paddock face (${offFace} off) and ≥ hw + 8 off the centreline (${nearRoad} nearer)`)
+    // no two cars on one spot: the C lot's s range folds round T1–T2 and laid every bay twice
+    // until the I5 review (V1) — pairs closer than a bay's width − 0.2 m are a fold come back
+    let close = 0, closest = Infinity
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const d = Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1])
+      if (d < closest) closest = d
+      if (d < 2.3) close++
+    }
+    const overlaps = lots.reduce((a, l) => a + (l.rejects.overlap ?? 0), 0)
+    check(close === 0, `  no two cars closer than 2.3 m (${close} pairs; closest ${closest.toFixed(2)} m; ${overlaps} bays rejected as overlaps by the fold test — report-only)`)
     for (const l of lots) console.log(`    ${l.id.padEnd(8)} walked ${String(l.walked).padStart(5)} kept ${String(l.kept).padStart(4)} cars ${String(l.cars).padStart(4)}  rejects ${Object.entries(l.rejects).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   // --- the lamps -------------------------------------------------------------------------------------------
@@ -350,6 +387,11 @@ function checkFacilities(scene, check, tier, { glb: withGlb = false } = {}) {
  *     depth write — the far water's own parameter set, so one program for all water), flat
  *     at its shoreline − WATER_PLANE_DROP, its vertices finite, a 'water' face drawn under its
  *     centre (or the island's grass) below the plane; stats.infield['infield-ponds'] agrees;
+ *     the ground at every rim vertex and 0.5 / 3 m outside it (the ring's outward normal) is
+ *     above the plane (the relief only lowers the ground: a rim under the plane is water
+ *     hanging out of the ground) — asserted on the high tier, report-only on low, whose 17.7 m
+ *     terrain grid is pushed under the bed by whole triangles and dips outside the far shore
+ *     where no face covers it; report-only: the share of water-face vertices above the plane;
  *   - the dry basins' gravel shore rings (GROUND_AREAS gravelArea rows, the OSM ring grown 3 m)
  *     own the ground 0.75 m outside the OSM shoreline on ≥ 80 % of the ring's vertices;
  *   - the reeds: `infield-reeds-L0-*` InstancedMeshes, every instance inside a dry basin's
@@ -400,6 +442,47 @@ async function checkPondsTrees(scene, tier, check) {
     const island = face?.kind === 'grassArea'
     check(!!face && (face.kind === 'water' ? face.y < want : island && face.y > want), `    a ${face?.kind ?? 'bare'} face under its centre, ${face ? Math.abs(want - face.y).toFixed(2) : '?'} m ${island ? 'above (the island)' : 'below'} the plane`)
     check(!!waterFar && combo(waterFar.material) === combo(m), `    the same material combination as water-far (${combo(m)})`)
+    // the rim: the relief only ever lowers the ground, so the plane has to fit UNDER the ground
+    // at every rim vertex and just outside it (0.5 m and 3 m along the ring's outward normal) —
+    // at 9a81a6b the west pond's plane stood 0.75 m over its near shore along 338 m of the
+    // shoreline (the I5 review, F1 / V2); worst vertex reported in the basin's own window
+    if (b) {
+      const r = b.r, pts = r.pts, n = pts.length
+      let bad = 0, badM = 0, worst = null
+      for (let i = 0; i < n; i++) {
+        const [x0, z0] = pts[i], [x1, z1] = pts[(i + 1) % n], [xp, zp] = pts[(i - 1 + n) % n]
+        let nx = z1 - zp, nz = -(x1 - xp)
+        const l = Math.hypot(nx, nz) || 1
+        nx /= l; nz /= l
+        if (inPts(x0 + nx * 0.5, z0 + nz * 0.5, pts)) { nx = -nx; nz = -nz }
+        const dy = Math.min(ground.standY(x0, z0), ground.standY(x0 + nx * 0.5, z0 + nz * 0.5), ground.standY(x0 + nx * 3, z0 + nz * 3)) - want
+        if (dy < -0.02) {
+          bad++
+          badM += Math.hypot(x1 - x0, z1 - z0)
+          if (!worst || dy < worst.dy) { const q = b.def.sRange ? track.nearestOnRange(x0, z0, b.def.sRange[0], b.def.sRange[1], 0) : track.nearestOnRange(x0, z0, 0, track.length, 0); worst = { dy, s: q.s, lateral: q.lateral } }
+        }
+      }
+      const rimMsg = `the ground at / 0.5 m / 3 m outside every rim vertex is above the plane (${bad} of ${n} below, ${badM.toFixed(0)} m of shoreline${worst ? `; worst s ${worst.s.toFixed(0)} lat ${worst.lateral.toFixed(0)}: ${worst.dy.toFixed(2)} m` : ''})`
+      // the low tier's 17.7 m terrain grid (high 13.3 m) is pushed under the sunken bed by whole
+      // triangles (environment.ts clampUnderSheets), so where no drawn face covers the terrain
+      // (the west pond's far shore) its mesh dips a cell or two out: reported there, asserted on high
+      if (tier === 'high') check(bad === 0, `    ${rimMsg}`)
+      else console.log(`    report-only (low: the terrain grid's moat under the bed): ${rimMsg}`)
+      // report-only: the water face's vertices above the plane inside the ring — the banks
+      // (> 0) but not the bulk of the bed (< 50 %; 28 % at the wrong level of 9a81a6b)
+      const waterFace = scene.groundMeshes.faces.find((f) => f.kind === 'water')
+      if (waterFace) {
+        const wp = waterFace.geo.attributes.position
+        let above = 0, tot = 0
+        for (let i = 0; i < wp.count; i++) {
+          const x = wp.getX(i), z = wp.getZ(i)
+          if (x < r.box[0] || x > r.box[1] || z < r.box[2] || z > r.box[3] || !inPts(x, z, pts)) continue
+          tot++
+          if (wp.getY(i) > want) above++
+        }
+        console.log(`    report-only: ${above} of ${tot} water-face vertices inside the ring stand above the plane (the banks; ${tot ? (100 * above / tot).toFixed(0) : 0} %)`)
+      }
+    }
   }
   {
     const isl = bar.BASINS.find((b) => b.island)

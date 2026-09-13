@@ -125,9 +125,19 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
 
   const helipad = new THREE.MeshStandardMaterial({ map: helipadTexture(), roughness: 0.45 })
 
-  // the retention basins: dry mud in late March (BASINS.dry), water in the October palette
+  // the retention basins: dry mud in late March (BASINS.dry), water in the October palette.
+  // The mud is the gravel tile (3 m) tinted to the photos' silt — the same maps, so the same
+  // program as the traps — under the mud floors of the dry basins and the banks of the ponds
+  // that stand above the water plane (the I5 review, V2: the flat colour read as a 3–12 m
+  // untextured band round the west pond). PLANAR_UV.water is 20 m per uv unit.
+  const mudUv = PLANAR_UV.water!
+  const mudMaps = (() => {
+    const g = gravelMaps()
+    const rep = <T extends THREE.Texture>(t: T) => repeatMetres(t.clone(), 3, mudUv)
+    return { map: rep(g.map), normalMap: g.normalMap && rep(g.normalMap), roughnessMap: g.roughnessMap && rep(g.roughnessMap) }
+  })()
   const water = SEASON === 'spring'
-    ? new THREE.MeshStandardMaterial({ color: 0x8a7d66, roughness: 0.95 })
+    ? pbr(mudMaps, { color: 0x8a7d66, roughness: 0.95 }, 0.6)
     : new THREE.MeshStandardMaterial({ color: 0x2f4d58, roughness: 0.08, metalness: 0.55 })
 
   return {

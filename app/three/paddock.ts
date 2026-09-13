@@ -302,7 +302,8 @@ function yellowHatchTexture(k: number): THREE.Texture {
 // the infield's (the ring, hw + 8, the facilities) go through the `veto` callback.
 
 export type P2 = { x: number; z: number }
-export type BayReject = 'face' | 'owner' | 'envelope' | 'slope' | 'footprint' | 'fence' | 'lamp' | 'clear'
+/** why a bay was dropped; 'overlap' is the infield's own (a block whose s range folds round a bend lays two bays on one spot — infield-ground.ts) */
+export type BayReject = 'face' | 'owner' | 'envelope' | 'slope' | 'footprint' | 'fence' | 'lamp' | 'clear' | 'overlap'
 export interface Bay {
   /** the bay's centre and its axis / across unit vectors in the (s, lateral) plane; `into` points from the aisle into the bay */
   s: number; lat: number
@@ -382,7 +383,7 @@ export function layoutBays(track: Track, ground: Ground, row: BayRow, veto: (c: 
   // the rows step from lat[0] towards lat[1]: down on the right of the road (negative laterals), up on the left
   const dir = row.lat[1] < row.lat[0] ? -1 : 1
   const kept: Bay[] = []
-  const rejects: Record<BayReject, number> = { face: 0, owner: 0, envelope: 0, slope: 0, footprint: 0, fence: 0, lamp: 0, clear: 0 }
+  const rejects: Record<BayReject, number> = { face: 0, owner: 0, envelope: 0, slope: 0, footprint: 0, fence: 0, lamp: 0, clear: 0, overlap: 0 }
   let walked = 0
   for (let r = 0; r < row.rows; r++) {
     const pair = Math.floor(r / 2)

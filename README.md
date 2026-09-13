@@ -1044,7 +1044,10 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   t1-inside-island / t1-t2-inside / t2-exit-outside / hairpin-outside-tyres / hairpin-exit-right / 130r-inside-wall / 130r-exit-wall）。
   柵を足した run: degner2-trap-back（黒）、dunlop-outside-tyres / dunlop-exit-tyres / bridge-approach-left / gyaku-inside（緑）、
   130r-outside-tyres（黒）、hairpin-inside の「(」、t3-outside（黒）。A10 / A10b の遮蔽は全スタンド 100 %（BANK_I 97 % は既存）。
-- **Spoon 内側の壁** `spoon-inside-wall`（concrete、3400–3797、硬地の縁 +13 → +25 → +40.8、航空写真のみ ±3 m）。
+- **Spoon 内側の壁** `spoon-inside-wall`（concrete、3400–3797、硬地の縁 +13 → +25 → +40.8、航空写真のみ ±3 m）— **I5 レビュー
+  F5 / V3 で削除**: 空撮 11 は Spoon 内側 3400–3797 にバリアを読まず（G11-03「phantom left Armco」）、この線は硬地の縁そのもの
+  だった（I5-a の硬地行がループ道路の中心線 −2 m を縁にしたので、壁は s 3430–3530 で舗装の 5〜7 m 内側に立っていた）。縁は硬地行
+  'スプーン インフィールド硬地' の手描き頂点が引き継ぐ（下の「I5 レビューの修正」）。BARRIERS は 72 run。
 - **タイヤ壁 v2**: `tyreWallTexture()` を 3.96 m × 1.5 m のタイル（0.66 m 毎の縦縫い目 6、上端 0.15 m の折返し帯、継目の黄マーカー
   0.1 × 0.3、帯越しのタイヤの膨らみ）にし、`BARRIER_KIND.tyre.top` 1.95 → **1.5**（写真 1.2–1.5 m。A10 は柵の有無で遮蔽を決めるので
   影響なし）。実タイヤ積み: タイヤ run の柵柱位置（4 m ピッチ）ごとに 2 本（±0.45 m）、壁の裏面に接して地面に立つ（観客側から見える
@@ -1124,7 +1127,7 @@ I5-a は柵の内側で舗装されているのに何も描いていなかった
 | 第 2 ヘリパッド | helipad L1 | disc `HELIPAD_2` (2050, 70, r 10)、アトラス 2 枚目（橙の四角枠） | 空撮 06、±5 m |
 | デグナー側 くさびの管理道路 | asphaltArea L−1 | 467386920 頂点 81–87 を −1 / −5 m オフセットした 4 m 帯 [1860, 2194] | OSM の service area 境界。130R 側の帯は G12 residual で断念 |
 | シケイン右 エプロン延長 / T17 出口右 管理道路 | asphaltArea L−2 / L0 | `{ way: 467417584, verts: [14, 24] }` / `{ way: 467223464, verts: [7, 43] }` | OSM（端の頂点を落として列の反転を消す） |
-| スプーン インフィールド硬地 | paddock | `{ way: 184419756, offset: 2 }`（周回管理道路の外縁）、18,795 m² | OSM。空撮の縁 +15 @3430 → +25 → +37.5 はこのループの縁。1 リングで足りるので 3 分割しない |
+| スプーン インフィールド硬地 | paddock | `{ way: 184419756, verts: [0, 12], offset: 2 }` + 手描き 6 頂点 (3530, 22.5) → (3405, 13) + `{ verts: [20, 30], offset: 2 }`、18,207 m² | OSM + 空撮。ループ道路の頂点 13–19（s 3555 → 3421、+23.8 → +11.1）は空撮の縁 +15 @3430 → +22.5 @3530 より 2〜7 m 路面寄りだったので、その区間だけ手描き（I5 レビュー V3: 縁石と硬地の間の枯れ芝の路肩が戻る）。1 リングで足りるので 3 分割しない |
 | 西パドック エプロン / 西コース ピット出口路 | paddock L1 / asphaltArea L2 | ring [3900, 15] + ループ頂点 21–25 (offset 2) + [4060, 40] [4100, 15] / edge 3937–3972 off 1.4 + フェンス 184419761 頂点 11–13 | 空撮 13、±3 m |
 | 西パドック駐車場 東 / 西 | paddock L0 / L1 | osm 184415332 / 184415335 [4260, 4360] | OSM（空撮の「南コースパドック駐車場」はこの 2 面） |
 | 南コース パドックエプロン 北 / 南 / ガレージ前 | paddock | osm 467572919 / 467572920 / 468377676 `grow: -1` | OSM（縁が 8 m ループの中心線から 3.5–5.8 m: 南コースの幅を 10 → 8 に） |
@@ -1201,16 +1204,24 @@ forklift / toilet / mast — 計画の 12 種に tyres / forklift / toilet / mas
 - **南コースの縁石**: `SOUTH_COURSE_KERBS` — 周回路 153525062 を 1 m で再標本し、±4 m の回転角 / m が 0.015 以上の区間 ≥ 12 m を
   「エイペックス」として両縁に `lanes.ts sweepKerb`（GROUND_OBJECTS.laneKerb、`kerbMaps`、リボン縁の 0.5 m 内側 = 面の上に丸ごと）。
   15 区間 / 792 m、`infield-southKerbs`（markObject laneKerb）。計画の「12 区間」は閾値で 15 になった。
-- **島縁石**: `INFIELD_ISLAND_KERBS` — T1 車寄せ (305, −68) r 2.5、南コースパドック北エプロン (4473, −240) r 3、西パドック (4000,
-  +30) r 3 = `infield-islandKerbs`（GROUND_OBJECTS.islandKerb）。
+- **島縁石**: `INFIELD_ISLAND_KERBS` — T1 車寄せ (305, −68) r 2.5、西パドック (4000, +30) r 3 = `infield-islandKerbs`
+  （GROUND_OBJECTS.islandKerb）。南コースパドック北エプロンの島 (4473, −240) は I5 レビュー V10 で削除（航空写真に島は無く、
+  中が素のアスファルトの縁石環はヘリから白い円に見えた）。
 - **タイヤ積み**: `infield-tyres` = `tire_stack` GLB（高 + ドロップ）/ 開いた円筒 + 上面リング（上向き面積 0.26 m²/本、G2 の幅 ≤ 0.7
   は count × 0.7 の length で）。IM の各レベルに `markObject('tyreStack')`（G3: 底 −15 mm、冠 +915 mm）。
 - **車**: `INFIELD_PARKING`（PADDOCK_PARKING と同じ約束、`lot` = 乗る GROUND_AREAS 行）8 区画 — C パドック 0.7、T3 0.6、D 裏 0.5
   （左側: lat [112, 64]）、デグナー東 0.7（左側）、西パドック 0.5、南コース北／南 0.4、スプーン 0.3。`paddock.ts` から `layoutBays`
   （面・所有者・勾配の共通判定 + 呼び手の veto）/ `bayLineQuads` / `carPropSets` / `parkCar` を切り出して共用（パドックも同じ関数を
   呼ぶ）。veto = 全標本 |lateral| ≥ hw + 8（O2）、四隅がリングの内、施設の足跡と街灯の外。白線 `infield-bayLines-<id>`（LAYER.paddock.
-  line）、車 `infield-cars`（段 [{ vehiclesNearM: GLB }, { 500 }, 空]）、予算 `Quality.infield.infieldCars`（高 260 / 低 110）。区画 662
-  （C 552: 池・管理道路・芝の上は face で落ちる；西パドックは DEM の勾配で 4 しか残らない — CAR_PARK.slopeGrade の実測）。
+  line）、車 `infield-cars`（段 [{ vehiclesNearM: GLB }, { 500 }, 空]）、予算 `Quality.infield.infieldCars`（高 260 / 低 110）。区画 455
+  （C 345: 池・管理道路・芝の上は face で落ちる；西パドックは DEM の勾配で 4 しか残らない — CAR_PARK.slopeGrade の実測）。
+  **I5 レビュー V1**: C 区画の s 範囲 [305, 875] は T1–T2 を回り込み、二つの脚（s ≈ 320–405 と 735–830）が同じ舗装面に乗るので
+  区画が二重に敷かれ、車が車の上に・白線が交差して描かれていた — veto の最後で既採用区画の XZ（0.9 倍に縮めた四角）との
+  `quadHits` を弾く（`BayReject 'overlap'`、全行共通: C と T3 は s 869–875 で触れる）。207 + 6 区画が overlap で落ち、smoke は
+  車の最近接対 ≥ 2.3 m を主張。**V2 相当の F6**: 予算は一様スケールではなく「小さい区画に occupancy × 区画をまず与え、最大の
+  区画（C）に残り」— 高: T3 23 / D 裏 6 / デグナー東 13 / 西 2 / 南北 12 / 南南 3 / スプーン 0、C 201；低: 小区画は同じ 59、
+  C 51（小区画の合計が予算を超える将来の予算だけ一様スケールに戻る）。デグナー東が航空写真の ~40 台に届かないのは区画の
+  多角形（18 区画）の問題で、予算ではない。
 - **街灯**: `INFIELD_LAMPS`（40 m 毎、中心線から 3 m、ラップに近い側）を役割 'road' の `{ way }` asphaltArea 行 4 本に —
   `paddock.ts lampPoleProto`（共用の手続きポール）、`infield-service-lamps` 87 本（路面・水面・リング外・施設内は落とす）。
 - **柵・壁**: 金網は paddock.ts の柵と同じ作り（3 m ピッチの半分で分割した垂直カード、両端が `standY`、`fence003` cutout /
@@ -1231,18 +1242,24 @@ I5-c は柵の内側の水面 2 面と乾いた池 2 面の演出、そして柵
 `app/three/stands.ts` の BASINS ループ、`app/three/vegetation.ts`、`app/data/infield-trees.ts`）。
 
 - **BASINS（`suzuka-barriers-spec.ts`）**: `BasinDef` に `ring / sRange`（OSM に無い池の手描きリング、GROUND_AREAS のリングと
-  同じ `PatchNode`）、`surface`（水面を描く）、`level`（岸の高さ、基準 s の路面基準、既定 +0.2）、`bank`（既定 9 m）、`island`、
+  同じ `PatchNode`）、`surface`（水面を描く）、`level`（岸の高さ、OSM 面は重心 s の路面基準、手描きリングは **`sRange` 内の最も
+  低い路面**基準 — I5 レビュー F1、既定 +0.2）、`bank`（既定 9 m）、`island`（`bank` 既定 4 m の独自の土手）、
   `platform` を足しました。`stands.ts resolveBasin(track, b)` が OSM 面と手描きリングを同じ形（world xz の外周 + 島の穴 + shoreY /
   floorY / bank）に解き、`facilityRelief` の PolyZone（床は cap = 下げるだけ、岸から `bank` m で smoothstep）と水面が同じ多角形を
-  読みます。島は穴: 中は何も主張せず（自然地形のまま）、島の岸も外周と同じ土手になります。`GROUND_AREAS` の 'water' 行は
+  読みます。島は穴: 中は何も主張せず（自然地形のまま）、島の岸も土手になります（幅は `island.bank`、既定 4 m — 外周の
+  `bank` とは別の尺度、I5 レビュー）。`GROUND_AREAS` の 'water' 行は
   `...BASINS.filter(b => b.ring)` から生成（外形の権威は BASINS 1 か所）、島は grassArea L1 の円盤。
 - **池は 2 面（計画の 3 面ではない）**: 空撮 14 を測り直すと、計画の「(4590, +75) の島付き」と「ヘアピン間 35 × 35 m
   (lower 2380–2420, +60…+90)」は**同じ池を 2 つのフレームで読んだもの**でした（world で 30 m 差、外形が重なる — A3 で同層重複）。
-  1 面に統合: **130R 池** = (4592, +78) r 21 の 12 角形（読みより 8 m 外: 路面ラスターの境界を跨ぐと world 部が閉じない）、
-  `level −5.5`（130R は盛土上で、その足元の地形が路面 −5〜−6 m）、島 r 4 に木製デッキ 4 × 6（`boxes` +0.3、'props'）。
+  1 面に統合: **130R 池** = (4597, +78) r 21 の 12 角形（横に 8 m 外: 路面ラスターの境界を跨ぐと world 部が閉じない；s は読みの
+  +5 m — I5 レビューで西の頂点が盛土裾の低い所に掛かったため）、`level −6.3` / `bank 10`（130R は盛土上で、その足元の地形が路面
+  −5〜−7 m；土手を緩くしないと地形格子の「堀」が岸の外で水面を割る — 下の「I5 レビューの修正」）、島 r 2.5（土手 4 m）に木製
+  デッキ 4 × 6（`boxes` +0.3、'props'）。
   **西ストレート池** = 近岸は空撮 13 の線（−26 @3970 → −45 @4160 → 4245 で −60、計画の −25 @4280 は西コースピットの
   小屋の下になるので不採用）、遠岸は地形が路面 +1.5 m 以内の所まで（空撮の「さらに 120 m 南西」は DEM で 3〜13 m の窪地 —
-  岸が水面より低くなるので林の斜面のまま）、19,364 m²（A9 < 20,000）、`level +0.2`、`bank 12`。OSM に natural=water は無い
+  岸が水面より低くなるので林の斜面のまま；I5 レビューで南西の 3 頂点を 4〜7 m 内に寄せ、遠岸 s 4100–4160 の切込みは残す）、
+  18,890 m²（A9 < 20,000）、`level −0.4`（谷底の路面 33.37 基準 = 水面 32.67 — +0.2 と窓の中点基準では近岸 114 m が水面より
+  0.75 m 低かった）、`bank 16`（北東端は路面 +3〜4 m の地形なので 6〜7 m の土手）。OSM に natural=water は無い
   （raw cache を検索: 最寄りは 184415331、s 610 +175 で別物）。この池は周回柵 775428456 の**外**（柵は西ストレート右の −20 m を通る）。
   **どちらも水は「ユーザーの既定」で unverified**（3 月の写真が権威。T1 池 184005565 と T1–T2 調整池 132793884 は dry のまま）。
 - **水面**: `terrain-far.ts waterFarMaterial()`（0x33443f、roughness 0.15、4 m リップル法線、**transparent 0.9 / depthWrite false**）
@@ -1252,27 +1269,31 @@ I5-c は柵の内側の水面 2 面と乾いた池 2 面の演出、そして柵
   `infield-pondDecks` 1。
 - **乾いた池の演出**: 葦 200 株（3 枚交差 1.2 m カード、`registerBuckets 'infield-reeds'` kind 'infield'、岸から 3〜14 m の
   土手の裾、影は落とさない）— 材質 `MeshStandardMaterial { map, alphaMap, alphaTest, DoubleSide }`（高ティアは A2C）に
-  `grass_medium_01` の diff + opacity、無パックは `reedTexture()`（64 × 128 の DataTexture 対、同じパラメータ）。**I5-c で予算した
-  唯一の +1 プログラム**（全ティア共通の組合せ、smoke がシーンの他材質に同じ組合せが無いことを確認）。水たまり 3（T1 池 2、調整池 1）
+  `reedTexture()`（64 × 128 の DataTexture 対、藁色の枯れ葦）を**全ティア**で（I5 レビュー V11: パックの `grass_medium_01` は
+  緑の草地カードで 3 月の泥の上の芝の点に見えた；株は 1.2〜1.95 m）。**I5-c で予算した唯一の +1 プログラム**（全ティア共通の
+  組合せ、smoke がシーンの他材質に同じ組合せが無いことを確認）。水たまり 3（T1 池 2、調整池 1）
   = `puddleTexture()` の楕円を `ground.decal`（LAYER.verge.paint、transparent / depthWrite false = brakingRubber と同じ組合せ、
   program +0）で床に。砂利の岸道 = GROUND_AREAS gravelArea 行 'T1 池の岸道'（OSM リングを `grow: 3`、水行の半層下 −0.5、
   ピット出口ヤードの上）。`{ way, width: 3 }` の環は岸線 1.5 m 内側の内周と岸線が T1 池の北東端で駅の光線に掠められ G12 residual
   2.15 m だったので不採用。**T1–T2 調整池の岸道は行にしない**: 近岸を T1 管理道路 1420756725 が s 490–530 で走り、道路・岸線・
   岸道の 3 境界が 3 m 内に並ぶと水面に 35 標本の重複（G2 water|water、grow 2 / 3・環のどれでも）— 道路がそのまま岸道。
-- **INFIELD_TREES（`suzuka-facilities-spec.ts` 末尾、17 行 366 本）**: 行の形は `along`（OSM way を左／閉じた環は外側へ offset、
+- **INFIELD_TREES（`suzuka-facilities-spec.ts` 末尾、16 行 343 本）**: 行の形は `along`（OSM way を左／閉じた環は外側へ offset、
   または (s, lat) 折れ線）、`circle`、`rect`（pitch 格子か count 散布）、`disc`、`points`、`skipS`（スタンドの足跡や並走する道を跨ぐ
   区間を空ける）。`app/data/infield-trees.ts infieldTreePlacements(track)` が純関数で world 点 + 窓内の (s, lateral, d) に展開し、
-  **facilities-check O10 と vegetation.ts が同じ点を読む**（O10: |lat| ≥ hw + 6、asphaltArea のリング**と way 掃引**の外、スタンド
-  足跡の外、柵内、バリア線から 0.6 m）。行: 外周管理道路 184120107 沿いの裸欅（−6、8 m、A1/B2/C/D1–4 の足跡と A2 裏道路の並走区間を
-  skip）、2 調整池の環（欅／芽吹き、+6、12 m）、ピット入口レーンの欅（−28）、T18 の楠 6（二輪ループの車線の間の点）、ヘアピン／130R
-  台地の杉 6 m 格子 + 低木 60（計画の (2560…2640, +40…+60) はヘアピン出口脚の路肩、(2380…2450) は池に掛かるので (2372…2404, +36…+60)）、
-  ヘアピン外側の桜 5、ダンロップループの竹 2 群、デグナーくさびの楠（計画の +85…+100 は柵の外 → +74…+82）、逆バンク外側の桜 6
+  **facilities-check O10 と vegetation.ts が同じ点を読む**（O10: |lat| ≥ hw + 6、asphaltArea のリング**と way 掃引**の外、paddock /
+  gravelArea 行の外、INFIELD_FACILITIES の足跡の外、スタンド足跡の外、柵内、バリア線から 0.6 m — 後の 2 つは I5 レビュー F3）。行:
+  外周管理道路 184120107 沿いの裸欅（−6、8 m、A1 裏小屋 184120098、A1/B2/C/D1–4 の足跡と A2 裏道路の並走区間を skip）、2 調整池の環
+  （欅／芽吹き、+6、12 m；T1 池はピット出口ヤードと岸道の凹角 3 か所を skip）、ピット入口レーンの欅（−28、4 頂点の折れ線 — 1 本の
+  弦は world で −33 に流れて E パドックに乗った）、T18 の楠 6（二輪ループの車線の間の点）、ヘアピン／130R 台地の低木 20（I5-c の
+  杉 6 m 格子は hairpin-pond カメラと池の間に立って池を隠したので削除 — 空撮 08 の読みは「茶色の低木」、07 の常緑帯はデグナー
+  くさび）、ヘアピン外側の桜 5、ダンロップループの竹 2 群（40 / 25 本）、デグナーくさびの楠（計画の +85…+100 は柵の外、
+  s 2110–2160 はマーキーの砂利パッドとコンパウンド → (2158…2182, +74…+82) の 3 本）、逆バンク外側の桜 6
   （計画の (1300, +60) は D1–4 の足跡の中 → D5 と D1–4 の隙間 (1127, +47)）、西ストレート池の岸の松・欅（柵内側の岸だけ）、130R 池の環
   （r 27）、南コース外周の杉 + 檜 50（**唯一の遅延ジョブ** `farField.defer('forest', 'infield-south-trees', 400)`）。**計画の Spoon
   杉／檜帯 (3480…3560, +45…+70) は硬地の上なので落とした**（アプローン内側の芝は 5 m 幅、空撮に木は無い）。
 - **配植**: `buildTrees` の 'trees' ジョブが散布の前に `emitInfieldTrees(ctx, 'infield-trees', …)`（セル毎 `emitTrees`、高さ・色・
-  yaw は配置の seed から、hero は d < 120）。舗装／車線／水／帯の面に載る配置は植えずに `infield-treesSkipped` に数える（smoke は 0
-  を要求 — 行の側で直す）。**散布の抑止**: `treeSiteBlocked` に「柵リング 775428456 の内側かつ SUR_FOREST の外は禁止」
+  yaw は配置の seed から、hero は d < 120）。舗装／車線／水／帯／**paddock / gravelArea** の面に載る配置と **INFIELD_FACILITIES の
+  足跡（`ctx.infieldFootprints`）の中**の配置は植えずに `infield-treesSkipped` に数える（smoke と e2e は 0 を要求 — 行の側で直す）。**散布の抑止**: `treeSiteBlocked` に「柵リング 775428456 の内側かつ SUR_FOREST の外は禁止」
   （`infield-lod.ts insideRing` + ctx 毎に 1 回解く森ポリゴン）。楠の tint を [[0.6, 0.75], [0.7, 0.85], [0.5, 0.65]] に落とした。
 - **計測**（Node、no assets）: scene-cost 高 4,215,843 → 4,268,831 tris / 972 → 977 meshes / 990 → 1,008 IM / 1,068 → 1,086
   entries（予算内、再ベース無し）；起動: 低ティアの `buildMs.plan` / `meshes`（Node）は I5-a 後の 18.4 / 15.0 s に対し 18.6 / 14.7 s
@@ -1282,6 +1303,53 @@ I5-c は柵の内側の水面 2 面と乾いた池 2 面の演出、そして柵
   12 m 土手と 130R 池の盛土裾）、`gravelArea.steep` 161 → 216（実測 205、T1 池の岸道が土手の縁に乗る）；G1 / G2 / G5（231）/ G9 /
   G11 不変、G12 residual 0、untraced 0。`infield-smoke.mjs checkPondsTrees` が上の事実（水面 2・材質の組合せ・岸道・葦 200・
   水たまり・INFIELD_TREES 366 全配置の O10 + 柵内・2 ジョブの消化・散布 0 本）を見る。
+
+#### I5 レビューの修正
+
+I5 のレビュー（確認済みの所見 F1 / F3 / F5 / F6 / V1 / V2 / V3 / V4 / V7 と、安価な低優先の V9 / V10 / V11 / V12 / F7 / F9）を
+1 コミットで直したもの。**F2（130R 池のリングが立体交差の縫い目を折り返し、下の道路の路肩の草 ≈ 140 m² が二重に描かれる —
+`[ground-mesh] stitch side 1 s 2357-2398 … does not triangulate`）と V8 は `ground-mesh.ts` の `mutualPair` / 耳切りの
+フォールバックの問題で、同じファイルを性能で直している別の作業に譲る**（データ側の寄せ — 池の中心 lateral 78 → 83、s 4592 → 4597 —
+では折返しは消えないことをレビューが計測済み。本コミットの s 4597 も同じ）。V6（斜面の上の施設に切土・盛土のパッドを敷く
+`mode: 'level'` の PolyZone）は cut と fill を同時に行う新しい relief で、下の「堀」の通り 13〜18 m 格子の上では建物の周りの地形を
+崩すので見送り（西ガレージの足跡は 3.6 m の高低差のまま = 谷側の壁が 7.6 m）。
+
+- **池の水位（F1 / V2）**: 手描きリングの基準を「窓の中点の路面」から **`sRange` 内の最も低い路面**にした（`resolveBasin`、5 m 毎に
+  標本）。西ストレートは谷（34.96 @3960、33.37 @4040、38.03 @4260）で、中点基準 +0.2 は水面を路面より 0.84 m、近岸より 0.75 m
+  高く置いていた（725 m の岸のうち 338 m が水面の下）。西ストレート池 `level −0.4`（水面 32.67）/ `bank 16`、南西の 3 頂点を
+  4〜7 m 内へ；130R 池は中心 s 4597、`level −6.3` / `bank 10`、島 r 2.5 に独自の土手 4 m（`island.bank`、`PolyZone.holeBank`）。
+  **地形格子の「堀」**: `environment.ts clampUnderSheets` は水面（水底の面）に掛かる地形格子の三角形を丸ごと面の下に押すので、
+  岸のすぐ外の地形メッシュは「1 セル内側の水底の深さ」だけ沈む（高 13.3 m 格子で ≈ 0.4〜1 m、低 17.7 m で 1〜3 m）。岸の外に
+  描かれた面が無い所（西ストレート池の遠岸、130R 池の西）ではこれが水面より下になり得るので、`bank` を緩くして水面を岸の下に置く
+  しかない（切込みを直線にすると窪地を通って 50 m の岸が水面の下になった — 残す）。**低ティアは遠岸で最大 1.3 m の堀が残る**
+  （既知の限界、`?fx=0` = SwiftShader の e2e ティア）。130R 池は土手が広い分、水底の 73 % が水面より上（水面は中央の環）。
+  `infield-smoke checkPondsTrees` が **岸の各頂点とその外 0.5 / 3 m の `standY` ≥ 水面** を高ティアで主張（低は報告のみ、堀の理由付き）、
+  水底の頂点のうち水面より上の割合を報告。乾いた池の泥面（'water' の spring 材質）は `gravelMaps()` を 0x8a7d66 に着色したもの
+  （同じ map + normalMap の組合せ = 砂利と同じプログラム；平色の #8a7d66 は 3〜12 m の無地の帯に見えた）。
+- **樹木（F3 / V4 / V9）**: `TREELESS_FACES` に `paddock` / `gravelArea`、`emitInfieldTrees` は `ctx.infieldFootprints`（INFIELD_FACILITIES
+  の足跡、infield-ground.ts が claim）の中も植えない；O10 も paddock / gravelArea 行（`resolveFootprint`）と施設の足跡（OSM リング／
+  寸法箱を infield-ground.ts `ringOf` と同じ式で）を落とす。行: デグナーくさびの楠 → s 2158–2182（マーキーとコンパウンドの東、
+  3 本）、ピット入口の欅 4 頂点、外周道路の欅に skip [130, 142]（A1 裏小屋）、T1 池の環に skip 3 か所、南コース檜 s ≤ 4458
+  （北エプロンの手前）、ヘアピン台地の杉削除・低木 20、竹 40 / 25。16 行 343 本、skipped 0（smoke・e2e）。
+- **Spoon（F5 / V3）**: BARRIERS `spoon-inside-wall` 削除、硬地の縁を空撮の線に（上の表）。`infield-smoke`: s 3430–3530 で縁の
+  1.5 m 内は grass、外は paddock；`trackside-smoke`: 72 run、左側に 3410–3790 を覆う run 無し。プリセット 'spoon-inside-wall' →
+  'spoon-inside-edge'。
+- **駐車（V1 / F6）**: 上の「車」の段落。区画 455、高 260 / 低 110 台、最近接対 2.37 m。
+- **島縁石（V10）**: 南コースの島を削除（上）。
+- **屋根（V9）**: `roof: 'white'`（0xdcdcd8 の漆喰／膜、`furniture-infield-roofWhite`）をダンロップループのシェッド 5、スプーンの
+  シェッド 2、西コースの小屋・トイレ 5 に — 空撮 06 / 11 / 13 の白い平屋根（ピット棟の灰は素の灰箱に見えた）。
+- **葦（V11）**: `reedTexture()` を全ティアで、株 1.2〜1.95 m（上）。硬地の低ティアの明度や欅の遠景インポスターは未対応。
+- **プリセット（V7 / V12）**: `spoon-yard-sheds` / `west-pits-yard` / `south-course-pits` / `south-course-control`（I5-b の施設を
+  実際に写す）と、GPU でしか判断できない事実用の `afresh-in` / `afresh-out` / `west-pond-shore` / `c-lot-heli` / `spoon-entry-verge` /
+  `130r-pond` / `dunlop-road` / `west-garage`（I7 で実 GPU で撮る）。
+- **e2e（F9）**: 'infield and ops layer' に `stats.infield['infield-ponds'] === 2`、`infield-treesSkipped` / `infield-south-treesSkipped`
+  === 0、`infield-trees` > 200、`furniture-infield-walls` の存在、far `byKind.infield` ≥ 1（Node の smoke と同じ事実）。計画からの
+  他の逸脱（池 3 → 2、Spoon 杉帯なし、施設の kind の増加、INFIELD_PARKING 表、マーキー 20 × 12 等）は上の各段落に書いてある通り。
+- **計測**（Node、no assets）: `scene-cost --tier high --all` = **4,331,278 tris / 1,000 meshes / 1,106 IM / 1,149 entries**
+  （予算 4,637,500 / 1,090 / 1,143 / 1,221 の内、再ベース無し — 上の I5-c の段落の 4,268,831 / 977 / 1,008 / 1,086 はこの数字で
+  上書き）。差の主因は竹 +51 本、白屋根のバケット +1、葦の株の拡大（三角形は不変）。surface-check `--suggest`（既存 WHY、P7 まで）:
+  G3 `ground:water` 12.49 → 14.65（実測 低 13.95 / 高 12.0 — 池の土手が深く広くなった分）、G4 `water.steep` 1417 → 1581
+  （実測 1,505 両ティア — 西池北東端の 6〜7 m の土手と島の 4 m 土手）。他の鍵は不変。
 
 ## GPU で確認すること
 

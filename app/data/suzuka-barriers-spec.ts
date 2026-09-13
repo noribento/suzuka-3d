@@ -114,7 +114,9 @@ export const BARRIERS: BarrierRun[] = [
   { id: 'hairpin-approach-infield', kind: 'concrete', side: 1, sRange: [2528, 2645], source: { osm: [183999771] } },
   { id: 'hairpin-inside', kind: 'concrete', side: 1, sRange: [2645, 2960], fence: 2.6, fenceRange: [2645, 2760], topRail: true, source: { osm: [183999769], samples: P([[2645, 21.5], [2650, 13.0], [2656, 12.0], [2662, 11.0], [2700, 11.0], [2734, 13.5], [2760, 11.5], [2770, 10.8]]) }, note: 'the ( wall round the marshal post at the tip, then the infield wall along the exit leg; the fence (I4-c, hairpin_post.jpg) covers the ( only', unverified: ['fence height and extent'] },
   { id: '200r-outside', kind: 'concrete', side: 1, sRange: [2960, 3400], source: { osm: [183999767, 183999785] } },
-  { id: 'spoon-inside-wall', kind: 'concrete', side: 1, sRange: [3400, 3797], source: { samples: P([[3400, 13], [3430, 15], [3455, 16.8], [3480, 18.6], [3500, 20], [3530, 22.5], [3560, 25], [3640, 25], [3740, 25], [3760, 31], [3780, 37.5], [3797, 40.8]]) }, note: 'the wall along the edge of the Spoon hard-standing (truth-aerial 11: +15 at 3430 → +25 at 3560–3740 → +37.5 at 3780); missing until I4-c', unverified: ['aerial only, ±3 m'] },
+  // (no run inside Spoon 3400–3797: the aerial reads NO barrier there — truth-aerial 11 / G11-03; the
+  // I4-c 'spoon-inside-wall' was digitised on the hard-standing's edge, which the GROUND_AREAS row
+  // 'スプーン インフィールド硬地' now follows itself — removed in the I5 review, F5 / V3)
   { id: 'spoon-exit-inside', kind: 'concrete', side: 1, sRange: [3797, 3911], source: { osm: [183953793] }, note: 'between the track and the West Course pit-exit road' },
   { id: 'west-straight-left', kind: 'guardrail', side: 1, sRange: [3911, 4270], source: { osm: [184419761] } },
   { id: 'bridge-approach-left', kind: 'guardrail', side: 1, sRange: [4270, 4585], fence: 2.6, topRail: true, source: { samples: P([[4270, 9.0], [4290, 9.5], [4350, 9.5], [4420, 9.5], [4500, 9.0], [4560, 8.5], [4585, 8.0]]) }, unverified: ['aerial only'] },
@@ -646,8 +648,12 @@ export const AD_PANELS: AdPanelDef[] = [
  * trackside.ts patchOutline — the three ponds the 2026-09 aerial shows and OSM does not carry).
  * `surface` ponds get a water plane (infield-water.ts, I5-c); `dry` basins a mud floor with
  * reeds and puddles. `level` is the shoreline's height relative to the road plane at the
- * basin's reference s (the OSM centroid, or the middle of `sRange`): +0.2 by default, the
- * retention basins beside the pit straight; the ponds off the embankments sit lower.
+ * basin's reference — the OSM centroid's s, or for a hand ring the LOWEST road plane over
+ * `sRange` (stands.ts resolveBasin; the west straight is a valley, so the window's midpoint
+ * put the plane above the road): +0.2 by default, the retention basins beside the pit
+ * straight; the ponds off the embankments sit lower. A `surface` pond's plane must lie under
+ * the ground at and just outside every rim vertex (infield-smoke checks it: the relief only
+ * ever lowers the ground, so a rim below the plane is water hanging out of the ground).
  */
 export interface BasinDef {
   name: string
@@ -664,10 +670,10 @@ export interface BasinDef {
   depth: number
   /** metres over which the bank falls from the shore to the floor (default 9) */
   bank?: number
-  /** the shoreline's height over the road plane at the basin's reference s (default +0.2) */
+  /** the shoreline's height over the road plane at the basin's reference (default +0.2) */
   level?: number
-  /** an island: a hole in the relief (the ground inside keeps its own height; a grassArea disc draws it) */
-  island?: { s: number; lateral: number; r: number }
+  /** an island: a hole in the relief (the ground inside keeps its own height; a grassArea disc draws it); the bed falls from its shore to the floor over `bank` m (default 4) */
+  island?: { s: number; lateral: number; r: number; bank?: number }
   /** a wooden deck on the bank: `w` across × `l` along the lap frame, standing 0.3 m over the ground */
   platform?: { s: number; lateral: number; w: number; l: number }
   unverified?: string[]
@@ -679,23 +685,36 @@ export const BASINS: BasinDef[] = [
   // --- the three ponds of the 2026-09 aerial that OSM does not carry (I5-c) ----------------------
   // Every one of them is drawn with water: the user's default, unverified — the March 2026 photos
   // only settled the T1 pond and the T1–T2 basin (dry). Outlines are hand rings in the lap frame
-  // (the aerial at 0.49 m/px, ±3 m); the far shores stop where the built terrain is still at the
-  // road plane so no rim hangs above the water plane.
+  // (the aerial at 0.49 m/px, ±3 m). The water plane is set against the LOWEST road plane in the
+  // window (resolveBasin) and `level` is chosen so the ground at every rim vertex and 3 m outside
+  // it stays above the plane (infield-smoke's rim guard): the relief only lowers the ground, so
+  // the rim keeps its DEM height and the plane has to fit under it, not the other way round.
   //
   // The pond SW of the west straight (aerial 13, "~250 × 150 m, shore −26 @4000 → −45 @4160
   // → −25 @4280, wooded banks"): its near shore keeps the aerial's line as far as s 4245 (the
   // east tip reads at s 4230–4250 behind the west-course pit lane; −25 @4280 would put water
-  // under the pit huts 184419747/750 and is not used); the far shore is taken in to where the
-  // terrain is ≤ 1.5 m over the road (the aerial's 120 m further SW is a hollow 3–13 m deep in
-  // the DEM, left as the wooded bank). The straight has no fold, so lap coordinates are exact.
+  // under the pit huts 184419747/750 and is not used); the far shore is taken in to the ground
+  // that is still at the road plane of the valley floor (the aerial's 120 m further SW is a
+  // hollow 3–13 m deep in the DEM, left as the wooded bank). The straight has no fold, so lap
+  // coordinates are exact. The level: the road is 33.37 at s 4040 and the near verge beside it
+  // ≈ 33.5, the lowest rim sample 32.96 — level −0.4 puts the plane at 32.67, under every rim
+  // sample of the high tier's ground with ≥ 0.1 m to spare (the I5 review, F1 / V2: at +0.2
+  // against the window's midpoint 338 m of the 725 m shoreline stood under the plane). The NE
+  // end (s 4200–4245, road 36.5–37.6) is then a 6–7 m bank down to the floor, so the bank runs
+  // 16 m instead of the default 9. The far shore's notch at s 4100–4160 (lateral −80 … −100)
+  // stays: straightened, the shore ran through the hollow and 50 m of rim fell under the plane.
+  // The low tier's 17.7 m terrain grid (high: 13.3 m) is pushed under the sunken bed by whole
+  // triangles (environment.ts clampUnderSheets), so out on the far shore, where no drawn face
+  // covers the terrain, its mesh dips up to 1.3 m under the plane for a cell or two: a known
+  // limit of that tier (infield-smoke reports it there, asserts on high).
   {
-    name: '西ストレート池', dry: false, surface: true, depth: 2.0, bank: 12, level: 0.2,
+    name: '西ストレート池', dry: false, surface: true, depth: 2.0, bank: 16, level: -0.4,
     sRange: [3960, 4260],
     ring: [
       [3970, -26], [4000, -26], [4080, -35], [4160, -45], [4230, -45], [4245, -60],
-      [4240, -95], [4200, -95], [4180, -88], [4160, -85], [4140, -80], [4120, -80], [4100, -100], [4080, -120], [4060, -130], [4030, -135], [4000, -125], [3985, -100], [3975, -60],
+      [4240, -95], [4200, -95], [4180, -88], [4160, -85], [4140, -80], [4120, -80], [4100, -100], [4080, -120], [4060, -126], [4030, -128], [4000, -120], [3985, -100], [3975, -60],
     ],
-    unverified: ['water in March 2026 (default)', 'the far shore (aerial 13 at 0.49 m/px, ±5 m; taken in to the road-level ground)', 'depth'],
+    unverified: ['water in March 2026 (default)', 'the far shore (aerial 13 at 0.49 m/px, ±5 m; taken in to the road-level ground)', 'depth', 'level −0.4: what the rim guard admits on the high tier, not a photo'],
   },
   // The pond with the island / deck between the west straight's end, 130R and the hairpin legs
   // — ONE pond: aerial 14 reads it at (4590, +75) r ≈ 22 in the 130R frame, aerials 07 / 08 / 10
@@ -703,19 +722,24 @@ export const BASINS: BasinDef[] = [
   // plan's "130R pond" and "hairpin pond" are two frames' readings of it, 30 m apart (the
   // outlines overlapped in world). Measured again on 14-west-straight-o-bridge-overlay.png:
   // centre (4592, +70) ± 5 m, ≈ 45 m across, a dark ~8 × 5 m rectangle (a deck) near the
-  // middle. A 12-gon of r 21 at (4592, +78) — 8 m further out than read, so the ring stays clear of
+  // middle. A 12-gon of r 21 at (4597, +78) — 8 m further out than read, so the ring stays clear of
   // the road's own ground raster (its world part would not trace across that boundary) — at
-  // the foot of the 130R embankment: the terrain there is 5–6 m
-  // under the road plane, so the shore is set there — with the deck on a small island.
+  // the foot of the 130R embankment: the built terrain there is 5–7 m under the road plane and
+  // falls away west of the ring, so the centre sits at s 4597 (5 m east of the reading, inside
+  // its ±5 m) and the plane at −6.3 with a 10 m bank: the rim guard (at −5.5 / bank 9 the west
+  // rim stood 1.27 m under the water; the terrain grid is pushed under the bed by whole
+  // triangles, so the bank must be gentle for the rim outside to stay above the plane). The
+  // deck stands on a small island (r 2.5, its own 4 m bank — the outer bank's width would
+  // leave no floor between the two shores).
   {
-    name: '130R 池', dry: false, surface: true, depth: 1.5, level: -5.5,
+    name: '130R 池', dry: false, surface: true, depth: 1.5, bank: 10, level: -6.3,
     sRange: [4540, 4640],
     ring: Array.from({ length: 12 }, (_, k): [number, number] => {
       const a = (k / 12) * Math.PI * 2
-      return [Math.round((4592 + 21 * Math.cos(a)) * 10) / 10, Math.round((78 + 21 * Math.sin(a)) * 10) / 10]
+      return [Math.round((4597 + 21 * Math.cos(a)) * 10) / 10, Math.round((78 + 21 * Math.sin(a)) * 10) / 10]
     }),
-    island: { s: 4592, lateral: 78, r: 4 },
-    platform: { s: 4592, lateral: 78, w: 4, l: 6 },
-    unverified: ['water (default)', 'position ±5 m, radius (aerial 14)', 'level: the terrain at the site, −5.5 m under the road on the 130R embankment', 'the island / deck: the dark rectangle mid-pond in the aerial, read as a wooden deck on a pier'],
+    island: { s: 4597, lateral: 78, r: 2.5 },
+    platform: { s: 4597, lateral: 78, w: 4, l: 6 },
+    unverified: ['water (default)', 'position ±5 m, radius (aerial 14)', 'level: the terrain at the site, 5–7 m under the road on the 130R embankment', 'the island / deck: the dark rectangle mid-pond in the aerial, read as a wooden deck on a pier'],
   },
 ]

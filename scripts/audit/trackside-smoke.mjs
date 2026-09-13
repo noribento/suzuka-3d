@@ -543,8 +543,9 @@ async function checkTowers(scene, check, { tier, glb: withGlb }) {
 // ===== I4-c: checkBarriers (barriers.ts / structures.ts / textures.ts) ==============================
 /**
  * The barriers v2 (plan §I4-c), built here with `buildBarriers(track, quality, ground, reg)`:
- *  - BARRIERS has 73 runs (the 72 of I4-b + spoon-inside-wall; README said 71) and `spoon-inside-wall` is drawn: wall
- *    vertices stand on its resolved line at s 3600 (± 0.3 m);
+ *  - BARRIERS has 72 runs (the 72 of I4-b; README said 71 — the I4-c 'spoon-inside-wall' was
+ *    removed in the I5 review, F5: the aerial reads NO barrier inside Spoon) and no left-side
+ *    run covers s 3410–3790;
  *  - `group.userData.barriers` (BarrierStats) is published and its `runs` = the table;
  *  - the fence colour buckets: the black runs' posts are `fencePostsDark-*`, the rest
  *    `fencePosts-*` (counts = the stats; both present on a tier with fences, none on the other);
@@ -586,30 +587,18 @@ async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
   env.farField.group.updateMatrixWorld(true)
   console.log(`    built in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
   const st = group.userData.barriers
-  check(bar.BARRIERS.length === 73 && st?.runs === 73, `BARRIERS: ${bar.BARRIERS.length} runs = 72 + spoon-inside-wall (stats ${st?.runs})`)
-  const spoon = bar.BARRIERS.find((r) => r.id === 'spoon-inside-wall')
-  check(!!spoon && spoon.kind === 'concrete' && spoon.side === 1, `spoon-inside-wall in the table (concrete, left, ${spoon?.sRange.join('→')})`)
+  check(bar.BARRIERS.length === 72 && st?.runs === 72, `BARRIERS: ${bar.BARRIERS.length} runs = the 72 of I4-b (stats ${st?.runs}; the I4-c spoon-inside-wall is gone since the I5 review)`)
+  // --- no barrier inside Spoon (truth-aerial 11: NO barrier on the inside from s 3400 to 3797) ----------
+  {
+    // (every run of this stretch of the lap is written with s0 < s1 and no wrap)
+    const inside = bar.BARRIERS.filter((r) => r.side === 1 && r.sRange[0] < 3790 && r.sRange[1] > 3410)
+    check(inside.length === 0, `no left-side BARRIERS run over s 3410–3790 (the Spoon infield's edge is the hard-standing, not a wall${inside.length ? `; found ${inside.map((r) => r.id).join(', ')}` : ''})`)
+  }
   const byName = new Map()
   group.traverse((o) => { if (o.name) byName.set(o.name, o) })
   const meshes = []
   group.traverse((o) => { if (o.isMesh || o.isInstancedMesh) meshes.push(o) })
   const named = (re) => meshes.filter((m) => re.test(m.name))
-  // --- the Spoon wall is drawn: vertices on its line at 3600 ---------------------------------------------
-  {
-    const line = trackside.resolveLineCached(track, spoon.source, spoon.sRange, spoon.side, spoon.minGap ?? 0.6)
-    const walls = byName.get('barrierWalls')
-    let near = 0
-    if (walls) {
-      const pos = walls.geometry.attributes.position
-      const v = new THREE.Vector3()
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i).applyMatrix4(walls.matrixWorld)
-        const q = track.nearestOnRange(v.x, v.z, 3560, 3640, 5)
-        if (Math.abs(q.s - 3600) < 3 && Math.abs(q.lateral - line.lat(q.s)) < 0.3) near++
-      }
-    }
-    check(near > 0, `spoon-inside-wall drawn: ${near} barrierWalls vertices on its line (${line.lat(3600).toFixed(1)}) at s 3600 ± 3`)
-  }
   // --- fence buckets --------------------------------------------------------------------------------------
   const fenceOn = quality.fence
   const green = named(/^fencePosts-/), dark = named(/^fencePostsDark-/)

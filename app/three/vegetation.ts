@@ -348,19 +348,27 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
   })
 }
 
-/** the drawn ground kinds no infield tree stands on (a row that lands on one is a data fault; counted, not planted) */
-const TREELESS_FACES = new Set<OwnerKind>(['road', 'kerb', 'deckShoulder', 'pitLane', 'pitApron', 'lane', 'asphaltArea', 'turf', 'helipad', 'water', 'gravelBand', 'asphaltBand'])
+/**
+ * The drawn ground kinds no infield tree stands on (a row that lands on one is a data fault;
+ * counted, not planted): every paved, lane, water and gravel face — the car parks ('paddock')
+ * and the gravel pads / shore paths ('gravelArea') included since the I5 review (F3: five rows
+ * planted on them). A 'grassArea' island is plantable.
+ */
+const TREELESS_FACES = new Set<OwnerKind>(['road', 'kerb', 'deckShoulder', 'pitLane', 'pitApron', 'lane', 'asphaltArea', 'turf', 'helipad', 'water', 'gravelBand', 'asphaltBand', 'paddock', 'gravelArea'])
 
 /**
  * Plant INFIELD_TREES placements (app/data/infield-trees.ts) under `name`: one `emitTrees`
  * call per far-field cell, the species' height / tint / yaw drawn from the placement's own
  * seed (so a row is the same in every build, and the scatter's rng is untouched), heroes
  * inside 120 m of the lap like the scatter's (or the row's `hero`). A placement over a paved,
- * lane or water face is skipped and counted in `stats.infield['<name>Skipped']`.
+ * lane or water face (TREELESS_FACES), or inside an INFIELD_FACILITIES footprint
+ * (`ctx.infieldFootprints`: no tree grows through a marquee or a hut — the I5 review, F3), is
+ * skipped and counted in `stats.infield['<name>Skipped']`.
  */
 function emitInfieldTrees(ctx: EnvBuildContext, name: string, placements: InfieldTreePlacement[]): { placed: number; skipped: number; cells: number; entries: number; triangles: number } {
   const { ground, quality, farField } = ctx
   const lib = ctx.trees
+  const inFacility = (x: number, z: number) => ctx.infieldFootprints.some((f) => x >= f.box[0] && x <= f.box[2] && z >= f.box[1] && z <= f.box[3] && pointInRing(x, z, f.ring))
   const byCell = new Map<number, TreePlacement[]>()
   let placed = 0, skipped = 0
   const u = (seed: number, k: number) => {
@@ -371,7 +379,7 @@ function emitInfieldTrees(ctx: EnvBuildContext, name: string, placements: Infiel
   }
   for (const p of placements) {
     const face = ground.builtY(p.x, p.z)
-    if (face && TREELESS_FACES.has(face.kind)) { skipped++; continue }
+    if ((face && TREELESS_FACES.has(face.kind)) || inFacility(p.x, p.z)) { skipped++; continue }
     const species = TREE_SPECIES[p.role]
     const y = ground.standY(p.x, p.z)
     const height = pickHeight(species, u(p.seed, 1))

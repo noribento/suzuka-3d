@@ -189,8 +189,18 @@ test.describe('Suzuka 3D broadcast', () => {
         trackside: d.env.stats.trackside,
         tvLenses: Array.isArray(d.env.group.userData.tvLenses) ? d.env.group.userData.tvLenses.length : -1,
         groupNames,
+        // the infield (plan I5): the ponds, the tree rows, the walls
+        infield: d.env.stats.infield,
       }
     })
+    // --- the infield (I5): two water planes, every tree row planted (none skipped for a paved face
+    // or a facility footprint), the walls drawn, the far field carrying kind 'infield' entries
+    expect(st.infield['infield-ponds']).toBe(2)
+    expect(st.infield['infield-treesSkipped'] ?? 0).toBe(0)
+    expect(st.infield['infield-south-treesSkipped'] ?? 0).toBe(0)
+    expect(st.infield['infield-trees']).toBeGreaterThan(200)
+    expect(st.groupNames, 'missing furniture-infield-walls').toContain('furniture-infield-walls')
+    expect(st.far.byKind.infield).toBeGreaterThanOrEqual(1)
     // --- the trackside (I4): 32 posts / 16 towers in the stats, the 13 broadcast lenses published for the rig, the meshes drawn
     expect(st.trackside).toMatchObject({ posts: 32, towers: 16 })
     for (const k of ['cabins', 'lows', 'panels', 'slots']) expect(st.trackside[k], `stats.trackside.${k}`).toBeGreaterThan(0)

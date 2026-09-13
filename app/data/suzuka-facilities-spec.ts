@@ -1953,7 +1953,7 @@ export const GROUND_AREAS: GroundArea[] = [
   // hand rings (one authority — the relief's outline and the drawn face are the same nodes)
   ...BASINS.filter((b) => b.ring && b.sRange).map((b): GroundArea => ({ name: b.name, kind: 'water', source: 'photo', footprint: { ring: b.ring!, sRange: b.sRange!, straight: true }, unverified: b.unverified ?? [] })),
   // the 130R pond's island: a grass disc over the water row (the relief leaves a hole there)
-  { name: '130R 池の島', kind: 'grassArea', layer: 1, source: 'photo', footprint: { disc: { s: 4592, lateral: 78, r: 4 } }, unverified: ['radius: the dark rectangle mid-pond in aerial 14, ±2 m'] },
+  { name: '130R 池の島', kind: 'grassArea', layer: 1, source: 'photo', footprint: { disc: { s: 4597, lateral: 78, r: 2.5 } }, unverified: ['radius: the dark rectangle mid-pond in aerial 14, ±2 m'] },
   // --- the eyes of the tight bends: ground the swept frame cannot reach (the FOLD cap) ---------
   // The hairpin is a left-hander of 21–24 m radius: its inside frame folds ~7 m out, and the eye
   // beyond was 181 m² of declared band no raster could draw. In the 国土地理院 aerial the eye is:
@@ -2117,11 +2117,18 @@ export const GROUND_AREAS: GroundArea[] = [
   // the Spoon infield hard-standing: the inside of the Spoon curve up to the perimeter service
   // road that rings it (OSM 184419756, closed) — the ring is the road's centreline offset 2 m
   // outward, so the road lies on the sheet and its dashed centre line (infield-ground.ts) 2 m in
-  // from the edge. 18,795 m² in one ring (the eye is smaller than the aerial's 250 × 180 m box
-  // suggested — the loop closes across it at s 3421 ↔ 4009). The aerial's edge (+15 at 3430,
-  // +25 at 3560–3740, +37.5 at 3780) is the loop's own edge; a wall on the inside (I4-c) belongs
-  // on the grass between the kerb and it, not on the sheet
-  { name: 'スプーン インフィールド硬地', kind: 'paddock', source: 'osm', footprint: { sRange: [3400, 4020], straight: true, ring: [{ way: 184419756, offset: 2 }] } },
+  // from the edge — EXCEPT over the Spoon entry, s 3421–3555 (the loop's vertices 13–19, which
+  // project to +23.8 … +11.1): there the aerial's edge (truth-aerial 11: +15 at 3430 → +25 at
+  // 3560–3740 → +37.5 at 3780, "dormant-grass verge between kerb and hard-standing") is 2–7 m
+  // further from the road than the loop's centreline, so the ring follows hand vertices on the
+  // aerial's line (the I4-c 'spoon-inside-wall' samples: that wall was digitised on this edge,
+  // and the aerial shows NO barrier inside Spoon — the row is gone since the I5 review, F5 / V3)
+  // and rejoins the loop's vertex 20 across the eye as the loop itself does from vertex 19.
+  // ≈ 18,100 m² in one ring (the eye is smaller than the aerial's 250 × 180 m box suggested —
+  // the loop closes across it at s 3421 ↔ 4009). The verge between the kerb and the sheet is grass
+  // again: infield-smoke samples the edge polyline and requires grass 1.5 m inside it, paving
+  // 1.5 m outside it
+  { name: 'スプーン インフィールド硬地', kind: 'paddock', source: 'osm', footprint: { sRange: [3400, 4020], straight: true, ring: [{ way: 184419756, verts: [0, 12], offset: 2 }, [3530, 22.5], [3500, 20], [3480, 18.6], [3455, 16.8], [3430, 15], [3405, 13], { way: 184419756, verts: [20, 30], offset: 2 }] } },
   // the west paddock apron NE of the Spoon exit, between the wall 183953793 and the hard-standing
   // (shares the loop road's vertices 21–25 with it, offset the same 2 m)
   {
@@ -2257,7 +2264,8 @@ export interface InfieldFacility {
   /** eaves / top height (m) above the local ground */
   height: number
   levels?: number
-  roof?: 'flat' | 'gable' | 'blue' | 'brown' | 'red'
+  /** the roof's shape / finish: 'flat' is the pit complex's grey membrane, 'white' a light plaster / membrane (the sheds the aerial reads as white-roofed; the I5 review, V9) */
+  roof?: 'flat' | 'gable' | 'blue' | 'brown' | 'red' | 'white'
   wall?: 'white' | 'grey' | 'corrugated' | 'glass'
   /** stacks / tyres / flagpoles / toilets: how many, in rows of `cols` */
   count?: number
@@ -2270,8 +2278,8 @@ export interface InfieldFacility {
 
 export const INFIELD_FACILITIES: InfieldFacility[] = [
   // --- the Spoon yard and the west paddock (aerials 11 / 13: two white sheds, a block stack, a tyre store) ---
-  { id: 'spoon-shed-a', name: 'スプーン ヤード シェッド A', kind: 'shed', s: 3882, lateral: 38, size: [15, 10], height: 4, roof: 'flat', wall: 'white', unverified: ['aerial 11 / 13 (±3 m): "two white flat 15×10 m objects (sheds or stacked barrier packs)"'] },
-  { id: 'spoon-shed-b', name: 'スプーン ヤード シェッド B', kind: 'shed', s: 3911, lateral: 44, size: [15, 10], height: 4, roof: 'flat', wall: 'white', unverified: ['as shed A'] },
+  { id: 'spoon-shed-a', name: 'スプーン ヤード シェッド A', kind: 'shed', s: 3882, lateral: 38, size: [15, 10], height: 4, roof: 'white', wall: 'white', unverified: ['aerial 11 / 13 (±3 m): "two white flat 15×10 m objects (sheds or stacked barrier packs)"'] },
+  { id: 'spoon-shed-b', name: 'スプーン ヤード シェッド B', kind: 'shed', s: 3911, lateral: 44, size: [15, 10], height: 4, roof: 'white', wall: 'white', unverified: ['as shed A'] },
   { id: 'spoon-blocks', name: 'スプーン ヤード ブロック積み', kind: 'stack', s: 3993, lateral: 39, size: [4, 3], height: 0.5, count: 12, cols: 4, unverified: ['aerial 11: "a white block stack 3×4" (±2 m); 1 × 1 × 0.5 concrete blocks'] },
   { id: 'spoon-tyres', name: 'スプーン ヤード タイヤ保管', kind: 'tyres', s: 3960, lateral: 30, size: [4, 3.2], height: 0.93, count: 20, cols: 5, unverified: ['position (hairpin.jpg shows loose tyre stacks and a loader behind the fences; the yard is where the aerial has hard-standing)'] },
   { id: 'spoon-forklift', name: 'スプーン ヤード フォークリフト', kind: 'forklift', s: 3970, lateral: 36, size: [3.7, 1.2], yaw: 30, height: 2.1, unverified: ['position / yaw'] },
@@ -2283,15 +2291,15 @@ export const INFIELD_FACILITIES: InfieldFacility[] = [
   { id: 'l-yard-hut-b', name: 'L ヤード 小屋 B', kind: 'hut', osmWay: 183953736, sRange: [3400, 3600], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
   // --- the west-course pits (aerial 13: the control tower, its huts, the paddock garage and toilets) ---
   { id: 'west-garage', name: '西コース パドック ガレージ', kind: 'garage', osmWay: 184415314, sRange: [4250, 4400], height: 4, roof: 'flat', wall: 'white', doors: 6, unverified: ['height', 'the roller doors face the track side (aerial 13 cannot tell)'] },
-  { id: 'west-toilets', name: '西コース パドック トイレ', kind: 'hut', osmWay: 184415315, sRange: [4250, 4400], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'west-hut-c', name: '西コース パドック 小屋', kind: 'hut', osmWay: 184415316, sRange: [4200, 4350], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'west-toilets', name: '西コース パドック トイレ', kind: 'hut', osmWay: 184415315, sRange: [4250, 4400], height: 3, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-c', name: '西コース パドック 小屋', kind: 'hut', osmWay: 184415316, sRange: [4200, 4350], height: 3, roof: 'white', wall: 'white', unverified: ['height'] },
   {
     id: 'west-tower', name: '西コントロールタワー', kind: 'tower', osmWay: 184415318, sRange: [4150, 4300], height: 9, levels: 2, roof: 'flat', wall: 'white',
     unverified: ['9 m / 2 levels (was 12 m / 3 in BUILDINGS; the aerial\'s shadow reads two storeys)', 'the glass band, the 1.2 m balcony and the antenna are the type, not a photo'],
   },
-  { id: 'west-hut-a', name: '西コントロールタワー脇 小屋 A', kind: 'hut', osmWay: 184419747, sRange: [4150, 4300], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'west-hut-b', name: '西コントロールタワー脇 小屋 B', kind: 'hut', osmWay: 184419750, sRange: [4150, 4300], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'west-hut-d', name: '西コース ピット出口 小屋', kind: 'hut', osmWay: 184415312, sRange: [4200, 4350], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-a', name: '西コントロールタワー脇 小屋 A', kind: 'hut', osmWay: 184419747, sRange: [4150, 4300], height: 2.8, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-b', name: '西コントロールタワー脇 小屋 B', kind: 'hut', osmWay: 184419750, sRange: [4150, 4300], height: 2.8, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-d', name: '西コース ピット出口 小屋', kind: 'hut', osmWay: 184415312, sRange: [4200, 4350], height: 2.8, roof: 'white', wall: 'white', unverified: ['height'] },
   // --- the south course (aerial 14: the 70 × 10 m pit garage, huts, the control hut, walls, chain-link fences) ---
   { id: 'south-garage', name: '国際南コース ピットガレージ', kind: 'garage', osmWay: 184415311, sRange: [4400, 4600], height: 4.5, roof: 'flat', wall: 'white', doors: 12, unverified: ['height', 'L-shaped OSM outline; the doors along its longest edge'] },
   { id: 'south-hut', name: '国際南コース 小屋', kind: 'hut', osmWay: 184415313, sRange: [4400, 4600], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
@@ -2305,12 +2313,12 @@ export const INFIELD_FACILITIES: InfieldFacility[] = [
   { id: 'south-fence-d', name: '国際南コース 柵 D', kind: 'fence', osmWay: 468750068, sRange: [4500, 4650], height: 2.4, unverified: ['height'] },
   { id: 'west-paddock-fence', name: '西パドック 柵', kind: 'fence', osmWay: 184415338, sRange: [4250, 4400], height: 2.4, unverified: ['height'] },
   { id: 'south-toilets', name: '国際南コース 仮設トイレ', kind: 'toilet', s: 4530, lateral: -100, size: [5.2, 1.1], height: 2.3, count: 4, cols: 4, unverified: ['position (beside the hut 184415313; the aerial shows "small white huts/tents" there)'] },
-  // --- the Dunlop loop (aerial 06: five white flat-roofed sheds, a marquee, a fenced compound) ---
-  { id: 'dunlop-shed-1', name: 'ダンロップループ シェッド 1', kind: 'office', osmWay: 184103155, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'dunlop-shed-2', name: 'ダンロップループ シェッド 2', kind: 'office', osmWay: 184103156, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'dunlop-shed-3', name: 'ダンロップループ シェッド 3', kind: 'office', osmWay: 184103158, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'dunlop-shed-4', name: 'ダンロップループ シェッド 4', kind: 'office', osmWay: 184103159, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
-  { id: 'dunlop-shed-5', name: 'ダンロップループ シェッド 5', kind: 'office', osmWay: 184103160, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
+  // --- the Dunlop loop (aerial 06: five white flat-roofed sheds, a marquee, a fenced compound; roof 'white' since the I5 review, V9: the pit complex's grey read as plain grey blocks from the heli) ---
+  { id: 'dunlop-shed-1', name: 'ダンロップループ シェッド 1', kind: 'office', osmWay: 184103155, sRange: [1840, 1980], height: 4, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-2', name: 'ダンロップループ シェッド 2', kind: 'office', osmWay: 184103156, sRange: [1840, 1980], height: 4, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-3', name: 'ダンロップループ シェッド 3', kind: 'office', osmWay: 184103158, sRange: [1840, 1980], height: 4, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-4', name: 'ダンロップループ シェッド 4', kind: 'office', osmWay: 184103159, sRange: [1840, 1980], height: 4, roof: 'white', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-5', name: 'ダンロップループ シェッド 5', kind: 'office', osmWay: 184103160, sRange: [1840, 1980], height: 4, roof: 'white', wall: 'white', unverified: ['height'] },
   { id: 'dunlop-marquee', name: 'ダンロップループ マーキー', kind: 'marquee', s: 2000, lateral: 45, size: [25, 12], height: 4, unverified: ['aerial 06 (±3 m): a race-weekend temporary'] },
   { id: 'dunlop-compound', name: 'ダンロップループ コンパウンド柵', kind: 'compound', s: 1830, lateral: 40, size: [20, 20], height: 2.4, unverified: ['aerial 06: "a fenced compound with a small grey hut" (±5 m)'] },
   { id: 'dunlop-compound-hut', name: 'ダンロップループ コンパウンド小屋', kind: 'hut', s: 1834, lateral: 44, size: [5, 4], height: 2.8, roof: 'flat', wall: 'grey', unverified: ['the small grey hut inside the compound (aerial 06, ±5 m)'] },
@@ -2370,11 +2378,12 @@ export const INFIELD_LAMPS = { pitch: 40, offset: 3.0, unverified: ['pitch / off
 /**
  * The traffic islands' kerbs (I5-b, GROUND_OBJECTS.islandKerb): a `radius` disc walked in the
  * frame's positive sense on a drawn paddock face — the T1 porte-cochère in front of the
- * brown-roofed block, the south-course paddock's north apron, the west paddock apron.
+ * brown-roofed block and the west paddock apron (the south-course apron's island of I5-b is
+ * gone: the aerial shows none, and a kerb ring with plain asphalt inside read as a painted
+ * circle from the heli — the I5 review, V10).
  */
 export const INFIELD_ISLAND_KERBS: { id: string; name: string; s: number; lateral: number; radius: number; unverified: string[] }[] = [
   { id: 't1-porte', name: 'T1 車寄せの島', s: 305, lateral: -68, radius: 2.5, unverified: ['position: on the C / D paddock paving in front of the brown-roofed block (±5 m)'] },
-  { id: 'south-pits', name: '南コース パドックの島', s: 4473, lateral: -240, radius: 3, unverified: ['position (the north apron 467572919, ±5 m)'] },
   { id: 'west-paddock', name: '西パドックの島', s: 4000, lateral: 30, radius: 3, unverified: ['position (the apron between the sheds and the block stack, ±5 m)'] },
 ]
 
@@ -2437,29 +2446,39 @@ export const INFIELD_TREES: InfieldTreeRow[] = [
   // the row of round deciduous crowns along the perimeter service road behind A2 / B / C (aerial
   // 02 / 03: "a row of round deciduous crowns (~8 m) along the service road", "service road +
   // tree belt behind C"): bare keyaki 8 m apart on the outer edge of the 4 m road (+4 from its edge)
-  { id: 'perimeter-road-keyaki', role: 'keyakiBare', along: { way: 184120107, offset: -6 }, pitch: 8, jitter: 1, window: [120, 1370], skipS: [[170, 260], [262, 335], [452, 505], [535, 630], [935, 965], [1295, 1350]], unverified: ['species (bare crowns in the autumn mosaic → keyaki in March)', 'side: the belt is read behind the road, away from the track', 'the gaps: where the road runs through the A1 / B2 / C / D1–4 stand footprints (OSM), and where the A2 rear road (470173099) runs beside it at s 262–335 / 452–505'] },
+  { id: 'perimeter-road-keyaki', role: 'keyakiBare', along: { way: 184120107, offset: -6 }, pitch: 8, jitter: 1, window: [120, 1370], skipS: [[130, 142], [170, 260], [262, 335], [452, 505], [535, 630], [935, 965], [1295, 1350]], unverified: ['species (bare crowns in the autumn mosaic → keyaki in March)', 'side: the belt is read behind the road, away from the track', 'the gaps: the A1 rear hut 184120098 at s 130–142, where the road runs through the A1 / B2 / C / D1–4 stand footprints (OSM), and where the A2 rear road (470173099) runs beside it at s 262–335 / 452–505'] },
   // the tree rings on the banks of the two retention basins (aerial 02 / 04: "earth banks with
   // a ring of trees (round crowns 8–12 m)"): 12 m apart, 6 m outside the shoreline
-  { id: 't1-pond-ring', role: 'keyakiBare', along: { way: 184005565, offset: 6 }, pitch: 12, jitter: 1.5, window: [90, 250], unverified: ['spacing', 'species'] },
+  // (the gaps: the pit-exit yard's paving at s 158–162 and the two concave corners of the OSM
+  // shoreline at s 114–118 / 143–147, where the edge offset lands on the gravel shore path)
+  { id: 't1-pond-ring', role: 'keyakiBare', along: { way: 184005565, offset: 6 }, pitch: 12, jitter: 1.5, window: [90, 250], skipS: [[114, 118], [143, 147], [158, 162]], unverified: ['spacing', 'species'] },
   { id: 't1-t2-basin-ring', role: 'budding', along: { way: 132793884, offset: 6 }, pitch: 12, jitter: 1.5, window: [400, 560], unverified: ['spacing', 'species (a budding broadleaf in late March)'] },
   // --- the pit entry and T18 (final.jpg: the trees behind the pit-entry lane and on the T18 mound) --
-  { id: 'pit-entry-keyaki', role: 'keyakiBare', along: { line: [[5340, -28], [5430, -28]] }, pitch: 8, jitter: 1, window: [5330, 5440], unverified: ['lateral: on the grass between the entry lane\'s run-off and the E paddock (final.jpg, ±3 m)'] },
+  // (four vertices: the track bends here, and the one chord 5340 → 5430 resampled in world drifted
+  // to lateral −33, onto the E paddock's paving — the grass is −26…−30 at every s of the window)
+  { id: 'pit-entry-keyaki', role: 'keyakiBare', along: { line: [[5340, -28], [5370, -28], [5400, -28], [5430, -28]] }, pitch: 8, jitter: 1, window: [5330, 5440], unverified: ['lateral: on the grass between the entry lane\'s run-off (asphaltBand to −24) and the E paddock (paddock from −32; final.jpg, ±3 m)'] },
   { id: 't18-mound-kusunoki', role: 'kusunoki', points: [[5300, -27], [5320, -36], [5330, -36], [5340, -30], [5350, -34], [5360, -30]], window: [5290, 5370], unverified: ['the "mound" of final.jpg: read here as the grass wedge between the two-wheel loop and the E paddock (±5 m); explicit points between the loop\'s lanes'] },
   // --- the hairpin / 130R infield -------------------------------------------------------------
-  // the cedar band on the plateau between the lower road and the hairpin / 130R pond (aerials
-  // 07 / 08: "dense evergreen belt"), a 6 m grid, plus scrub at random in the same rectangle
-  { id: 'hairpin-plateau-sugi', role: 'sugi', rect: { s: [2372, 2404], lateral: [36, 60] }, pitch: 6, jitter: 1.5, window: [2360, 2470], unverified: ['extent (aerial 08, ±5 m): the plan\'s (2560…2640, +40…+60) lies on the hairpin exit leg\'s verge, and its (2380…2450) reaches the pond; moved north of it'] },
-  { id: 'hairpin-plateau-scrub', role: 'bush', rect: { s: [2372, 2404], lateral: [36, 60] }, count: 60, window: [2360, 2470], unverified: ['density'] },
+  // the plateau between the lower road and the 130R / hairpin pond: aerial 08 reads it as brown
+  // scrub with the pond's banks wooded by deciduous (bare in March) trees — the '130r-pond-keyaki'
+  // ring below is the only tree row at the water. The "dense evergreen belt" of aerial 07 is the
+  // Degner wedge ('degner-wedge-kusunoki'), not this plateau: the I5-c cedar grid here stood
+  // between the hairpin-pond camera and the pond and hid it (the I5 review, V4), so it is gone
+  { id: 'hairpin-plateau-scrub', role: 'bush', rect: { s: [2372, 2404], lateral: [36, 60] }, count: 20, window: [2360, 2470], unverified: ['density (aerial 08: "brown scrub")'] },
   // the cherries outside the hairpin (the hairpin cherry zone of TREE_MIX; the aerial reads a
   // clump of round crowns behind the outside wall)
   { id: 'hairpin-outside-sakura', role: 'sakura', disc: { s: 2693, lateral: -53, r: 8 }, count: 5, window: [2670, 2720], unverified: ['position (±5 m), count'] },
   // --- the Dunlop loop and the Degner wedge -----------------------------------------------------
   // bamboo thickets in the Dunlop loop (aerial 06: "bamboo / evergreen thickets"), two clumps
-  { id: 'dunlop-bamboo-a', role: 'bamboo', disc: { s: 1950, lateral: 98, r: 10 }, count: 9, window: [1920, 1990], unverified: ['position ±5 m', 'count'] },
-  { id: 'dunlop-bamboo-b', role: 'bamboo', disc: { s: 2090, lateral: 47, r: 6 }, count: 5, window: [2060, 2120], unverified: ['position ±5 m (the plan\'s (2080, +40) r 10 reaches the gravel band and the fence; brought in)', 'count'] },
+  // (40 / 25 stalks: at 9 / 5 the discs read as a few reeds from the heli, not thickets — the I5 review, V9)
+  { id: 'dunlop-bamboo-a', role: 'bamboo', disc: { s: 1950, lateral: 98, r: 10 }, count: 40, window: [1920, 1990], unverified: ['position ±5 m', 'count'] },
+  { id: 'dunlop-bamboo-b', role: 'bamboo', disc: { s: 2090, lateral: 47, r: 6 }, count: 25, window: [2060, 2120], unverified: ['position ±5 m (the plan\'s (2080, +40) r 10 reaches the gravel band and the fence; brought in)', 'count'] },
   // the camphor band on the Degner wedge (aerial 07: "dense evergreen belt" between Degner and
-  // the hairpin approach), inside the fence: the plan's +85…+100 lies outside the ring there
-  { id: 'degner-wedge-kusunoki', role: 'kusunoki', rect: { s: [2110, 2170], lateral: [74, 82] }, pitch: 8, jitter: 1.5, window: [2090, 2190], unverified: ['extent (aerial 07, ±5 m)'] },
+  // the hairpin approach), inside the fence: the plan's +85…+100 lies outside the ring there,
+  // and the band's west half (s 2110–2160) is the marquee's gravel pad and its compound
+  // (INFIELD_FACILITIES degner-marquee / degner-compound, the pad row 'デグナー東 砂利パッド' s
+  // 2112–2160) — the trees stand east of them (the I5 review, F3: two camphors grew through the tent)
+  { id: 'degner-wedge-kusunoki', role: 'kusunoki', rect: { s: [2158, 2182], lateral: [74, 82] }, pitch: 8, jitter: 1.5, window: [2090, 2190], unverified: ['extent (aerial 07, ±5 m): east of the compound; the plan\'s +85…+100 belt is outside the ring'] },
   // --- the gyaku-bank outside (the S-curve cherry zone of TREE_MIX) --------------------------------
   { id: 'gyaku-bank-sakura', role: 'sakura', disc: { s: 1127, lateral: 47, r: 5 }, count: 6, window: [1100, 1160], unverified: ['position (±5 m): in the gap between the D5 and D1–4 stands (the plan\'s (1300, +60) is inside the D1–4 footprint, which runs s 1141–1391)', 'count'] },
   // --- the west straight and 130R ponds -----------------------------------------------------------
@@ -2469,10 +2488,10 @@ export const INFIELD_TREES: InfieldTreeRow[] = [
   { id: 'west-pond-shore-matsu', role: 'matsu', along: { line: [[4150, -39], [4180, -39], [4210, -39], [4235, -40]] }, pitch: 10, jitter: 1.5, window: [4140, 4250], unverified: ['species mix', 'spacing'] },
   { id: 'west-pond-shore-keyaki', role: 'keyakiBare', along: { line: [[4155, -34], [4185, -34], [4215, -34]] }, pitch: 20, jitter: 2, window: [4140, 4250], unverified: ['species mix', 'spacing'] },
   // the bare trees round the 130R pond, 6 m off its 12-gon shore (r 21 + 6)
-  { id: '130r-pond-keyaki', role: 'keyakiBare', circle: { s: 4592, lateral: 78, r: 27 }, pitch: 12, jitter: 1.5, window: [4540, 4640], unverified: ['spacing (aerial 14: "trees" round the pond)'] },
+  { id: '130r-pond-keyaki', role: 'keyakiBare', circle: { s: 4597, lateral: 78, r: 27 }, pitch: 12, jitter: 1.5, window: [4540, 4640], unverified: ['spacing (aerial 14: "trees" round the pond)'] },
   // --- the south course (the one deferred job of the infield: 'infield-south-trees') ------------
   // the plantation behind the south course's paddock and along its far side (aerial 14: "dense
   // mixed forest" south of the course inside the fence)
   { id: 'south-course-sugi', role: 'sugi', rect: { s: [4430, 4590], lateral: [-300, -286] }, pitch: 7, jitter: 1.5, window: [4400, 4620], skipS: [[4468, 4482], [4546, 4558]], deferred: 'south', unverified: ['extent (aerial 14, ±10 m); the gaps are where the loop road crosses the band'] },
-  { id: 'south-course-hinoki', role: 'hinoki', rect: { s: [4430, 4470], lateral: [-260, -244] }, pitch: 8, jitter: 1.5, window: [4400, 4620], deferred: 'south', unverified: ['extent (aerial 14, ±10 m)'] },
+  { id: 'south-course-hinoki', role: 'hinoki', rect: { s: [4430, 4458], lateral: [-260, -244] }, pitch: 8, jitter: 1.5, window: [4400, 4620], deferred: 'south', unverified: ['extent (aerial 14, ±10 m); ends before the north paddock apron 467572919 (paddock from s ≈ 4463)'] },
 ]

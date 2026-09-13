@@ -66,7 +66,7 @@ export const PRESETS = [
   // I4-c details no preset framed (the I4 review): the Spoon inside wall from the track, the chicane
   // sponges at eye level, the bridge fascia / deck rail, the T2 tricolour wall, the pit-entry
   // sign, a gs-front photo window
-  ['spoon-inside-wall', [3560, 12, 3], [3640, 24, 2], 45],
+  ['spoon-inside-edge', [3560, 12, 3], [3640, 24, 2], 45], // the hard-standing's edge (the I4-c wall there is gone since the I5 review, F5)
   ['chicane-sponges', [5215, -10, 1.6], [5235, -18, 1.2], 45],
   ['bridge-fascia', [2250, -2, 2], [2321, 0, 6], 45],
   ['bridge-rail', [4600, -4, 2], [4700, -7.5, 1.5], 45],
@@ -85,6 +85,26 @@ export const PRESETS = [
   ['cut-chicane', [5080, -20, 8], [5105, -30, -3], 45],
   ['works-tunnel', [90, -40, 6], [119, -26, -3], 45],
   ['footbridge-q2', [5250, 20, 4], [5286, 55, 6], 40],
+  // the I5 review (V7): the three I5 wide views above frame none of the I5-b yards' objects —
+  // these do, checked by projection (45°, 16:9): the Spoon sheds / tyres / forklift / blocks at
+  // 60–170 m, the west paddock's toilets / garage / fence / both lots at 30–125 m, the south
+  // course's garage / hut / toilets / walls / fences / flagpoles / north lot
+  ['spoon-yard-sheds', [3820, 70, 10], [3930, 38, 3], 45],
+  ['west-pits-yard', [4300, -45, 10], [4330, -100, 3], 45],
+  ['south-course-pits', [4620, -80, 120], [4510, -135, 0], 45],
+  ['south-course-control', [4640, -30, 60], [4570, -60, 0], 45],
+  // the I5 review (V12): GPU-only facts to shoot on a real card for I7 — the aFresh joints at
+  // s 3540 / 4760, the west pond's shore from the straight, the C lot from above (V1), the
+  // Spoon entry's verge (V3), the 130R pond with its island and deck, the Dunlop loop road,
+  // the west garage on its slope (V6)
+  ['afresh-in', [3480, -2, 1.4], [3600, 0, 1], 45],
+  ['afresh-out', [4700, -2, 1.4], [4820, 0, 1], 45],
+  ['west-pond-shore', [3990, -10, 3], [4060, -40, -1], 45],
+  ['c-lot-heli', [420, -130, 60], [380, -60, 0], 45],
+  ['spoon-entry-verge', [3400, -2, 1.4], [3480, 14, 1], 45],
+  ['130r-pond', [4540, 20, 10], [4597, 78, -4], 45],
+  ['dunlop-road', [1860, 10, 12], [1940, 20, 0], 45],
+  ['west-garage', [4300, -70, 4], [4335, -105, 3], 45],
   ['overview', null, null, 45],
 ]
 

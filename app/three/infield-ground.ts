@@ -308,6 +308,8 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
     roofBlue: new THREE.MeshStandardMaterial({ color: 0x5a7fa6, roughness: 0.5, metalness: 0.3 }),
     roofBrown: new THREE.MeshStandardMaterial({ color: 0x6b4a3a, roughness: 0.7 }),
     roofRed: new THREE.MeshStandardMaterial({ color: 0x9a3a32, roughness: 0.7 }),
+    /** a light plaster / membrane roof (the sheds the aerial reads as white-roofed; the I5 review, V9) */
+    roofWhite: new THREE.MeshStandardMaterial({ color: 0xdcdcd8, roughness: 0.8 }),
     rail: pm.railMat,
     steel: new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.45, metalness: 0.6 }),
     pvc: new THREE.MeshStandardMaterial({ color: 0xf0f0ec, roughness: 0.7, side: THREE.DoubleSide }),
@@ -319,7 +321,7 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
     b.geos.push(geo)
   }
   const wallMatOf = (f: InfieldFacility): [string, THREE.Material] => (f.wall === 'grey' ? ['grey', M.grey] : f.wall === 'corrugated' ? ['corrugated', M.corrugated] : f.wall === 'glass' ? ['glass', M.glass] : ['white', M.white])
-  const roofMatOf = (f: InfieldFacility): [string, THREE.Material] => (f.roof === 'blue' ? ['roofBlue', M.roofBlue] : f.roof === 'brown' ? ['roofBrown', M.roofBrown] : f.roof === 'red' ? ['roofRed', M.roofRed] : ['roof', M.roof])
+  const roofMatOf = (f: InfieldFacility): [string, THREE.Material] => (f.roof === 'blue' ? ['roofBlue', M.roofBlue] : f.roof === 'brown' ? ['roofBrown', M.roofBrown] : f.roof === 'red' ? ['roofRed', M.roofRed] : f.roof === 'white' ? ['roofWhite', M.roofWhite] : ['roof', M.roof])
 
   // --- footprints: the OSM ring or the sized box, in world XZ --------------------------------------
   const ringOf = (f: InfieldFacility): P2[] | null => {
@@ -359,7 +361,9 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
     footprints.push(ring)
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
     for (const p of ring) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z) }
-    ctx.keepOutPolys.push({ ring: ring.map((p) => [p.x, p.z]), box: [x0, z0, x1, z1] })
+    const poly = { ring: ring.map((p): [number, number] => [p.x, p.z]), box: [x0, z0, x1, z1] as [number, number, number, number] }
+    ctx.keepOutPolys.push(poly)
+    ctx.infieldFootprints.push(poly)
   }
 
   // --- the prop sets ------------------------------------------------------------------------------
@@ -975,6 +979,18 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
     const blocksOut: { row: InfieldParkingRow; bays: Bay[] }[] = []
     const report: { id: string; walked: number; kept: number; rejects: Record<BayReject, number>; cars: number }[] = []
     let bays = 0, lineM = 0
+    /** a bay's quad scaled 0.9 about its centre: neighbours in a row share an edge, so the test for a bay laid over another must not see the touching corners */
+    const shrunk = (q: P2[]): P2[] => {
+      let cx = 0, cz = 0
+      for (const p of q) { cx += p.x / q.length; cz += p.z / q.length }
+      return q.map((p) => ({ x: cx + (p.x - cx) * 0.9, z: cz + (p.z - cz) * 0.9 }))
+    }
+    // the bays already kept, in world XZ, across every row: a block whose s range wraps round a
+    // bend (the C lot, s 305–875 round T1–T2) walks two legs over the same paddock face and would
+    // lay every bay twice — cars on cars, bay lines crossing (the I5 review, V1) — and two rows
+    // can meet (C and T3 at s 869–875), so a bay over a kept one is rejected whatever its row or
+    // leg (the veto is layoutBays's last test)
+    const keptQuads: P2[][] = []
     for (const row of INFIELD_PARKING) {
       const r = layoutBays(track, ground, row, ({ corners, samples }) => {
         // O2: every sample ≥ hw + 8 off the centreline; inside the ring; off every facility and lamp
@@ -982,6 +998,9 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
         for (const c of corners) if (!insideRing(track, c.x, c.z)) return 'clear'
         if (footprints.some((f) => quadHits(corners, f, true))) return 'footprint'
         if (lampXZ.some((l) => inPoly(l.x, l.z, corners) || samples.some(([, , q]) => (q.x - l.x) ** 2 + (q.z - l.z) ** 2 < 0.5))) return 'lamp'
+        const q = shrunk(corners)
+        if (keptQuads.some((k) => quadHits(q, k, true))) return 'overlap'
+        keptQuads.push(q)
         return null
       })
       blocksOut.push({ row, bays: r.kept })
@@ -999,13 +1018,25 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
       markDecal(mesh, LAYER.paddock.line, built.stats)
       group.add(mesh)
     }
+    // the tier budget: every lot but the largest gets its full occupancy × bays first, the
+    // largest (the C lot, 300+ bays) whatever is left — a uniform scale starved the small lots
+    // the aerial shows full (Degner east 7 cars, the west paddock 1) while C took 225 of 260
+    // (the I5 review, F6). Only if the small lots alone exceed the budget (a smaller future
+    // budget) does every block scale alike.
     const budget = quality.infield.infieldCars
-    const want = blocksOut.reduce((n, b) => n + b.row.occupancy * b.bays.length, 0)
-    const scale = want > 0 ? Math.min(1, budget / want) : 0
-    const takes = blocksOut.map(({ row, bays: list }) => Math.min(list.length, Math.round(row.occupancy * scale * list.length)))
-    if (scale < 1) {
-      const big = takes.indexOf(Math.max(...takes))
-      takes[big] = Math.max(0, Math.min(blocksOut[big]!.bays.length, takes[big]! + budget - takes.reduce((a, b) => a + b, 0)))
+    const full = blocksOut.map(({ row, bays: list }) => Math.min(list.length, Math.round(row.occupancy * list.length)))
+    const big = blocksOut.reduce((bi, b, i) => (b.bays.length > blocksOut[bi]!.bays.length ? i : bi), 0)
+    const small = full.reduce((a, n, i) => a + (i === big ? 0 : n), 0)
+    let takes: number[]
+    if (small <= budget) {
+      takes = full.slice()
+      takes[big] = Math.max(0, Math.min(blocksOut[big]!.bays.length, budget - small))
+    } else {
+      const want = blocksOut.reduce((n, b) => n + b.row.occupancy * b.bays.length, 0)
+      const scale = want > 0 ? Math.min(1, budget / want) : 0
+      takes = blocksOut.map(({ row, bays: list }) => Math.min(list.length, Math.round(row.occupancy * scale * list.length)))
+      const over = takes.reduce((a, b) => a + b, 0) - budget
+      if (over > 0) takes[big] = Math.max(0, takes[big]! - over)
     }
     let cars = 0
     blocksOut.forEach(({ bays: list }, bi) => {

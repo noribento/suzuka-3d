@@ -959,6 +959,13 @@ export interface EnvBuildContext {
   ops: OpsPlacement[]
   /** instances per infield prop set (`registerPropSet` / `buildOpsFigures` name → count) — `Environment.stats.infield` */
   infieldStats: Record<string, number>
+  /**
+   * The INFIELD_FACILITIES footprints in world XZ (infield-ground.ts claims them; the sheds,
+   * tents, compounds, tanks, huts inside the fences). The infield tree rows (vegetation.ts
+   * emitInfieldTrees) plant nothing inside one — the generic `keepOutPolys` / `keepOut` also
+   * carry the scatter's coarse paving discs, which a hand-placed row beside a road must ignore.
+   */
+  infieldFootprints: { ring: [number, number][]; box: [number, number, number, number] }[]
 }
 
 export interface Environment {
@@ -1069,6 +1076,7 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     figures: null,
     ops: [],
     infieldStats: {},
+    infieldFootprints: [],
   }
   // the species prototypes and their materials, synchronously (the viewport's material setup
   // runs over `group` once, before the deferred placers use them)

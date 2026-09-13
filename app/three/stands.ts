@@ -2143,7 +2143,7 @@ interface PolyZone {
   kind: 'poly'
   /** closed ring in world xz */
   pts: [number, number][]
-  /** islands: closed rings inside `pts` the zone claims nothing in (the bank falls away from their shores too) */
+  /** islands: closed rings inside `pts` the zone claims nothing in (the bank falls away from their shores too, over `holeBank`) */
   holes: [number, number][][]
   box: [number, number, number, number]
   /** absolute heights: the shoreline and the floor */
@@ -2151,6 +2151,8 @@ interface PolyZone {
   floorY: number
   /** metres over which the bank falls from the shore to the floor */
   bank: number
+  /** metres over which the bed falls from an island's shore to the floor (a pier island is steeper than the outer bank) */
+  holeBank: number
 }
 
 /** a BasinDef resolved to world xz: its outline, its island holes and its heights (`facilityRelief`'s PolyZone; infield-water.ts draws the plane on the same numbers) */
@@ -2162,25 +2164,35 @@ export interface ResolvedBasin {
   shoreY: number
   floorY: number
   bank: number
+  holeBank: number
 }
 
-/** the shoreline's default height over the road plane at the basin's reference s (BasinDef.level) */
+/** the shoreline's default height over the road plane at the basin's reference (BasinDef.level) */
 const BASIN_LEVEL = 0.2
 /** the bank's default width (BasinDef.bank) */
 const BASIN_BANK = 9
+/** an island's default bank width (BasinDef.island.bank) */
+const ISLAND_BANK = 4
 const _bv = new THREE.Vector3()
+
+/** the ring basins sample the road plane every this many metres of their window for the lowest road height */
+const BASIN_REF_STEP = 5
 
 /**
  * A basin's outline in world xz: the OSM water polygon, or the hand ring resolved like a
  * GROUND_AREAS ring (trackside.ts patchOutline, straight segments) so the relief and the drawn
- * water face are the same polygon. The shoreline is the road plane at the basin's reference s
- * (the OSM centroid's, or the middle of the ring's window) plus `level`; the floor `depth` +
- * 0.15 under it (the 0.15 is what keeps the face's raster rows from chording above the floor).
- * Returns null when the outline has fewer than three vertices (a missing OSM way).
+ * water face are the same polygon. The shoreline is the road plane at the basin's reference
+ * plus `level`: an OSM basin's reference is the road at its centroid's s; a hand ring's is the
+ * LOWEST road plane over its `sRange` (sampled every BASIN_REF_STEP m) — the west straight is
+ * a valley (34.96 @3960, 33.37 @4040, 38.03 @4260) and the window's midpoint put the west pond's
+ * plane 0.84 m above the road itself and 0.75 m above its near shore (the I5 review, F1 / V2).
+ * The floor is `depth` + 0.15 under the shoreline (the 0.15 is what keeps the face's raster
+ * rows from chording above the floor). Returns null when the outline has fewer than three
+ * vertices (a missing OSM way).
  */
 export function resolveBasin(track: Track, b: BasinDef): ResolvedBasin | null {
   let pts: [number, number][] = []
-  let refS: number
+  let refY: number
   if (b.osmWay !== undefined) {
     const f = osmFeature(b.osmWay)
     if (!f || !f.closed || f.en.length < 3) return null
@@ -2188,10 +2200,13 @@ export function resolveBasin(track: Track, b: BasinDef): ResolvedBasin | null {
       track.enToWorld(e, n, _bv)
       return [_bv.x, _bv.z]
     })
-    refS = f.centroid[0]
+    refY = track.pointAt(f.centroid[0], 0, _bv).y
   } else if (b.ring && b.sRange) {
     pts = patchOutline(track, { sRange: b.sRange, ring: b.ring, straight: true, minGap: 0 }, 2).map((p) => [p.x, p.z])
-    refS = track.wrap(b.sRange[0] + forwardDelta(b.sRange[0], b.sRange[1], track.length) / 2)
+    const span = forwardDelta(b.sRange[0], b.sRange[1], track.length)
+    refY = Infinity
+    for (let d = 0; d <= span; d += BASIN_REF_STEP) refY = Math.min(refY, track.pointAt(track.wrap(b.sRange[0] + d), 0, _bv).y)
+    refY = Math.min(refY, track.pointAt(track.wrap(b.sRange[1]), 0, _bv).y)
   } else return null
   if (pts.length < 3) return null
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
@@ -2211,8 +2226,8 @@ export function resolveBasin(track: Track, b: BasinDef): ResolvedBasin | null {
     }
     holes.push(hole)
   }
-  const shoreY = track.pointAt(refS, 0, _bv).y + (b.level ?? BASIN_LEVEL)
-  return { def: b, pts, holes, box: [minX, maxX, minZ, maxZ], shoreY, floorY: shoreY - b.depth - 0.15, bank: b.bank ?? BASIN_BANK }
+  const shoreY = refY + (b.level ?? BASIN_LEVEL)
+  return { def: b, pts, holes, box: [minX, maxX, minZ, maxZ], shoreY, floorY: shoreY - b.depth - 0.15, bank: b.bank ?? BASIN_BANK, holeBank: b.island?.bank ?? ISLAND_BANK }
 }
 
 type ReliefZone = TrackZone | ChordZone | PolyZone
@@ -2432,7 +2447,7 @@ function reliefZones(track: Track): ReliefZone[] {
   for (const b of BASINS) {
     const r = resolveBasin(track, b)
     if (!r) continue
-    zones.push({ kind: 'poly', pts: r.pts, holes: r.holes, box: r.box, shoreY: r.shoreY, floorY: r.floorY, bank: r.bank })
+    zones.push({ kind: 'poly', pts: r.pts, holes: r.holes, box: r.box, shoreY: r.shoreY, floorY: r.floorY, bank: r.bank, holeBank: r.holeBank })
   }
 
   // main grandstand: the level fill platform behind V1 (GP Square) is ≈ 7.3 m above the track
@@ -2601,21 +2616,26 @@ export function facilityRelief(x: number, z: number, track: Track): Relief | nul
       let inside = false
       let edge = Infinity
       // the outline, then the island holes: inside a hole the zone claims nothing, and the
-      // hole's shore is a bank edge like the outer one
+      // hole's shore is a bank edge like the outer one — in its own measure (`holeBank`: an
+      // island of r 2.5 in a 21 m pond with the outer bank's 12 m would leave no floor at all)
+      let k = Infinity
       for (const pts of [zone.pts, ...zone.holes]) {
         let inThis = false
+        let d = Infinity
         for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
           const [xi, zi] = pts[i]!, [xj, zj] = pts[j]!
           if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inThis = !inThis
           const dx = xj - xi, dz = zj - zi
           const t = Math.max(0, Math.min(1, ((x - xi) * dx + (z - zi) * dz) / (dx * dx + dz * dz || 1)))
-          edge = Math.min(edge, Math.hypot(x - (xi + dx * t), z - (zi + dz * t)))
+          d = Math.min(d, Math.hypot(x - (xi + dx * t), z - (zi + dz * t)))
         }
+        edge = Math.min(edge, d)
+        k = Math.min(k, d / (pts === zone.pts ? zone.bank : zone.holeBank))
         if (pts === zone.pts) { inside = inThis; if (!inside) break }
         else if (inThis) { inside = false; break }
       }
       if (!inside) continue
-      const k = Math.min(1, edge / zone.bank)
+      k = Math.min(1, k)
       // the bank is a WEIGHT over the floor, 0 at the shoreline: the ground descends from whatever
       // it is at the rim (a hillside 4 m above the road plane at the T1 pond's back) to the floor
       // over `bank` metres. A level shoreline at the road plane stepped 4 m down off that hill

@@ -1401,8 +1401,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *       outside every ops footprint (a seated crew inside its own perch frame excepted, and
  *       nothing under a 'roof' row is a fault) and outside every building footprint (O6).
  *   O10 INFIELD_TREES (every placement of app/data/infield-trees.ts, the runtime's own expansion):
- *       |lateral| ≥ hw + 6, outside the paved aprons (rings AND the swept service roads), outside
- *       the stand footprints, inside the ring, ≥ 0.6 m off every barrier line on its side.
+ *       |lateral| ≥ hw + 6, outside the paved aprons (rings AND the swept service roads), the
+ *       car parks and gravel pads (GROUND_AREAS 'paddock' / 'gravelArea'), the INFIELD_FACILITIES
+ *       footprints (OSM rings and sized boxes) and the stand footprints, inside the ring, ≥ 0.6 m
+ *       off every barrier line on its side.
  *   O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES: osmWay in OSM_FEATURES, outlines pairwise
  *       disjoint, the anchor projects inside its s window (fold rows placed from EN are exempt).
  *   O12 windows: the lap is a figure-8, so a row is only projected back to s inside a window
@@ -1889,6 +1891,33 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       }
       return null
     }
+    // the car parks and gravel pads / shore paths (GROUND_AREAS 'paddock' / 'gravelArea', every
+    // footprint shape) are no tree's ground either (vegetation.ts TREELESS_FACES; the I5 review,
+    // F3: five rows planted on them) — resolved the way ground-plan.ts resolves them
+    const lots = spec.GROUND_AREAS.filter((a) => a.kind === 'paddock' || a.kind === 'gravelArea').map((a) => ({ name: a.name, kind: a.kind, ring: gp.resolveFootprint(track, a.footprint) })).filter((r) => r.ring)
+    const lotAt = (x, z) => {
+      for (const { name, kind, ring } of lots) {
+        const b = ring.box
+        if (x < b[0] || x > b[1] || z < b[2] || z > b[3]) continue
+        if (inPts(x, z, ring.outer) && !ring.holes.some((h) => inPts(x, z, h))) return `${kind} "${name}"`
+      }
+      return null
+    }
+    // the INFIELD_FACILITIES footprints, exactly as infield-ground.ts ringOf builds them (the OSM
+    // ring, or the sized box about (s, lateral) turned by yaw) — a tree inside one grows through
+    // the building / tent / compound (the I5 review, F3: two camphors through the Degner marquee)
+    const facilityRings = (spec.INFIELD_FACILITIES ?? []).flatMap((f) => {
+      if (f.osmWay !== undefined) { const r = worldRingOf(f.osmWay); return r ? [{ id: f.id, ring: r }] : [] }
+      if (f.s === undefined || f.lateral === undefined || !f.size) return []
+      const [cx, cz] = worldOf(track.wrap(f.s), f.lateral)
+      const h = track.headingAt(track.wrap(f.s))
+      const yaw = ((f.yaw ?? 0) * Math.PI) / 180
+      const ax = h.tx * Math.cos(yaw) + h.tz * Math.sin(yaw), az = h.tz * Math.cos(yaw) - h.tx * Math.sin(yaw)
+      const lx = az, lz = -ax
+      const [a, b] = f.size
+      return [{ id: f.id, ring: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, w]) => ({ x: cx + (ax * u * a) / 2 + (lx * w * b) / 2, z: cz + (az * u * a) / 2 + (lz * w * b) / 2 })) }]
+    })
+    const facilityAt = (x, z) => { for (const { id, ring } of facilityRings) if (inWorldRing(x, z, ring)) return id; return null }
     const byRow = new Map()
     for (const p of placements) { let l = byRow.get(p.row.id); if (!l) byRow.set(p.row.id, (l = [])); l.push(p) }
     const TREE_BARRIER_CLEAR = 0.6
@@ -1902,6 +1931,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
         if (Math.abs(p.lateral) < hw + 6) note('inside hw + 6', p)
         const paved = pavedApronAt(p.x, p.z) ?? sweptRoadAt(p.x, p.z)
         if (paved) note(`on the paved apron "${paved}"`, p)
+        const lot = lotAt(p.x, p.z)
+        if (lot) note(`on the ${lot}`, p)
+        const facility = facilityAt(p.x, p.z)
+        if (facility) note(`inside the footprint of facility ${facility}`, p)
         const inStand = standFootprintAt(p.x, p.z)
         if (inStand) note(`inside the footprint of stand ${inStand}`, p)
         if (!ring.insideRing(p.x, p.z)) note('outside the circuit ring', p)

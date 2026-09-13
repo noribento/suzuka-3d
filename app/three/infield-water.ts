@@ -29,9 +29,10 @@ import { cached, mulberry } from './textures'
  *
  * Materials (plan §横断 7): the reed cards are the ONE budgeted new program of I5-c —
  * MeshStandardMaterial { map, alphaMap, alphaTest (+ A2C on the high tier), DoubleSide } with
- * the pack's grass_medium_01 diff + opacity, or `reedTexture()` (a 64 × 128 DataTexture pair,
- * the same parameter set) on the low tier and in Node so the program count is the same on
- * every tier. The deck is a plain colour through `propMaterial` (a combination the props
+ * `reedTexture()` (a 64 × 128 DataTexture pair of straw-coloured dry blades) on EVERY tier: the
+ * pack's grass_medium_01 card is green meadow grass and read as specks of lawn on the March
+ * mud (the I5 review, V11), and one procedural card keeps the tiers the same. The deck is a
+ * plain colour through `propMaterial` (a combination the props
  * already compile), the puddles are { map, alphaMap, transparent, depthWrite: false } like the
  * braking rubber.
  */
@@ -212,7 +213,7 @@ function waterPlane(r: ResolvedBasin, y: number): THREE.BufferGeometry | null {
 // ---------------------------------------------------------------------------------------------
 
 export function buildInfieldWater(ctx: EnvBuildContext): void {
-  const { track, ground, group, quality, assets, boxes, farField } = ctx
+  const { track, ground, group, quality, boxes, farField } = ctx
   const stat = (key: string, n: number) => { ctx.infieldStats[key] = (ctx.infieldStats[key] ?? 0) + n }
   const rng = mulberry(4590)
   const basins = BASINS.map((def) => resolveBasin(track, def)).filter((r): r is ResolvedBasin => !!r)
@@ -251,9 +252,7 @@ export function buildInfieldWater(ctx: EnvBuildContext): void {
   const areas = dry.map((r) => ringArea(r.pts))
   const areaSum = areas.reduce((a, b) => a + b, 0) || 1
   const reedGeo = reedClusterGeometry()
-  const packDiff = assets?.texture('tex/grass_medium_01/diff') ?? null
-  const packAlpha = assets?.texture('tex/grass_medium_01/opacity') ?? null
-  const maps = packDiff && packAlpha ? { diff: packDiff, alpha: packAlpha } : reedTexture()
+  const maps = reedTexture()
   const reedMat = new THREE.MeshStandardMaterial({ map: maps.diff, alphaMap: maps.alpha, side: THREE.DoubleSide, roughness: 0.9, metalness: 0, ...cutoutParams(quality) })
   const matrices: THREE.Matrix4[] = []
   let puddleN = 0
@@ -269,7 +268,8 @@ export function buildInfieldWater(ctx: EnvBuildContext): void {
       const e = edgeOf(r.pts, x, z)
       if (!e.inside || e.edge < REED_SHORE[0] || e.edge > REED_SHORE[1]) continue
       const y = ground.standY(x, z)
-      const k = 0.8 + rng() * 0.5
+      // 1.2–1.95 m clusters: at 0.8–1.3 they were 2–3 px specks from the presets' 40–80 m (V11)
+      const k = 1.2 + rng() * 0.75
       _q.setFromAxisAngle(Y_UP, rng() * Math.PI * 2)
       _s.set(k, k, k)
       matrices.push(new THREE.Matrix4().compose(_p.set(x, y - 0.05, z), _q, _s))
