@@ -11,7 +11,8 @@
  * and an allowance whose phase has come fails the run.
  *
  *   G0  ladder        LAYER stacks (decals / objects) ascending, ≥ LAYER_MIN_STEP apart
- *   G1  census        visible face kind from above vs plan.ownerAt
+ *   G1  census        visible face kind from above vs plan.ownerAt; and the runtime census (ground-census.ts, the
+ *                     e2e's own measure) on its own point set
  *   G2  overlap       any two faces — the same one included — covering one XZ point; an object's footprint width vs its rule
  *   G3  deviation     face centroid vs its declared frame (road plane / height field); an object's edges sunk and crown
  *                     proud of the face it stands on; a decal never under the face it lies on
@@ -36,6 +37,7 @@
  *   app/data/suzuka.ts, app/data/suzuka-facilities-spec.ts, app/data/suzuka-barriers-spec.ts
  *   app/three/ground.ts            LAYER, LAYER_MIN_STEP, LAYER_SOFT, GROUND_OBJECTS
  *   app/three/ground-plan.ts       RULE_OF, PRECEDENCE, kerbAt, kerbProfileHeight, FLAT_STRIP, STRIP_DROP, DECK_ZONE, VERGE_MIN
+ *   app/three/ground-census.ts     groundCensus — the browser's census (window.__suzuka.groundCensus()), run here on the same points
  *   app/three/trackside.ts         (nothing today; kept for ring diagnostics)
  *   app/sim/track.ts               forwardDelta, signedDelta
  *   scripts/audit/app-runtime.mjs  buildScene, ROOT, THREE — the built scene: ground.plan, ground.field, groundMeshes
@@ -51,6 +53,7 @@ const ALLOWED_IMPORTS = [
   'app/data/suzuka-barriers-spec.ts',
   'app/three/ground.ts',
   'app/three/ground-plan.ts',
+  'app/three/ground-census.ts',
   'app/three/trackside.ts',
   'app/sim/track.ts',
   './app-runtime.mjs',
@@ -137,6 +140,7 @@ const barriersSpec = await import(path.join(ROOT, 'app/data/suzuka-barriers-spec
 const { CIRCUIT } = await import(path.join(ROOT, 'app/data/suzuka.ts'))
 const groundMod = await import(path.join(ROOT, 'app/three/ground.ts'))
 const planMod = await import(path.join(ROOT, 'app/three/ground-plan.ts'))
+const { groundCensus } = await import(path.join(ROOT, 'app/three/ground-census.ts'))
 const trackside = await import(path.join(ROOT, 'app/three/trackside.ts'))
 const { forwardDelta, signedDelta } = await import(path.join(ROOT, 'app/sim/track.ts'))
 const sections = JSON.parse(readFileSync(path.join(ROOT, 'scripts/audit/sections.json'), 'utf8'))
@@ -566,9 +570,23 @@ if (runs('G1')) {
   console.log('    top clusters:  s-range      side  off-range   samples  sec  expected > got')
   for (const c of clusters.slice(0, 25)) console.log(`      ${pad(Math.round(c.from), 5)}-${padE(Math.round(c.to), 5)}   ${sideCh(c.side)}   ${pad(fmt(c.off0, 1), 5)}-${padE(fmt(c.off1, 1), 5)} ${pad(c.n, 7)}  ${secShort(c.from)}   ${c.exp} > ${c.got}`)
   console.log(`    ${clusters.length} clusters in all`)
-  out.guards.G1 = { ...stats, matrix: Object.fromEntries(rows), clusters: clusters.slice(0, 25) }
+  // The runtime census — ground-census.ts, what the e2e suite reads from window.__suzuka.groundCensus()
+  // — on ITS point set (a 4 m × 2 m verge lattice and a 2 m grid inside every ring), judged by
+  // plan.ownerAt(x, z): the WORLD lookup (project, then the rings on the point), where the
+  // lattice above asks the plan in the frame. The two disagreed where the frame's round trip is
+  // not pointAt's inverse (I5-a: the T3 lot's tip and the T1 pond's shore, 40–70 m out on the T3
+  // bend, read grass over drawn paddock / water in the browser and passed here). Once on the
+  // mesh's own index (the browser's number, to the sample) and once on this guard's face index.
+  const runtime = groundCensus(track, plan, groundMeshes)
+  const runtimeFaces = groundCensus(track, plan, { yAt: (x, z) => { const g = gotAt(x, z); return { y: g.y, kind: g.name, src: -1 } } })
+  const worstOf = (c) => c.worst.slice(0, 6).map((w) => { const p = plan.project(w.x, w.z); return `${w.expected} > ${w.got} at s${p.s.toFixed(1)} lat${p.lateral.toFixed(1)} xz (${w.x.toFixed(2)}, ${w.z.toFixed(2)})` }).join('; ')
+  console.log(`    runtime census (ground-census.ts): ${runtime.samples} samples, ${runtime.seam} in a seam band, match ${runtime.match}, mismatch ${runtime.mismatch} on the mesh index (${runtime.ms.toFixed(0)} ms)${runtime.mismatch ? ` — ${worstOf(runtime)}` : ''}`)
+  console.log(`    runtime census on this guard's faces: match ${runtimeFaces.match}, mismatch ${runtimeFaces.mismatch}${runtimeFaces.mismatch ? ` — ${worstOf(runtimeFaces)}` : ''}`)
+  out.guards.G1 = { ...stats, matrix: Object.fromEntries(rows), clusters: clusters.slice(0, 25), runtime: { samples: runtime.samples, seam: runtime.seam, match: runtime.match, mismatch: runtime.mismatch, worst: runtime.worst }, runtimeFaces: { match: runtimeFaces.match, mismatch: runtimeFaces.mismatch, worst: runtimeFaces.worst } }
   for (const [k, n] of rows) check('G1', k, n)
   check('G1', 'crossoverBare', crossBare, 0, crossBareAt.join(', '))
+  check('G1', 'runtime.mismatch', runtime.mismatch, 0, worstOf(runtime))
+  check('G1', 'runtime.faces', runtimeFaces.mismatch, 0, worstOf(runtimeFaces))
   guardEnd('G1')
 }
 

@@ -391,6 +391,10 @@ scripts/
     不透明な地面は区画の面だけ：`Terrain.addGroundFace` は `ground-mesh.ts` が発行した `GroundFace` しか受けません。
     G1 census（真上から見える面の種類 vs `plan.ownerAt`、境界 0.5 m の帯を除いて不一致 0。e2e は実行時の
     `__suzuka.groundCensus()` で同じことを見る）、G2 overlap（同じ点を覆う面は同じ面も含めて 0）。
+    G1 は自前の格子（1 m × 0.5 m、プランを枠で引く）に加えて `ground-census.ts` の `groundCensus` そのものも走らせます
+    （`runtime.mismatch` / `runtime.faces`）：e2e と同じ点集合（4 m × 2 m の路肩格子 + 各リングの内側 2 m 格子）を同じ
+    世界座標の `plan.ownerAt(x, z)` で判定するので、ブラウザで落ちる census は `pnpm check` でも落ちます（I5-a で枠の往復
+    `nearestOnRange → pointAt` が 40〜70 m 先で 0.3 m ずれ、リング判定だけが食い違った 2 点を G1 の格子は見ていなかった）。
   - **R2 不透明オーナー間にリフト無し**。隣り合うオーナーは境界の頂点を共有し、`LAYER` は「物」と「デカール」の段だけです。
     G9 seam（同じ XZ の頂点は位置も法線もビット同一）。
   - **R3 頂点の高さは 1 つ**。頂点プールが固有の XZ を 1 回だけ、最上位オーナーの `RULE_OF` 規則で評価します。地面モジュールの外は

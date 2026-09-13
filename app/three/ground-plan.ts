@@ -768,8 +768,11 @@ export interface GroundPlan {
    * The owner of (s, side, off) with off ≥ 0 metres beyond the road edge; 'road' for off < 0.
    * `inRaster` says the point is inside a raster cell (the mesh builder asking for a cell whose
    * centre falls a hair beyond the extent between two stations): the world/terrain branch is skipped.
+   * `at` = the world point itself when the caller has it: the ring test is then on the point,
+   * inside the raster and beyond it alike — rebuilding it from (s, off) is not pointAt's inverse
+   * (0.3 m out at 40–70 m lateral on a bend, centimetres 180 m out), and the mesh draws every
+   * ring in XZ.
    */
-  /** the owner at (s, side, off); `at` = the world point itself when the caller has it (beyond the extent the ring test is on the point, and rebuilding it from (s, off) 180 m out is centimetres off) */
   ownerAtSL: (s: number, side: Side, off: number, inRaster?: boolean, at?: { x: number; z: number }) => Owner
   /** the owner at world (x, z); `window` restricts the projection to one stretch of road */
   ownerAt: (x: number, z: number, window?: [number, number]) => Owner
@@ -1318,7 +1321,14 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       if (off >= pin && off < pout) return PIT_LANE
       if (off >= pout && off < aout) return PIT_APRON
     }
-    track.pointAt(s, side * (hw + off), _v, 0)
+    // the rings are drawn in XZ (a column is where the station's ray crosses the ring, so the
+    // cell edge between two stations lies ON the ring's edge), and a caller that holds the world
+    // point is answered on it: rebuilding the point from (s, off) is `nearestOnRange`'s round
+    // trip, which is not pointAt's inverse — 0.3 m out at 40–70 m lateral on a bend (the
+    // per-sample normals are C0), enough to put a point of the T3 lot's tip or the T1 pond's
+    // shore on the other side of the ring (the census read grass over drawn paddock / water)
+    if (at) _v.set(at.x, 0, at.z)
+    else track.pointAt(s, side * (hw + off), _v, 0)
     let best: Owner | null = null
     for (const r of rings) if (inWorldRing(_v.x, _v.z, r.ring) && (!best || ownerBeats(r.owner, best))) best = r.owner
     if (best) return best

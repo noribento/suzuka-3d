@@ -19,7 +19,11 @@ export interface GroundCensus {
   ms: number
 }
 
-export function groundCensus(track: Track, plan: GroundPlan, built: BuiltGround, opts: { stepS?: number; stepAcross?: number; seam?: number } = {}): GroundCensus {
+/**
+ * `built` is the mesh's own index in the browser; surface-check G1 also runs the census on its
+ * own face index, so only `yAt` is asked for. The point set and the judge are the same in both.
+ */
+export function groundCensus(track: Track, plan: GroundPlan, built: Pick<BuiltGround, 'yAt'>, opts: { stepS?: number; stepAcross?: number; seam?: number } = {}): GroundCensus {
   const t0 = performance.now()
   const stepS = opts.stepS ?? 4
   const stepAcross = opts.stepAcross ?? 2
