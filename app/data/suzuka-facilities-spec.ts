@@ -1024,7 +1024,7 @@ export const BUILDINGS: BuildingDef[] = [
   // end); way 184429429 beside the helipad is the former medical room, now the course-vehicle base
   { id: 'course_vehicle_base', name: '旧医務室（コース車両基地）', osmWay: 184429429, height: 5.0, levels: 1, anchor: { s: 165, lateral: -40 }, colour: COLOURS.pitFacade.mid, roof: 'flat', builder: 'paddock', unverified: ['height', 'use (the 2009 dossier calls it 医務室; the 2026 medical centre is in the pod)'] },
   { id: 'dunlop_office', name: '日本ダンロップ鈴鹿事務所', osmWay: 184423961, height: 7, levels: 2, anchor: { s: 5690, lateral: -182 }, colour: '#d9d6cf', roof: 'flat', unverified: ['height'] },
-  { id: 'west_tower', name: '西コントロールタワー', osmWay: 184415318, height: 12, levels: 3, anchor: { s: 4225, lateral: -20.4 }, colour: COLOURS.pitFacade.mid, roof: 'flat', unverified: ['height'] },
+  // the west control tower (184415318) moved to INFIELD_FACILITIES at I5-b (9 m / 2 levels with its glass band, balcony and antenna)
   { id: 'circuit_plaza', name: 'CIRCUIT PLAZA', osmWay: 308666565, height: 9, levels: 2, anchor: 'terrain', colour: '#e4e0d6', roof: 'flat', unverified: ['height'] },
   // the driving school (I5-a): a 2-storey block behind the A1 stand (OSM 466925741, 52 × 49 m,
   // 1,545 m²) on its own practice loops (GROUND_AREAS 交通教育センター); infield-ground.ts extrudes
@@ -2060,6 +2060,15 @@ export const GROUND_AREAS: GroundArea[] = [
     unverified: ['extent (aerial 06 / 15 at 0.49 m/px, ±5 m); extended to s 2065 so the second helipad sits on it'],
   },
   { name: '第 2 ヘリパッド', kind: 'helipad', layer: 1, source: 'photo', footprint: { disc: { s: HELIPAD_2.s, lateral: HELIPAD_2.lateral, r: HELIPAD_2.radius } }, unverified: ['position ±5 m (aerial 06 bottom right; no OSM way)'] },
+  // the gravel parking pad beyond the apron's far edge (aerial 06: "light gravel parking pads
+  // with cars" at s 1850–1900, lateral 85–100; the far shed 184103156 stands half on it), a
+  // 3 m grass strip off the apron ring (I5-b)
+  { name: 'ダンロップループ 砂利パッド', kind: 'gravelArea', source: 'photo', footprint: { sRange: [1840, 1910], straight: true, ring: [[1852, 85], [1852, 100], [1900, 100], [1900, 85]] }, unverified: ['extent (aerial 06 at 0.49 m/px, ±5 m)'] },
+  // the Degner-east gravel pad under the marquee compound (aerial 07: "a bare light gravel pad
+  // ~80×60 m" east of the Degner 2 trap): its inner edge 1.5–2 m behind the trap-back tyre
+  // line (BARRIERS degner2-trap-back, +43.6 at s 2110 → +57 at 2150), its far edge at +80 —
+  // the circuit ring 775428456 passes lateral 83 at s 2110 and 85 at s 2158 (I5-b)
+  { name: 'デグナー東 砂利パッド', kind: 'gravelArea', source: 'photo', footprint: { sRange: [2100, 2170], straight: true, ring: [[2112, 47], [2112, 80], [2160, 80], [2160, 59], [2150, 59], [2140, 57.5], [2130, 55], [2120, 51]] }, unverified: ['extent (aerial 07, ±5 m); the aerial reads 80 × 60 m, the part inside the perimeter ring is 48 × 25–33 m'] },
   // --- the crossover wedge between 130R and the Dunlop → Degner run ---------------------------------
   // OSM maps the whole wedge as one highway=service area (467386920, 11,843 m², 122 vertices in
   // the fold) but the aerial reads dormant grass with gravel islands there; only the service
@@ -2174,3 +2183,186 @@ export const GROUND_AREAS: GroundArea[] = [
   { name: '管理道路 外周（A2・B・C 裏）', kind: 'asphaltArea', source: 'osm', footprint: { way: 184120107, width: 4 } },
   { name: '管理道路 C・D5 裏', kind: 'asphaltArea', layer: 2, source: 'osm', footprint: { way: 468709099, width: 4, sRange: [570, 1335] } },
 ]
+
+// ================================================================================================
+// ---------------------------------------------------------------- the infield facilities (I5-b)
+// Everything that STANDS inside the perimeter ring 775428456 and is neither the pit complex, the
+// paddock, the ops layer, the trackside nor a ground row: the sheds and huts of the Spoon yard,
+// the L yard, the west-course pits, the south course, the Dunlop loop, the hairpin, the Degner
+// wedge and the T1 infield; the walls, fences and kerbs of the south course; the infield car
+// parks; the street lamps of the service roads; the traffic islands' kerbs. Read by
+// app/three/infield-ground.ts (`buildInfieldFacilities`), by facilities-check §6 (every osmWay
+// in OSM_FEATURES) and §16 O11 (outlines never cross, windowed centroids) / O2 / O5 (the sized
+// rows), by scripts/facilities/build-surroundings.mjs (OWNED: an osmWay here is never re-shipped
+// as a SUR_BUILDINGS massing) and by scripts/audit/infield-smoke.mjs. Positions are the aerials
+// (misc/audit/sections, 0.49 m/px) and the plan's I5 table — everything here is `unverified`.
+// ================================================================================================
+
+/**
+ * What a facility is drawn as (infield-ground.ts):
+ *  - shed / hut / office / garage / pumphouse: a footprint extrusion (the OSM ring, or `size`
+ *    at (s, lateral) turned `yaw`° from the road's heading) with a flat cap in the roof colour
+ *    (`roof` 'flat' = the pit complex's roof grey, 'blue' / 'brown' / 'red' = coloured, 'gable'
+ *    = a pitched roof), the walls in `wall`; a garage carries `doors` roller shutters along its
+ *    longest edge nearer the road;
+ *  - tower: the west control tower — a 2-level shell with a full-perimeter glass band on the
+ *    upper level, a 1.2 m balcony and a roof antenna;
+ *  - marquee: a white PVC gable tent (the tent_canopy drop as the near roof);
+ *  - tank: a round steel tank `size[0]` m across, `height` tall, with a conical top;
+ *  - stack: `count` concrete blocks 1 × 1 × 0.5 in rows of `cols`; tyres: `count` loose tyre
+ *    stacks (GROUND_OBJECTS.tyreStack) in rows of `cols`; forklift / toilet: the drop or a box;
+ *  - flagpole: `count` 8 m poles along s (4 m pitch) with plain flags;
+ *  - mast: a 22 m floodlight lattice mast with three heads (the paddock's masts);
+ *  - wall: the OSM way (or a thin `area=yes` wall polygon, collapsed to its centreline) as a
+ *    `height` m concrete wall; fence: the OSM polyline as a `height` m chain-link fence with
+ *    posts every 3 m; compound: a chain-link enclosure `size` around (s, lateral).
+ */
+export type InfieldFacilityKind =
+  | 'shed' | 'hut' | 'office' | 'marquee' | 'tank' | 'stack' | 'tyres' | 'garage' | 'tower' | 'pumphouse' | 'flagpole' | 'fence' | 'wall' | 'compound' | 'forklift' | 'toilet' | 'mast'
+
+export interface InfieldFacility {
+  /** ASCII id: mesh names and the smoke's messages */
+  id: string
+  name: string
+  kind: InfieldFacilityKind
+  /** the OSM footprint (buildings) / polyline (walls, fences); its s window for the O11 centroid test */
+  osmWay?: number
+  sRange?: [number, number]
+  /** a hand-placed row: the centre in the track frame … */
+  s?: number
+  lateral?: number
+  /** … its size [along s, across] (m) and the yaw (deg) off the road's heading */
+  size?: [number, number]
+  yaw?: number
+  /** eaves / top height (m) above the local ground */
+  height: number
+  levels?: number
+  roof?: 'flat' | 'gable' | 'blue' | 'brown' | 'red'
+  wall?: 'white' | 'grey' | 'corrugated' | 'glass'
+  /** stacks / tyres / flagpoles / toilets: how many, in rows of `cols` */
+  count?: number
+  cols?: number
+  /** garages: roller shutters along the longest edge */
+  doors?: number
+  unverified?: string[]
+  note?: string
+}
+
+export const INFIELD_FACILITIES: InfieldFacility[] = [
+  // --- the Spoon yard and the west paddock (aerials 11 / 13: two white sheds, a block stack, a tyre store) ---
+  { id: 'spoon-shed-a', name: 'スプーン ヤード シェッド A', kind: 'shed', s: 3882, lateral: 38, size: [15, 10], height: 4, roof: 'flat', wall: 'white', unverified: ['aerial 11 / 13 (±3 m): "two white flat 15×10 m objects (sheds or stacked barrier packs)"'] },
+  { id: 'spoon-shed-b', name: 'スプーン ヤード シェッド B', kind: 'shed', s: 3911, lateral: 44, size: [15, 10], height: 4, roof: 'flat', wall: 'white', unverified: ['as shed A'] },
+  { id: 'spoon-blocks', name: 'スプーン ヤード ブロック積み', kind: 'stack', s: 3993, lateral: 39, size: [4, 3], height: 0.5, count: 12, cols: 4, unverified: ['aerial 11: "a white block stack 3×4" (±2 m); 1 × 1 × 0.5 concrete blocks'] },
+  { id: 'spoon-tyres', name: 'スプーン ヤード タイヤ保管', kind: 'tyres', s: 3960, lateral: 30, size: [4, 3.2], height: 0.93, count: 20, cols: 5, unverified: ['position (hairpin.jpg shows loose tyre stacks and a loader behind the fences; the yard is where the aerial has hard-standing)'] },
+  { id: 'spoon-forklift', name: 'スプーン ヤード フォークリフト', kind: 'forklift', s: 3970, lateral: 36, size: [3.7, 1.2], yaw: 30, height: 2.1, unverified: ['position / yaw'] },
+  // --- the 200R officials' building (aerial 11: a white flat-roofed 20 × 5 m building behind the guardrail's service strip) ---
+  { id: 'officials200r', name: '200R 役員室', kind: 'office', s: 3245, lateral: -19, size: [20, 5], height: 3.2, roof: 'flat', wall: 'white', unverified: ['aerial 11 (±2 m); MARSHAL_POSTS 3245 hangs its light panel and camera on the guardrail in front'] },
+  // --- the L yard's tank compound (aerial 11: a white round tank ~8 m Ø + two small buildings, OSM 183953734 / 736) ---
+  { id: 'l-yard-tank', name: 'L ヤード 円形タンク', kind: 'tank', s: 3410, lateral: -95, size: [8, 8], height: 6, unverified: ['position (aerial 11: the compound at −87…−112 over s 3378–3494; ±10 m)', 'height'] },
+  { id: 'l-yard-hut-a', name: 'L ヤード 小屋 A', kind: 'hut', osmWay: 183953734, sRange: [3400, 3600], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'l-yard-hut-b', name: 'L ヤード 小屋 B', kind: 'hut', osmWay: 183953736, sRange: [3400, 3600], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  // --- the west-course pits (aerial 13: the control tower, its huts, the paddock garage and toilets) ---
+  { id: 'west-garage', name: '西コース パドック ガレージ', kind: 'garage', osmWay: 184415314, sRange: [4250, 4400], height: 4, roof: 'flat', wall: 'white', doors: 6, unverified: ['height', 'the roller doors face the track side (aerial 13 cannot tell)'] },
+  { id: 'west-toilets', name: '西コース パドック トイレ', kind: 'hut', osmWay: 184415315, sRange: [4250, 4400], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-c', name: '西コース パドック 小屋', kind: 'hut', osmWay: 184415316, sRange: [4200, 4350], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  {
+    id: 'west-tower', name: '西コントロールタワー', kind: 'tower', osmWay: 184415318, sRange: [4150, 4300], height: 9, levels: 2, roof: 'flat', wall: 'white',
+    unverified: ['9 m / 2 levels (was 12 m / 3 in BUILDINGS; the aerial\'s shadow reads two storeys)', 'the glass band, the 1.2 m balcony and the antenna are the type, not a photo'],
+  },
+  { id: 'west-hut-a', name: '西コントロールタワー脇 小屋 A', kind: 'hut', osmWay: 184419747, sRange: [4150, 4300], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-b', name: '西コントロールタワー脇 小屋 B', kind: 'hut', osmWay: 184419750, sRange: [4150, 4300], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'west-hut-d', name: '西コース ピット出口 小屋', kind: 'hut', osmWay: 184415312, sRange: [4200, 4350], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+  // --- the south course (aerial 14: the 70 × 10 m pit garage, huts, the control hut, walls, chain-link fences) ---
+  { id: 'south-garage', name: '国際南コース ピットガレージ', kind: 'garage', osmWay: 184415311, sRange: [4400, 4600], height: 4.5, roof: 'flat', wall: 'white', doors: 12, unverified: ['height', 'L-shaped OSM outline; the doors along its longest edge'] },
+  { id: 'south-hut', name: '国際南コース 小屋', kind: 'hut', osmWay: 184415313, sRange: [4400, 4600], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'south-control', name: '国際南コース コントロール小屋', kind: 'hut', osmWay: 184410555, sRange: [4450, 4650], height: 3.5, roof: 'flat', wall: 'white', unverified: ['height / use'] },
+  { id: 'south-flagpoles', name: '国際南コース 旗竿', kind: 'flagpole', s: 4470, lateral: -200, size: [8, 0.2], height: 8, count: 3, unverified: ['position (the paddock apron\'s edge, aerial 14; ±5 m)'] },
+  { id: 'south-wall-a', name: '国際南コース ピット壁', kind: 'wall', osmWay: 468377679, sRange: [4400, 4600], height: 1.0, unverified: ['height (OSM barrier=wall area=yes: a 1 m-wide strip, collapsed to its centreline)'] },
+  { id: 'south-wall-b', name: '国際南コース 小屋脇の壁', kind: 'wall', osmWay: 468377683, sRange: [4450, 4600], height: 1.0, unverified: ['height'] },
+  { id: 'south-fence-a', name: '国際南コース 柵 A', kind: 'fence', osmWay: 184417654, sRange: [4400, 4650], height: 2.4, unverified: ['height (OSM barrier=fence)'] },
+  { id: 'south-fence-b', name: '国際南コース 柵 B', kind: 'fence', osmWay: 184417655, sRange: [4500, 4650], height: 2.4, unverified: ['height'] },
+  { id: 'south-fence-c', name: '国際南コース 柵 C', kind: 'fence', osmWay: 468750064, sRange: [4500, 4650], height: 2.4, unverified: ['height'] },
+  { id: 'south-fence-d', name: '国際南コース 柵 D', kind: 'fence', osmWay: 468750068, sRange: [4500, 4650], height: 2.4, unverified: ['height'] },
+  { id: 'west-paddock-fence', name: '西パドック 柵', kind: 'fence', osmWay: 184415338, sRange: [4250, 4400], height: 2.4, unverified: ['height'] },
+  { id: 'south-toilets', name: '国際南コース 仮設トイレ', kind: 'toilet', s: 4530, lateral: -100, size: [5.2, 1.1], height: 2.3, count: 4, cols: 4, unverified: ['position (beside the hut 184415313; the aerial shows "small white huts/tents" there)'] },
+  // --- the Dunlop loop (aerial 06: five white flat-roofed sheds, a marquee, a fenced compound) ---
+  { id: 'dunlop-shed-1', name: 'ダンロップループ シェッド 1', kind: 'office', osmWay: 184103155, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-2', name: 'ダンロップループ シェッド 2', kind: 'office', osmWay: 184103156, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-3', name: 'ダンロップループ シェッド 3', kind: 'office', osmWay: 184103158, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-4', name: 'ダンロップループ シェッド 4', kind: 'office', osmWay: 184103159, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-shed-5', name: 'ダンロップループ シェッド 5', kind: 'office', osmWay: 184103160, sRange: [1840, 1980], height: 4, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'dunlop-marquee', name: 'ダンロップループ マーキー', kind: 'marquee', s: 2000, lateral: 45, size: [25, 12], height: 4, unverified: ['aerial 06 (±3 m): a race-weekend temporary'] },
+  { id: 'dunlop-compound', name: 'ダンロップループ コンパウンド柵', kind: 'compound', s: 1830, lateral: 40, size: [20, 20], height: 2.4, unverified: ['aerial 06: "a fenced compound with a small grey hut" (±5 m)'] },
+  { id: 'dunlop-compound-hut', name: 'ダンロップループ コンパウンド小屋', kind: 'hut', s: 1834, lateral: 44, size: [5, 4], height: 2.8, roof: 'flat', wall: 'grey', unverified: ['the small grey hut inside the compound (aerial 06, ±5 m)'] },
+  // --- the hairpin (hairpin.jpg: loose tyre stacks; the floodlight mast beyond the exit) ---
+  { id: 'hairpin-tyres', name: 'ヘアピン タイヤ島', kind: 'tyres', s: 2700, lateral: 13.5, size: [3.2, 2.4], height: 0.93, count: 12, cols: 4, unverified: ['position: the plan\'s (2700, +18) lies past the hairpin\'s inside fold (the frame is exact only inside the inner wall\'s 15–18 m radius); moved to +13.5 on the eye\'s dirt 2.5 m behind the hairpin-inside wall'] },
+  { id: 'hairpin-mast', name: 'ヘアピン 照明マスト', kind: 'mast', s: 2806, lateral: -44, size: [0.6, 0.6], height: 22, unverified: ['position: the plan\'s (2700, −38) is inside the I stand (s 2692–2738, −26…−48); hairpin.jpg shows the mast beyond the exit, so it stands in the IJ / J gap behind the hairpin-exit-right wall (±15 m)'] },
+  // --- the Degner wedge's east side (aerial 07: a white marquee with a fenced compound on a gravel pad) ---
+  { id: 'degner-marquee', name: 'デグナー東 マーキー', kind: 'marquee', s: 2146, lateral: 72, size: [20, 12], height: 4, unverified: ['aerial 07 reads 25 × 15 m at (2150, +70); 20 × 12 at +72 so the compound round it stays behind the degner2-trap-back tyres (+57) and inside the perimeter ring (lateral 83–85 there)'] },
+  { id: 'degner-compound', name: 'デグナー東 コンパウンド柵', kind: 'compound', s: 2146, lateral: 72, size: [24, 22], height: 2.4, unverified: ['the plan\'s 30 × 30 does not fit between the tyre wall and the ring: 24 × 22'] },
+  // --- the T1 infield (aerials 02 / 03: the brown-roofed 2-storey block, the pump house and its fenced pad with a small tank) ---
+  { id: 't1-brown', name: 'T1 インフィールド 茶屋根の建物', kind: 'office', s: 275, lateral: -88, size: [30, 20], height: 6.5, levels: 2, roof: 'brown', wall: 'white', unverified: ['aerial 02 (±3 m): "a red/brown-roofed 2-storey building ~30×20 m"; use unknown'] },
+  { id: 't1-pump', name: 'T1 池 ポンプ小屋', kind: 'pumphouse', s: 640, lateral: -45, size: [10, 6], height: 3.5, roof: 'flat', wall: 'grey', unverified: ['aerial 02 (±3 m): "a grey pump-house ~10×6 m + fenced gravel pad and a small tank at (s640, −45)"'] },
+  { id: 't1-pump-fence', name: 'T1 池 ポンプ小屋の柵', kind: 'compound', s: 640, lateral: -54, size: [8, 8], height: 2.0, unverified: ['the fenced pad beside the pump house (±3 m)'] },
+  { id: 't1-pump-tank', name: 'T1 池 小タンク', kind: 'tank', s: 640, lateral: -54, size: [2.4, 2.4], height: 2.5, unverified: ['the small tank inside the fenced pad'] },
+  // --- the far OSM huts inside the ring no other table draws (facilities-check §6 / O11) ---
+  { id: 'degner-hut', name: 'デグナー左 小屋', kind: 'hut', osmWay: 467591741, sRange: [2050, 2200], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'crossover-hut', name: '立体交差手前 小屋', kind: 'hut', osmWay: 468750070, sRange: [2200, 2300], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 't4-hut', name: 'T4–T5 内側 小屋', kind: 'hut', osmWay: 184430910, sRange: [1100, 1250], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'a1-hut-a', name: 'A1 裏 小屋 A', kind: 'hut', osmWay: 184120098, sRange: [80, 200], height: 3, roof: 'flat', wall: 'white', unverified: ['height'] },
+  { id: 'a1-hut-b', name: 'A1 裏 小屋 B', kind: 'hut', osmWay: 184120102, sRange: [40, 160], height: 2.8, roof: 'flat', wall: 'white', unverified: ['height'] },
+]
+
+/**
+ * The infield car parks (I5-b): PADDOCK_PARKING's convention (paddock.ts `layoutBays`, bays
+ * 2.5 × 5, 6 m aisles, back-to-back pairs from lat[0]) over the lots the I5-a ground rows drew
+ * (`lot` = the GROUND_AREAS row the block lies on — the bays' face test keeps only the ones on
+ * a drawn `paddock` face, so a block may reach past its lot's polygon). A left-side lot is
+ * written lat [near, far] with near > far. `occupancy` before the tier budget
+ * (`Quality.infield.infieldCars`) scales every block alike. Bays also keep |lateral| ≥ hw + 8
+ * (O2), inside the ring, off every INFIELD_FACILITIES footprint and lamp.
+ */
+export interface InfieldParkingRow extends PaddockParkingRow {
+  /** the GROUND_AREAS row (by name) the block is laid out on */
+  lot: string
+}
+
+export const INFIELD_PARKING: InfieldParkingRow[] = [
+  { id: 'C', name: 'C パドック駐車場', lot: 'C パドック駐車場', s: [305, 875], lat: [-32, -112], rows: 10, angle: 0, pitch: 2.5, occupancy: 0.7, note: 'OSM 469079400 round the T1–T2 basin: the bays over the basin, the service road and the grass are dropped by the face test' },
+  { id: 'T3', name: 'T3 外側駐車場', lot: 'T3 外側駐車場', s: [869, 883], lat: [-38, -94], rows: 6, angle: 0, pitch: 2.5, occupancy: 0.6 },
+  { id: 'Drear', name: 'D 裏エプロン', lot: 'D 裏エプロン', s: [1364, 1420], lat: [112, 64], rows: 6, angle: 0, pitch: 2.5, occupancy: 0.5, note: 'left of the road (OSM 184253118 at lateral 62–114)' },
+  { id: 'degnerE', name: 'デグナー東 駐車場', lot: 'デグナー東 駐車場', s: [2240, 2308], lat: [90, 51], rows: 4, angle: 0, pitch: 2.5, occupancy: 0.7, note: 'left of the lower road (OSM 184410563 at lateral 49–92); aerial 07: ~40 cars' },
+  { id: 'west', name: '西パドック駐車場', lot: '西パドック駐車場 東', s: [4272, 4353], lat: [-70, -158], rows: 10, angle: 0, pitch: 2.5, occupancy: 0.5, note: 'both lots (184415332 / 184415335); the garage and the huts inside them veto their bays' },
+  { id: 'southN', name: '南コース パドック 北', lot: '南コース パドックエプロン 北', s: [4455, 4498], lat: [-219, -266], rows: 6, angle: 0, pitch: 2.5, occupancy: 0.4 },
+  { id: 'southS', name: '南コース パドック 南', lot: '南コース パドックエプロン 南', s: [4532, 4564], lat: [-204, -233], rows: 4, angle: 0, pitch: 2.5, occupancy: 0.4 },
+  { id: 'spoon', name: 'スプーン駐車場', lot: 'スプーン駐車場', s: [3750, 3760], lat: [-102.5, -111.5], rows: 2, angle: 0, pitch: 2.5, occupancy: 0.3 },
+]
+
+/**
+ * The street lamps of the infield service roads (I5-b): every `{ way, width }` asphaltArea row
+ * of GROUND_AREAS whose way is a service road (role 'road' — not the south course, the kart
+ * tracks or the driving school's chained loop) gets the paddock's pole (PADDOCK_LAMPS.height)
+ * every `pitch` m, `offset` m off the way's centreline on the side nearer the lap (never on a
+ * road-frame face, a water face or outside the ring).
+ */
+export const INFIELD_LAMPS = { pitch: 40, offset: 3.0, unverified: ['pitch / offset (aerials show cobra-head poles along the T1 infield road; ±10 m)'] } as const
+
+/**
+ * The traffic islands' kerbs (I5-b, GROUND_OBJECTS.islandKerb): a `radius` disc walked in the
+ * frame's positive sense on a drawn paddock face — the T1 porte-cochère in front of the
+ * brown-roofed block, the south-course paddock's north apron, the west paddock apron.
+ */
+export const INFIELD_ISLAND_KERBS: { id: string; name: string; s: number; lateral: number; radius: number; unverified: string[] }[] = [
+  { id: 't1-porte', name: 'T1 車寄せの島', s: 305, lateral: -68, radius: 2.5, unverified: ['position: on the C / D paddock paving in front of the brown-roofed block (±5 m)'] },
+  { id: 'south-pits', name: '南コース パドックの島', s: 4473, lateral: -240, radius: 3, unverified: ['position (the north apron 467572919, ±5 m)'] },
+  { id: 'west-paddock', name: '西パドックの島', s: 4000, lateral: 30, radius: 3, unverified: ['position (the apron between the sheds and the block stack, ±5 m)'] },
+]
+
+/**
+ * The south course's kerbs (I5-b): red / white kerbs (GROUND_OBJECTS.laneKerb, lanes.ts
+ * `sweepKerb`, `kerbMaps`) on both edges of the raceway 153525062 wherever its centreline
+ * curves more than `minCurvature` (rad / m) for `minRun` m — the apex sections the aerial (14)
+ * shows kerbed. The kerb is centred `inset` m inside the ribbon's edge (the 南コース row sweeps
+ * `width`), so both kerbs stand wholly on the drawn face.
+ */
+export const SOUTH_COURSE_KERBS = { way: 153525062, width: 8, inset: 0.5, minCurvature: 0.015, minRun: 12, unverified: ['which sections carry kerbs (aerial 14 at 0.49 m/px: "red/white kerbs" at the bends)'] } as const

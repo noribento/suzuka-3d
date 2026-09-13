@@ -24,19 +24,23 @@
  *        tier the plan / meshes build times are PRINTED against the pre-I5-a numbers held in
  *        BASE_MS (report-only: the plan expected +1.5–2.5 s, this is what it is).
  *
+ *  I5-b  the facilities (`checkFacilities` below): INFIELD_FACILITIES counts and boxes, the
+ *        walls / fences, the tyre / kerb ground objects, the infield cars and lamps, the build
+ *        time, a report-only slab listing under the G8-exempt names.
+ *
  *   node scripts/audit/infield-smoke.mjs [--tier high|low|both] [--glb]
  *
- * `--glb` is reserved for the phase's GLB path (stub-registry.mjs, like furniture-smoke --glb);
- * I5-a has none (the ground carries no GLB).
+ * `--glb` builds the high tier once more with the I5-b drops behind a stub registry
+ * (stub-registry.mjs, like furniture-smoke --glb) and runs the GLB facts of `checkFacilities`.
  * Exit 1 on any failure.
  */
 import path from 'node:path'
 import { buildScene, ROOT, THREE } from './app-runtime.mjs'
-import { commonChecks, finiteVertices, fmt, smokeArgs } from './smoke-common.mjs'
+import { commonChecks, finiteVertices, fmt, smokeArgs, standPoints } from './smoke-common.mjs'
 import { insideRing } from './ring.mjs'
+import { buildSceneWith, stubRegistry } from './stub-registry.mjs'
 
 const { tiers, check, finish, glb } = smokeArgs('infield-smoke')
-if (glb) console.log('--glb: no GLB path in this smoke yet (I5-a is ground rows and decals; I5-b adds the facilities)')
 
 const spec = await import(path.join(ROOT, 'app/data/suzuka-facilities-spec.ts'))
 const groundMod = await import(path.join(ROOT, 'app/three/ground.ts'))
@@ -163,6 +167,171 @@ for (const tier of tiers) {
     const base = BASE_MS[tier]
     console.log(`  buildMs.plan ${b.plan?.toFixed(0)} ms (base ${base.plan}, Δ ${(b.plan - base.plan >= 0 ? '+' : '') + (b.plan - base.plan).toFixed(0)}), buildMs.meshes ${b.meshes?.toFixed(0)} ms (base ${base.meshes}, Δ ${(b.meshes - base.meshes >= 0 ? '+' : '') + (b.meshes - base.meshes).toFixed(0)}), buildMs.infield ${b.infield?.toFixed(0)} ms — report-only`)
   }
+  // --- I5-b: the facilities ------------------------------------------------------------------------------
+  checkFacilities(scene, check, tier, { glb: false })
+}
+
+if (glb) {
+  console.log('\ninfield-smoke: tier high --glb (the stub registry with the I5-b drops)')
+  const reg = await stubRegistry(['model/trackside/tire_stack', 'model/ops/forklift', 'model/ops/porta_potty', 'model/ops/tent_canopy', 'model/trackside/flood_light', 'model/props/rollershutter_door'])
+  console.log(`  loaded ${reg.loaded.length} models: ${reg.loaded.join(', ')}`)
+  const t0 = performance.now()
+  const scene = await buildSceneWith('high', reg)
+  console.log(`  built + drained in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
+  checkFacilities(scene, check, 'high', { glb: true })
 }
 
 finish()
+
+// ===== I5-b: checkFacilities (infield-ground.ts buildInfieldFacilities) ===========================
+/**
+ * The facilities / walls / fences / kerbs / cars / lamps facts (plan §I5-b):
+ *  - stats.infield['infield-facilities'] = INFIELD_FACILITIES.length, and every row left a box
+ *    in `group.userData.infieldFacilities`;
+ *  - every facility's box (its four corners) is inside the circuit ring and off the track
+ *    envelope: |lateral| ≥ hw + 1.5 (O2) at every corner, projected in the row's own window;
+ *  - the walls (`furniture-infield-walls`) and the fence cards (`furniture-infield-fence`) carry
+ *    no horizontal face near the ground: every triangle with |ny| > 0.5 sits ≥ 0.5 m over
+ *    ground.standY (the wall tops are 1 m up; the fence is vertical cards only);
+ *  - the tyre stacks are tagged GROUND_OBJECTS.tyreStack, the south course's kerbs laneKerb, the
+ *    islands' kerbs islandKerb (every InstancedMesh level of the tyres);
+ *  - every parked car of `infield-cars` (L0) stands on a drawn `paddock` face and ≥ hw + 8 off
+ *    the centreline (plan.project's d); the cars per lot are what `group.userData.infieldParking`
+ *    reports and their sum is ≤ Quality.infield.infieldCars;
+ *  - the service roads' lamps (`infield-service-lamps`) ≥ 30, none on a road-frame / water face;
+ *  - buildMs.infield < 1500 ms (the whole infield-ground builder, I5-a lines included);
+ *  - report-only: for every non-instanced mesh named `props*` / `furniture*` under env.group, the
+ *    m² of up-facing triangles within ±0.3 m of ground.standY at their centroid — the G8 name
+ *    exemption must not hide a slab (a number to read, not a bound);
+ *  - `--glb` (high tier, the stub registry with the tire_stack / forklift / porta_potty /
+ *    tent_canopy / flood_light / rollershutter_door drops): the near level of the tyres, the
+ *    forklift, the toilets, the marquee roofs, the shutters and the mast heads draws a `-glb-`
+ *    mesh at L0 with the procedural stand-in at L1 (3 levels), and the tyre GLB level is tagged
+ *    tyreStack too.
+ */
+function checkFacilities(scene, check, tier, { glb: withGlb = false } = {}) {
+  const { env, track, ground } = scene
+  const st = env.stats?.infield ?? {}
+  const rows = spec.INFIELD_FACILITIES
+  const report = env.group.userData.infieldFacilities ?? []
+  check(st['infield-facilities'] === rows.length && report.length === rows.length, `stats.infield['infield-facilities'] ${st['infield-facilities']} = INFIELD_FACILITIES ${rows.length} rows, ${report.length} boxes reported (buildings ${st['infield-facilityBuildings']}, marquees ${st['infield-marqueeCount']}, tanks ${st['infield-tanks']}, walls ${st['infield-wallM']} m, fences ${st['infield-fenceM']} m / ${st['infield-fencePosts']} posts)`)
+  // --- every box inside the ring and off the track envelope (O2) ------------------------------------------
+  {
+    let outside = [], onTrack = []
+    for (const r of report) {
+      const [x0, z0, x1, z1] = r.box
+      for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) {
+        if (!insideRing(x, z)) { outside.push(r.id); break }
+        const p = ground.plan.project(x, z, r.sRange ?? undefined)
+        if (Math.abs(p.lateral) < track.halfWidthAt(track.wrap(p.s)) + 1.5) { onTrack.push(`${r.id} (s ${p.s.toFixed(0)}, lat ${p.lateral.toFixed(1)})`); break }
+      }
+    }
+    check(outside.length === 0, `every facility box inside the circuit ring (${outside.length} outside${outside.length ? ': ' + outside.slice(0, 5).join(', ') : ''})`)
+    check(onTrack.length === 0, `every facility box ≥ hw + 1.5 off the centreline — O2 (${onTrack.length} inside${onTrack.length ? ': ' + onTrack.slice(0, 5).join(', ') : ''})`)
+  }
+  // --- walls and fences: vertical only near the ground ---------------------------------------------------
+  {
+    const v = new THREE.Vector3()
+    for (const name of ['furniture-infield-walls', 'furniture-infield-fence']) {
+      const m = env.group.getObjectByName(name)
+      if (!m) { if (name === 'furniture-infield-fence' && !scene.quality.infield.fences) console.log(`  note ${name} absent (Quality.infield.fences false on ${tier})`); else check(false, `${name} exists`); continue }
+      const pos = m.geometry.attributes.position, nrm = m.geometry.attributes.normal
+      let low = 0, tris = 0
+      for (let i = 0; i < pos.count; i += 3) {
+        tris++
+        const ny = (nrm.getY(i) + nrm.getY(i + 1) + nrm.getY(i + 2)) / 3
+        if (Math.abs(ny) <= 0.5) continue
+        v.set((pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3, (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3, (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3)
+        if (v.y - ground.standY(v.x, v.z) < 0.5) low++
+      }
+      check(low === 0, `${name}: ${fmt(tris)} triangles, ${low} horizontal ones within 0.5 m of the ground`)
+    }
+  }
+  // --- the ground objects: tyres, the south kerbs, the island kerbs --------------------------------------
+  {
+    const tyreMeshes = []
+    env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyres-/.test(o.name)) tyreMeshes.push(o) })
+    const tagged = tyreMeshes.filter((m) => m.userData.groundObject?.kind === 'tyreStack')
+    const n = tyreMeshes.reduce((a, m) => a + (m.name.includes('-L0-') ? m.count : 0), 0)
+    check(tyreMeshes.length > 0 && tagged.length === tyreMeshes.length && n === st['infield-tyres'], `tyre stacks: ${tyreMeshes.length} InstancedMesh levels all tagged tyreStack, ${n} instances at L0 (stats ${st['infield-tyres']})`)
+    const south = env.group.getObjectByName('infield-southKerbs')
+    check(!!south && south.userData.groundObject?.kind === 'laneKerb' && st['infield-southKerbSections'] >= 4, `south course kerbs: ${st['infield-southKerbSections']} apex sections (≥ 4), ${st['infield-southKerbM']} m tagged laneKerb`)
+    const islands = env.group.getObjectByName('infield-islandKerbs')
+    check(!!islands && islands.userData.groundObject?.kind === 'islandKerb' && st['infield-islandKerbs'] === spec.INFIELD_ISLAND_KERBS.length, `island kerbs: ${st['infield-islandKerbs']} tagged islandKerb (INFIELD_ISLAND_KERBS ${spec.INFIELD_ISLAND_KERBS.length})`)
+  }
+  // --- the cars --------------------------------------------------------------------------------------------
+  {
+    const meshes = []
+    env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-cars-.*-L0-/.test(o.name)) meshes.push(o) })
+    const pts = standPoints(meshes)
+    let offFace = 0, nearRoad = 0
+    for (const [x, z] of pts) {
+      const b = ground.builtY(x, z)
+      if (!b || b.kind !== 'paddock') offFace++
+      const p = ground.plan.project(x, z)
+      if (p.d < track.halfWidthAt(track.wrap(p.s)) + 8) nearRoad++
+    }
+    const lots = env.group.userData.infieldParking ?? []
+    const placed = lots.reduce((a, l) => a + l.cars, 0)
+    check(pts.length > 0 && pts.length === placed && placed <= scene.quality.infield.infieldCars, `infield-cars: ${pts.length} L0 instances = ${placed} placed over ${lots.length} lots (≤ Quality.infield.infieldCars ${scene.quality.infield.infieldCars}); bays ${st['infield-bays']}, bay lines ${st['infield-bayLinesM']} m`)
+    check(offFace === 0 && nearRoad === 0, `  every car on a drawn paddock face (${offFace} off) and ≥ hw + 8 off the centreline (${nearRoad} nearer)`)
+    for (const l of lots) console.log(`    ${l.id.padEnd(8)} walked ${String(l.walked).padStart(5)} kept ${String(l.kept).padStart(4)} cars ${String(l.cars).padStart(4)}  rejects ${Object.entries(l.rejects).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ')}`)
+  }
+  // --- the lamps -------------------------------------------------------------------------------------------
+  {
+    const meshes = []
+    env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-service-lamps-.*-L0-/.test(o.name)) meshes.push(o) })
+    const pts = standPoints(meshes)
+    let bad = 0
+    for (const [x, z] of pts) { const b = ground.builtY(x, z); if (b && ['road', 'kerb', 'deckShoulder', 'pitLane', 'pitApron', 'water'].includes(b.kind)) bad++ }
+    check(pts.length >= 30 && bad === 0, `infield-service-lamps: ${pts.length} poles (≥ 30), ${bad} on a road-frame / water face, ${st['infield-lampsDropped']} dropped`)
+  }
+  // --- the build time ------------------------------------------------------------------------------------
+  check(env.buildMs.infield < 1500, `buildMs.infield ${env.buildMs.infield?.toFixed(0)} ms < 1500`)
+  // --- report-only: up-facing m² near the ground under the G8-exempt names ---------------------------------
+  {
+    const v = new THREE.Vector3()
+    const rows = []
+    env.group.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh || !/^(props|furniture)/.test(o.name)) return
+      const g = o.geometry
+      const pos = g.attributes.position
+      if (!pos) return
+      const idx = g.index
+      const n = idx ? idx.count / 3 : pos.count / 3
+      let m2 = 0
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
+      for (let t = 0; t < n; t++) {
+        const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2
+        a.fromBufferAttribute(pos, i0); b.fromBufferAttribute(pos, i1); c.fromBufferAttribute(pos, i2)
+        const s2 = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)
+        if (s2 >= 0) continue // not up-facing
+        v.set((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3)
+        if (Math.abs(v.y - ground.standY(v.x, v.z)) <= 0.3) m2 += -s2 / 2
+      }
+      if (m2 > 0.05) rows.push([o.name, m2])
+    })
+    rows.sort((p, q) => q[1] - p[1])
+    console.log(`  report-only: up-facing area within ±0.3 m of the ground under props* / furniture* names: ${rows.length ? rows.slice(0, 8).map(([n, m]) => `${n} ${m.toFixed(1)} m²`).join(', ') : 'none'}`)
+  }
+  // --- the GLB path ----------------------------------------------------------------------------------------
+  if (withGlb) {
+    const levelsOf = new Map()
+    const glbMeshes = []
+    env.farField.group.traverse((o) => {
+      if (o.isInstancedMesh && /^infield-(tyres|forklift|toilets|marquees|shutters|mast-heads)-/.test(o.name)) {
+        const entry = o.name.replace(/-L\d+-\d+$/, '').replace(/-[^-]+$/, '')
+        void entry
+        if (/-glb-/.test(o.name)) glbMeshes.push(o.name)
+      }
+    })
+    for (const e of env.farField.entries ?? []) void e
+    const sets = ['infield-tyres', 'infield-forklift', 'infield-toilets', 'infield-marquees', 'infield-shutters', 'infield-mast-heads']
+    const have = sets.filter((s) => glbMeshes.some((n) => n.startsWith(s)))
+    check(have.length === sets.length, `--glb: every GLB-backed set draws a -glb- mesh at its near level (${have.length} of ${sets.length}: ${have.join(', ')})`)
+    const tyreGlb = []
+    env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyres-.*-glb-/.test(o.name)) tyreGlb.push(o) })
+    check(tyreGlb.length > 0 && tyreGlb.every((m) => m.userData.groundObject?.kind === 'tyreStack'), `--glb: the tyre GLB level is tagged tyreStack too (${tyreGlb.length} meshes)`)
+    void levelsOf
+  }
+}

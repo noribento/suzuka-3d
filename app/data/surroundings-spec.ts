@@ -314,6 +314,14 @@ export const BUILDING_KIND_RULES = {
 /** OSM way id → kind, when the tags misclassify a building (empty until a builder needs one). */
 export const BUILDING_KIND_OVERRIDES: Record<number, SurBuildingKind> = {}
 
+/**
+ * OSM ways tagged building=* that are not buildings (I5-b): the generator never ships them as
+ * SUR_BUILDINGS (build-surroundings.mjs OWNED) and facilities-check §11 fails if one comes back.
+ *  - 183953732: the paved L yard behind the 200R-exit guardrail (GROUND_AREAS 'L ヤード'), which
+ *    the massing extruded as a 58 × 87 m box (audit G11-09)
+ */
+export const SUR_SKIP_IDS: readonly number[] = [183953732]
+
 // ---------------------------------------------------------------- buildings (plan §2c)
 /**
  * Roof material weights (%) per massing family, from the aerials: the houses' kawara tiles are

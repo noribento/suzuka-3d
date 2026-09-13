@@ -165,6 +165,8 @@ export interface InfieldQuality {
   cells: boolean
   /** parked cars across the paddock car parks (A / B / E) */
   paddockCars: number
+  /** parked cars across the infield lots (INFIELD_PARKING: the C paddock, T3, the D rear apron, Degner east, the west and south-course paddocks, the Spoon lot) */
+  infieldCars: number
 }
 
 /**
@@ -299,7 +301,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     coverRes: [1024, 512],
     coverDetail: true,
     farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 24, midTrees: 6000, canopy: true, buildingsDetailM: 700, heroBuildings: 48, parkedCars: 4000, heroCars: 400, carImpostors: true, lightPoles: 350, solarDetail: true, paddyRelief: true, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 }, trees: { lodM: [50, 110], cards: true, leafShadowM: 50, shrubs: 2500 } },
-    infield: { glb: true, propsNearM: 120, propsFarM: 600, vehiclesNearM: 260, figures3dM: 80, figuresFarM: 600, figuresRamp: 150, shadows: true, fences: true, detail: true, cells: true, paddockCars: 320 },
+    infield: { glb: true, propsNearM: 120, propsFarM: 600, vehiclesNearM: 260, figures3dM: 80, figuresFarM: 600, figuresRamp: 150, shadows: true, fences: true, detail: true, cells: true, paddockCars: 320, infieldCars: 260 },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.
@@ -351,7 +353,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     // tens of seconds, not minutes, for the e2e's pending === 0 wait
     farField: { lodScale: 0.55, nearTrees: 0, heroPerCell: 0, midTrees: 1800, canopy: true, buildingsDetailM: 0, heroBuildings: 0, parkedCars: 1000, heroCars: 0, carImpostors: false, lightPoles: 120, solarDetail: false, paddyRelief: false, shadows: false, tickMs: 30, rangeFar: 1400, roads: { rows: 'lean', stepScale: 1.6, ring: false, furniture: 0.5 }, trees: { lodM: [0, 0], cards: false, leafShadowM: 0, shrubs: 600 } },
     // no pack, no 3D figures, no cell split: the procedural level of every prop set from 0 to 600 m (× lodScale = 330 m) in one bucket
-    infield: { glb: false, propsNearM: 0, propsFarM: 600, vehiclesNearM: 0, figures3dM: 0, figuresFarM: 600, figuresRamp: 150, shadows: false, fences: false, detail: false, cells: false, paddockCars: 140 },
+    infield: { glb: false, propsNearM: 0, propsFarM: 600, vehiclesNearM: 0, figures3dM: 0, figuresFarM: 600, figuresRamp: 150, shadows: false, fences: false, detail: false, cells: false, paddockCars: 140, infieldCars: 110 },
   },
 }
 

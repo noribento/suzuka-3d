@@ -191,12 +191,12 @@ app/
   data/
     suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム（DEM5A）、レーシングラインのピン、コーナー速度目標、DRS、ピット
     suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ・柵内の硬地 apron／駐車場 parking／歩行者トンネル tunnel／歩道橋 footbridge／柵内の管理道路と教習コース road（SERVICE_ROAD_WAYS）、ODbL、生成物）
-    suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット（手書き）
+    suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット、地面行 GROUND_AREAS、インフィールドの施設 INFIELD_FACILITIES / INFIELD_PARKING / INFIELD_LAMPS / INFIELD_ISLAND_KERBS / SOUTH_COURSE_KERBS（手書き）
     suzuka-barriers-spec.ts    # 全周のバリア run（`BARRIERS` 73 本: I4-c で色・上部レール・写真窓・門・面塗装・広告帯のフィールド、`AD_PANELS` 5、`SIGNS` の pitEntry）・実在する縁石／緑帯・白線・二輪路・マーシャルポスト v2（`MARSHAL_POSTS` 32 行 + `marshalNumbers()` / `marshalNumberFaults()` + `TRACKSIDE_CCTV`）・`TV_CAMERAS`・`TYRE_STACK`（予備タイヤ列の寸法、barriers.ts と A11 が読む）・調整池（手書き、OSM way id 参照）
     suzuka-power.ts            # 送電鉄塔・架線（OSM、生成物）
     suzuka-dem.ts              # 柵の外の標高: 30 m 汎化グリッド（DEM5A σ20 m、±3.3×2.9 km）と 500 m 遠景グリッド（DEM10B、±35 km）。国土地理院、生成物、ASL 整数の int16 デルタ
     suzuka-surroundings.ts     # 柵の外の土地利用（森・田・草地・水面・小川・駐車場・太陽光・建物・道路・鉄道・サイト。OSM、ODbL、生成物）
-    surroundings-spec.ts       # 柵の外の手書き定数（色・幅・密度・LOD レンジ。ODbL 外）
+    surroundings-spec.ts       # 柵の外の手書き定数（色・幅・密度・LOD レンジ、SUR_SKIP_IDS = building タグだが建物でない way。ODbL 外）
     en-codec.ts                # 周辺データの EN 座標ストリームの復号（int16 デルタ base64 → EN / world）
     dem-codec.ts               # DEM グリッドの形と復号（`DemGrid`、海の sentinel、双線形サンプル）
     crowd-atlas.ts             # 観客インポスターアトラスのレイアウト（焼き込みスクリプトと対；`CROWD_HELMET_ROWS` = 行 28–31 の白ヘルメット姿勢、運営レイヤー用）
@@ -254,7 +254,7 @@ app/
     pit-building.ts            # ピットビル v2（2009 図面の断面を勾配追従スイープ: 1F ガレージ列・ファシア梁・2F/3F テラス・曲面キャノピー、折戸・シャッター・番号札、階段塔、銀灰のコントロールポッドとメディア区間、T1 ノーズ、ビジョン 8、ガレージ内装とウォッシュ・機材の prop set 'ops-garage'、裏キャノピー／タイル壁／窓帯／スパー橋、屋上設備、表彰台、テラスの観客 'ops-terrace'。canopyTopAt を export。§ピットビル v2）
     infield.ts                 # 柵の内側の傘: buildPitComplex の直後に pit-lane → paddock → ops → marshal-posts + tv-towers → infield-ground → cuttings を同期で呼び、buildMs（pitLane / paddock / ops / trackside / infield）と stats.ops / trackside / infield を出す
     pit-lane.ts                # ピットレーン（PIT_WALL v2 の断面、「ピットレーン断面」参照）: 0.7 m コンクリート壁 1.8 m と入口端の白ブロック、両面の広告帯（レーン面に 80 リング）、天端のデブリ金網と支柱、歩廊 +0.5・白縁石 +0.45・パイプフープ 266（60 m ベイの IM）、固定プラットホーム 31–69、スターター台、ブロック境界のキャビネット、W ビーム区間（丸支柱 IM + 白パイプ柵）、補助レーンの青帯 + 白縁線（LAYER.pit.band のデカール）、壁天端の 60 / FIRE STATION 標識、リーダータワー（チームの prat perch は ops-pit.ts、I3-c）
-    paddock.ts                 # パドック（I2-b/c、表 PADDOCK_BUILDINGS / PADDOCK_OFFICE / PADDOCK_FENCE / PADDOCK_LAMPS / PADDOCK_MASTS / PADDOCK_PARKING / PADDOCK_BAY）: チームオフィス段状モジュール（IM `teamOffices`）と A 棟 2 階、センターハウス（OSM 押出し + 楕円キャノピー + 丸柱 16 + 舗石デカール）、SMSC、給油所（島縁石 = islandKerb）、サービスハウス・タイヤガレージ、車両基地、トンネル頭 2、緑金網フェンス（`paddockFence` 垂直面のみ + 支柱 IM）と門 3、街灯（`infield-lamps`、手続きポール）、照明マスト 2、駐車場（I2-c: `paddockBays` が世界座標 m で列を歩き paddock 面上・包絡外・フットプリント外・平らな区画だけ残し、白線デカール `paddockBayLines-<id>`、黄ハッチ `paddockHatches`、車 `infield-paddock-cars` = carBody / carGlb + covered_car）。v1 から残すのはトランスポーター・テント・旗（I3 まで）と BUILDINGS の他行の押出し（`paddockBuildings`）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
+    paddock.ts                 # パドック（I2-b/c、表 PADDOCK_BUILDINGS / PADDOCK_OFFICE / PADDOCK_FENCE / PADDOCK_LAMPS / PADDOCK_MASTS / PADDOCK_PARKING / PADDOCK_BAY；I5-b でインフィールドと共用の `layoutBays` / `bayLineQuads` / `carPropSets` / `parkCar` / `lampPoleProto` / `rollerShutterProto` を export）: チームオフィス段状モジュール（IM `teamOffices`）と A 棟 2 階、センターハウス（OSM 押出し + 楕円キャノピー + 丸柱 16 + 舗石デカール）、SMSC、給油所（島縁石 = islandKerb）、サービスハウス・タイヤガレージ、車両基地、トンネル頭 2、緑金網フェンス（`paddockFence` 垂直面のみ + 支柱 IM）と門 3、街灯（`infield-lamps`、手続きポール）、照明マスト 2、駐車場（I2-c: `paddockBays` が世界座標 m で列を歩き paddock 面上・包絡外・フットプリント外・平らな区画だけ残し、白線デカール `paddockBayLines-<id>`、黄ハッチ `paddockHatches`、車 `infield-paddock-cars` = carBody / carGlb + covered_car）。v1 から残すのはトランスポーター・テント・旗（I3 まで）と BUILDINGS の他行の押出し（`paddockBuildings`）。I2-a: センターハウス芝島（PADDOCK_ISLAND）の縁石リング。地面は GROUND_AREAS の paddock 行（A 南列・回廊・B・B 斜め・E + 接続・前庭）
     ops.ts                     # 運営レイヤーの傘（I3-a）: ops-vehicles → ops-pit → ops-people を順に呼び、部分統計を `stats.ops`（figures / byRole / impostors / near3d / mode は people、vehicles は vehicles、equipment は pit + vehicles）に併合し、全配置を ctx.ops（= group.userData.ops）に積む
     ops-vehicles.ts            # 運営レイヤー (I3-b): 白箱トラックのトランスポーター（チーム色帯）、2 t トラック・バン、航空コンテナ、ホスピタリティ、ガゼボ／マーキー、放送コンパウンド、SC／メディカル／コース車両・クレーン（ops-spec B `vehiclePlacements()` 105 行 → registerPropSet 'ops-vehicles' / 'ops-hospitality' / 'ops-tents' / 'ops-containers' / 'ops-compound'；GLB 車両は部位毎 `carGlb|tint` + 共有白 map、遠段は手続き車体）
     ops-pit.ts                 # 運営レイヤー (I3-c): ガントリー（支柱・梁・腕・信号灯・ホースのホイールガン）、タイヤスタック、ジャッキ、燃料台車、モニター台、コーン、ケーブルランプ、消火器、ピットボード、ピットウォール・ペルチ v2、固定プラットホームの TV カメラ（ops-spec C `pitEquipmentPlacements()` / `PIT_EQUIPMENT`、registerPropSet 'ops-pitEquipment' / 'ops-perches' / 'ops-cones' / 'ops-cables'。「運営レイヤー」参照）
@@ -262,7 +262,7 @@ app/
     marshal-posts.ts           # マーシャルポスト v2（I4-a）: 架台上のキャビン 28 + 低ポスト 3（`registerPropSet 'infield-marshal-cabins'`、GLB の警備ブース／消火器が近景）、番号板 29（`marshalNumbers` メッシュ、8 × 4 アトラス）、消灯 EM パネル 30（`emPanels` IM、発光無し）、PTZ CCTV 42（`cctvPoles` / `cctvHeads`）、旗架・消火器・キャビネット。「マーシャルポスト v2」参照
     tv-towers.ts               # TV カメラ塔（I4-b: TV_CAMERAS の行ごとに足場塔／格子塔／黄クレーン柱／ポール、天板・手摺・梯子・三脚・カメラヘッド（security_camera_01 の glbOr）、操作者 1 人、registerPropSet 'infield-towers' / 'infield-tower-cams'、group.userData.tvLenses。「TV タワーとレンズ」参照）
     tv-lens.ts                 # TV レンズ点の唯一の解決（純関数）: cameraSide、'auto' 横位置 = バリア線 + 2.5、towerBaseAt（4 隅の最高地面）、tvForwardOf（天板半幅 + 張出し 0.7）、tvLensAt（塔中心・レンズ・世界座標）、TV_LENS / TV_TOWER_FOOTPRINT / TV_DECK_HALF — 塔ビルダー・カメラリグ・facilities-check O7 / A11・barriers.ts（塔下のタイヤ積み省略）・smoke が同じ数を読む
-    infield-ground.ts          # インフィールドの地面の上の物（I5）: I5-a = 管理道路・教習コースの破線中央線デカール（`wayLineDecal`、LAYER.verge.line、面の無い所・路面・段差の上は塗らない）と BUILDINGS `builder: 'infield'` の押出し（交通教育センター）。地面そのものは GROUND_AREAS の行が描く（README「柵の内側の地面行」）。施設・壁・柵・池の岸・車・街灯は I5-b/c
+    infield-ground.ts          # インフィールドの地面の上の物（I5）: I5-a = 管理道路・教習コースの破線中央線デカール（`wayLineDecal`、LAYER.verge.line、面の無い所・路面・段差の上は塗らない）と BUILDINGS `builder: 'infield'` の押出し（交通教育センター）。I5-b = `buildInfieldFacilities`: 表 INFIELD_FACILITIES（シェッド・小屋・ガレージ + シャッター・西コントロールタワー・マーキー・タンク・ブロック / タイヤ積み（markObject tyreStack）・旗竿・照明マスト・壁・金網柵・コンパウンド）を材質毎の `furniture-infield-<mat>` と IM セット `infield-*` に、南コースのエイペックス縁石（SOUTH_COURSE_KERBS、laneKerb）、島縁石（INFIELD_ISLAND_KERBS）、インフィールド駐車場の車と白線（INFIELD_PARKING、paddock.ts の layoutBays / parkCar 共用）、管理道路の街灯（INFIELD_LAMPS）。地面そのものは GROUND_AREAS の行が描く（README「柵の内側の地面行」）。池は I5-c
     cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
     infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
@@ -1138,6 +1138,64 @@ I5-a は柵の内側で舗装されているのに何も描いていなかった
 - **ガードで直したもの**: `ground-mesh.ts Pool` の 1 mm 丸め境界を跨ぐ重複頂点（G9 crackY、C 席裏の管理道路）、`resolveFootprint`
   の way の連続重複頂点（掃引の零長セグメント）。
 
+#### インフィールドの施設・車・街灯
+
+I5-b は柵の内側で「地面の上に立つ物」を表 `INFIELD_FACILITIES`（`app/data/suzuka-facilities-spec.ts` 末尾の区画、49 行）にし、
+`infield-ground.ts buildInfieldFacilities` が同期で建てます（`buildMs.infield` に含む: 高 ≈ 320 ms、低 ≈ 330 ms）。行は
+`kind`（shed / hut / office / marquee / tank / stack / tyres / garage / tower / pumphouse / flagpole / fence / wall / compound /
+forklift / toilet / mast — 計画の 12 種に tyres / forklift / toilet / mast / wall を足した）、`osmWay`（足跡 = OSM リング、`sRange`
+= O11 の窓）か `s / lateral / size / yaw`（手置き）、`height / levels / roof / wall / count / cols / doors`、全部 `unverified`。
+
+- **押出し**: OSM リング・手置きの矩形とも `pit-geometry.ts extrudeFootprint()`（EN 経由、底 0.5 m 沈める）。床は足跡の頂点の
+  **最低** `standY`、軒は最高 + `height`（西コースのガレージ 184415314 は足跡で DEM が 3.5 m 落ちる: 端が浮かない）。材質は
+  ピット複合体の共有セット（`whiteMat` / `concreteMat` / `buildingRoofMat` / `glassMat` / `railMat`）+ 灰・波板・青／茶／赤屋根の
+  plain 色。材質毎に 1 メッシュ `furniture-infield-<mat>`（cast）。`furniture` 接頭辞は G8 の免除なので、床・パッドの水平面は
+  作らない（smoke が props* / furniture* 配下の ±0.3 m の上向き面積を report-only で印字: furniture 0.7–1.2 m²）。
+- **場所ごと**: Spoon ヤード = シェッド 15 × 10 × 4 ×2 (3882, +38) (3911, +44)、ブロック積み (3993, +39)（1 × 1 × 0.5 × 12、IM
+  `infield-blocks` 2 段）、タイヤ保管 (3960, +30) 20 本 + フォークリフト（`forklift` GLB / 箱）；200R 役員室 (3245, −19) 20 × 5 × 3.2
+  （MARSHAL_POSTS 3245 の消灯パネルと CCTV はガードレールに掛かり、足跡 −16.5…−21.5 の外）；L ヤード = 円タンク φ8 × 6 (3410, −95)
+  + 小屋 183953734 / 736；西コースピット = ガレージ 184415314（8 × 24 × 4、`rollershutter_door` 6 枚を最長辺の走路側に）、トイレ
+  184415315、小屋 184415316 / 184419747 / 750 / 184415312、**西コントロールタワー** 184415318 = 9 m / 2 階（BUILDINGS の 12 m / 3 階
+  から移動、unverified）: 白い殻 + 上階の全周ガラス帯（1.2 % 外へ、`glassMat`）+ 1.2 m バルコニー（灰スラブ + 手摺）+ 屋上アンテナ
+  と設備箱；南コース = ピットガレージ 184415311（L 字、4.5 m、シャッター 12）、小屋 184415313、コントロール小屋 184410555、旗竿 3
+  (4470, −200)、壁 468377679 / 683（`wall`: 1 m 幅の OSM `area=yes` は中心線に潰す）、柵 184417654 / 655 / 468750064 / 068 /
+  184415338（`fence` 2.4 m）、仮設トイレ 4 (4530, −100)（`porta_potty` GLB / 箱）；ダンロップループ = シェッド 184103155 / 156 / 158 /
+  159 / 160（白平屋根 4 m、`office`）、マーキー 25 × 12 × 4 (2000, +45)、コンパウンド柵 20 × 20 (1830, +40) と中の灰小屋；ヘアピン =
+  タイヤ島 12 本 (2700, **+13.5**)（計画の +18 は内側の折れの外: 内壁の半径 15–18 m の内側でしか (s, lateral) は正確でない — 目の
+  土の上、hairpin-inside 壁の 2.5 m 裏）、照明マスト 22 m (**2806, −44**)（計画の (2700, −38) は I 席 s 2692–2738 × −26…−48 の中。
+  hairpin.jpg の出口先のマストを IJ / J の隙間に）；デグナー東 = マーキー **20 × 12** (2146, +72) + コンパウンド **24 × 22**（計画の
+  25 × 15 / 30 × 30 は degner2-trap-back のタイヤ線 +57 と外周リング（lateral 83–85）の間に入らない）；T1 = 茶屋根 30 × 20 × 6.5
+  (275, −88)、ポンプ小屋 10 × 6 × 3.5 (640, −45) + 柵 8 × 8 と小タンク (640, −54)；遠い OSM 小屋 467591741 / 468750070 / 184430910 /
+  184120098 / 184120102。
+- **地面行の追加**（今回許した唯一の行）: `ダンロップループ 砂利パッド`（gravelArea ring [1852…1900, +85…+100]）と `デグナー東
+  砂利パッド`（ring 8 点: 内縁はタイヤ線の 1.5–2 m 裏、外縁 +80 — リングの外は描かない）。A9 / A3 / G1 緑、ALLOWANCES 不変。
+- **南コースの縁石**: `SOUTH_COURSE_KERBS` — 周回路 153525062 を 1 m で再標本し、±4 m の回転角 / m が 0.015 以上の区間 ≥ 12 m を
+  「エイペックス」として両縁に `lanes.ts sweepKerb`（GROUND_OBJECTS.laneKerb、`kerbMaps`、リボン縁の 0.5 m 内側 = 面の上に丸ごと）。
+  15 区間 / 792 m、`infield-southKerbs`（markObject laneKerb）。計画の「12 区間」は閾値で 15 になった。
+- **島縁石**: `INFIELD_ISLAND_KERBS` — T1 車寄せ (305, −68) r 2.5、南コースパドック北エプロン (4473, −240) r 3、西パドック (4000,
+  +30) r 3 = `infield-islandKerbs`（GROUND_OBJECTS.islandKerb）。
+- **タイヤ積み**: `infield-tyres` = `tire_stack` GLB（高 + ドロップ）/ 開いた円筒 + 上面リング（上向き面積 0.26 m²/本、G2 の幅 ≤ 0.7
+  は count × 0.7 の length で）。IM の各レベルに `markObject('tyreStack')`（G3: 底 −15 mm、冠 +915 mm）。
+- **車**: `INFIELD_PARKING`（PADDOCK_PARKING と同じ約束、`lot` = 乗る GROUND_AREAS 行）8 区画 — C パドック 0.7、T3 0.6、D 裏 0.5
+  （左側: lat [112, 64]）、デグナー東 0.7（左側）、西パドック 0.5、南コース北／南 0.4、スプーン 0.3。`paddock.ts` から `layoutBays`
+  （面・所有者・勾配の共通判定 + 呼び手の veto）/ `bayLineQuads` / `carPropSets` / `parkCar` を切り出して共用（パドックも同じ関数を
+  呼ぶ）。veto = 全標本 |lateral| ≥ hw + 8（O2）、四隅がリングの内、施設の足跡と街灯の外。白線 `infield-bayLines-<id>`（LAYER.paddock.
+  line）、車 `infield-cars`（段 [{ vehiclesNearM: GLB }, { 500 }, 空]）、予算 `Quality.infield.infieldCars`（高 260 / 低 110）。区画 662
+  （C 552: 池・管理道路・芝の上は face で落ちる；西パドックは DEM の勾配で 4 しか残らない — CAR_PARK.slopeGrade の実測）。
+- **街灯**: `INFIELD_LAMPS`（40 m 毎、中心線から 3 m、ラップに近い側）を役割 'road' の `{ way }` asphaltArea 行 4 本に —
+  `paddock.ts lampPoleProto`（共用の手続きポール）、`infield-service-lamps` 87 本（路面・水面・リング外・施設内は落とす）。
+- **柵・壁**: 金網は paddock.ts の柵と同じ作り（3 m ピッチの半分で分割した垂直カード、両端が `standY`、`fence003` cutout /
+  `chainLinkTexture`、支柱 IM `furniture-infield-fencePosts`）。カードは `Quality.infield.fences`（低ティア無し）、支柱は常に。壁は
+  両面 0.2 m + 天端 `furniture-infield-walls`（`concreteMat`）。716 m / 245 本、壁 103 m。smoke: 地面 0.5 m 以内に水平面 0。
+- **生成器**: `SUR_SKIP_IDS`（surroundings-spec、183953732 = L ヤードの舗装は偽の建物）と INFIELD_FACILITIES の osmWay を
+  `build-surroundings.mjs` の OWNED に（12 面が SUR_BUILDINGS から落ちる、625,751 B）。facilities-check §11 も同じ集合で衝突を見る。
+  §16 に手置き行の O2 / O5 / リング検査を追加（20 行；OSM の 29 行は O11 / §6）。
+- **計測**: scene-cost 高 4,266,752 tris / 991 meshes / 1,039 IM / 1,088 entries（meshes 982 → 1,090、IM 1,019 → 1,143 に再ベース
+  = 実測 × 1.10）、低 2,398,082 / 755 / 780 / 817（予算内）。surface-check 両ティア strict 緑、`--suggest` 0（新 ALLOWANCES 無し）。
+  `infield-smoke.mjs --tier both --glb`: `checkFacilities`（表の件数 = 49 箱、箱の四隅がリングの内で hw + 1.5 の外、壁・柵に
+  水平面無し、タイヤ / 縁石のタグ、車が paddock 面上で hw + 8 の外、街灯 ≥ 30、buildMs.infield < 1500、`--glb` で 6 セットの
+  `-glb-` 近景と L1 の手続き段、タイヤの GLB 段もタグ付き）。
+
 ## GPU で確認すること
 
 このリポジトリの検証はすべてソフトウェア描画（SwiftShader）で行っているため、高品質ティアの見た目は実 GPU で確認してください
@@ -1205,6 +1263,14 @@ I5-a は柵の内側で舗装されているのに何も描いていなかった
   ワールド uv にモアレが出ないこと、破線中央線（16 mm）が反転 Z で管理道路の面と z-fight せず 300 m 先でも残ること、第 2 ヘリパッド
   の橙の四角枠と H がアトラスの左タイル（白丸）と混ざらないこと（ClampToEdge の継ぎ目）、C パドック駐車場・スプーン硬地・L ヤードの
   灰アスファルトが DEM の起伏で段になって見えないこと（P7 まで 2 m ラスターの弦）
+- インフィールドの施設（I5-b）: 西コントロールタワーのガラス帯（`glassMat`、殻から 1.2 % 外）が白い殻と z-fight せず、バルコニーの
+  手摺が 260 m の chase から読めること；`rollershutter_door` の葉が西コース / 南コースのガレージ壁の 0.05 m 前で埋まらないこと；
+  `tire_stack` GLB（0.93 m に scaleTo）と手続きの開いた円筒の 120 m 切替、`forklift`（cm 単位を 3.7 m に scaleTo、front moreArea）
+  の向き、`porta_potty` 4 台の扉の向き；`tent_canopy` をマーキーの箱に伸ばした天幕の UV の伸び（20 × 12 と 25 × 12）；ヘアピン出口の
+  22 m マストのヘッド 3 つが路面を向くこと（`toRoad` の符号）；南コースの縁石 15 区間が 240 m 先でも赤白に読め、8 m リボンの縁から
+  0.5 m 内側で面と z-fight しないこと；インフィールド駐車場の車の GLB 段（`vehiclesNearM`）と `infield-bayLines-C` の白線が C パドック
+  の 2 m ラスターの弦（P7 まで）で埋まって見えないこと；金網柵（`fence003` cutout、DoubleSide、alphaToCoverage）が南コースの傾斜で
+  カード毎に折れて見えないこと（3 m ピッチの半分で分割）
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes

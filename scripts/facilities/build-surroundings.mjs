@@ -80,6 +80,9 @@ const OWNED = new Set([
   facilities.OSM_FERRIS_WHEEL.id,
   facilities.OSM_LEADER_TOWER?.id,
   ...facSpec.BUILDINGS.map((b) => b.osmWay),
+  // I5-b: the infield facilities' footprints and the tagged-but-not-a-building ways
+  ...(facSpec.INFIELD_FACILITIES ?? []).map((f) => f.osmWay),
+  ...(spec.SUR_SKIP_IDS ?? []),
 ].filter((id) => typeof id === 'number'))
 
 /** SUR_SITES by id — every one must be in the response with the expected tag (else exit 1) */

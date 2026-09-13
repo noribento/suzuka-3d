@@ -1205,6 +1205,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   if (!surHead.includes('OpenStreetMap contributors') || !surHead.includes('ODbL')) fail('suzuka-surroundings.ts: header lacks the OpenStreetMap contributors / ODbL attribution in its first 20 lines')
   const sur = await import('../app/data/suzuka-surroundings.ts')
   const codec = await import('../app/data/en-codec.ts')
+  const surSpec = await import('../app/data/surroundings-spec.ts')
   const [re0, rn0, re1, rn1] = sur.SUR_RECT
   if (!(re1 - re0 > 6000 && rn1 - rn0 > 5000)) fail(`SUR_RECT ${sur.SUR_RECT.join(', ')} is not the DEM terrain rectangle (expected ≈ 6.6 × 5.8 km)`)
 
@@ -1308,6 +1309,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   owned.set(osm.OSM_PIT_BUILDING.id, 'OSM_PIT_BUILDING')
   for (const [stand, ways] of Object.entries(osm.OSM_STAND_WAYS)) for (const w of ways) owned.set(w, `OSM_STAND_WAYS.${stand}`)
   for (const b of spec.BUILDINGS) if (b.osmWay !== null) owned.set(b.osmWay, `BUILDINGS.${b.id}`)
+  // I5-b: the infield facilities' footprints and the ways tagged building=* that are not buildings
+  for (const f of spec.INFIELD_FACILITIES ?? []) if (typeof f.osmWay === 'number') owned.set(f.osmWay, `INFIELD_FACILITIES.${f.id}`)
+  for (const id of surSpec.SUR_SKIP_IDS ?? []) owned.set(id, 'SUR_SKIP_IDS')
   const seenB = new Set()
   for (const b of sur.SUR_BUILDINGS) {
     if (owned.has(b.id)) fail(`SUR_BUILDINGS ${b.id} collides with ${owned.get(b.id)}`)
@@ -1909,6 +1913,34 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     }
   }
   for (const table of ['CUTS', 'FOOTBRIDGES']) if (!spec[table]) skip(`O6 / O11 ${table}`)
+  // --- O2 / O5 / the ring on the hand-placed INFIELD_FACILITIES rows (I5-b) ---------------------------
+  // (an OSM-footprint row is O11 above and §6; a fence / wall / compound is a line, so only its
+  // corners' 0.2 m rule applies — O5's w/2 + 0.2 is for a box with a size)
+  if (spec.INFIELD_FACILITIES) {
+    let sized = 0
+    for (const f of spec.INFIELD_FACILITIES) {
+      if (f.osmWay !== undefined || f.s === undefined || f.lateral === undefined) continue
+      sized++
+      const id = `INFIELD_FACILITIES ${f.id}`
+      const size = f.size ?? [1, 1]
+      const p = { id: f.id, s: wrap(f.s), lateral: f.lateral, size: [size[0], size[1], f.height], yawDeg: f.yaw ?? 0, kind: f.kind, mount: 'ground' }
+      const corners = cornersOf(p)
+      for (const [cs, cl] of corners) if (Math.abs(cl) < track.halfWidthAt(cs) + 1.5) { fail(`${id}: corner at s ${fmt(cs, 0)} lateral ${fmt(cl)} is inside hw + 1.5 — O2`); break }
+      if (f.kind === 'fence' || f.kind === 'compound' || f.kind === 'wall') {
+        for (const { run, line } of barrierLines) {
+          const len = arcLen(run.sRange[0], run.sRange[1])
+          const d = arcLen(run.sRange[0], p.s)
+          if (d > len + 5 && d < L - 5) continue
+          let corner = Infinity
+          for (const [cs, cl] of corners) corner = Math.min(corner, Math.abs(cl - line.lat(cs)))
+          if (corner < 0.2) { fail(`${id}: a corner ${fmt(corner, 2)} m from the resolved line of barrier run ${run.id} (needs 0.2) — O5`); break }
+        }
+      } else for (const m of barrierFaults(id, p, corners)) fail(m)
+      const [x, z] = worldOf(p.s, p.lateral)
+      if (!ring.insideRing(x, z)) fail(`${id}: stands outside the circuit ring 775428456`)
+    }
+    notes.push(`O2 / O5 / ring on ${sized} hand-placed INFIELD_FACILITIES rows (the ${spec.INFIELD_FACILITIES.length - sized} OSM rows are O11 / §6)`)
+  }
 
   console.log('\nops-check (§16)')
   console.log(`  ${placements.length} placement(s) (${placementFaults} with faults), ${figures.length} figure(s) (${figureFaults} with faults), ${crewChecked} crew slots of ${spec.PIT_GARAGE_COUNT} blocks, ${signsChecked} free-standing signs, ${bar.MARSHAL_POSTS.length} marshal posts, ${barrierLines.length} barrier lines, ${buildingRings.length} building footprints, ${WINDOWS.length} windows`)

@@ -9,11 +9,11 @@ import { placementCorners, vehiclePlacements } from '~/data/ops-spec'
 import { osmFeature, type OsmFeature } from '~/data/suzuka-facilities'
 import { SUR_ROADS } from '~/data/suzuka-surroundings'
 import { Rng } from '~/sim/random'
-import { forwardDelta } from '~/sim/track'
+import { forwardDelta, type Track } from '~/sim/track'
 import { CAR_DIMS, CAR_MIX, carBodyGeometry, carBodyMaterial, pickCarBody, pickCarColour, type CarBody } from './car-bodies'
 import { CAR_GLB, carGlbGeometry, carGlbMaterial } from './car-glb'
 import type { EnvBuildContext } from './environment'
-import { GROUND_OBJECTS, LAYER, markDecal, markObject } from './ground'
+import { GROUND_OBJECTS, LAYER, markDecal, markObject, type Ground } from './ground'
 import type { DecalQuad } from './ground-mesh'
 import { registerPropSet, type PropSet } from './infield-lod'
 import { bucketedInstancedMeshes } from './instancing'
@@ -294,6 +294,300 @@ function yellowHatchTexture(k: number): THREE.Texture {
   return t
 }
 
+// ---------------------------------------------------------------- shared with the infield lots (I5-b)
+// The car-park layout, the bay lines, the car prototypes and the lamp / shutter prototypes are
+// what infield-ground.ts reuses for the lots outside the paddock (INFIELD_PARKING): one
+// convention for every bay inside the fences. They are pure functions of the track, the ground
+// and a row; the paddock's own vetoes (the pit envelope, its footprints, fences and lamps) and
+// the infield's (the ring, hw + 8, the facilities) go through the `veto` callback.
+
+export type P2 = { x: number; z: number }
+export type BayReject = 'face' | 'owner' | 'envelope' | 'slope' | 'footprint' | 'fence' | 'lamp' | 'clear'
+export interface Bay {
+  /** the bay's centre and its axis / across unit vectors in the (s, lateral) plane; `into` points from the aisle into the bay */
+  s: number; lat: number
+  into: [number, number]; across: [number, number]
+  /** world metres per s-metre at the centre: an s-offset of d world metres is d / k in the frame */
+  k: number
+  corners: P2[]
+  /** which row of the block (0 = nearest lat[0]) and the index along it */
+  row: number; i: number
+  x: number; z: number
+}
+/** a bay under test: its centre, corners (world) and the five samples [s, lateral, world] the tests read */
+export interface BayCandidate { s: number; lat: number; corners: P2[]; samples: [number, number, P2][] }
+export interface BayLayout { kept: Bay[]; walked: number; rejects: Record<BayReject, number> }
+export type BayRow = Pick<PaddockParkingRow, 's' | 'lat' | 'rows' | 'angle' | 'pitch'>
+
+export function inPoly(x: number, z: number, poly: P2[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!, b = poly[j]!
+    if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+  }
+  return inside
+}
+const segsCross = (a: P2, b: P2, c: P2, d: P2): boolean => {
+  const o = (p: P2, q: P2, r: P2) => Math.sign((q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x))
+  return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b)
+}
+/** a convex quad against a polygon (or an open polyline when `closed` is false): any corner inside, any polygon vertex inside, or any edge crossing */
+export function quadHits(quad: P2[], poly: P2[], closed: boolean): boolean {
+  if (closed) {
+    for (const q of quad) if (inPoly(q.x, q.z, poly)) return true
+    for (const p of poly) if (inPoly(p.x, p.z, quad)) return true
+  }
+  const n = closed ? poly.length : poly.length - 1
+  for (let i = 0; i < n; i++) {
+    const a = poly[i]!, b = poly[(i + 1) % poly.length]!
+    for (let k = 0; k < 4; k++) if (segsCross(quad[k]!, quad[(k + 1) % 4]!, a, b)) return true
+  }
+  return false
+}
+export function segDist2(p: P2, a: P2, b: P2): number {
+  const dx = b.x - a.x, dz = b.z - a.z
+  const l2 = dx * dx + dz * dz || 1
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2))
+  return (p.x - a.x - dx * t) ** 2 + (p.z - a.z - dz * t) ** 2
+}
+
+/**
+ * The bays of one block, laid out in world metres along each row, that pass every test. Rows
+ * are laid out from lat[0] as back-to-back pairs with an aisle between the pairs; a 45° block
+ * leans its bays to +s. The row's length and the bay pitch are measured in world metres at the
+ * row's centre lateral (the frame is not isometric: inside a bend an s-metre at lateral l is
+ * only (R − |l|) / R world metres — the E lot sits inside the final corner at 0.42–0.86), and
+ * every bay is a rigid `bayW × bayD` rectangle: its s-offsets are divided by the local metric
+ * `k`. A row on the LEFT of the road is written lat [near, far] with near > far too (the D rear
+ * apron: [112, 64]); the layout only walks from lat[0] towards lat[1] by the bay depth.
+ *
+ * Tests, in order: every corner and the centre stand on a drawn `paddock` face whose plan owner
+ * is a paddock row (the roads crossing a lot, the basins and the helipads reject their bays);
+ * level enough for a rigid body (CAR_PARK.slopeGrade × the footprint diagonal); then the
+ * caller's `veto` (the paddock: the sim's pit envelope, its footprints, fence runs and lamps;
+ * the infield: the ring, hw + 8, the facilities).
+ */
+export function layoutBays(track: Track, ground: Ground, row: BayRow, veto: (c: BayCandidate) => BayReject | null): BayLayout {
+  const B = PADDOCK_BAY
+  const L = track.length
+  const world = (s: number, lat: number): P2 => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
+  const metricAt = (s: number, lat: number): number => {
+    const p0 = world(s - 0.5, lat), p1 = world(s + 0.5, lat)
+    return Math.max(0.05, Math.hypot(p1.x - p0.x, p1.z - p0.z))
+  }
+  const a = (row.angle * Math.PI) / 180
+  const depth = B.bayD * Math.cos(a) + B.bayW * Math.sin(a)
+  const step = row.pitch / Math.max(Math.cos(a), 1e-6) // pitch along the row in world metres (2.5 straight, 3.54 at 45°)
+  const sLen = forwardDelta(row.s[0], row.s[1], L)
+  // the rows step from lat[0] towards lat[1]: down on the right of the road (negative laterals), up on the left
+  const dir = row.lat[1] < row.lat[0] ? -1 : 1
+  const kept: Bay[] = []
+  const rejects: Record<BayReject, number> = { face: 0, owner: 0, envelope: 0, slope: 0, footprint: 0, fence: 0, lamp: 0, clear: 0 }
+  let walked = 0
+  for (let r = 0; r < row.rows; r++) {
+    const pair = Math.floor(r / 2)
+    const near = row.lat[0] + dir * (pair * (2 * depth + B.aisle) + (r % 2) * depth) // the row's edge nearer lat[0]
+    const far = near + dir * depth
+    if (dir < 0 ? far < row.lat[1] - 1e-6 : far > row.lat[1] + 1e-6) break
+    // the aisle is on the lat[0] side of an even row and the lat[1] side of an odd one
+    const dirIn: number = (r % 2 === 0 ? 1 : -1) * dir
+    const into: [number, number] = [Math.sin(a), Math.cos(a) * dirIn]
+    const across: [number, number] = [into[1], -into[0]]
+    const latC = (near + far) / 2
+    // the row's length in world metres: the cumulative distance along (s, latC) every 0.25 m of s
+    const ds = 0.25
+    const nS = Math.max(1, Math.ceil(sLen / ds))
+    const cum: number[] = [0]
+    let prev = world(row.s[0], latC)
+    for (let j = 1; j <= nS; j++) {
+      const p = world(row.s[0] + Math.min(sLen, j * ds), latC)
+      cum.push(cum[j - 1]! + Math.hypot(p.x - prev.x, p.z - prev.z))
+      prev = p
+    }
+    const rowLen = cum[nS]!
+    /** cumulative world length along the row → s (linear in the sample table) */
+    const sAt = (d: number): number => {
+      let j = 1
+      while (j < nS && cum[j]! < d) j++
+      const t = (d - cum[j - 1]!) / Math.max(1e-9, cum[j]! - cum[j - 1]!)
+      const s0 = row.s[0] + (j - 1) * ds, s1 = row.s[0] + Math.min(sLen, j * ds)
+      return s0 + (s1 - s0) * Math.max(0, Math.min(1, t))
+    }
+    const n = Math.floor((rowLen - step) / step) + 1
+    for (let i = 0; i < n; i++) {
+      walked++
+      const sc = sAt(step * (i + 0.5) + (rowLen - step * n) / 2)
+      const k = metricAt(sc, latC)
+      const corners: P2[] = []
+      const cornersSL: [number, number][] = []
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+        const cs = sc + ((into[0] * u * B.bayD) / 2 + (across[0] * v * B.bayW) / 2) / k
+        const cl = latC + (into[1] * u * B.bayD) / 2 + (across[1] * v * B.bayW) / 2
+        cornersSL.push([cs, cl])
+        corners.push(world(cs, cl))
+      }
+      const centre = world(sc, latC)
+      const samples: [number, number, P2][] = [...cornersSL.map((c, q): [number, number, P2] => [c[0], c[1], corners[q]!]), [sc, latC, centre]]
+      // 1. on a drawn paddock face everywhere (the cheap face read first, the plan's owner after)
+      let why: BayReject | null = null
+      const ys: number[] = []
+      for (const [, , p] of samples) {
+        const built = ground.builtY(p.x, p.z)
+        if (!built || built.kind !== 'paddock') { why = 'face'; break }
+        ys.push(built.y)
+      }
+      if (!why) for (const [s_, l_, p] of samples) {
+        const sw = track.wrap(s_)
+        const side: 1 | -1 = l_ >= 0 ? 1 : -1
+        const owner = ground.plan.ownerAtSL(sw, side, Math.abs(l_) - track.halfWidthAt(sw), false, p)
+        if (owner.kind !== 'paddock') { why = 'owner'; break }
+      }
+      // 2. level enough for a rigid body (CAR_PARK.slopeGrade × the footprint diagonal)
+      if (!why && Math.max(...ys) - Math.min(...ys) > CAR_PARK.slopeGrade * Math.hypot(B.bayW, B.bayD)) why = 'slope'
+      // 3. the caller's own tests
+      if (!why) why = veto({ s: sc, lat: latC, corners, samples })
+      if (why) { rejects[why]++; continue }
+      kept.push({ s: sc, lat: latC, into, across, k, corners, row: r, i, x: centre.x, z: centre.z })
+    }
+  }
+  return { kept, walked, rejects }
+}
+
+/** The bay lines of a block: one 0.1 m quad down each long side of every kept bay (a line two bays share is drawn once), as decal quads on the drawn face. */
+export function bayLineQuads(track: Track, ground: Ground, bays: Bay[]): { quads: DecalQuad[]; metres: number } {
+  const B = PADDOCK_BAY
+  const world = (s: number, lat: number): P2 => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
+  const quads: DecalQuad[] = []
+  const seen = new Set<string>()
+  let metres = 0
+  for (const b of bays) {
+    for (const v of [-1, 1]) {
+      const key = `${b.row}|${v > 0 ? b.i + 1 : b.i}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const cs = b.s + (b.across[0] * v * B.bayW) / 2 / b.k, cl = b.lat + (b.across[1] * v * B.bayW) / 2
+      const xz: number[] = []
+      for (const [u, w] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+        const p = world(cs + ((b.into[0] * u * B.bayD) / 2 + (b.across[0] * w * B.line) / 2) / b.k, cl + (b.into[1] * u * B.bayD) / 2 + (b.across[1] * w * B.line) / 2)
+        xz.push(p.x, p.z)
+      }
+      const c = world(cs, cl)
+      quads.push({ xz, yHint: ground.standY(c.x, c.z), attrs: () => [] })
+      metres += B.bayD
+    }
+  }
+  return { quads, metres }
+}
+
+/**
+ * The parked-car prototypes: car-bodies.ts bodies with the car-park paint mix (`carBody|tint`),
+ * the pack's GLB bodies (car-glb.ts, `carGlb|tint`, map required) as the near level on the high
+ * tier — one PropSet per body kind, empty, for the caller to fill with `parkCar`.
+ */
+export function carPropSets(ctx: EnvBuildContext): Map<CarBody, PropSet> {
+  const { quality } = ctx
+  const bodyMat = carBodyMaterial()
+  const sets = new Map<CarBody, PropSet>()
+  for (const { body: kind } of CAR_MIX) {
+    const proc = procProp(`car-${kind}`, [{ geometry: carBodyGeometry(kind), material: bodyMat }])
+    let near: PropProto = proc
+    const spec = CAR_GLB[kind]
+    if (quality.infield.glb && ctx.assets && spec) {
+      const model = ctx.assets.model(spec.key)
+      const g = model ? carGlbGeometry(model.scene, kind, spec) : null
+      // the map is required: carGlbMaterial(null) is another program (plan §横断 7)
+      if (g?.map) {
+        const bb = g.geometry.boundingBox!
+        near = {
+          id: `car-${kind}-glb`, geometry: g.geometry, materials: [carGlbMaterial(g.map, 'tint', spec.luma, spec.gain) as THREE.MeshStandardMaterial],
+          footprint: { long: bb.max.z - bb.min.z, short: bb.max.x - bb.min.x, height: bb.max.y - bb.min.y }, triangles: g.geometry.getAttribute('position').count / 3, source: 'glb',
+        }
+      }
+    }
+    sets.set(kind, { proto: near, far: proc, placements: [] })
+  }
+  return sets
+}
+
+/**
+ * One car in a bay: nose out (rear to the axis) for CAR_PARK.noseOut of the cars, the body and
+ * paint from the mix, the yaw and position jittered — pushed into the body's set (or the given
+ * set when `into` is passed: the covered cars). Returns the placement matrix.
+ */
+export function parkCar(track: Track, ground: Ground, sets: Map<CarBody, PropSet>, bay: Bay, rng: Rng, into?: PropSet): THREE.Matrix4 {
+  const world = (s: number, lat: number): P2 => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
+  const jit = THREE.MathUtils.degToRad(CAR_PARK.yawJitterDeg)
+  const r1 = rng.next(), r2 = rng.next(), r3 = rng.next(), r4 = rng.next(), r5 = rng.next(), r6 = rng.next(), r7 = rng.next()
+  // the nose in the (s, lateral) plane → world: +s = heading, +lateral = its left normal
+  const nose = r4 < CAR_PARK.noseOut ? -1 : 1
+  const hd = track.headingAt(track.wrap(bay.s))
+  const ds = bay.into[0] * nose, dl = bay.into[1] * nose
+  const dx = ds * hd.tx + dl * hd.tz, dz = ds * hd.tz - dl * hd.tx
+  const yaw = Math.atan2(dx, dz) + (r5 - 0.5) * 2 * jit
+  const pj = CAR_PARK.posJitter
+  const off = world(bay.s + (bay.into[0] * (r6 - 0.5) * 2 * pj + bay.across[0] * (r7 - 0.5) * pj) / bay.k, bay.lat + bay.into[1] * (r6 - 0.5) * 2 * pj + bay.across[1] * (r7 - 0.5) * pj)
+  const m = m4().makeRotationY(yaw)
+  m.setPosition(off.x, ground.standY(off.x, off.z) + CAR_PARK.lift, off.z)
+  if (into) into.placements.push({ m })
+  else sets.get(pickCarBody(r1))!.placements.push({ m, color: pickCarColour(r2, r3, new THREE.Color()) })
+  return m
+}
+
+const lampProtos = new WeakMap<EnvBuildContext, PropProto>()
+/**
+ * The street-lamp pole (PADDOCK_LAMPS.height): a tapered steel mast, a 1.6 m arm and a cobra
+ * head, base-centred, arm along +x. Procedural on every tier — the pack's street_lamp_02 is a
+ * 1.7 m wall-bracket lantern with no shaft (scaled to 8 m it hung in the air), and the aerials
+ * show plain steel poles with cobra heads — the same pole as the outskirts' car parks. One per
+ * build context (the paddock's roads and the infield's service roads share it).
+ */
+export function lampPoleProto(ctx: EnvBuildContext): PropProto {
+  const hit = lampProtos.get(ctx)
+  if (hit) return hit
+  const hgt = PADDOCK_LAMPS.height
+  const mast = new THREE.CylinderGeometry(0.06, 0.1, hgt, 6, 1, true)
+  mast.translate(0, hgt / 2, 0)
+  const arm = new THREE.BoxGeometry(1.6, 0.07, 0.07)
+  arm.translate(0.8, hgt - 0.04, 0)
+  const head = new THREE.BoxGeometry(0.6, 0.16, 0.3)
+  head.translate(1.5, hgt - 0.1, 0)
+  const base = new THREE.CylinderGeometry(0.25, 0.25, 0.06, 8)
+  base.translate(0, 0.03, 0)
+  const proto = procProp('lamp-pole', [{ geometry: mergeGeometries([mast, arm, head, base].map((g) => g.toNonIndexed()), false)!, material: propMaterial(ctx.props, { color: 0xb4b8b6, roughness: 0.6, metalness: 0.4 }) }])
+  lampProtos.set(ctx, proto)
+  return proto
+}
+
+const shutterMats = new WeakMap<EnvBuildContext, THREE.MeshStandardMaterial>()
+/**
+ * A roller-shutter leaf w × h as a prototype pair: the pack's rollershutter_door (its 1.08 × 2.4
+ * leaf stretched to the size, the leaf's slat plane slid onto z = 0) as the near level, the
+ * ribbed canvas box as the far / pack-less one — both levels share the placements.
+ */
+export function rollerShutterProto(ctx: EnvBuildContext, id: string, w: number, h: number): { near: PropProto; far: PropProto } {
+  let shutterMat = shutterMats.get(ctx)
+  if (!shutterMat) shutterMats.set(ctx, (shutterMat = new THREE.MeshStandardMaterial({ map: shutterTexture(ctx.quality.textureScale), roughness: 0.5, metalness: 0.45 })))
+  const far = procProp(id, [{ geometry: box(w, h, 0.06), material: shutterMat }])
+  let near = far
+  if (ctx.quality.infield.glb && ctx.assets) {
+    // the pack level's id carries `-glb` so its meshes name the level (`<set>-<id>-glb-L0-<cell>`), like the cars and the marquee roofs
+    const glb = packProp(ctx.assets, ctx.props, 'model/props/rollershutter_door', { id: `${id}-glb`, nodes: /^rollershutter_door(\/|$)/, front: 'moreArea' })
+    if (glb) {
+      glb.geometry.scale(w / glb.footprint.long, h / glb.footprint.height, 1)
+      // the pack door is bbox-centred with its leaf at local z ≈ −0.13 and only the roller housing
+      // in front: slide it so the leaf's slat plane sits on z = 0 like the procedural box, else the
+      // placements (wall + 0.05) put the leaf 10 cm inside the siding and only the housing shows
+      glb.geometry.translate(0, 0, 0.13)
+      glb.geometry.computeBoundingBox()
+      glb.geometry.computeBoundingSphere()
+      const bb = glb.geometry.boundingBox!
+      glb.footprint = { long: w, short: bb.max.z - bb.min.z, height: h }
+      near = glb
+    }
+  }
+  return { near, far }
+}
+
 // ---------------------------------------------------------------- materials
 
 interface PaddockMaterials {
@@ -432,28 +726,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   // --- the prop prototypes shared by several buildings ------------------------------------------------
   const plain = (color: number, roughness = 0.6, metalness = 0.2) => propMaterial(ctx.props, { color, roughness, metalness })
   const k = quality.textureScale
-  const shutterMat = new THREE.MeshStandardMaterial({ map: shutterTexture(k), roughness: 0.5, metalness: 0.45 })
-  /** a roller shutter leaf w × h (the pack door is 1.08 × 2.4: its prototype is stretched to the size, so both levels share the placements) */
-  const shutterProto = (id: string, w: number, h: number): { near: PropProto; far: PropProto } => {
-    const far = procProp(id, [{ geometry: box(w, h, 0.06), material: shutterMat }])
-    let near = far
-    if (quality.infield.glb && ctx.assets) {
-      const glb = packProp(ctx.assets, ctx.props, 'model/props/rollershutter_door', { id, nodes: /^rollershutter_door(\/|$)/, front: 'moreArea' })
-      if (glb) {
-        glb.geometry.scale(w / glb.footprint.long, h / glb.footprint.height, 1)
-        // the pack door is bbox-centred with its leaf at local z ≈ −0.13 and only the roller housing
-        // in front: slide it so the leaf's slat plane sits on z = 0 like the procedural box, else the
-        // placements (wall + 0.05) put the leaf 10 cm inside the siding and only the housing shows
-        glb.geometry.translate(0, 0, 0.13)
-        glb.geometry.computeBoundingBox()
-        glb.geometry.computeBoundingSphere()
-        const bb = glb.geometry.boundingBox!
-        glb.footprint = { long: w, short: bb.max.z - bb.min.z, height: h }
-        near = glb
-      }
-    }
-    return { near, far }
-  }
+  const shutterProto = (id: string, w: number, h: number) => rollerShutterProto(ctx, id, w, h)
   const officeShutter = shutterProto('office-shutter', PADDOCK_OFFICE.rollDoor[0], PADDOCK_OFFICE.rollDoor[1])
   const airconProc = procProp('aircon', [{ geometry: box(0.8, 0.85, 0.35), material: plain(0xd9dbd8, 0.6, 0.3) }, { geometry: box(0.7, 0.05, 0.3, 0, 0.85), material: plain(0x5a5e62, 0.6, 0.3) }])
   const aircon = glbOr(ctx, 'model/props/exterior_aircon_unit', { front: 'moreArea', scaleTo: { height: 0.9 } }, airconProc)
@@ -1192,19 +1465,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   // ================================================================ street lamps and the floodlight masts
   {
     const Lp = PADDOCK_LAMPS
-    const hgt = Lp.height
-    const mast = new THREE.CylinderGeometry(0.06, 0.1, hgt, 6, 1, true)
-    mast.translate(0, hgt / 2, 0)
-    const arm = new THREE.BoxGeometry(1.6, 0.07, 0.07)
-    arm.translate(0.8, hgt - 0.04, 0)
-    const head = new THREE.BoxGeometry(0.6, 0.16, 0.3)
-    head.translate(1.5, hgt - 0.1, 0)
-    const base = new THREE.CylinderGeometry(0.25, 0.25, 0.06, 8)
-    base.translate(0, 0.03, 0)
-    // the procedural pole is the only level: the pack's street_lamp_02 is a 1.7 m wall-bracket
-    // lantern with no shaft (scaled to 8 m it hung in the air), and the aerials show plain steel
-    // poles with cobra heads — the same pole as the outskirts' car parks
-    const poleProc = procProp('lamp-pole', [{ geometry: mergeGeometries([mast, arm, head, base].map((g) => g.toNonIndexed()), false)!, material: plain(0xb4b8b6, 0.6, 0.4) }])
+    const poleProc = lampPoleProto(ctx)
     const lamps: PropSet = { proto: poleProc, far: poleProc, placements: [] }
     let underOps = 0
     const put = (x: number, z: number, yaw: number) => {
@@ -1340,19 +1601,14 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
   {
     const B = PADDOCK_BAY
     const rng = new Rng(0x9a11c7)
-    type P2 = { x: number; z: number }
     /**
      * A track-frame point → world XZ. The frame is not isometric: inside a bend an s-metre at
      * lateral l is only (R − |l|) / R world metres (the E lot sits inside the final corner,
-     * R ≈ 130–360 m, at lateral −40…−95 → 0.42–0.86), so every bay is laid out in world metres and
-     * its s-components are divided by the local metric `k` (`Bay.k`) before going through here.
+     * R ≈ 130–360 m, at lateral −40…−95 → 0.42–0.86), so every bay is laid out in world metres
+     * (`layoutBays`, shared with the infield lots) and its s-components are divided by the local
+     * metric `k` (`Bay.k`) before going through here.
      */
     const world = (s: number, lat: number): P2 => { track.pointAt(track.wrap(s), lat, _p, 0); return { x: _p.x, z: _p.z } }
-    /** world metres per s-metre at (s, lat) */
-    const metricAt = (s: number, lat: number): number => {
-      const p0 = world(s - 0.5, lat), p1 = world(s + 0.5, lat)
-      return Math.max(0.05, Math.hypot(p1.x - p0.x, p1.z - p0.z))
-    }
 
     // --- what a bay must keep clear of ----------------------------------------------------------------
     /** the footprints in world XZ: every paddock row, the other BUILDINGS extrusions, the helipad, the masts, and every ops-layer footprint on the paddock (ops-spec `vehiclePlacements()`: the transporters, hospitality units, tents, containers, the compound) */
@@ -1375,37 +1631,6 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     for (const at of PADDOCK_MASTS.at) footprints.push(disc(at.s, at.lateral, 1.2))
     // the ops layer's paddock rows (I3-b), grown by 0.3 m: a bay under a marquee, a truck or a hospitality unit is dropped
     footprints.push(...opsFootprints)
-    const inPoly = (x: number, z: number, poly: P2[]): boolean => {
-      let inside = false
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const a = poly[i]!, b = poly[j]!
-        if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
-      }
-      return inside
-    }
-    const segsCross = (a: P2, b: P2, c: P2, d: P2): boolean => {
-      const o = (p: P2, q: P2, r: P2) => Math.sign((q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x))
-      return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b)
-    }
-    /** a convex quad against a polygon (or an open polyline when `closed` is false): any corner inside, any polygon vertex inside, or any edge crossing */
-    const quadHits = (quad: P2[], poly: P2[], closed: boolean): boolean => {
-      if (closed) {
-        for (const q of quad) if (inPoly(q.x, q.z, poly)) return true
-        for (const p of poly) if (inPoly(p.x, p.z, quad)) return true
-      }
-      const n = closed ? poly.length : poly.length - 1
-      for (let i = 0; i < n; i++) {
-        const a = poly[i]!, b = poly[(i + 1) % poly.length]!
-        for (let k = 0; k < 4; k++) if (segsCross(quad[k]!, quad[(k + 1) % 4]!, a, b)) return true
-      }
-      return false
-    }
-    const segDist2 = (p: P2, a: P2, b: P2): number => {
-      const dx = b.x - a.x, dz = b.z - a.z
-      const l2 = dx * dx + dz * dz || 1
-      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2))
-      return (p.x - a.x - dx * t) ** 2 + (p.z - a.z - dz * t) ** 2
-    }
     /** the sim's pit envelope at (s, lat): inside [c − back, max(c + front, −hw)] over the entry → exit span, or the lane band on the box strip */
     const inPitEnvelope = (s: number, lat: number): boolean => {
       const c = track.pitLateralAt(s)
@@ -1418,103 +1643,15 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       return false
     }
 
-    // --- the bays ---------------------------------------------------------------------------------------
-    interface Bay {
-      /** the bay's centre and its axis / across unit vectors in the (s, lateral) plane; `into` points from the aisle into the bay */
-      s: number; lat: number
-      into: [number, number]; across: [number, number]
-      /** world metres per s-metre at the centre: an s-offset of d world metres is d / k in the frame */
-      k: number
-      corners: P2[]
-      /** which row of the block (0 = nearest the track) and the index along it */
-      row: number; i: number
-      x: number; z: number
-    }
-    /**
-     * The bays of one block, laid out in world metres along each row, that pass every test (the
-     * module comment lists them). Rows are laid out from lat[0] as back-to-back pairs with an
-     * aisle between the pairs; a 45° block leans its bays to +s. The row's length and the bay
-     * pitch are measured in world metres at the row's centre lateral (the frame shrinks inside a
-     * bend), and every bay is a rigid `bayW × bayD` rectangle: its s-offsets are divided by the
-     * local metric `k`.
-     */
-    type BayReject = 'face' | 'owner' | 'envelope' | 'slope' | 'footprint' | 'fence' | 'lamp'
-    const paddockBays = (row: PaddockParkingRow): { kept: Bay[]; walked: number; rejects: Record<BayReject, number> } => {
-      const a = (row.angle * Math.PI) / 180
-      const depth = B.bayD * Math.cos(a) + B.bayW * Math.sin(a)
-      const step = row.pitch / Math.max(Math.cos(a), 1e-6) // pitch along the row in world metres (2.5 straight, 3.54 at 45°)
-      const sLen = forwardDelta(row.s[0], row.s[1], L)
-      const kept: Bay[] = []
-      const rejects: Record<BayReject, number> = { face: 0, owner: 0, envelope: 0, slope: 0, footprint: 0, fence: 0, lamp: 0 }
-      let walked = 0
-      for (let r = 0; r < row.rows; r++) {
-        const pair = Math.floor(r / 2)
-        const near = row.lat[0] - pair * (2 * depth + B.aisle) - (r % 2) * depth // the row's edge nearer the track
-        const far = near - depth
-        if (far < row.lat[1] - 1e-6) break
-        // the aisle is on the +lateral side of an even row and the −lateral side of an odd one
-        const dirIn: number = r % 2 === 0 ? -1 : 1
-        const into: [number, number] = [Math.sin(a), Math.cos(a) * dirIn]
-        const across: [number, number] = [into[1], -into[0]]
-        const latC = (near + far) / 2
-        // the row's length in world metres: the cumulative distance along (s, latC) every 0.25 m of s
-        const ds = 0.25
-        const nS = Math.max(1, Math.ceil(sLen / ds))
-        const cum: number[] = [0]
-        let prev = world(row.s[0], latC)
-        for (let j = 1; j <= nS; j++) {
-          const p = world(row.s[0] + Math.min(sLen, j * ds), latC)
-          cum.push(cum[j - 1]! + Math.hypot(p.x - prev.x, p.z - prev.z))
-          prev = p
-        }
-        const rowLen = cum[nS]!
-        /** cumulative world length along the row → s (linear in the sample table) */
-        const sAt = (d: number): number => {
-          let j = 1
-          while (j < nS && cum[j]! < d) j++
-          const t = (d - cum[j - 1]!) / Math.max(1e-9, cum[j]! - cum[j - 1]!)
-          const s0 = row.s[0] + (j - 1) * ds, s1 = row.s[0] + Math.min(sLen, j * ds)
-          return s0 + (s1 - s0) * Math.max(0, Math.min(1, t))
-        }
-        const n = Math.floor((rowLen - step) / step) + 1
-        for (let i = 0; i < n; i++) {
-          walked++
-          const sc = sAt(step * (i + 0.5) + (rowLen - step * n) / 2)
-          const k = metricAt(sc, latC)
-          const corners: P2[] = []
-          const cornersSL: [number, number][] = []
-          for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-            const cs = sc + ((into[0] * u * B.bayD) / 2 + (across[0] * v * B.bayW) / 2) / k
-            const cl = latC + (into[1] * u * B.bayD) / 2 + (across[1] * v * B.bayW) / 2
-            cornersSL.push([cs, cl])
-            corners.push(world(cs, cl))
-          }
-          const centre = world(sc, latC)
-          const samples: [number, number, P2][] = [...cornersSL.map((c, k): [number, number, P2] => [c[0], c[1], corners[k]!]), [sc, latC, centre]]
-          // 1. on a drawn paddock face everywhere, 2. outside the sim's pit envelope
-          let why: BayReject | null = null
-          const ys: number[] = []
-          for (const [s_, l_, p] of samples) {
-            const built = ground.builtY(p.x, p.z)
-            if (!built || built.kind !== 'paddock') { why = 'face'; break }
-            const sw = track.wrap(s_)
-            const owner = ground.plan.ownerAtSL(sw, -1, -l_ - track.halfWidthAt(sw), false, p)
-            if (owner.kind !== 'paddock') { why = 'owner'; break }
-            if (inPitEnvelope(sw, l_)) { why = 'envelope'; break }
-            ys.push(built.y)
-          }
-          // 3. level enough for a rigid body (CAR_PARK.slopeGrade × the footprint diagonal)
-          if (!why && Math.max(...ys) - Math.min(...ys) > CAR_PARK.slopeGrade * Math.hypot(B.bayW, B.bayD)) why = 'slope'
-          // 4. off every footprint, 5. off the fence runs (0.6 m), 6. off the lamps (0.7 m)
-          if (!why && footprints.some((f) => quadHits(corners, f, true))) why = 'footprint'
-          if (!why && fenceRuns.some((run) => quadHits(corners, run, false) || run.some((p, k) => k > 0 && samples.some(([, , q]) => segDist2(q, run[k - 1]!, p) < 0.36)))) why = 'fence'
-          if (!why && lampXZ.some((l) => inPoly(l.x, l.z, corners) || samples.some(([, , q]) => (q.x - l.x) ** 2 + (q.z - l.z) ** 2 < 0.5))) why = 'lamp'
-          if (why) { rejects[why]++; continue }
-          kept.push({ s: sc, lat: latC, into, across, k, corners, row: r, i, x: centre.x, z: centre.z })
-        }
-      }
-      return { kept, walked, rejects }
-    }
+    // --- the bays: layoutBays (the face / owner / slope tests) plus the paddock's own vetoes -----------
+    // 1. outside the sim's pit envelope, 2. off every footprint, 3. off the fence runs (0.6 m), 4. off the lamps (0.7 m)
+    const paddockBays = (row: PaddockParkingRow): BayLayout => layoutBays(track, ground, row, ({ corners, samples }) => {
+      for (const [s_, l_] of samples) if (inPitEnvelope(track.wrap(s_), l_)) return 'envelope'
+      if (footprints.some((f) => quadHits(corners, f, true))) return 'footprint'
+      if (fenceRuns.some((run) => quadHits(corners, run, false) || run.some((p, k) => k > 0 && samples.some(([, , q]) => segDist2(q, run[k - 1]!, p) < 0.36)))) return 'fence'
+      if (lampXZ.some((l) => inPoly(l.x, l.z, corners) || samples.some(([, , q]) => (q.x - l.x) ** 2 + (q.z - l.z) ** 2 < 0.5))) return 'lamp'
+      return null
+    })
 
     // --- the bay lines: a decal per block, one 0.1 m quad down each long side of every kept bay ------------
     const lineMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6, metalness: 0 })
@@ -1528,27 +1665,10 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       report.push({ id: row.id, walked: r.walked, kept: r.kept.length, rejects: r.rejects, cars: 0 })
       bays += r.kept.length
       walked += r.walked
-      const quads: DecalQuad[] = []
-      const seen = new Set<string>()
-      for (const b of r.kept) {
-        for (const v of [-1, 1]) {
-          // the line between two bays is drawn once (the neighbour shares it)
-          const key = `${b.row}|${v > 0 ? b.i + 1 : b.i}`
-          if (seen.has(key)) continue
-          seen.add(key)
-          const cs = b.s + (b.across[0] * v * B.bayW) / 2 / b.k, cl = b.lat + (b.across[1] * v * B.bayW) / 2
-          const xz: number[] = []
-          for (const [u, w] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-            const p = world(cs + ((b.into[0] * u * B.bayD) / 2 + (b.across[0] * w * B.line) / 2) / b.k, cl + (b.into[1] * u * B.bayD) / 2 + (b.across[1] * w * B.line) / 2)
-            xz.push(p.x, p.z)
-          }
-          const c = world(cs, cl)
-          quads.push({ xz, yHint: ground.standY(c.x, c.z), attrs: () => [] })
-          lineM += B.bayD
-        }
-      }
-      if (!quads.length) continue
-      const built = ground.decal(quads, LAYER.paddock.line, [])
+      const lines = bayLineQuads(track, ground, r.kept)
+      lineM += lines.metres
+      if (!lines.quads.length) continue
+      const built = ground.decal(lines.quads, LAYER.paddock.line, [])
       if (!built.geo) continue
       const mesh = new THREE.Mesh(built.geo, lineMat)
       mesh.name = `paddockBayLines-${row.id}`
@@ -1591,26 +1711,7 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
 
     // --- the parked cars ----------------------------------------------------------------------------------
     {
-      const bodyMat = carBodyMaterial()
-      const sets = new Map<CarBody, PropSet>()
-      for (const { body: kind } of CAR_MIX) {
-        const proc = procProp(`car-${kind}`, [{ geometry: carBodyGeometry(kind), material: bodyMat }])
-        let near: PropProto = proc
-        const spec = CAR_GLB[kind]
-        if (quality.infield.glb && ctx.assets && spec) {
-          const model = ctx.assets.model(spec.key)
-          const g = model ? carGlbGeometry(model.scene, kind, spec) : null
-          // the map is required: carGlbMaterial(null) is another program (plan §横断 7)
-          if (g?.map) {
-            const bb = g.geometry.boundingBox!
-            near = {
-              id: `car-${kind}-glb`, geometry: g.geometry, materials: [carGlbMaterial(g.map, 'tint', spec.luma, spec.gain) as THREE.MeshStandardMaterial],
-              footprint: { long: bb.max.z - bb.min.z, short: bb.max.x - bb.min.x, height: bb.max.y - bb.min.y }, triangles: g.geometry.getAttribute('position').count / 3, source: 'glb',
-            }
-          }
-        }
-        sets.set(kind, { proto: near, far: proc, placements: [] })
-      }
+      const sets = carPropSets(ctx)
       // a car under a cover: the pack model (its long side turned onto the car frame's Z) or a grey body
       const coveredProc = procProp('covered-car', [{ geometry: carBodyGeometry('sedan').clone(), material: plain(0x8e9297, 0.85, 0.05) }])
       let covered: PropProto = coveredProc
@@ -1628,7 +1729,6 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       const budget = quality.infield.paddockCars
       const want = blocks.reduce((n, b) => n + b.row.occupancy * b.bays.length, 0)
       const scale = want > 0 ? Math.min(1, budget / want) : 0
-      const jit = THREE.MathUtils.degToRad(CAR_PARK.yawJitterDeg)
       const takes = blocks.map(({ row, bays: list }) => Math.min(list.length, Math.round(row.occupancy * scale * list.length)))
       // the roundings settle on the biggest block, so a scaled-down paddock holds exactly the budget
       if (scale < 1) {
@@ -1640,21 +1740,9 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
         report[bi]!.cars = take
         // a deterministic shuffle picks which bays are taken
         const order = list.map((b, i) => ({ b, r: rng.next(), i })).sort((p, q) => p.r - q.r || p.i - q.i)
-        for (let k = 0; k < take; k++) {
-          const b = order[k]!.b
-          const r1 = rng.next(), r2 = rng.next(), r3 = rng.next(), r4 = rng.next(), r5 = rng.next(), r6 = rng.next(), r7 = rng.next()
-          // nose out (rear to the axis) for CAR_PARK.noseOut of the cars; the nose in the (s, lateral) plane → world: +s = heading, +lateral = its left normal
-          const nose = r4 < CAR_PARK.noseOut ? -1 : 1
-          const hd = track.headingAt(track.wrap(b.s))
-          const ds = b.into[0] * nose, dl = b.into[1] * nose
-          const dx = ds * hd.tx + dl * hd.tz, dz = ds * hd.tz - dl * hd.tx
-          const yaw = Math.atan2(dx, dz) + (r5 - 0.5) * 2 * jit
-          const pj = CAR_PARK.posJitter
-          const off = world(b.s + (b.into[0] * (r6 - 0.5) * 2 * pj + b.across[0] * (r7 - 0.5) * pj) / b.k, b.lat + b.into[1] * (r6 - 0.5) * 2 * pj + b.across[1] * (r7 - 0.5) * pj)
-          const m = m4().makeRotationY(yaw)
-          m.setPosition(off.x, ground.standY(off.x, off.z) + CAR_PARK.lift, off.z)
-          if (row.id === 'A' && coveredSet.placements.length < B.coveredCars) coveredSet.placements.push({ m })
-          else sets.get(pickCarBody(r1))!.placements.push({ m, color: pickCarColour(r2, r3, new THREE.Color()) })
+        for (let n = 0; n < take; n++) {
+          const b = order[n]!.b
+          parkCar(track, ground, sets, b, rng, row.id === 'A' && coveredSet.placements.length < B.coveredCars ? coveredSet : undefined)
         }
       })
       group.userData.paddockParking = report
