@@ -4,6 +4,7 @@ import { GROUND_AREAS, PIT_PLANNED, RUNOFF_ZONES, type GroundArea, type GroundFo
 import { KERBS, OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, ROLL_CAP, signedDelta, type Track } from '~/sim/track'
 import { laneWorldPath, osmWay, patchOutline, simplifyRing, wayChainPath } from './trackside'
+import type { CutField } from './ground-field'
 
 /**
  * The GROUND PLAN: a partition of the ground beside the road into exactly one opaque owner per
@@ -672,8 +673,19 @@ function windPositive(ring: Pt[]): Pt[] {
 
 const _v = new THREE.Vector3()
 
-/** Resolve a GROUND_AREAS footprint to world XZ (every ring resampled at ≤ 2 m). */
-export function resolveFootprint(track: Track, fp: GroundFootprint): WorldRing | null {
+/**
+ * Resolve a GROUND_AREAS footprint to world XZ (every ring resampled at ≤ 2 m). A `{ cut }`
+ * footprint is the cut field's own corridor polygon (`cuts` is the CutField the plan was built
+ * with; without one — a lint that only reads the tables — it resolves to nothing).
+ */
+export function resolveFootprint(track: Track, fp: GroundFootprint, cuts?: CutField | null): WorldRing | null {
+  if ('cut' in fp) {
+    const corridor = cuts?.corridors.find((c) => c.id === fp.cut)
+    const pts = cuts?.corridor(fp.cut, fp.part) ?? []
+    if (!corridor || pts.length < 3) return null
+    const outer = windPositive(resampleClosed(simplifyRing(pts), 2))
+    return { outer, holes: [], box: ringBox(outer), sRange: corridor.def.window }
+  }
   if ('ring' in fp || 'osm' in fp) {
     // an area may reach the road edge: the kerb and the road win by precedence, and the strip is a
     // height rule of the field, not a separate owner (patchOutline's 2 m clearance was for the
@@ -884,12 +896,14 @@ export interface GroundPlan {
    */
   lattice: (s0: number, s1: number, maxStep: number) => number[]
   /** how many stations were inserted for each reason (diagnostics) */
-  stats: { base: number; endpoints: number; kinks: number; rows: number; tips: number; crossings: number; snapped: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[] }
+  stats: { base: number; endpoints: number; kinks: number; rows: number; tips: number; crossings: number; snapped: number; chord: number; chordBy: Record<string, number>; rings: number; worldOnly: number; residual: number; residualMax: number; buildMs: number; timing: Record<string, number>; passes: number[]; /** stations added as rows across the cut corridors */ cutRows: number }
 }
 
 export interface PlanOptions {
   /** extra stations (s) a builder wants, e.g. decal ends */
   extraStations?: number[]
+  /** the cut field (ground-field.ts): the `{ cut }` footprints are its corridors */
+  cuts?: CutField | null
 }
 
 export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPlan {
@@ -1228,7 +1242,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   // --- world rings: areas by precedence, then the lanes ---------------------------------------------
   const rings: RingOwner[] = []
   GROUND_AREAS.forEach((area, index) => {
-    const ring = resolveFootprint(track, area.footprint)
+    const ring = resolveFootprint(track, area.footprint, opts.cuts)
     if (!ring) {
       console.error(`[ground-plan] "${area.name}": footprint resolves to nothing`)
       return
@@ -1254,7 +1268,12 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         const hw = track.halfWidthAt(i)
         const base = Math.min(limit, Math.max(VERGE_MIN, layout.declaredOuter(i, side) - hw, areaOuter(i, side) - hw))
         const ivs: [number, number][] = []
-        for (const r of rings) for (const h of rayHitRing(track, i, side, r.ring, limit)) ivs.push(h)
+        // a cut corridor never extends the raster: it is a trench across the verge, not verge —
+        // rastered where the declared extent covers it, a world part beyond (the works road's
+        // ramps run 66 / 107 m out; rastering out to them bulged the pit straight's raster into
+        // the bisector with the S-curve leg and re-paired the stitch strips at the wrap, which
+        // left a hairline crack 100 m away in the paddock band)
+        for (const r of rings) { if (r.area && 'cut' in r.area.footprint) continue; for (const h of rayHitRing(track, i, side, r.ring, limit)) ivs.push(h) }
         ivs.sort((a, b) => a[0] - b[0])
         // a terrain gap of up to RING_BRIDGE metres between the verge and an area is bridged by
         // raster grass, so the area beyond it is one mesh with the verge
@@ -1323,7 +1342,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
 
   // --- stations ---------------------------------------------------------------------------------
   const wanted: number[] = []
-  const stats = { base: n, endpoints: 0, kinks: 0, rows: 0, tips: 0, crossings: 0, snapped: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[] }
+  const stats = { base: n, endpoints: 0, kinks: 0, rows: 0, tips: 0, crossings: 0, snapped: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[], cutRows: 0 }
   lap('rings')
   for (let i = 0; i < n; i++) wanted.push(i * ds)
   const endpoint = (s: number) => { wanted.push(track.wrap(s)); stats.endpoints++ }
@@ -1339,6 +1358,26 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   for (const r of runs) { endpoint(r.from); endpoint(r.to) }
   for (const s of [sOver - DECK_REACH, sOver - DECK_REACH + 0.1, sOver + DECK_REACH - 0.1, sOver + DECK_REACH, sOver - 19, sOver + 19]) endpoint(s)
   for (const s of opts.extraStations ?? []) endpoint(s)
+  // the cut corridors (R6): a row every metre across each corridor's s extent (in its window),
+  // so a wall along the rays is chorded over a metre and a 3.5 m stair pit has rows inside it —
+  // the ring's tips alone gave a pit no interior row, and its floor was drawn 2.4 m too high
+  for (const c of opts.cuts?.corridors ?? []) {
+    const [w0, w1] = c.def.window
+    let d0 = Infinity, d1 = -Infinity
+    for (const q of c.samples) {
+      const w = Math.max(q.wl, q.wr)
+      for (const [x, z] of [[q.x, q.z], [q.x + w, q.z], [q.x - w, q.z], [q.x, q.z + w], [q.x, q.z - w]] as const) {
+        const d = forwardDelta(w0, track.nearestOnRange(x, z, w0, w1, 60).s, L)
+        if (d < d0) d0 = d
+        if (d > d1) d1 = d
+      }
+    }
+    // on the half metre: a row on a whole metre coincides with the census lattice (surface-check
+    // G1 samples every metre of s), and a lattice point exactly on a sliver's edge at a ring
+    // corner fell through a microscopic gap between two float32 triangles
+    for (let d = Math.ceil(d0) + 0.5; d <= d1; d += 1) endpoint(w0 + d)
+    stats.cutRows += Math.max(0, Math.floor(d1 - 0.5) - Math.ceil(d0) + 1)
+  }
   // kinks of the extent table: the extent is linear between integer metres, so a station at
   // every metre where its slope changes makes the raster's extent chord follow it exactly (without
   // them the chord across a rise cut a corner off the raster, which no face covered)
@@ -1987,6 +2026,25 @@ function pitLaneSpan(track: Track, pit: typeof CIRCUIT.pit): (s: number, hw: num
     const wApron = windowRamp(track, s, pit.limitStartS - 40, pit.limitEndS, PIT_TAPER)
     const aout = Math.max(pout, pout + (-PIT_PLANNED.shutter + 0.4 - hw - pout) * wApron)
     return [pin, pout, aout]
+  }
+}
+
+/**
+ * How far beyond the road edge the ground at (s, side) rides the ROAD PLANE: the kerb, the
+ * crossover deck's shoulder, the pit lane and the garage apron — the same numbers `ownerAtSL`
+ * decides KERB / DECK / PIT_LANE / PIT_APRON by (R6). The cut field (ground-field.ts) reads it
+ * before the plan exists: a CUT corridor never enters a road frame, and the plan's own `{ cut }`
+ * rows need the corridors, so the corridors are computed from this rule rather than from
+ * `plan.ownerAt`.
+ */
+export function roadFrameReach(track: Track): (s: number, side: Side) => number {
+  const kerbs = kerbSpans(track)
+  const pitSpan = pitLaneSpan(track, CIRCUIT.pit)
+  return (s, side) => {
+    const kb = kerbAt(kerbs, track, s, side)
+    let reach = Math.max(kb.width * kb.spread, deckShoulderAt(track, s))
+    if (side < 0) reach = Math.max(reach, pitSpan(s, track.halfWidthAt(s))[2])
+    return reach
   }
 }
 

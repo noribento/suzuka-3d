@@ -3,7 +3,7 @@ import { SPECTATOR_BANKS, STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { ROLL_CAP, type Track } from '~/sim/track'
 import { makeGround, settleGround, type Ground } from './ground'
-import { makeField, type GroundField } from './ground-field'
+import { buildCutField, makeField, type CutField, type GroundField } from './ground-field'
 import { buildGroundPlan, ROAD_CUT, type GroundPlan } from './ground-plan'
 import { buildGroundMeshes, isGroundFace, type BuiltGround, type GroundFace } from './ground-mesh'
 import { groundMaterials } from './ground-materials'
@@ -977,6 +977,8 @@ export interface Environment {
   plan: GroundPlan
   /** the drawn ground: one mesh per owner kind */
   groundMeshes: BuiltGround
+  /** the cut corridors the field follows (R6; ground-field.ts) — for the tooling (dem-profile --cuts, the smokes) */
+  cuts: CutField
   ferrisWheel: THREE.Group | null
   /** the far-field registry; the viewport starts its deferred drain after `store.ready` */
   farField: FarField
@@ -1031,12 +1033,16 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   // the coarse ring, the DEM_FAR skyline and the water planes, under terrain.group
   const terrainFar = buildTerrainFar(terrain, quality, assets, landCover.layer('outer'))
   lap('terrainFar')
-  const field: GroundField = makeField(track, terrain)
+  // the cuts (R6): their corridors are computed from the terrain and the road-frame rule before
+  // the plan, because the plan's `{ cut }` rows are those corridors and the field follows them
+  const cuts = buildCutField(track, terrain)
+  lap('cuts')
+  const field: GroundField = makeField(track, terrain, cuts)
   // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,
   // one height per vertex) → registered and the grid settled under them → wired into `ground`.
   // All of it before anything stands on the ground, so every object and decal below reads the
   // DRAWN faces over the SETTLED terrain (the three-phase build: draw, settle, place).
-  const plan = buildGroundPlan(track)
+  const plan = buildGroundPlan(track, { cuts })
   const ground = makeGround(field, plan)
   lap('plan')
   const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets, landCover.layer('inner')))
@@ -1151,5 +1157,5 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   }
 
   const stats = { ...stands.stats, crowd: crowd.stats, ...infield }
-  return { group, terrain, ground, plan, groundMeshes, ferrisWheel, farField, landCover, trees: ctx.trees, keepOuts: { discs: ctx.keepOut, polys: ctx.keepOutPolys }, terrainFar, buildMs, stats, update }
+  return { group, terrain, ground, plan, groundMeshes, cuts, ferrisWheel, farField, landCover, trees: ctx.trees, keepOuts: { discs: ctx.keepOut, polys: ctx.keepOutPolys }, terrainFar, buildMs, stats, update }
 }

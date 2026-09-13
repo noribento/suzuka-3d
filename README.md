@@ -216,8 +216,8 @@ app/
     emissive.ts                # 発光値の一覧（bloom 閾値に対する輝度設計、ブレーキディスクの黒体ランプ）
     instancing.ts              # サーキット全域の InstancedMesh を地形チャンク／距離でバケット分割（フラスタムカリング）
     ground.ts                  # 地面の入口: Ground（plan・field・standY／decalY／decal = 描画済み面）、デカールの段 LAYER、地面に立つ物の表 GROUND_OBJECTS
-    ground-plan.ts             # 地面の区画（XZ で 1 点 1 オーナー）: 駅・カラム・範囲（fold／二等分線／橋の上限）・PRECEDENCE・RULE_OF・ownerAt
-    ground-field.ts            # 唯一の連続した高さ場（路肩 2 m のストリップ規則、2〜8 m の混合、地形 + RUNOFF_LIFT）
+    ground-plan.ts             # 地面の区画（XZ で 1 点 1 オーナー）: 駅・カラム・範囲（fold／二等分線／橋の上限）・PRECEDENCE・RULE_OF・ownerAt、`{ cut }` 足跡（CutField の廊下多角形、範囲を広げない、廊下の s 幅に 1 m の行）、`roadFrameReach`
+    ground-field.ts            # 唯一の連続した高さ場（路肩 2 m のストリップ規則、2〜8 m の混合、地形 + RUNOFF_LIFT）と CutField（I6: CUTS の廊下 = ポータルから heading へ grade で上がる床、壁裾 0.6 m の smoothstep、路面フレーム・BARRIERS 線・フィル列を避けた始端、`cutAt` / `yNoCut`。「切通しとトンネル（R6）」参照）
     ground-mesh.ts             # 区画をメッシュにする: 頂点プール（共有頂点・1 頂点 1 高さ）、ラスター、縫い合わせ帯、リングのワールド部、種類別 ground:<kind>
     ground-materials.ts        # 種類別マテリアル（路面・縁石・帯・エリア・パドック = 高ティアは asphalt_04 PBR + マクロ、パック無しは灰ノイズ・ヘリパッド・池）
     track-mesh.ts              # 地面でないもの: ソーセージ（地面に立つ物）、塗装エプロン・緑帯・DRS 線（描画済み面を切り出して持ち上げたデカール）、スタートゲートリー（白バナー 2.0 m、5 列 × 4 段のランプパネル — レースが点けるのは上 2 段、EM 情報板、右脚はピットウォールの歩廊上）
@@ -264,7 +264,7 @@ app/
     tv-towers.ts               # TV カメラ塔（I4-b: TV_CAMERAS の行ごとに足場塔／格子塔／黄クレーン柱／ポール、天板・手摺・梯子・三脚・カメラヘッド（security_camera_01 の glbOr）、操作者 1 人、registerPropSet 'infield-towers' / 'infield-tower-cams'、group.userData.tvLenses。「TV タワーとレンズ」参照）
     tv-lens.ts                 # TV レンズ点の唯一の解決（純関数）: cameraSide、'auto' 横位置 = バリア線 + 2.5、towerBaseAt（4 隅の最高地面）、tvForwardOf（天板半幅 + 張出し 0.7）、tvLensAt（塔中心・レンズ・世界座標）、TV_LENS / TV_TOWER_FOOTPRINT / TV_DECK_HALF — 塔ビルダー・カメラリグ・facilities-check O7 / A11・barriers.ts（塔下のタイヤ積み省略）・smoke が同じ数を読む
     infield-ground.ts          # インフィールドの地面の上の物（I5）: I5-a = 管理道路・教習コースの破線中央線デカール（`wayLineDecal`、LAYER.verge.line、面の無い所・路面・段差の上は塗らない）と BUILDINGS `builder: 'infield'` の押出し（交通教育センター）。I5-b = `buildInfieldFacilities`: 表 INFIELD_FACILITIES（シェッド・小屋・ガレージ + シャッター・西コントロールタワー・マーキー・タンク・ブロック / タイヤ積み（markObject tyreStack）・旗竿・照明マスト・壁・金網柵・コンパウンド）を材質毎の `furniture-infield-<mat>` と IM セット `infield-*` に、南コースのエイペックス縁石（SOUTH_COURSE_KERBS、laneKerb）、島縁石（INFIELD_ISLAND_KERBS）、インフィールド駐車場の車と白線（INFIELD_PARKING、paddock.ts の layoutBays / parkCar 共用）、管理道路の街灯（INFIELD_LAMPS）。地面そのものは GROUND_AREAS の行が描く（README「柵の内側の地面行」）。池は I5-c
-    cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
+    cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄 = I6-b。I6-a は場と地面行だけ: ground-field.ts CutField と GROUND_AREAS の `{ cut }` 行）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
     infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
     figures.ts                 # 人物の共通部（crowd.ts から昇格）: 焼き込み／手続きインポスター、GLB の 3D プロトタイプ（部位 id、白ヘルメットの第 5 部位）、部位着色材質、運営レイヤーの姿勢・役割（marshal / official / crew / photographer / staff / guest、座り姿 sit / sitF）と buildOpsFigures（kind 'ops'、観客予算とは別勘定）、ピットビル 2F/3F テラスの座席スロット terraceSlots
@@ -297,7 +297,7 @@ scripts/
   facilities-check.mjs         # スタンド／ピット定数／ガレージ順／GROUND_AREAS の輪郭・layer 契約・RUNOFF_ZONES 衛生、表が参照する OSM id の実在（§6、--strict で error）、§16 ops-check O1–O12（運営レイヤー・マーシャルポスト・TV・インフィールドの表をピット包絡 PIT_ENVELOPE・chase レンズ・グリッド・バリア線・建物足跡・サーキットのリング・s 窓 OPS_WINDOWS と照合。停止車矩形 12 と chase レンズ柱 12 は ops-spec の `stoppedCarRect` / `lensColumns` から取り、全ブロックの `crewSlots` / `perchSeats` も今から検査。自由立ちの SIGNS は O2/O3/O4/O6 とレーン帯（ピット包絡は A11 の inPitLane）。`--envelope <json>`（`pnpm sim -- --envelope` の 5 m ビン）で箱帯の外の解析的キープアウトを実測に置き換え。無い表は「absent, skipped」）
   assets/                      # fetch / import-misc / bake-crowd-atlas / bake-car-atlas / sources（アセットパイプライン）、inspect-model（ドロップの中身）、retouch-glb（GLB 内画像の矩形修正・部品の削除）
   facilities/                  # build-facilities（Overpass → TS、--add-ways-from でキャッシュから役割付きの way を網なしで splice）、build-power、build-surroundings（柵の外の OSM → suzuka-surroundings.ts）、osm-common（Overpass 取得・EN 投影・DP・int16 デルタの共通部）、
-                               #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合）
+                               #   dem-profile（DEM5A → 標高キーフレーム、--grid --far --write で suzuka-dem.ts、--relief で relief ゾーンの縁の検算、--verify で 34 駅の照合、--cuts で CUT 廊下の縦断表と廊下外の場の同一性）
   audit/                       # 実写との突き合わせ: aerial（国土地理院の空中写真モザイク）、overlay（アプリの線と OSM を重ねて区間ごとに切り出す）、shoot（区間ごとの真上・斜めショット）、osm-edge
                                #   surface-check（面のガード）、scene-cost（三角形／メッシュ／遠景の静的コスト）、app-runtime（アプリのビルダーを Node で走らせる土台）、
                                #   stub-registry（manifest の GLB をテクスチャ無しで読むスタブ登録簿と buildSceneWith — *-smoke の --glb が使う）、
@@ -412,6 +412,17 @@ scripts/
   - **R6 フレーム**。`road / kerb / deckShoulder / pitLane / pitApron` は路面平面（縁石は自分の横位置での断面）、他は高さ場。
     両者は共有頂点でしか会いません。G3：路面フレームは 2 mm 以内、場フレームは 40 mm 以内。縁石の端は 0.5 m の高さランプ
     （8 行、双線形セルの弦 1.2 mm）と、端の外 0.5 m で路肩へ収束する平らなくさび（縁石の所有）です。
+    **I6 改訂 — 場は宣言された CUT に従う**: `CUTS`（`suzuka-facilities-spec.ts`）の各行の**廊下多角形**の内側では `field.y` は
+    切通しの床（廊下中心線に沿う縦断 `field(portal) − depth + grade · d`、縁から `CUT_WALL_FOOT` 0.6 m 内側で外の場へ smoothstep）、
+    外側は従来の規則で**ビット同一**（`dem-profile --cuts` が 2 m 格子 219 万点で検算）。廊下は authoring しない — ポータル・向き・
+    勾配・地形から `ground-field.ts buildCutField` が**計算**します（床が `terrain + RUNOFF_LIFT − 0.2` に達した所、次の路面フレーム、
+    way の終端、`level` の `length` で終わる）。CUT は路面の平面（road / kerb / deckShoulder / pitLane / pitApron）を変えず、
+    `plan.ownerAt` が路面フレームの点と路肩 `CUT_KEEP_OFF` 2.5 m のフラットストリップ、両ポータル間のトンネル屋根には入りません
+    （廊下の点はプランの `roadFrameReach`（縁石・橋肩・ピットレーン・エプロンの到達）+ 2.5 m の外だけ。ポータルは
+    `hw + 2.5 + halfWidth` まで、さらに始端キャップの両隅がフィル列 5.5 m（`CAP_MIN_OFF`）を越えるまで押し出し、その側の
+    BARRIERS 線から 0.6 m 外で始まる）。`Terrain.heightAt` は不変（G5 の対象外、231 のまま）。廊下は必ず地面行で覆い
+    （`{ cut: id, part }` 足跡: 路面 ± 3.5 の asphaltArea layer 1 と全幅の gravelArea layer 0、階段ピットは asphalt の 2 重リング）、
+    擁壁・坑口・階段は standY に立つ物（I6-b）です。廊下リングはラスターの範囲を**広げません**（宣言範囲の外はワールド部）。
   - **R7 ワールドリングは入れ子か素**。リングと範囲の交差ごとに駅を入れ、駅の法線上でリングは区間の列（`MAX_RING_INTERVALS`）。
     区間の合流・分岐はトラックを閉じて新しく始めます。部分的に重なるリングはビルドエラー（行を割る）。
   - **R8 地面の上に立つ物**（レーン縁石・ソーセージ、I フェーズのスポンジ・タイヤ積み・島の縁石）は `GROUND_OBJECTS` の行（幅の上限、縁の沈み
@@ -1277,7 +1288,7 @@ I5-c は柵の内側の水面 2 面と乾いた池 2 面の演出、そして柵
   ピット出口ヤードの上）。`{ way, width: 3 }` の環は岸線 1.5 m 内側の内周と岸線が T1 池の北東端で駅の光線に掠められ G12 residual
   2.15 m だったので不採用。**T1–T2 調整池の岸道は行にしない**: 近岸を T1 管理道路 1420756725 が s 490–530 で走り、道路・岸線・
   岸道の 3 境界が 3 m 内に並ぶと水面に 35 標本の重複（G2 water|water、grow 2 / 3・環のどれでも）— 道路がそのまま岸道。
-- **INFIELD_TREES（`suzuka-facilities-spec.ts` 末尾、16 行 343 本）**: 行の形は `along`（OSM way を左／閉じた環は外側へ offset、
+- **INFIELD_TREES（`suzuka-facilities-spec.ts` 末尾、16 行 342 本）**: 行の形は `along`（OSM way を左／閉じた環は外側へ offset、
   または (s, lat) 折れ線）、`circle`、`rect`（pitch 格子か count 散布）、`disc`、`points`、`skipS`（スタンドの足跡や並走する道を跨ぐ
   区間を空ける）。`app/data/infield-trees.ts infieldTreePlacements(track)` が純関数で world 点 + 窓内の (s, lateral, d) に展開し、
   **facilities-check O10 と vegetation.ts が同じ点を読む**（O10: |lat| ≥ hw + 6、asphaltArea のリング**と way 掃引**の外、paddock /
@@ -1350,6 +1361,53 @@ I5 のレビュー（確認済みの所見 F1 / F3 / F5 / F6 / V1 / V2 / V3 / V4
   上書き）。差の主因は竹 +51 本、白屋根のバケット +1、葦の株の拡大（三角形は不変）。surface-check `--suggest`（既存 WHY、P7 まで）:
   G3 `ground:water` 12.49 → 14.65（実測 低 13.95 / 高 12.0 — 池の土手が深く広くなった分）、G4 `water.steep` 1417 → 1581
   （実測 1,505 両ティア — 西池北東端の 6〜7 m の土手と島の 4 m 土手）。他の鍵は不変。
+
+### 切通しとトンネル（R6）
+
+I6 は P8 で先送りしていた「掘る」を、地面の契約の R6 改訂として入れます（上の R6 の I6 改訂の項）。I6-a はデータ・場・地面行・
+ツールで、擁壁・坑口・階段・歩道橋の物は I6-b です。
+
+- **データ** `CUTS`（`suzuka-facilities-spec.ts`、全行 unverified）: `CutDef { id, osmWay?, portal, window, depth, grade, halfWidth,
+  wall, level?, length?, kind? }`。`portal` は手置き `{ s, lateral, heading }`（heading = 廊下が出て行く方位角、0 = 北）か way の
+  ノード `{ from: 'first' | 'last' }`（`tunnel=yes` の way ならトンネルから出る向き、開いた way ならその way に沿って進む）。
+  行: 県道三行庄野線の `loopSouth`（34096664 first、南進入路、10 %）・`cut643`（183309812 first = ダンロップ北のポータル、
+  39 m の切通し、7 % でシケイントンネルまで — 計画の `loopNorth` は同じノード・同じ向きの同じ廊下だったので 1 行に、`level` は
+  やめた: 水平では シケイン進入路の下が 7.1 m、トンネル内で 2.7 m 段差）・`chicaneLeft`（34096665 first、8 %）、構内道路
+  `worksNE`（175231859 first）/ `worksSW`（手置き (117, −28, 231)、エプロン −28.7 の外）、`r200service`（(3190, +13, 200):
+  計画の 20 はトンネル自身の向き。南へ 12 m で西ストレート側の地面に会う — `SHORT_CUTS`）、逆バンクトンネル `gyakuTunnelR / L`
+  （469010265 の両端に手置き、**3.5 m / 10 %**: 計画の 5 m / 8 % ではパドック台地が NIPPO との二等分線で切れる 38 m 先までに
+  地上へ出られず NIPPO の路肩まで 95 m 掘れてしまう）、歩行者トンネル 6 本の階段ピット `stairPit(…)`（`STAIR_PIT` 3.5 × 7 × 3.0、
+  両端、向きは way の方位）。**183969196 は 1 本のトンネル**（全ノード tunnel=yes、200R の下から折れ目沿いに西ストレートの下まで）
+  なので計画の中間ノード 2 つのピットは作らず、両端 `ped200Rb_R` / `pedWest_R` だけ。
+- **場** `buildCutField(track, terrain, cuts)`（プランより前に組む: プランの `{ cut }` 行が廊下を要るので、路面フレームは
+  `ground-plan.ts roadFrameReach` の純関数で判定）: 中心線を 0.5 m 刻みで歩き、始端は路面フレーム + `CAP_CLEAR` 0.3 m の外・
+  始端キャップの両隅がフィル列 5.5 m の外（`CAP_MIN_OFF`。プランはリングの out 列を最初の区間の下のフィル列に「駐車」させるので、
+  ロールキャップの折れ列 3.7〜4.0 m とその間にキャップの隅があると駐車列が折れ列を横切る — 解けない residual）・その側の
+  BARRIERS 線の 0.6 m 外（`barrierReach`: 始端 2·halfWidth + 1 m の範囲で線と交わる／0.6 m 以内の多角形辺の最遠サンプルの先で始める。
+  歩行者トンネルのノードは壁の内側に digitise されている）。壁裾は路面フレームに入る隅を 0.25 m ずつ引き込む。多角形の内側判定は
+  32 m セルの索引 → 廊下の箱 → 中心線サンプルへの射影（隣サンプルとの幅の補間）。重なる廊下は深い方。`corridor(id, 'road')` は
+  ± `CUT_ROAD_HALF` 3.5（halfWidth − 0.75 まで）で始端の 1 m 先から、`level` なら終端の 1 m 手前まで — 内側リングのキャップが
+  壁裾のカラムになる（無いとフィル列 5 m にわたって床が天端へ弦を張った）。
+- **プラン**: `{ cut }` 足跡は CutField の多角形（simplifyRing → 2 m 再標本）、`sRange` = 行の `window`。廊下の s 幅に半メートル位置の
+  行を入れる（`stats.cutRows`。整数メートルだと G1 の格子点がスリバーの辺に乗る）。廊下リングはラスターの reach を広げない。
+- **ツール**: `dem-profile.mjs --cuts`（廊下ごとに 1 m 毎の床／場（有・無）／DEM の表、始端・終端・理由・最大深さ、廊下外 2 m 格子の
+  同一性 = 0 点差、廊下内で場が上がる点 0）、`infield-smoke.mjs --cuts`（20 廊下: 終端 30〜120 m（`SHORT_CUTS`）／ピット 7 m、
+  床 = portal − depth、BARRIERS 線・STANDS 足跡と交わらない、行がプランのリング、中心線上の面が asphaltArea で場から 1.5 m 以内、
+  廊下内で場は下がるだけ、路面フレーム 20,328 点で `cutAt` null、buildMs）。
+- **廊下の座標系**: 路面に直角（±3° 以内、way に沿わない）な廊下は **track frame** — 中心線はポータルの駅の法線そのもの、壁は
+  `portal.s ∓ w` の法線上に正確に（パドック駐車場の矩形の端と同じ扱い）。ワールド直線の壁が法線と 0.3° で交わると、駅 2 つの間で
+  その列がフィル列を全部横切って潰れ、法線に沿った 10〜23 m の辺が残った（G7）。3° 以上ずれる廊下（県道の 3 本、逆バンク R、
+  ピット数本）はワールド frame（法線に対し 10 m 毎にフィル列を 1 本横切り、crossing pass が駅を入れる）。
+- **計測**（I6-a、Node no assets、両ティア同値）: 20 廊下（loopSouth 44 m / cut643 38.5 m wayEnd / chicaneLeft 57.5 m / worksNE 107 m /
+  worksSW 64.5 m / r200service 9.5 m / 逆バンク 32〜33 m / ピット 7 m）、最大深さ 6.35 m（cut643 の d 10、シケイン側の地面の方が高い）。
+  `buildMs.cuts` ≈ 0.17 s、plan 4.4 → 5.6 s、meshes 10.7 → 12.3 s（高; 低 4.4 → 5.7 / 10.8 → 11.0; +22 リング・+cutRows）、
+  三角形 65.1 → 70.0 万; scene-cost 高 4,394,862 / 999 / 1,099 / 1,148、低 2,526,565 / 763 / 803 / 840（予算内、再ベース無し）。
+  G1 mismatch 0（runtime 0）、G5 231、G7 0、G11 0、G12 residual 0。ALLOWANCES（両ティア `--suggest`、`WHY.cutWalls` を追記 —
+  壁裾 0.6 m は 10° より急で 45° の崖より緩い帯、かつ G4 は場の法線を丸めたメートル位置で読むので壁から 1 m 以内の床・路肩の
+  三角形が壁の法線と比べられる）: G3 asphaltArea 4.07 → 4.4（実測 4.19）、gravelArea 7.5 → 8.73（8.31）；G4 gravelArea.steep
+  216 → 3,898（3,712: 廊下の砂利リングは壁沿い 0.5〜2 m の帯そのもの）、asphaltArea.steep 1,994 → 3,128（2,979）、grass.steep
+  1,890 → 2,796（2,662）、lane.steep 54 → 73（69）、gravelBand.steep 56 → 63（60）、asphaltBand.steep 338 → 370（352）。
+  I6-b の擁壁が壁裾を覆えば下がる（P7 の崖行が本命）。
 
 ## GPU で確認すること
 

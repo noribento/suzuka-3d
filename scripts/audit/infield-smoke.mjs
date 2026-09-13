@@ -35,7 +35,18 @@
  *        walls / fences, the tyre / kerb ground objects, the infield cars and lamps, the build
  *        time, a report-only slab listing under the G8-exempt names.
  *
- *   node scripts/audit/infield-smoke.mjs [--tier high|low|both] [--glb]
+ *  I6-a  `--cuts` (`checkCuts` below): the cut corridors of the field (CUTS, ground-field.ts,
+ *        README R6): every CUT has a corridor; a road cut daylights 30–120 m from its portal
+ *        (SHORT_CUTS names the ones the ground ends sooner, with why) and a stair pit runs its
+ *        STAIR_PIT.length; the floor at the corridor's start is the portal's field − depth; the
+ *        cut is null at every road-frame point (the lap every 2 m, both sides, off < CUT_KEEP_OFF)
+ *        and inside every corridor's polygon ≤ the no-cut field; no corridor polygon crosses a
+ *        BARRIERS resolved line or a STANDS OSM footprint; the `{ cut }` rows are rings of the
+ *        plan and the built face over each corridor's centreline is the row's kind (the
+ *        stair-pit floors owned by asphaltArea) and follows the field within 1.5 m (the wall
+ *        foot chorded over a raster row); buildMs.cuts / plan / meshes printed against BASE_MS.
+ *
+ *   node scripts/audit/infield-smoke.mjs [--tier high|low|both] [--glb] [--cuts]
  *
  * `--glb` builds the high tier once more with the I5-b drops behind a stub registry
  * (stub-registry.mjs, like furniture-smoke --glb) and runs the GLB facts of `checkFacilities`.
@@ -47,7 +58,8 @@ import { commonChecks, finiteVertices, fmt, smokeArgs, standPoints } from './smo
 import { insideRing } from './ring.mjs'
 import { buildSceneWith, stubRegistry } from './stub-registry.mjs'
 
-const { tiers, check, finish, glb } = smokeArgs('infield-smoke')
+const { tiers, check, finish, glb, args } = smokeArgs('infield-smoke')
+const CUTS_CHECK = args.includes('--cuts')
 
 const spec = await import(path.join(ROOT, 'app/data/suzuka-facilities-spec.ts'))
 const groundMod = await import(path.join(ROOT, 'app/three/ground.ts'))
@@ -78,6 +90,9 @@ for (const tier of tiers) {
   const v = new THREE.Vector3()
   let rowsOk = 0, rowsBad = []
   for (const row of spec.GROUND_AREAS.slice(from)) {
+    // the `{ cut }` rows are the corridors' (checkCuts, --cuts): a road ring owns the inside of
+    // its corridor ring, so the 60 % rule below does not describe them
+    if ('cut' in row.footprint) continue
     const r = plan.rings.find((q) => q.area === row)
     if (!r) { rowsBad.push(`${row.name}: no plan ring`); continue }
     const ring = r.ring
@@ -203,6 +218,8 @@ for (const tier of tiers) {
   }
   // --- I5-b: the facilities ------------------------------------------------------------------------------
   checkFacilities(scene, check, tier, { glb: false })
+  // --- I6-a: the cut corridors ----------------------------------------------------------------------------
+  if (CUTS_CHECK) await checkCuts(scene, check, tier)
 }
 
 if (glb) {
@@ -216,6 +233,96 @@ if (glb) {
 }
 
 finish()
+
+// ===== I6-a: checkCuts (ground-field.ts buildCutField, the `{ cut }` GROUND_AREAS rows) =============
+async function checkCuts(scene, check, tier) {
+  /** road cuts whose corridor daylights sooner than 30 m, and why (the plan's 30–120 m is the norm) */
+  const SHORT_CUTS = {
+    r200service: { min: 8, why: 'the ground south of the 200R portal falls 3.5 m within 15 m toward the west straight (the two roads are 4 m apart in height there), so a 4.5 m / 8 % approach meets it after ≈ 10 m' },
+  }
+  const { env, track, plan, ground } = scene
+  const cuts = env.cuts
+  const osm = await import(path.join(ROOT, 'app/data/suzuka-facilities.ts'))
+  const bar = await import(path.join(ROOT, 'app/data/suzuka-barriers-spec.ts'))
+  const trackside = await import(path.join(ROOT, 'app/three/trackside.ts'))
+  const v = new THREE.Vector3()
+  console.log(`  --- cuts (${cuts.corridors.length} corridors of ${spec.CUTS.length} CUTS)`)
+  const missing = spec.CUTS.filter((c) => !cuts.corridors.some((q) => q.id === c.id)).map((c) => c.id)
+  check(missing.length === 0, `every CUT has a corridor${missing.length ? ` (missing: ${missing.join(', ')})` : ''}`)
+  // the barrier lines and the stand footprints in world XZ
+  const lines = bar.BARRIERS.map((run) => ({ run, line: trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6) })).filter((r) => r.line.samples.length >= 2)
+    .map(({ run, line }) => ({ id: run.id, pts: line.samples.map(([s, lat]) => { track.pointAt(s, lat, v, 0); return { x: v.x, z: v.z } }) }))
+  const stands = []
+  for (const st of spec.STANDS) for (const id of st.osmWays ?? []) { const f = osm.osmFeature(id); if (f?.closed) stands.push({ id: st.id, ring: f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale })) }) }
+  const cross = (a, b, c, d) => { const o = (p, q, r) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x); return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0 }
+  const polyCrosses = (poly, pts, closed) => { for (let i = 0; i + 1 < pts.length + (closed ? 1 : 0); i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; for (let j = 0; j < poly.length; j++) if (cross(a, b, poly[j], poly[(j + 1) % poly.length])) return true } return false }
+  const endBad = [], floorBad = [], barrierHits = [], standHits = [], ringBad = [], faceBad = []
+  let higher = 0, insideN = 0
+  for (const c of cuts.corridors) {
+    const len = c.endD - c.startD
+    const isPit = c.def.kind === 'stairPit'
+    const min = isPit ? spec.STAIR_PIT.length - 0.01 : (SHORT_CUTS[c.id]?.min ?? 30)
+    const max = isPit ? spec.STAIR_PIT.length + 0.01 : 120
+    if (!(len >= min && len <= max)) endBad.push(`${c.id} ${len.toFixed(1)} m (${c.end})`)
+    if (Math.abs(c.floorStart - (c.fieldAtPortal - c.def.depth + c.def.grade * c.startD)) > 1e-6) floorBad.push(c.id)
+    const poly = cuts.corridor(c.id)
+    for (const l of lines) if (polyCrosses(poly, l.pts, false)) barrierHits.push(`${c.id} × ${l.id}`)
+    for (const st of stands) if (polyCrosses(poly, st.ring, true) || inRing(poly[0].x, poly[0].z, st.ring)) standHits.push(`${c.id} × ${st.id}`)
+    // the rows: rings of the plan, the built face over the centreline
+    for (const part of ['corridor', 'road']) {
+      const r = plan.rings.find((q) => q.area && 'cut' in q.area.footprint && q.area.footprint.cut === c.id && q.area.footprint.part === part)
+      if (!r) ringBad.push(`${c.id}/${part}: no plan ring`)
+    }
+    // the centreline inside the wall feet (the first metre past the portal's cap and, for a
+    // level cut, the last metre before the end wall): the road ring's asphalt, on the field
+    // within 1.5 m — the feet themselves are chorded over a raster row and are the gravel /
+    // pit ring's
+    let worst = 0, wrongKind = 0
+    for (const q of c.samples) {
+      if (q.d < c.startD + 1.01 || q.d > c.endD - (c.def.level ? 1.01 : 0.01)) continue
+      const b = ground.builtY(q.x, q.z)
+      const f = ground.field.y(q.x, q.z)
+      if (!b) { wrongKind++; continue }
+      if (b.kind !== 'asphaltArea') wrongKind++
+      worst = Math.max(worst, Math.abs(b.y - f))
+    }
+    if (wrongKind || worst > 1.5) faceBad.push(`${c.id}: ${wrongKind} centreline samples not on the road face, built vs field max ${worst.toFixed(2)} m`)
+    // inside the polygon the field never rises above the no-cut field
+    c.samples.forEach((q, i) => {
+      const n = c.samples[Math.min(c.samples.length - 1, i + 1)], pv = c.samples[Math.max(0, i - 1)]
+      let dx = n.x - pv.x, dz = n.z - pv.z
+      const l = Math.hypot(dx, dz) || 1
+      dx /= l; dz /= l
+      for (const w of [-q.wr + 0.1, 0, q.wl - 0.1]) {
+        const x = q.x - dz * w, z = q.z + dx * w
+        insideN++
+        if (ground.field.y(x, z) > ground.field.yNoCut(x, z) + 1e-9) higher++
+      }
+    })
+    console.log(`    ${c.id.padEnd(14)} portal (${c.portal.s.toFixed(0)}, ${c.portal.lateral.toFixed(1)}) hdg ${c.portal.heading.toFixed(0).padStart(3)}°${(c.portal.pushed ? ` pushed ${c.portal.pushed.toFixed(2)}` : '').padEnd(13)}  d ${String(c.startD).padStart(4)} → ${String(c.endD).padStart(5)} (${c.end.padEnd(8)})  floor ${c.floorStart.toFixed(2)} → ${c.floorEnd.toFixed(2)}  built−field max ${worst.toFixed(2)} m`)
+  }
+  check(endBad.length === 0, `every road cut daylights within 30–120 m of its portal (SHORT_CUTS: ${Object.keys(SHORT_CUTS).join(', ')}) and every stair pit runs ${spec.STAIR_PIT.length} m${endBad.length ? ` — not: ${endBad.join('; ')}` : ''}`)
+  check(floorBad.length === 0, `the floor at every corridor's start is the portal's field − depth (+ grade · start)${floorBad.length ? ` — not: ${floorBad.join(', ')}` : ''}`)
+  check(barrierHits.length === 0, `no corridor polygon crosses a BARRIERS resolved line (${lines.length} lines)${barrierHits.length ? ` — ${barrierHits.join('; ')}` : ''}`)
+  check(standHits.length === 0, `no corridor polygon crosses or starts inside a STANDS footprint (${stands.length} footprints)${standHits.length ? ` — ${standHits.join('; ')}` : ''}`)
+  check(ringBad.length === 0, `every corridor's road and corridor rows are rings of the plan${ringBad.length ? ` — ${ringBad.join('; ')}` : ''}`)
+  check(faceBad.length === 0, `the built face over every corridor centreline (inside the wall feet) is the road ring's asphaltArea (the stair-pit floors included) and follows the field within 1.5 m${faceBad.length ? ` — ${faceBad.join('; ')}` : ''}`)
+  check(higher === 0, `inside the corridors the field never rises above the no-cut field (${insideN} points, ${higher} higher)`)
+  // the road frame: cutAt null at every point of the lap off < CUT_KEEP_OFF, both sides
+  let n = 0, bad = 0
+  for (let s = 0; s < track.length; s += 2) {
+    const hw = track.halfWidthAt(s)
+    for (const lat of [-(hw + spec.CUT_KEEP_OFF - 0.05), -(hw + 1), -hw * 0.5, 0, hw * 0.5, hw + 1, hw + spec.CUT_KEEP_OFF - 0.05]) {
+      track.pointAt(s, lat, v, 0)
+      n++
+      if (ground.field.cutAt(v.x, v.z) !== null) bad++
+    }
+  }
+  check(bad === 0, `field.cutAt is null at every road-frame point of the lap (${n} points every 2 m, both sides to off ${spec.CUT_KEEP_OFF}; ${bad} inside a cut)`)
+  const b = env.buildMs
+  const base = BASE_MS[tier]
+  console.log(`  buildMs.cuts ${b.cuts?.toFixed(0)} ms; plan ${b.plan?.toFixed(0)} ms (base ${base.plan}, Δ ${(b.plan - base.plan >= 0 ? '+' : '') + (b.plan - base.plan).toFixed(0)}), meshes ${b.meshes?.toFixed(0)} ms (base ${base.meshes}, Δ ${(b.meshes - base.meshes >= 0 ? '+' : '') + (b.meshes - base.meshes).toFixed(0)}) — report-only`)
+}
 
 // ===== I5-b: checkFacilities (infield-ground.ts buildInfieldFacilities) ===========================
 /**

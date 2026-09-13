@@ -7,6 +7,7 @@
  *   node scripts/facilities/dem-profile.mjs --grid [--step 30] --far --write
  *   node scripts/facilities/dem-profile.mjs --verify
  *   node scripts/facilities/dem-profile.mjs --relief
+ *   node scripts/facilities/dem-profile.mjs --cuts [--tier high|low]
  *
  * Without the grid flags (the keyframe path): reads the 16 z15 tiles that cover the circuit
  * (downloaded into --dir on first run; default .cache/dem, git-ignored — the raw tiles are
@@ -40,6 +41,14 @@
  *                       Exits 1 on failure.
  *   --relief            report facilityRelief (stands.ts) vs the committed DEM at every zone's
  *                       outer fade, through scripts/audit/app-runtime.mjs's transpile hook.
+ *   --cuts              the CUT corridors of the ground field (CUTS, ground-field.ts; README R6):
+ *                       per corridor a table every metre along its centreline of the field WITH
+ *                       the cut, WITHOUT it (`field.yNoCut`, the rules before I6) and the DEM, the
+ *                       portal as built, the end distance and why, the depth; then the identity
+ *                       assertion — on a 2 m grid over the terrain rectangle every point outside
+ *                       every corridor reads the field bit-identical to the no-cut rules (a cut
+ *                       changes nothing but its corridor), and inside no point reads higher.
+ *                       Through app-runtime (the built scene). Exits 1 on a failure.
  *
  * 出典: 標高は「基盤地図情報 数値標高モデル（DEM5A）」および「地理院標高タイル（DEM10B）」（国土地理院）
  * （https://maps.gsi.go.jp/development/ichiran.html）をもとに作成。
@@ -66,8 +75,8 @@ const TOL = Number(opt('tol', 0.5))
 // against; --centre treats each value as the pixel centre instead (a ~2 m horizontal shift, which
 // moves the profile by ≤ 0.3 m; which one GSI intends is UNVERIFIED and immaterial here).
 const CORNER = !has('centre')
-const GRID = has('grid'), FAR = has('far'), WRITE = has('write'), VERIFY = has('verify'), RELIEF = has('relief')
-const REPORT = !(GRID || FAR || WRITE || VERIFY || RELIEF)
+const GRID = has('grid'), FAR = has('far'), WRITE = has('write'), VERIFY = has('verify'), RELIEF = has('relief'), CUTS_REPORT = has('cuts')
+const REPORT = !(GRID || FAR || WRITE || VERIFY || RELIEF || CUTS_REPORT)
 const GRID_STEP = Number(opt('step', 30))
 const SIGMA = 20
 const SUB = 5
@@ -882,6 +891,73 @@ async function reliefReport() {
   for (const s of summary) console.log(`    ${s.zone.padEnd(12)} ${String(s.rows).padStart(5)}  ${Number.isFinite(s.worstEnd) ? s.worstEnd.toFixed(2).padStart(6) : '     -'}  ${String(s.over).padStart(3)}  ${s.maxWFar.toFixed(2)}`)
 }
 
+// ---------------------------------------------------------------- --cuts
+/**
+ * The cut corridors (README 地面の契約 R6, I6): what the field does inside each CUT and the proof
+ * that it does nothing outside. The scene is built through app-runtime (the terrain, the cut
+ * field and the plan are the app's own), the DEM column is dem.ts's bicubic DEM_INNER — the
+ * ground the cut's daylight end has to meet.
+ */
+async function cutsReport() {
+  const rt = await import('../audit/app-runtime.mjs')
+  const tier = opt('tier', 'high')
+  const t0 = performance.now()
+  const { env, track: tr, terrain, ground } = await rt.buildScene({ tier })
+  const { demFieldFor } = await import(path.join(rt.ROOT, 'app/three/dem.ts'))
+  const { CUTS, CUT_WALL_FOOT } = await import('../../app/data/suzuka-facilities-spec.ts')
+  const dem = demFieldFor(tr)
+  const field = ground.field
+  const cuts = env.cuts
+  let ok = true
+  const fail = (msg) => { ok = false; console.log(`  FAIL ${msg}`) }
+  console.log(`\n--cuts (tier ${tier}, built in ${((performance.now() - t0) / 1000).toFixed(1)} s, buildMs cuts ${env.buildMs.cuts?.toFixed(0)} / plan ${env.buildMs.plan?.toFixed(0)} / meshes ${env.buildMs.meshes?.toFixed(0)} ms): ${cuts.corridors.length} corridors of ${CUTS.length} CUTS`)
+  console.log('  columns: d | floor (the corridor centreline\'s cut floor) | field WITH the cut | WITHOUT (yNoCut) | DEM | depth = without − with')
+  const missing = CUTS.filter((c) => !cuts.corridors.some((q) => q.id === c.id))
+  if (missing.length) fail(`CUTS with no corridor: ${missing.map((c) => c.id).join(', ')}`)
+  const summary = []
+  for (const c of cuts.corridors) {
+    const p = c.portal
+    console.log(`\n  ${c.id} (${c.def.name}): portal (${p.s.toFixed(1)}, ${p.lateral.toFixed(1)}) heading ${p.heading.toFixed(0)}°${p.pushed > 0 ? ` pushed ${p.pushed.toFixed(2)} m` : ''}, field at the portal ${c.fieldAtPortal.toFixed(2)}, depth ${c.def.depth} grade ${c.def.grade} halfWidth ${c.def.halfWidth}${c.def.level ? ' level' : ''}`)
+    let maxDepth = 0, maxDepthD = 0
+    const rows = []
+    for (const q of c.samples) {
+      if (Math.abs(q.d - Math.round(q.d)) > 1e-6) continue
+      const withCut = field.y(q.x, q.z)
+      const without = field.yNoCut(q.x, q.z)
+      const depth = without - withCut
+      if (depth > maxDepth) { maxDepth = depth; maxDepthD = q.d }
+      rows.push(`${String(q.d).padStart(5)} | ${q.floor.toFixed(2).padStart(6)} | ${withCut.toFixed(2).padStart(6)} | ${without.toFixed(2).padStart(6)} | ${dem.height(q.x, q.z).toFixed(2).padStart(6)} | ${depth.toFixed(2).padStart(5)}`)
+    }
+    for (let i = 0; i < rows.length; i += 2) console.log('    ' + rows.slice(i, i + 2).join('     '))
+    console.log(`    → starts at d ${c.startD}, ends at d ${c.endD} (${c.end}), floor ${c.floorStart.toFixed(2)} → ${c.floorEnd.toFixed(2)}, max depth ${maxDepth.toFixed(2)} m at d ${maxDepthD}`)
+    if (c.samples.length < 2) fail(`${c.id}: fewer than 2 samples`)
+    if (c.end === 'cap') fail(`${c.id}: the corridor hit the length cap without daylighting`)
+    summary.push({ id: c.id, startD: c.startD, endD: c.endD, end: c.end, maxDepth })
+  }
+  // --- identity outside the corridors ---------------------------------------------------------------
+  const g = terrain.grid()
+  const x0 = g.x0, z0 = g.z0, x1 = g.x0 + (g.nx - 1) * g.dx, z1 = g.z0 + (g.nz - 1) * g.dz
+  let outside = 0, inside = 0, differ = 0, higher = 0, worst = 0, worstAt = ''
+  for (let z = z0; z <= z1; z += 2) for (let x = x0; x <= x1; x += 2) {
+    const cut = field.cutAt(x, z)
+    const a = field.y(x, z), b = field.yNoCut(x, z)
+    if (cut === null) {
+      outside++
+      if (a !== b) { differ++; if (Math.abs(a - b) > worst) { worst = Math.abs(a - b); worstAt = `(${x.toFixed(0)}, ${z.toFixed(0)})` } }
+    } else {
+      inside++
+      if (a > b + 1e-9) higher++
+    }
+  }
+  console.log(`\n  identity: ${outside} grid points outside every corridor, ${differ} read a different field with the cuts than without (worst ${(worst * 1000).toFixed(1)} mm${worstAt ? ` at ${worstAt}` : ''}); ${inside} inside, ${higher} read higher than without`)
+  if (differ) fail(`the field differs outside the corridors on ${differ} points (a cut may change nothing but its corridor + its ${CUT_WALL_FOOT} m foot, which lies inside the polygon)`)
+  if (higher) fail(`the field is higher than without the cut on ${higher} points inside a corridor`)
+  console.log('\n  summary (id: start d, end d, why, max depth):')
+  for (const r of summary) console.log(`    ${r.id.padEnd(14)} ${String(r.startD).padStart(5)} ${String(r.endD).padStart(6)}  ${r.end.padEnd(9)} ${r.maxDepth.toFixed(2)}`)
+  console.log(ok ? '  cuts: PASS' : '  cuts: FAIL')
+  if (!ok) process.exitCode = 1
+}
+
 // ---------------------------------------------------------------- main
 {
   let profile = null
@@ -893,4 +969,5 @@ async function reliefReport() {
   if (WRITE) writeFile(profile, inner, far)
   if (VERIFY) await verify()
   if (RELIEF) await reliefReport()
+  if (CUTS_REPORT) await cutsReport()
 }

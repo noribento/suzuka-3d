@@ -1655,6 +1655,121 @@ export const WATER = [
   { name: 'T1–T2 調整池', osmWay: 132793884 },
 ]
 
+// ---------------------------------------------------------------- the cuttings and tunnels (I6, P8)
+
+/**
+ * Where a cut daylights: a hand-placed portal in the track frame with the compass bearing (deg,
+ * 0 = north, 90 = east) the corridor LEAVES it by, or a node of `osmWay` — the corridor then
+ * leaves a `tunnel=yes` way (the county road's and the works road's tunnel ways end at their
+ * portals) or follows an open way from that node (the 39 m cut is its own way, the surface road
+ * out of the chicane tunnel runs on past Q1).
+ */
+export type CutPortal = { s: number; lateral: number; heading: number } | { from: 'first' | 'last' }
+
+/**
+ * One CUT of the ground field (README 地面の契約 R6, revised at I6): the open approach of a road
+ * or footway tunnel under the lap, or the stair pit of a pedestrian tunnel. The field follows the
+ * cut inside its CORRIDOR — the strip `halfWidth` either side of a centreline that runs from the
+ * portal along the heading with the floor `field(portal) − depth + grade · d`, until the floor
+ * meets the ground again (`floor ≥ terrain + RUNOFF_LIFT − 0.2`), the next road frame stops it, or
+ * a `level` cut runs `length` metres — the polygon is COMPUTED by ground-field.ts `buildCutField`,
+ * never authored. A cut never changes the road-frame planes (road / kerb / deckShoulder /
+ * pitLane / pitApron), never the flat strip `CUT_KEEP_OFF` beyond the road edge (a portal
+ * closer than `hw + CUT_KEEP_OFF + halfWidth` to the centreline is pushed out to that distance,
+ * a corridor point inside a road frame's reach is left out), never the tunnel roof between two
+ * portals. `Terrain.heightAt` is untouched (G5 is not concerned). The corridor is always covered
+ * by ground rows (GROUND_AREAS `{ cut }` footprints: the road ± `CUT_ROAD_HALF` as asphalt, the
+ * whole width as gravel); the retaining walls, headwalls and stairs (cuttings.ts, I6-b) stand
+ * on `ground.standY`. Depths and grades are the plan's estimates (the DEM notches dem-profile
+ * repaired at s 110–120 / 1770–1795 / 5110–5125 are σ 20 m bare-earth means in the committed
+ * grid, too smooth to read a floor from) — every row is unverified.
+ */
+export interface CutDef {
+  /** ASCII id: the `{ cut }` footprints, the corridor names in the smokes and dem-profile --cuts */
+  id: string
+  name: string
+  /** the OSM way (in OSM_FEATURES; §6): the road or footway the cut carries */
+  osmWay?: number
+  portal: CutPortal
+  /** the stretch of lap the cut belongs to: the `{ cut }` rows' window (R14) */
+  window: [number, number]
+  /** floor depth below the field at the portal (m) */
+  depth: number
+  /** the floor's rise per metre away from the portal */
+  grade: number
+  /** half the corridor's width (m); the walls are `wall` */
+  halfWidth: number
+  wall: 'concrete' | 'slope'
+  /** a cut that never daylights: it runs `length` metres (a stair pit) or to the next road frame */
+  level?: boolean
+  length?: number
+  kind?: 'road' | 'stairPit'
+  unverified: string[]
+  note?: string
+}
+
+/** the flat strip beyond the road edge a cut never enters (m) — wider than FLAT_STRIP's 2 m so the strip's own blend keeps a metre */
+export const CUT_KEEP_OFF = 2.5
+/** the asphalt road inside a corridor: ± this about the centreline, clamped to halfWidth − CUT_WALL_FOOT − 0.1 */
+export const CUT_ROAD_HALF = 3.5
+/** the foot of a cut's wall: the field rises from the floor to the outside over this much of the corridor's edge (smoothstep) */
+export const CUT_WALL_FOOT = 0.6
+/** a pedestrian tunnel's stair pit (both ends): width across, length along the tunnel, depth */
+export const STAIR_PIT = { width: 3.5, length: 7, depth: 3.0 }
+
+const stairPit = (id: string, name: string, osmWay: number, s: number, lateral: number, heading: number, window: [number, number], unverified: string[] = []): CutDef => ({
+  id, name, osmWay, kind: 'stairPit', portal: { s, lateral, heading }, window, depth: STAIR_PIT.depth, grade: 0, halfWidth: STAIR_PIT.width / 2, wall: 'concrete', level: true, length: STAIR_PIT.length,
+  unverified: ['a stair pit at the tunnel way\'s node (aerial: the portals are not resolved), 3.5 × 7 m, 3.0 m deep', ...unverified],
+})
+
+/**
+ * The cuts. Road tunnels first (the county road 三行庄野線 under Dunlop and the chicane approach,
+ * the works road under the pit straight, the 200R service tunnel, the 逆バンクトンネル of
+ * reno2009-09 under the main straight at the final-corner end), then the six pedestrian
+ * tunnels' stair pits. Headings of the hand portals are the tunnel ways' own bearings.
+ */
+export const CUTS: CutDef[] = [
+  // --- 県道三行庄野線: south approach → tunnel under Dunlop → 39 m cut → tunnel under the chicane approach → surface road left of the chicane
+  { id: 'loopSouth', name: '県道 ダンロップ南 進入路', osmWay: 34096664, portal: { from: 'first' }, window: [1700, 1860], depth: 5.0, grade: 0.10, halfWidth: 5.0, wall: 'concrete', unverified: ['depth 5.0 / grade 10 % (the tunnel way\'s south node (1779, +17), the ramp descends south of it: aerial 06 "queue of white vans on the south approach")'] },
+  // the 39 m open cut between the two tunnels IS way 183309812 (its first node is the Dunlop tunnel's north portal (1790, −37.8),
+  // its last the chicane tunnel's south mouth (5112, −8.2)). Not level (the plan wrote grade 0): a level floor 5 m under the
+  // Dunlop-side field leaves 7.1 m under the chicane approach and a 2.7 m step inside the 20 m chicane tunnel to chicaneLeft's
+  // floor; at 7 % (the plan's loopNorth grade) the two tunnel mouths meet within 0.25 m. The plan's separate 'loopNorth' row
+  // (34096664 'last' = the same node, the same heading) would have been this corridor twice, so it is this one row.
+  { id: 'cut643', name: '県道 切通し（ダンロップ北 ↔ シケイン右）', osmWay: 183309812, portal: { from: 'first' }, window: [5050, 5180], depth: 5.0, grade: 0.07, halfWidth: 5.5, wall: 'concrete', unverified: ['depth 5.0 at the Dunlop north portal, grade 7 % up to the chicane tunnel (4.5 m under the approach road there)', 'the plan\'s loopNorth (34096664 last node) is this corridor'] },
+  { id: 'chicaneLeft', name: '県道 シケイン左 出口路', osmWay: 34096665, portal: { from: 'first' }, window: [5100, 5200], depth: 4.8, grade: 0.08, halfWidth: 5.0, wall: 'concrete', unverified: ['depth 4.8 / grade 8 % north of the chicane tunnel\'s left portal (5129, +15)'] },
+  // --- the works road under the pit straight (UNDERPASSES 175231859): the north-east portal is the way's first node, the
+  //     south-west one is hand-placed outside the garage apron (−28.7) and the pit-exit-outer wall
+  { id: 'worksNE', name: '構内道路トンネル 北東進入路', osmWay: 175231859, portal: { from: 'first' }, window: [60, 180], depth: 5.5, grade: 0.08, halfWidth: 4.0, wall: 'concrete', unverified: ['depth 5.5 / grade 8 % (aerial 01: the NE portal ≈ (118, +25) with its paved approach 469657637)'] },
+  { id: 'worksSW', name: '構内道路トンネル 南西進入路', osmWay: 175231859, portal: { s: 117, lateral: -28, heading: 231 }, window: [60, 180], depth: 5.5, grade: 0.08, halfWidth: 4.0, wall: 'concrete', unverified: ['the way ends at lateral −25.8 under the garage apron; the portal is set at −28 (the apron reaches −28.7, so the corridor starts where the apron ends) heading 231 = the way\'s own bearing'] },
+  // --- the 200R service tunnel: the way is not in the raw cache; the white portal box on the south verge (+13) at s ≈ 3190
+  //     (aerial 10-08). The corridor leaves it SOUTH (heading 200, away from the 200R): the road "continues north" INTO the
+  //     tunnel, and the ground south of the portal falls 3.5 m within 15 m toward the west straight, so the approach is short
+  { id: 'r200service', name: '200R 管理トンネル 南進入路', portal: { s: 3190, lateral: 13, heading: 200 }, window: [3150, 3250], depth: 4.5, grade: 0.08, halfWidth: 3.5, wall: 'concrete', unverified: ['position (aerial 10-08, ±5 m); no OSM way', 'heading 200 (the plan wrote 20, the tunnel\'s own direction under the road)', 'the corridor daylights after ≈ 14 m: the ground drops toward the west straight'] },
+  // --- the 逆バンクトンネル (reno2009-09 ⑥: GP Square → under the main straight → the paddock, gentle ramps at both ends).
+  //     469010265 is an area=yes polygon, so both portals are hand-placed on the polygon's ends: pedestrian-scale ramps, 3.5 m
+  //     deep at 10 % — a 5 m / 8 % ramp on the paddock side could not daylight before the paddock platform's edge on the NIPPO
+  //     bisector 38 m out (WHY.reliefJoin's 1.6 m step) and would have run 95 m on into the NIPPO verge
+  { id: 'gyakuTunnelR', name: '逆バンクトンネル パドック側ランプ', osmWay: 469010265, portal: { s: 5522, lateral: -32, heading: 225 }, window: [5480, 5560], depth: 3.5, grade: 0.10, halfWidth: 4.0, wall: 'concrete', unverified: ['position (the polygon\'s south-west end, ±3 m)', 'depth 3.5 / grade 10 % (the plan wrote 5.0 / 8 %: see the note)'] },
+  { id: 'gyakuTunnelL', name: '逆バンクトンネル GP スクエア側ランプ', osmWay: 469010265, portal: { s: 5513, lateral: 25, heading: 45 }, window: [5480, 5560], depth: 3.5, grade: 0.10, halfWidth: 4.0, wall: 'concrete', unverified: ['position (the polygon\'s north-east end, ±3 m)', 'depth 3.5 / grade 10 % (as the paddock side)'] },
+  // --- the pedestrian tunnels: a stair pit at both ends (3.5 × 7 m, 3.0 m deep), headings = the tunnel ways' bearings away from the lap
+  stairPit('ped110R_R', '歩行者トンネル 110R 右', 184101996, 2488, -8, 69, [2440, 2540]),
+  stairPit('ped110R_L', '歩行者トンネル 110R 左', 184101996, 2484, 10, 249, [2440, 2540]),
+  stairPit('ped200R_R', '歩行者トンネル 200R 右', 184105032, 2922, -9, 302, [2870, 2970]),
+  stairPit('ped200R_L', '歩行者トンネル 200R 左', 184105032, 2911, 22, 122, [2870, 2970]),
+  // 183969196 is ONE tunnel (every node tunnel=yes, layer −1): under the 200R from (3058, −24), west along the fold between
+  // the 200R and the west straight, and under the west straight to (4332, −8) — two portals, not four (the plan read its
+  // middle nodes (3060, +22) / (4339, +16) as a second tunnel's ends)
+  stairPit('ped200Rb_R', '歩行者トンネル 200R〜西ストレート 200R 側', 183969196, 3058, -24, 2, [3010, 3110]),
+  stairPit('pedWest_R', '歩行者トンネル 200R〜西ストレート 西ストレート側', 183969196, 4332, -8, 220, [4290, 4390], ['the node at −8.2 is pushed out to hw + 2.5 + 1.75 and beyond the trap wall (BARRIERS west-straight-trap-wall)']),
+  stairPit('pedWest2_L', '歩行者トンネル 西ストレート 第 2 左', 184417647, 4548, 9, 29, [4500, 4600]),
+  stairPit('pedWest2_R', '歩行者トンネル 西ストレート 第 2 右', 184417647, 4544, -11, 209, [4500, 4600]),
+  stairPit('pedNippo_R', '歩行者トンネル NIPPO 右', 467945734, 1547, -30, 55, [1440, 1600]),
+  stairPit('pedNippo_L', '歩行者トンネル NIPPO 左', 467945734, 1483, 30, 205, [1440, 1600]),
+  stairPit('pedPaddock_R', '歩行者トンネル 最終コーナー パドック側', 469010267, 5529, -32, 220, [5480, 5560]),
+  stairPit('pedPaddock_L', '歩行者トンネル 最終コーナー GP スクエア側', 469010267, 5520, 26, 40, [5480, 5560]),
+]
+
 // ---------------------------------------------------------------- run-off surfaces
 
 /**
@@ -1805,6 +1920,14 @@ export type GroundFootprint =
   | { band: Side; sRange: [number, number]; lat: [number, number] }
   /** a disc in the lap frame (the helipad) */
   | { disc: { s: number; lateral: number; r: number } }
+  /**
+   * a CUT's corridor (CUTS, ground-field.ts `CutField.corridor`): `road` = the asphalt road
+   * inside it (± CUT_ROAD_HALF about the centreline; a stair pit whole), `corridor` = the whole
+   * width between the walls. The polygon is the cut field's own — computed from the portal,
+   * the grade and the ground, never an unclipped `{ way, width }` sweep (that would paint the
+   * tunnel roof and the far DEM, and double roads.ts's ribbons)
+   */
+  | { cut: string; part: 'road' | 'corridor' }
 
 export interface GroundArea {
   name: string
@@ -2209,6 +2332,24 @@ export const GROUND_AREAS: GroundArea[] = [
   { name: '管理道路 A2 裏', kind: 'asphaltArea', layer: 1, source: 'osm', footprint: { way: 470173099, width: 4, sRange: [80, 550] } },
   { name: '管理道路 外周（A2・B・C 裏）', kind: 'asphaltArea', source: 'osm', footprint: { way: 184120107, width: 4 } },
   { name: '管理道路 C・D5 裏', kind: 'asphaltArea', layer: 2, source: 'osm', footprint: { way: 468709099, width: 4, sRange: [570, 1335] } },
+
+  // ================================================================ the cut corridors (I6-a, R6)
+  // Every CUT's corridor is ground: the road inside it as asphalt (layer 1) over the whole
+  // corridor as gravel (layer 0, the wall foot); a stair pit is the same pair in asphalt (the
+  // whole 3.5 × 7 m pit at layer 1, its floor inside the wall foot at layer 2 — the inner ring
+  // is what gives the raster a column at the foot of the walls). The polygons come from the cut
+  // field (`{ cut }` footprints), so the rows cover exactly the ground the field lowers — a
+  // paddock band or a lot the corridor crosses (the works road's south-west ramp through the
+  // pit-exit yard) is cut through it: the same layer, these rows later.
+  ...CUTS.flatMap((c): GroundArea[] => (c.kind === 'stairPit'
+    ? [
+      { name: `${c.name} 階段ピット`, kind: 'asphaltArea', layer: 1, source: 'photo', footprint: { cut: c.id, part: 'corridor' }, unverified: c.unverified },
+      { name: `${c.name} 階段ピット床`, kind: 'asphaltArea', layer: 2, source: 'photo', footprint: { cut: c.id, part: 'road' }, unverified: c.unverified },
+    ]
+    : [
+      { name: `${c.name} 廊下`, kind: 'gravelArea', layer: 0, source: 'photo', footprint: { cut: c.id, part: 'corridor' }, unverified: c.unverified },
+      { name: `${c.name} 路面`, kind: 'asphaltArea', layer: 1, source: 'photo', footprint: { cut: c.id, part: 'road' }, unverified: c.unverified },
+    ])),
 ]
 
 // ================================================================================================
@@ -2446,7 +2587,7 @@ export const INFIELD_TREES: InfieldTreeRow[] = [
   // the row of round deciduous crowns along the perimeter service road behind A2 / B / C (aerial
   // 02 / 03: "a row of round deciduous crowns (~8 m) along the service road", "service road +
   // tree belt behind C"): bare keyaki 8 m apart on the outer edge of the 4 m road (+4 from its edge)
-  { id: 'perimeter-road-keyaki', role: 'keyakiBare', along: { way: 184120107, offset: -6 }, pitch: 8, jitter: 1, window: [120, 1370], skipS: [[130, 142], [170, 260], [262, 335], [452, 505], [535, 630], [935, 965], [1295, 1350]], unverified: ['species (bare crowns in the autumn mosaic → keyaki in March)', 'side: the belt is read behind the road, away from the track', 'the gaps: the A1 rear hut 184120098 at s 130–142, where the road runs through the A1 / B2 / C / D1–4 stand footprints (OSM), and where the A2 rear road (470173099) runs beside it at s 262–335 / 452–505'] },
+  { id: 'perimeter-road-keyaki', role: 'keyakiBare', along: { way: 184120107, offset: -6 }, pitch: 8, jitter: 1, window: [120, 1370], skipS: [[120, 126], [130, 142], [170, 260], [262, 335], [452, 505], [535, 630], [935, 965], [1295, 1350]], unverified: ['species (bare crowns in the autumn mosaic → keyaki in March)', 'side: the belt is read behind the road, away from the track', 'the gaps: the works-road NE cutting corridor (I6-a CUTS worksNE, gravelArea) at s 120–126, the A1 rear hut 184120098 at s 130–142, where the road runs through the A1 / B2 / C / D1–4 stand footprints (OSM), and where the A2 rear road (470173099) runs beside it at s 262–335 / 452–505'] },
   // the tree rings on the banks of the two retention basins (aerial 02 / 04: "earth banks with
   // a ring of trees (round crowns 8–12 m)"): 12 m apart, 6 m outside the shoreline
   // (the gaps: the pit-exit yard's paving at s 158–162 and the two concave corners of the OSM
