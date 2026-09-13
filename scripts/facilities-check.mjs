@@ -605,7 +605,11 @@ for (const lane of bar.OFFSET_LANES) {
 for (const m of bar.MARSHAL_POSTS) {
   if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + 2) fail(`marshal post at s ${m.s}: lateral ${fmt(m.lateral)} is on the road`)
 }
-for (const b of bar.BASINS) if (!osm.osmFeature(b.osmWay)) fail(`basin "${b.name}": OSM way ${b.osmWay} missing`)
+for (const b of bar.BASINS) {
+  if (b.osmWay !== undefined && !osm.osmFeature(b.osmWay)) fail(`basin "${b.name}": OSM way ${b.osmWay} missing`)
+  if (b.osmWay === undefined && !(b.ring && b.sRange)) fail(`basin "${b.name}": neither an OSM way nor a ring + sRange`)
+  if (b.surface && b.dry) fail(`basin "${b.name}": dry and with a water surface`)
+}
 
 console.log('\nbarrier runs')
 console.log('id                          kind        side s-range        samples src       clear')
@@ -1396,7 +1400,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *       'roof' one — the podium terrace — only O3 / O4) and stands inside the circuit ring,
  *       outside every ops footprint (a seated crew inside its own perch frame excepted, and
  *       nothing under a 'roof' row is a fault) and outside every building footprint (O6).
- *   O10 INFIELD_TREES: |lateral| ≥ hw + 6, outside paved aprons and stand footprints, inside the ring.
+ *   O10 INFIELD_TREES (every placement of app/data/infield-trees.ts, the runtime's own expansion):
+ *       |lateral| ≥ hw + 6, outside the paved aprons (rings AND the swept service roads), outside
+ *       the stand footprints, inside the ring, ≥ 0.6 m off every barrier line on its side.
  *   O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES: osmWay in OSM_FEATURES, outlines pairwise
  *       disjoint, the anchor projects inside its s window (fold rows placed from EN are exempt).
  *   O12 windows: the lap is a figure-8, so a row is only projected back to s inside a window
@@ -1863,19 +1869,56 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   })
 
   // --- O10 INFIELD_TREES --------------------------------------------------------------------------------
+  // every placement of every row, expanded by the same pure helper the runtime plants from
+  // (app/data/infield-trees.ts), so what is checked is what stands; a row that expands to
+  // nothing (a missing OSM way) is a fault of its own. Faults are reported once per row with
+  // the count and the first three placements.
   if (spec.INFIELD_TREES) {
-    spec.INFIELD_TREES.forEach((t, i) => {
-      const id = `infield tree ${t.id ?? i}`
-      if (t.s === undefined || t.lateral === undefined) return
-      const hw = track.halfWidthAt(t.s)
-      if (Math.abs(t.lateral) < hw + 6) fail(`${id}: lateral ${fmt(t.lateral)} is inside hw + 6 — O10`)
-      const [x, z] = worldOf(t.s, t.lateral)
-      const paved = pavedApronAt(x, z)
-      if (paved) fail(`${id}: on the paved apron "${paved}" — O10`)
-      const inStand = standFootprintAt(x, z)
-      if (inStand) fail(`${id}: inside the footprint of stand ${inStand} — O10`)
-      if (!ring.insideRing(x, z)) fail(`${id}: outside the circuit ring — O10`)
-    })
+    const { infieldTreePlacements } = await import('../app/data/infield-trees.ts')
+    const placements = infieldTreePlacements(track)
+    // the swept service roads (`{ way, width }` / `{ ways }` asphaltArea rows) are paving too —
+    // resolved the way ground-plan.ts resolves them (an annulus for a closed way)
+    const gp = await import('../app/three/ground-plan.ts')
+    const sweeps = spec.GROUND_AREAS.filter((a) => a.kind === 'asphaltArea' && ('way' in a.footprint || 'ways' in a.footprint)).map((a) => ({ name: a.name, ring: gp.resolveFootprint(track, a.footprint) })).filter((r) => r.ring)
+    const inPts = (x, z, r) => { let inside = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const a = r[i], b = r[j]; if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside } return inside }
+    const sweptRoadAt = (x, z) => {
+      for (const { name, ring } of sweeps) {
+        const b = ring.box
+        if (x < b[0] || x > b[1] || z < b[2] || z > b[3]) continue
+        if (inPts(x, z, ring.outer) && !ring.holes.some((h) => inPts(x, z, h))) return name
+      }
+      return null
+    }
+    const byRow = new Map()
+    for (const p of placements) { let l = byRow.get(p.row.id); if (!l) byRow.set(p.row.id, (l = [])); l.push(p) }
+    const TREE_BARRIER_CLEAR = 0.6
+    for (const row of spec.INFIELD_TREES) {
+      const list = byRow.get(row.id) ?? []
+      if (!list.length) { fail(`infield tree row ${row.id}: expands to no placement — O10`); continue }
+      const faults = new Map()
+      const note = (kind, p) => { let l = faults.get(kind); if (!l) faults.set(kind, (l = [])); l.push(p) }
+      for (const p of list) {
+        const hw = track.halfWidthAt(p.s)
+        if (Math.abs(p.lateral) < hw + 6) note('inside hw + 6', p)
+        const paved = pavedApronAt(p.x, p.z) ?? sweptRoadAt(p.x, p.z)
+        if (paved) note(`on the paved apron "${paved}"`, p)
+        const inStand = standFootprintAt(p.x, p.z)
+        if (inStand) note(`inside the footprint of stand ${inStand}`, p)
+        if (!ring.insideRing(p.x, p.z)) note('outside the circuit ring', p)
+        // the barrier lines (resolved in the lap frame; a tree far from the road is out of their reach)
+        if (Math.abs(p.lateral) < 60) {
+          for (const { run, line } of barrierLines) {
+            if (run.side !== Math.sign(p.lateral)) continue
+            const len = arcLen(run.sRange[0], run.sRange[1])
+            const d = arcLen(run.sRange[0], p.s)
+            if (d > len + 2 && d < L - 2) continue
+            if (Math.abs(p.lateral - line.lat(p.s)) < TREE_BARRIER_CLEAR) { note(`within ${TREE_BARRIER_CLEAR} m of barrier run ${run.id}`, p); break }
+          }
+        }
+      }
+      for (const [kind, ps] of faults) fail(`infield tree row ${row.id}: ${ps.length} of ${list.length} placements ${kind} (${ps.slice(0, 3).map((p) => `${p.id} at s ${fmt(p.s, 0)} lat ${fmt(p.lateral, 1)}`).join('; ')}) — O10`)
+    }
+    notes.push(`O10: ${placements.length} infield tree placements in ${byRow.size} rows (${placements.filter((p) => p.row.deferred).length} in the deferred south job)`)
   } else skip('O10 INFIELD_TREES')
 
   // --- O11 PADDOCK_BUILDINGS / INFIELD_FACILITIES ------------------------------------------------------

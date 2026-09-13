@@ -14,7 +14,7 @@
  * which is what keeps the chicane's barriers off the Dunlop stretch and the Degner-side wall off
  * the 130R bridge in the figure-8 fold.
  */
-import type { AlongTrack, Side } from './suzuka-facilities-spec'
+import type { AlongTrack, PatchNode, Side } from './suzuka-facilities-spec'
 
 // ---------------------------------------------------------------- barriers
 
@@ -638,15 +638,84 @@ export const AD_PANELS: AdPanelDef[] = [
 
 // ---------------------------------------------------------------- basins
 
+/**
+ * A pond or retention basin: a sunken floor with a bank inside its outline (stands.ts
+ * `facilityRelief`, a PolyZone that only ever lowers the ground), drawn by the GROUND_AREAS
+ * 'water' row of the same outline. The outline is an OSM water polygon (`osmWay`) or a hand
+ * ring of PatchNodes in the lap frame (`ring` + `sRange`, resolved like a GROUND_AREAS ring by
+ * trackside.ts patchOutline — the three ponds the 2026-09 aerial shows and OSM does not carry).
+ * `surface` ponds get a water plane (infield-water.ts, I5-c); `dry` basins a mud floor with
+ * reeds and puddles. `level` is the shoreline's height relative to the road plane at the
+ * basin's reference s (the OSM centroid, or the middle of `sRange`): +0.2 by default, the
+ * retention basins beside the pit straight; the ponds off the embankments sit lower.
+ */
 export interface BasinDef {
   name: string
-  osmWay: number
+  /** closed OSM natural=water way (OSM_FEATURES) */
+  osmWay?: number
+  /** a hand outline in the lap frame, windowed to `sRange` (see PatchNode) */
+  ring?: PatchNode[]
+  sRange?: [number, number]
   /** dry (late-March 2026 photos): a sunken mud floor instead of a water plane */
   dry: boolean
+  /** draw the water plane (infield-water.ts, 0.3 m under the shoreline) — the user's default for the three ponds, unverified */
+  surface?: boolean
+  /** metres from the shoreline down to the floor */
   depth: number
+  /** metres over which the bank falls from the shore to the floor (default 9) */
+  bank?: number
+  /** the shoreline's height over the road plane at the basin's reference s (default +0.2) */
+  level?: number
+  /** an island: a hole in the relief (the ground inside keeps its own height; a grassArea disc draws it) */
+  island?: { s: number; lateral: number; r: number }
+  /** a wooden deck on the bank: `w` across × `l` along the lap frame, standing 0.3 m over the ground */
+  platform?: { s: number; lateral: number; w: number; l: number }
+  unverified?: string[]
 }
 
 export const BASINS: BasinDef[] = [
   { name: 'T1 インフィールドの池', osmWay: 184005565, dry: true, depth: 2.5 },
   { name: 'T1–T2 調整池', osmWay: 132793884, dry: true, depth: 3.0 },
+  // --- the three ponds of the 2026-09 aerial that OSM does not carry (I5-c) ----------------------
+  // Every one of them is drawn with water: the user's default, unverified — the March 2026 photos
+  // only settled the T1 pond and the T1–T2 basin (dry). Outlines are hand rings in the lap frame
+  // (the aerial at 0.49 m/px, ±3 m); the far shores stop where the built terrain is still at the
+  // road plane so no rim hangs above the water plane.
+  //
+  // The pond SW of the west straight (aerial 13, "~250 × 150 m, shore −26 @4000 → −45 @4160
+  // → −25 @4280, wooded banks"): its near shore keeps the aerial's line as far as s 4245 (the
+  // east tip reads at s 4230–4250 behind the west-course pit lane; −25 @4280 would put water
+  // under the pit huts 184419747/750 and is not used); the far shore is taken in to where the
+  // terrain is ≤ 1.5 m over the road (the aerial's 120 m further SW is a hollow 3–13 m deep in
+  // the DEM, left as the wooded bank). The straight has no fold, so lap coordinates are exact.
+  {
+    name: '西ストレート池', dry: false, surface: true, depth: 2.0, bank: 12, level: 0.2,
+    sRange: [3960, 4260],
+    ring: [
+      [3970, -26], [4000, -26], [4080, -35], [4160, -45], [4230, -45], [4245, -60],
+      [4240, -95], [4200, -95], [4180, -88], [4160, -85], [4140, -80], [4120, -80], [4100, -100], [4080, -120], [4060, -130], [4030, -135], [4000, -125], [3985, -100], [3975, -60],
+    ],
+    unverified: ['water in March 2026 (default)', 'the far shore (aerial 13 at 0.49 m/px, ±5 m; taken in to the road-level ground)', 'depth'],
+  },
+  // The pond with the island / deck between the west straight's end, 130R and the hairpin legs
+  // — ONE pond: aerial 14 reads it at (4590, +75) r ≈ 22 in the 130R frame, aerials 07 / 08 / 10
+  // the same water at (lower road 2380–2420, +60…+90) / (hairpin exit 2950, +80…+110): the
+  // plan's "130R pond" and "hairpin pond" are two frames' readings of it, 30 m apart (the
+  // outlines overlapped in world). Measured again on 14-west-straight-o-bridge-overlay.png:
+  // centre (4592, +70) ± 5 m, ≈ 45 m across, a dark ~8 × 5 m rectangle (a deck) near the
+  // middle. A 12-gon of r 21 at (4592, +78) — 8 m further out than read, so the ring stays clear of
+  // the road's own ground raster (its world part would not trace across that boundary) — at
+  // the foot of the 130R embankment: the terrain there is 5–6 m
+  // under the road plane, so the shore is set there — with the deck on a small island.
+  {
+    name: '130R 池', dry: false, surface: true, depth: 1.5, level: -5.5,
+    sRange: [4540, 4640],
+    ring: Array.from({ length: 12 }, (_, k): [number, number] => {
+      const a = (k / 12) * Math.PI * 2
+      return [Math.round((4592 + 21 * Math.cos(a)) * 10) / 10, Math.round((78 + 21 * Math.sin(a)) * 10) / 10]
+    }),
+    island: { s: 4592, lateral: 78, r: 4 },
+    platform: { s: 4592, lateral: 78, w: 4, l: 6 },
+    unverified: ['water (default)', 'position ±5 m, radius (aerial 14)', 'level: the terrain at the site, −5.5 m under the road on the 130R embankment', 'the island / deck: the dark rectangle mid-pond in the aerial, read as a wooden deck on a pier'],
+  },
 ]

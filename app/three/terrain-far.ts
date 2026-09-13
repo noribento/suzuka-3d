@@ -379,6 +379,24 @@ export function waterRippleNormal(): THREE.DataTexture {
   })
 }
 
+/** the water planes' opacity: the bed shows a little through the surface at the shore */
+export const WATER_OPACITY = 0.9
+
+/**
+ * The still-water material every water plane of the scene shares — the far beds (below) and
+ * the infield ponds (infield-water.ts, I5-c): dark green-grey, low roughness, the 4 m ripple
+ * normal, transparent at WATER_OPACITY without a depth write. ONE parameter set on purpose:
+ * three keys its programs by the material's defines (map / normalMap / OPAQUE / …), so every
+ * caller gets its own instance of the same combination and the whole scene's water is one
+ * program. (The far water used to be opaque; `transparent` clears the OPAQUE define, so the
+ * two would otherwise be two programs.)
+ */
+export function waterFarMaterial(): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color: 0x33443f, roughness: 0.15, metalness: 0, normalMap: waterRippleNormal(), transparent: true, opacity: WATER_OPACITY, depthWrite: false })
+  mat.normalScale.set(0.35, 0.35)
+  return mat
+}
+
 /**
  * One mesh over every water bed: the ring triangulated with ShapeUtils (earcut) after the same
  * simple-polygon test facilities-check applies to the GROUND_AREAS outlines; a self-crossing ring
@@ -426,9 +444,7 @@ export function buildWaterPlanes(beds: WaterBed[]): { mesh: THREE.Mesh | null; s
   geo.setIndex(idx)
   geo.computeBoundingSphere()
   geo.computeBoundingBox()
-  const mat = new THREE.MeshStandardMaterial({ color: 0x33443f, roughness: 0.15, metalness: 0, normalMap: waterRippleNormal() })
-  mat.normalScale.set(0.35, 0.35)
-  const mesh = new THREE.Mesh(geo, mat)
+  const mesh = new THREE.Mesh(geo, waterFarMaterial())
   mesh.name = 'water-far'
   mesh.receiveShadow = true
   mesh.matrixAutoUpdate = false

@@ -129,7 +129,9 @@ export const TREE_SPECIES: Record<TreeRole, TreeSpecies> = {
     role: 'kusunoki', row: 6, height: [12, 18],
     variants: ['Large_oak_tree_001', 'Large_oak_tree_002', 'Large_oak_tree_003', 'Large_oak_tree_004'].map((n) => packTree(OAK, n)),
     leafRe: LEAF_PACK, cone: 'deciduous',
-    tint: [[0.7, 0.85], [0.8, 0.95], [0.6, 0.75]], crown: '#2e4d2e', casts: true, wind: 0.6,
+    // darker than the summer atlas reads (I5-c): the camphor's evergreen crown is a deep, slightly
+    // blue green beside the tan grass, not the pack's summer oak
+    tint: [[0.6, 0.75], [0.7, 0.85], [0.5, 0.65]], crown: '#2e4d2e', casts: true, wind: 0.6,
   },
   // 桜（満開）: Sereib's Prunus serrulata — medium as LOD0, low as LOD1 / LOD2
   sakura: {

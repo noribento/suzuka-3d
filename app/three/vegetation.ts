@@ -4,9 +4,12 @@ import { FERRIS_WHEEL, SEASON, SEASONS } from '~/data/suzuka-facilities-spec'
 import { SUR_FOREST } from '~/data/suzuka-surroundings'
 import { TREE_MIX, TREE_SPECIES } from '~/data/tree-species'
 import { worldRing } from '~/data/en-codec'
+import { infieldTreePlacements, type InfieldTreePlacement } from '~/data/infield-trees'
 import type { EnvBuildContext } from './environment'
 import { inBBox, pointInRing, ringBBox, ringFromFlat, type XZ } from './far-geometry'
 import { KeepOutGrid } from './far-lines'
+import type { OwnerKind } from './ground-plan'
+import { insideRing } from './infield-lod'
 import { emitTrees, pickHeight, pickRole, pickTint, type TreePlacement } from './trees'
 
 const _p = new THREE.Vector3()
@@ -187,6 +190,20 @@ function keepOutsOf(ctx: EnvBuildContext): KeepOutGrid {
 /** land-cover classes no tree stands on: a road (the mask is narrowed under the ribbons but still paved), a car park, water */
 const TREELESS_COVER = new Set(['paved', 'parking', 'water'])
 
+/** The forest polygons per build context (decoded once; `treeSiteBlocked` and the scatter share them). */
+const FOREST_RINGS = new WeakMap<EnvBuildContext, { ring: XZ[]; box: [number, number, number, number] }[]>()
+function forestRingsOf(ctx: EnvBuildContext) {
+  let r = FOREST_RINGS.get(ctx)
+  if (!r) FOREST_RINGS.set(ctx, (r = forestRings(ctx.track.enScale)))
+  return r
+}
+
+/** whether world (x, z) lies inside a SUR_FOREST polygon */
+export function inForest(ctx: EnvBuildContext, x: number, z: number): boolean {
+  for (const f of forestRingsOf(ctx)) if (inBBox(x, z, f.box) && pointInRing(x, z, f.ring)) return true
+  return false
+}
+
 /**
  * Where no tree may stand — the one rule the trackside scatter (`buildTrees`) and the forest's
  * stems (forest.ts) share: inside 44 m of the centreline, the pit / paddock band, the
@@ -207,6 +224,9 @@ export function treeSiteBlocked(ctx: EnvBuildContext, x: number, z: number, near
     }
   }
   if (Math.hypot(x - wheel.x, z - wheel.z) < 60) return true
+  // inside the perimeter fence (the sports_centre ring 775428456) the trees are a table,
+  // INFIELD_TREES (plan I5-c): the scatter only plants there inside the OSM woods
+  if (insideRing(ctx.track, x, z) && !inForest(ctx, x, z)) return true
   // buildings and paving placed by the other builders
   if (keepOutsOf(ctx).hit(x, z)) return true
   // the mask's own roads, car parks and water (the ribbons' keep-outs stop at the grid; the mask reaches the ring)
@@ -247,13 +267,17 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
   const season = SEASONS[SEASON]
   const count = quality.trees
   const wheelPos = ferrisWheel.position
+  const rows = infieldTreePlacements(track)
   farField.defer('forest', 'trees', 250, () => {
     const lib = ctx.trees
     const b = track.bounds
-    const forests = forestRings(track.enScale)
+    const forests = forestRingsOf(ctx)
     const byCell = new Map<number, TreePlacement[]>()
     let placed = 0
     let tries = 0
+    // the infield's own rows first (INFIELD_TREES, the same expansion the guard checks), so
+    // their entries stand whatever the scatter's budget does
+    const infield = emitInfieldTrees(ctx, 'infield-trees', rows.filter((p) => !p.row.deferred))
     // the park / main gate lie 150–450 m behind the main grandstand — beyond the 200 m reach of
     // the track search below, so they are tested against three anchor points instead
     const park = [5550, 5750, 80].map((s) => track.pointAt(s, 300, new THREE.Vector3()))
@@ -265,7 +289,7 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
       for (const p of park) if (Math.hypot(x - p.x, z - p.z) < 190) return true
       return false
     }
-    const inForest = (x: number, z: number): boolean => {
+    const inForestAt = (x: number, z: number): boolean => {
       for (const f of forests) if (inBBox(x, z, f.box) && pointInRing(x, z, f.ring)) return true
       return false
     }
@@ -274,7 +298,7 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
       const x = rng.range(b.minX - 420, b.maxX + 420)
       const z = rng.range(b.minZ - 380, b.maxZ + 380)
       // density by land cover first (cheap), the projection (expensive) only for the survivors
-      const wooded = inForest(x, z)
+      const wooded = inForestAt(x, z)
       if (!wooded && rng.next() < 0.875) continue
       const near = ground.plan.project(x, z)
       if (near.d >= 500) continue
@@ -312,7 +336,60 @@ export function buildTrees(ctx: EnvBuildContext, ferrisWheel: THREE.Group) {
       sum.cards += r.cards
       sum.cones += r.cones
     }
-    root.userData.trees = { placed, tries, cells: byCell.size, mode: lib.mode, ...sum }
+    root.userData.trees = { placed, tries, cells: byCell.size, mode: lib.mode, infield, ...sum }
     return root
   })
+  // the south course's rows: the one deferred job of the infield (plan §横断 3), after the scatter
+  farField.defer('forest', 'infield-south-trees', 400, () => {
+    const root = new THREE.Group()
+    root.name = 'infield-south-trees'
+    root.userData.trees = emitInfieldTrees(ctx, 'infield-south-trees', rows.filter((p) => p.row.deferred === 'south'))
+    return root
+  })
+}
+
+/** the drawn ground kinds no infield tree stands on (a row that lands on one is a data fault; counted, not planted) */
+const TREELESS_FACES = new Set<OwnerKind>(['road', 'kerb', 'deckShoulder', 'pitLane', 'pitApron', 'lane', 'asphaltArea', 'turf', 'helipad', 'water', 'gravelBand', 'asphaltBand'])
+
+/**
+ * Plant INFIELD_TREES placements (app/data/infield-trees.ts) under `name`: one `emitTrees`
+ * call per far-field cell, the species' height / tint / yaw drawn from the placement's own
+ * seed (so a row is the same in every build, and the scatter's rng is untouched), heroes
+ * inside 120 m of the lap like the scatter's (or the row's `hero`). A placement over a paved,
+ * lane or water face is skipped and counted in `stats.infield['<name>Skipped']`.
+ */
+function emitInfieldTrees(ctx: EnvBuildContext, name: string, placements: InfieldTreePlacement[]): { placed: number; skipped: number; cells: number; entries: number; triangles: number } {
+  const { ground, quality, farField } = ctx
+  const lib = ctx.trees
+  const byCell = new Map<number, TreePlacement[]>()
+  let placed = 0, skipped = 0
+  const u = (seed: number, k: number) => {
+    let t = (seed + k * 0x9e3779b1) | 0
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  for (const p of placements) {
+    const face = ground.builtY(p.x, p.z)
+    if (face && TREELESS_FACES.has(face.kind)) { skipped++; continue }
+    const species = TREE_SPECIES[p.role]
+    const y = ground.standY(p.x, p.z)
+    const height = pickHeight(species, u(p.seed, 1))
+    const tint = pickTint(species, u(p.seed, 2), u(p.seed, 3), u(p.seed, 4))
+    const hero = p.row.hero ?? p.d < 120
+    const cell = farField.cellOf(p.x, p.z)
+    let list = byCell.get(cell)
+    if (!list) byCell.set(cell, (list = []))
+    list.push({ role: p.role, x: p.x, y, z: p.z, yaw: u(p.seed, 0) * Math.PI * 2, height, tint, hero, seed: p.seed })
+    placed++
+  }
+  let entries = 0, triangles = 0
+  for (const [cell, list] of byCell) {
+    const r = emitTrees(lib, ctx, name, cell, list, { cardsRange: Infinity, castShadow: quality.treeShadows })
+    entries += r.entries
+    triangles += r.triangles
+  }
+  ctx.infieldStats[name] = (ctx.infieldStats[name] ?? 0) + placed
+  ctx.infieldStats[`${name}Skipped`] = (ctx.infieldStats[`${name}Skipped`] ?? 0) + skipped
+  return { placed, skipped, cells: byCell.size, entries, triangles }
 }

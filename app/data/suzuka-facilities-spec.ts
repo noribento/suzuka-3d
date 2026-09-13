@@ -25,6 +25,9 @@
  */
 import { CIRCUIT } from '~/data/suzuka'
 import type { TeamId } from '~/data/drivers'
+// a value import of the basins only (suzuka-barriers-spec imports types from here, so no cycle at runtime)
+import { BASINS } from '~/data/suzuka-barriers-spec'
+import type { TreeRole } from '~/data/tree-species'
 
 // ---------------------------------------------------------------- shared types
 
@@ -1934,6 +1937,23 @@ export const GROUND_AREAS: GroundArea[] = [
   // OSM rings: 184005565 spans s 108-233 at lateral −54…−156, 132793884 s 414-543 at −26…−94.
   { name: 'T1 インフィールドの池', kind: 'water', source: 'osm', footprint: { osm: [184005565], sRange: [90, 250], straight: true } },
   { name: 'T1–T2 調整池', kind: 'water', source: 'osm', footprint: { osm: [132793884], sRange: [400, 560], straight: true } },
+  // the T1 pond's gravel shore path (I5-c): the OSM ring grown 3 m, half a layer UNDER the
+  // water row (its outline stays the shoreline) and over the pit-exit yard that shares the
+  // edge, so a 3 m rim track shows round the pond (the aerial reads one). Not a `{ way, width }`
+  // annulus: its inner loop 1.5 m inside the shoreline and the shoreline itself were two
+  // boundaries the station rays graze at the pond's NE tip (s 149), a column inversion the plan
+  // could not resolve (G12 residual 2.15 m).
+  // NOTE (I5-c): the same ring round the T1–T2 basin (132793884) is NOT a row: the T1 service
+  // road (1420756725) runs along that basin's near edge at s 490–530, and a third boundary
+  // within 3 m of the road's and the shoreline left the water face 35 duplicated samples there
+  // (G2 water|water, gap 0) in every form tried (grown 2 / 3 m, a 3 m annulus). The road is the
+  // rim track on that side; the far side stays the car park's edge.
+  { name: 'T1 池の岸道', kind: 'gravelArea', layer: -0.5, source: 'photo', footprint: { osm: [184005565], sRange: [90, 250], straight: true, grow: 3 }, unverified: ['width (aerial 02: a rim service track, ±1 m)'] },
+  // the three ponds of the aerial that OSM does not carry (I5-c): the water faces of the BASINS
+  // hand rings (one authority — the relief's outline and the drawn face are the same nodes)
+  ...BASINS.filter((b) => b.ring && b.sRange).map((b): GroundArea => ({ name: b.name, kind: 'water', source: 'photo', footprint: { ring: b.ring!, sRange: b.sRange!, straight: true }, unverified: b.unverified ?? [] })),
+  // the 130R pond's island: a grass disc over the water row (the relief leaves a hole there)
+  { name: '130R 池の島', kind: 'grassArea', layer: 1, source: 'photo', footprint: { disc: { s: 4592, lateral: 78, r: 4 } }, unverified: ['radius: the dark rectangle mid-pond in aerial 14, ±2 m'] },
   // --- the eyes of the tight bends: ground the swept frame cannot reach (the FOLD cap) ---------
   // The hairpin is a left-hander of 21–24 m radius: its inside frame folds ~7 m out, and the eye
   // beyond was 181 m² of declared band no raster could draw. In the 国土地理院 aerial the eye is:
@@ -2366,3 +2386,93 @@ export const INFIELD_ISLAND_KERBS: { id: string; name: string; s: number; latera
  * `width`), so both kerbs stand wholly on the drawn face.
  */
 export const SOUTH_COURSE_KERBS = { way: 153525062, width: 8, inset: 0.5, minCurvature: 0.015, minRun: 12, unverified: ['which sections carry kerbs (aerial 14 at 0.49 m/px: "red/white kerbs" at the bends)'] } as const
+
+// ================================================================ I5-c: the infield trees
+// (I5-b's INFIELD_FACILITIES section goes ABOVE this marker)
+
+/**
+ * A row of INFIELD_TREES — the trees inside the perimeter fence the aerial and the photos show
+ * and the trackside scatter (vegetation.ts) is no longer allowed to plant there (it stays out
+ * of the ring 775428456 except inside the SUR_FOREST woods). Expanded by
+ * app/data/infield-trees.ts `infieldTreePlacements` — the runtime and facilities-check O10
+ * read the same points. One shape per row: `along` (a line: an OSM way offset to its left, or
+ * outward for a closed ring; or lap-frame vertices), `circle`, `rect` (a regular `pitch` grid,
+ * or `count` at random) or `disc` (`count` at random). `window` is the s window every placement
+ * projects in (the figure-8 fold). Rules the rows obey (O10): |lateral| ≥ hw + 6, off the
+ * asphaltArea aprons, outside the stand footprints, inside the ring, ≥ 0.6 m off the barrier
+ * lines. A placement that lands on a paved / water face at build time is skipped and counted
+ * (`stats.infield['infield-treesSkipped']`); the rows are meant to need none of that.
+ */
+export interface InfieldTreeRow {
+  id: string
+  role: TreeRole
+  along?:
+    | { way: number; offset: number; verts?: [number, number] }
+    | { line: [number, number][]; offset?: number }
+  circle?: { s: number; lateral: number; r: number }
+  /** explicit trees at lap-frame points */
+  points?: [number, number][]
+  rect?: { s: [number, number]; lateral: [number, number] }
+  disc?: { s: number; lateral: number; r: number }
+  /** metres between trees along a line / circle / grid (default 8) */
+  pitch?: number
+  /** ± metres of random offset per tree */
+  jitter?: number
+  /** trees of a random `rect` / `disc` scatter */
+  count?: number
+  /** the s window the placements project in (the lap is a figure-8) */
+  window: [number, number]
+  /** s ranges (in the window's frame) a line row leaves empty — where the way runs through a stand's footprint */
+  skipS?: [number, number][]
+  /** LOD0 in the camera band regardless of distance (default: heroes inside 120 m of the lap) */
+  hero?: boolean
+  /** built by the one deferred job of the infield ('infield-south-trees', the south course) instead of the 'trees' job */
+  deferred?: 'south'
+  note?: string
+  unverified: string[]
+}
+
+export const INFIELD_TREES: InfieldTreeRow[] = [
+  // --- T1 infield and the pit-exit end ---------------------------------------------------------
+  // the row of round deciduous crowns along the perimeter service road behind A2 / B / C (aerial
+  // 02 / 03: "a row of round deciduous crowns (~8 m) along the service road", "service road +
+  // tree belt behind C"): bare keyaki 8 m apart on the outer edge of the 4 m road (+4 from its edge)
+  { id: 'perimeter-road-keyaki', role: 'keyakiBare', along: { way: 184120107, offset: -6 }, pitch: 8, jitter: 1, window: [120, 1370], skipS: [[170, 260], [262, 335], [452, 505], [535, 630], [935, 965], [1295, 1350]], unverified: ['species (bare crowns in the autumn mosaic → keyaki in March)', 'side: the belt is read behind the road, away from the track', 'the gaps: where the road runs through the A1 / B2 / C / D1–4 stand footprints (OSM), and where the A2 rear road (470173099) runs beside it at s 262–335 / 452–505'] },
+  // the tree rings on the banks of the two retention basins (aerial 02 / 04: "earth banks with
+  // a ring of trees (round crowns 8–12 m)"): 12 m apart, 6 m outside the shoreline
+  { id: 't1-pond-ring', role: 'keyakiBare', along: { way: 184005565, offset: 6 }, pitch: 12, jitter: 1.5, window: [90, 250], unverified: ['spacing', 'species'] },
+  { id: 't1-t2-basin-ring', role: 'budding', along: { way: 132793884, offset: 6 }, pitch: 12, jitter: 1.5, window: [400, 560], unverified: ['spacing', 'species (a budding broadleaf in late March)'] },
+  // --- the pit entry and T18 (final.jpg: the trees behind the pit-entry lane and on the T18 mound) --
+  { id: 'pit-entry-keyaki', role: 'keyakiBare', along: { line: [[5340, -28], [5430, -28]] }, pitch: 8, jitter: 1, window: [5330, 5440], unverified: ['lateral: on the grass between the entry lane\'s run-off and the E paddock (final.jpg, ±3 m)'] },
+  { id: 't18-mound-kusunoki', role: 'kusunoki', points: [[5300, -27], [5320, -36], [5330, -36], [5340, -30], [5350, -34], [5360, -30]], window: [5290, 5370], unverified: ['the "mound" of final.jpg: read here as the grass wedge between the two-wheel loop and the E paddock (±5 m); explicit points between the loop\'s lanes'] },
+  // --- the hairpin / 130R infield -------------------------------------------------------------
+  // the cedar band on the plateau between the lower road and the hairpin / 130R pond (aerials
+  // 07 / 08: "dense evergreen belt"), a 6 m grid, plus scrub at random in the same rectangle
+  { id: 'hairpin-plateau-sugi', role: 'sugi', rect: { s: [2372, 2404], lateral: [36, 60] }, pitch: 6, jitter: 1.5, window: [2360, 2470], unverified: ['extent (aerial 08, ±5 m): the plan\'s (2560…2640, +40…+60) lies on the hairpin exit leg\'s verge, and its (2380…2450) reaches the pond; moved north of it'] },
+  { id: 'hairpin-plateau-scrub', role: 'bush', rect: { s: [2372, 2404], lateral: [36, 60] }, count: 60, window: [2360, 2470], unverified: ['density'] },
+  // the cherries outside the hairpin (the hairpin cherry zone of TREE_MIX; the aerial reads a
+  // clump of round crowns behind the outside wall)
+  { id: 'hairpin-outside-sakura', role: 'sakura', disc: { s: 2693, lateral: -53, r: 8 }, count: 5, window: [2670, 2720], unverified: ['position (±5 m), count'] },
+  // --- the Dunlop loop and the Degner wedge -----------------------------------------------------
+  // bamboo thickets in the Dunlop loop (aerial 06: "bamboo / evergreen thickets"), two clumps
+  { id: 'dunlop-bamboo-a', role: 'bamboo', disc: { s: 1950, lateral: 98, r: 10 }, count: 9, window: [1920, 1990], unverified: ['position ±5 m', 'count'] },
+  { id: 'dunlop-bamboo-b', role: 'bamboo', disc: { s: 2090, lateral: 47, r: 6 }, count: 5, window: [2060, 2120], unverified: ['position ±5 m (the plan\'s (2080, +40) r 10 reaches the gravel band and the fence; brought in)', 'count'] },
+  // the camphor band on the Degner wedge (aerial 07: "dense evergreen belt" between Degner and
+  // the hairpin approach), inside the fence: the plan's +85…+100 lies outside the ring there
+  { id: 'degner-wedge-kusunoki', role: 'kusunoki', rect: { s: [2110, 2170], lateral: [74, 82] }, pitch: 8, jitter: 1.5, window: [2090, 2190], unverified: ['extent (aerial 07, ±5 m)'] },
+  // --- the gyaku-bank outside (the S-curve cherry zone of TREE_MIX) --------------------------------
+  { id: 'gyaku-bank-sakura', role: 'sakura', disc: { s: 1127, lateral: 47, r: 5 }, count: 6, window: [1100, 1160], unverified: ['position (±5 m): in the gap between the D5 and D1–4 stands (the plan\'s (1300, +60) is inside the D1–4 footprint, which runs s 1141–1391)', 'count'] },
+  // --- the west straight and 130R ponds -----------------------------------------------------------
+  // the wooded bank between the west-course pit lane and the west-straight pond (aerial 13:
+  // "wooded banks (mixed)"): pines and bare keyaki 10 m apart, 6 m inside the shore — the part of
+  // the shore that lies inside the perimeter ring (the pond itself is outside it)
+  { id: 'west-pond-shore-matsu', role: 'matsu', along: { line: [[4150, -39], [4180, -39], [4210, -39], [4235, -40]] }, pitch: 10, jitter: 1.5, window: [4140, 4250], unverified: ['species mix', 'spacing'] },
+  { id: 'west-pond-shore-keyaki', role: 'keyakiBare', along: { line: [[4155, -34], [4185, -34], [4215, -34]] }, pitch: 20, jitter: 2, window: [4140, 4250], unverified: ['species mix', 'spacing'] },
+  // the bare trees round the 130R pond, 6 m off its 12-gon shore (r 21 + 6)
+  { id: '130r-pond-keyaki', role: 'keyakiBare', circle: { s: 4592, lateral: 78, r: 27 }, pitch: 12, jitter: 1.5, window: [4540, 4640], unverified: ['spacing (aerial 14: "trees" round the pond)'] },
+  // --- the south course (the one deferred job of the infield: 'infield-south-trees') ------------
+  // the plantation behind the south course's paddock and along its far side (aerial 14: "dense
+  // mixed forest" south of the course inside the fence)
+  { id: 'south-course-sugi', role: 'sugi', rect: { s: [4430, 4590], lateral: [-300, -286] }, pitch: 7, jitter: 1.5, window: [4400, 4620], skipS: [[4468, 4482], [4546, 4558]], deferred: 'south', unverified: ['extent (aerial 14, ±10 m); the gaps are where the loop road crosses the band'] },
+  { id: 'south-course-hinoki', role: 'hinoki', rect: { s: [4430, 4470], lateral: [-260, -244] }, pitch: 8, jitter: 1.5, window: [4400, 4620], deferred: 'south', unverified: ['extent (aerial 14, ±10 m)'] },
+]

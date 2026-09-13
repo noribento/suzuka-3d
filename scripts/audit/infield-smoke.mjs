@@ -23,6 +23,10 @@
  *        middle of it), and the asphaltArea material is its own (not the lanes'); on the low
  *        tier the plan / meshes build times are PRINTED against the pre-I5-a numbers held in
  *        BASE_MS (report-only: the plan expected +1.5–2.5 s, this is what it is).
+ *  I5-c  the ponds and trees (`checkPondsTrees` below): the water planes of the `surface`
+ *        BASINS rows, the dry basins' shore rings, reeds and puddles, the material
+ *        combinations (the reed cards are the one new program), INFIELD_TREES planted by the
+ *        'trees' and 'infield-south-trees' jobs, and the scatter's absence inside the ring.
  *
  *  I5-b  the facilities (`checkFacilities` below): INFIELD_FACILITIES counts and boxes, the
  *        walls / fences, the tyre / kerb ground objects, the infield cars and lamps, the build
@@ -161,6 +165,8 @@ for (const tier of tiers) {
     const lane = groundMeshes.faces.find((f) => f.kind === 'lane')
     check(!!area && !!lane && area.mesh.material !== lane.mesh.material && area.mesh.material.color.getHex() === 0x8c8c8a, `ground:asphaltArea has its own material (colour #${area?.mesh.material.color.getHexString()}, the lanes keep theirs)`)
   }
+  // --- I5-c: the ponds, the dry basins' dressing and the infield trees --------------------------------
+  await checkPondsTrees(scene, tier, check)
   // --- I5-a: the build time (report-only) ------------------------------------------------------------
   {
     const b = env.buildMs
@@ -333,5 +339,141 @@ function checkFacilities(scene, check, tier, { glb: withGlb = false } = {}) {
     env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyres-.*-glb-/.test(o.name)) tyreGlb.push(o) })
     check(tyreGlb.length > 0 && tyreGlb.every((m) => m.userData.groundObject?.kind === 'tyreStack'), `--glb: the tyre GLB level is tagged tyreStack too (${tyreGlb.length} meshes)`)
     void levelsOf
+  }
+}
+
+/**
+ * I5-c — the ponds, the dry basins' dressing and the infield trees:
+ *   - every `surface` BASINS row is ONE `furniture-infield-pond-<i>` plane (transparent, no
+ *     depth write — the far water's own parameter set, so one program for all water), flat
+ *     at its shoreline − WATER_PLANE_DROP, its vertices finite, a 'water' face drawn under its
+ *     centre (or the island's grass) below the plane; stats.infield['infield-ponds'] agrees;
+ *   - the dry basins' gravel shore rings (GROUND_AREAS gravelArea rows, the OSM ring grown 3 m)
+ *     own the ground 0.75 m outside the OSM shoreline on ≥ 80 % of the ring's vertices;
+ *   - the reeds: `infield-reeds-L0-*` InstancedMeshes, every instance inside a dry basin's
+ *     outline, ≥ 150 of them, the material { map, alphaMap, alphaTest, DoubleSide } — and that
+ *     combination is on NO other material of the scene (the one budgeted program of I5-c);
+ *     the water planes share the far water's combination and the puddles the braking rubber's;
+ *   - the puddles: one `infield-puddles` decal tagged soft at LAYER.verge.paint, ≤ 0.5 m² bare;
+ *   - INFIELD_TREES: every placement of the pure helper (the guard's own expansion) inside the
+ *     ring and ≥ hw + 6 off the road, every non-deferred one planted by the 'trees' job and the
+ *     south rows by 'infield-south-trees' (both drained, none skipped for a paved face);
+ *   - the scatter: no `trees-*` instance stands inside the ring outside a SUR_FOREST polygon.
+ */
+async function checkPondsTrees(scene, tier, check) {
+  const { env, track, ground, plan } = scene
+  const bar = await import(path.join(ROOT, 'app/data/suzuka-barriers-spec.ts'))
+  const standsMod = await import(path.join(ROOT, 'app/three/stands.ts'))
+  const waterMod = await import(path.join(ROOT, 'app/three/infield-water.ts'))
+  const vegMod = await import(path.join(ROOT, 'app/three/vegetation.ts'))
+  const treesData = await import(path.join(ROOT, 'app/data/infield-trees.ts'))
+  const osm = await import(path.join(ROOT, 'app/data/suzuka-facilities.ts'))
+  const st = env.stats?.infield ?? {}
+  const v = new THREE.Vector3()
+  const inPts = (x, z, pts) => { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > z !== b[1] > z && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside } return inside }
+  /** a material's program-deciding parameter set (what three keys its programs by, minus the tier-wide ones) */
+  const combo = (m) => `${m.type}|map${m.map ? 1 : 0}|alpha${m.alphaMap ? 1 : 0}|nor${m.normalMap ? 1 : 0}|emis${m.emissiveMap ? 1 : 0}|test${m.alphaTest > 0 ? 1 : 0}|a2c${m.alphaToCoverage ? 1 : 0}|side${m.side}|tr${m.transparent ? 1 : 0}|vc${m.vertexColors ? 1 : 0}|key${m.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey ? m.customProgramCacheKey() : ''}`
+
+  // --- the ponds ---------------------------------------------------------------------------------
+  const basins = bar.BASINS.map((b) => ({ def: b, r: standsMod.resolveBasin(track, b) }))
+  check(basins.every((b) => b.r), `every BASINS row resolves to an outline (${basins.map((b) => `${b.def.name}: ${b.r ? b.r.pts.length : 'none'}`).join(', ')})`)
+  const surface = basins.filter((b) => b.def.surface && b.r)
+  const ponds = []
+  env.group.traverse((o) => { if (o.isMesh && /^furniture-infield-pond-/.test(o.name)) ponds.push(o) })
+  check(ponds.length === surface.length && st['infield-ponds'] === surface.length, `${ponds.length} water planes for ${surface.length} surface basins (stats.infield['infield-ponds'] = ${st['infield-ponds']})`)
+  const waterFar = env.terrain.group.getObjectByName('water-far')
+  for (const p of ponds) {
+    const m = p.material
+    const b = surface.find((s) => s.def.name === p.userData.basin)
+    const pos = p.geometry.attributes.position
+    let yMin = Infinity, yMax = -Infinity
+    for (let i = 0; i < pos.count; i++) { yMin = Math.min(yMin, pos.getY(i)); yMax = Math.max(yMax, pos.getY(i)) }
+    const want = b ? b.r.shoreY - waterMod.WATER_PLANE_DROP : NaN
+    p.geometry.computeBoundingBox()
+    const c = p.geometry.boundingBox.getCenter(new THREE.Vector3())
+    const face = ground.builtY(c.x, c.z)
+    const fv = finiteVertices([p])
+    check(m.transparent && !m.depthWrite && fv.nan === 0 && Math.abs(yMin - want) < 1e-3 && Math.abs(yMax - want) < 1e-3, `  ${p.name} (${p.userData.basin}): transparent, depthWrite false, ${pos.count} vertices finite, flat at shore − ${waterMod.WATER_PLANE_DROP} (y ${yMin.toFixed(2)}…${yMax.toFixed(2)}, want ${want.toFixed(2)})`)
+    // under the centre: the water bed below the plane, or the island's grass above it
+    const island = face?.kind === 'grassArea'
+    check(!!face && (face.kind === 'water' ? face.y < want : island && face.y > want), `    a ${face?.kind ?? 'bare'} face under its centre, ${face ? Math.abs(want - face.y).toFixed(2) : '?'} m ${island ? 'above (the island)' : 'below'} the plane`)
+    check(!!waterFar && combo(waterFar.material) === combo(m), `    the same material combination as water-far (${combo(m)})`)
+  }
+  {
+    const isl = bar.BASINS.find((b) => b.island)
+    if (isl) {
+      track.pointAt(track.wrap(isl.island.s), isl.island.lateral, v, 0)
+      const owner = plan.ownerAt(v.x, v.z, isl.sRange)
+      check(owner.kind === 'grassArea', `  the ${isl.name} island is owned by '${owner.name}' (${owner.kind})`)
+    }
+    check((st['infield-pondDecks'] ?? 0) === bar.BASINS.filter((b) => b.platform).length, `  ${st['infield-pondDecks']} pond deck(s) for ${bar.BASINS.filter((b) => b.platform).length} platform rows`)
+  }
+  // --- the dry basins' shore rings ---------------------------------------------------------------
+  for (const b of basins.filter((q) => q.def.dry && q.def.osmWay)) {
+    const f = osm.osmFeature(b.def.osmWay)
+    const row = spec.GROUND_AREAS.find((a) => a.kind === 'gravelArea' && 'osm' in a.footprint && a.footprint.osm[0] === b.def.osmWay)
+    if (!row) { console.log(`  note ${b.def.name}: no shore-ring row (the T1–T2 basin's rim is the T1 service road)`); continue }
+    if (!f) { check(false, `  ${b.def.name}: OSM way missing`); continue }
+    const pts = b.r.pts
+    let own = 0
+    for (let i = 0; i < pts.length; i++) {
+      const [x0, z0] = pts[i], [x1, z1] = pts[(i + 1) % pts.length], [xp, zp] = pts[(i - 1 + pts.length) % pts.length]
+      // outward: the normal that leaves the polygon
+      const nx = (z1 - zp), nz = -(x1 - xp)
+      const nl = Math.hypot(nx, nz) || 1
+      let x = x0 + (nx / nl) * 0.75, z = z0 + (nz / nl) * 0.75
+      if (inPts(x, z, pts)) { x = x0 - (nx / nl) * 0.75; z = z0 - (nz / nl) * 0.75 }
+      if (plan.ownerAt(x, z, row.footprint.sRange).name === row.name) own++
+    }
+    check(own >= pts.length * 0.8, `  ${row.name}: owns ${own} of ${pts.length} points 0.75 m outside the shoreline`)
+  }
+  // --- the reeds and the puddles -------------------------------------------------------------------
+  {
+    const reeds = []
+    env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-reeds-L0-/.test(o.name)) reeds.push(o) })
+    const pts = standPoints(reeds)
+    const dry = basins.filter((q) => q.def.dry && q.r).map((q) => q.r.pts)
+    const outside = pts.filter(([x, z]) => !dry.some((ring) => inPts(x, z, ring)))
+    check(reeds.length >= 1 && pts.length >= 150 && outside.length === 0 && st['infield-reeds'] === pts.length, `${pts.length} reed clusters in ${reeds.length} InstancedMesh(es), ${outside.length} outside the dry basins (stats ${st['infield-reeds']})`)
+    const mats = new Set(reeds.map((r) => r.material))
+    const rc = reeds.length ? combo(reeds[0].material) : ''
+    const reedOk = [...mats].every((m) => m.map && m.alphaMap && !m.normalMap && m.alphaTest > 0 && m.side === THREE.DoubleSide && !m.transparent)
+    check(mats.size === 1 && reedOk, `  one reed material { map, alphaMap, alphaTest, DoubleSide } (${rc})`)
+    // the one budgeted program: no other material in the built scene has the reeds' combination
+    const others = new Map()
+    scene.root.traverse((o) => {
+      if (!(o.isMesh || o.isInstancedMesh) || reeds.includes(o)) return
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) { const k = combo(m); if (!others.has(k)) others.set(k, o.name) }
+    })
+    check(!others.has(rc), `  the reed combination is on no other mesh (${others.size} other combinations in the scene${others.has(rc) ? `; also on ${others.get(rc)}` : ''})`)
+    const puddles = env.group.getObjectByName('infield-puddles')
+    const d = puddles?.userData.decal
+    const rubber = scene.root.getObjectByName('brakingRubber')
+    check(!!puddles && d?.soft === true && Math.abs(d.rung - groundMod.LAYER.verge.paint) < 1e-9 && d.uncovered <= 0.5, `${st['infield-puddles']} puddles as one soft decal at LAYER.verge.paint (uncovered ${d?.uncovered?.toFixed(2) ?? '?'} m², ${d?.area?.toFixed(0) ?? '?'} m²)`)
+    check(!!puddles && !!rubber && combo(puddles.material) === combo(rubber.material), `  the puddles share the braking rubber's material combination`)
+  }
+  // --- INFIELD_TREES ---------------------------------------------------------------------------------
+  {
+    const placements = treesData.infieldTreePlacements(track)
+    const bad = placements.filter((p) => !insideRing(p.x, p.z) || Math.abs(p.lateral) < track.halfWidthAt(p.s) + 6)
+    check(placements.length > 0 && bad.length === 0, `${placements.length} INFIELD_TREES placements in ${spec.INFIELD_TREES.length} rows, ${bad.length} outside the ring / inside hw + 6${bad.length ? ` (${bad.slice(0, 3).map((p) => p.id).join(', ')})` : ''}`)
+    const main = placements.filter((p) => !p.row.deferred).length, south = placements.length - main
+    check(st['infield-trees'] === main && (st['infield-treesSkipped'] ?? 0) === 0, `  'trees' job planted ${st['infield-trees']} of ${main} (skipped ${st['infield-treesSkipped'] ?? 0} on paved / water faces)`)
+    const ff = env.farField.stats()
+    check(st['infield-south-trees'] === south && (st['infield-south-treesSkipped'] ?? 0) === 0 && Number.isFinite(ff.buildMs['infield-south-trees']) && ff.failed === 0, `  'infield-south-trees' job planted ${st['infield-south-trees']} of ${south} (skipped ${st['infield-south-treesSkipped'] ?? 0}), ran in ${ff.buildMs['infield-south-trees']?.toFixed(0)} ms, failed ${ff.failed}`)
+    const entries = []
+    env.farField.group.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && /^infield-(south-)?trees/.test(o.name)) entries.push(o) })
+    const tp = standPoints(entries)
+    check(entries.length > 0 && tp.length >= placements.length, `  ${entries.length} tree meshes under the far field carry ${tp.length} instances (≥ ${placements.length}: the mesh level and its cards / cones)`)
+    // the scatter stays out of the ring except inside the woods
+    const scatter = []
+    env.farField.group.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && /^trees(q\d)?-/.test(o.name)) scatter.push(o) })
+    const forests = vegMod.forestRings(track.enScale)
+    const inForest = (x, z) => forests.some((f) => x >= f.box[0] && x <= f.box[2] && z >= f.box[1] && z <= f.box[3] && inPts(x, z, f.ring))
+    const sp = standPoints(scatter)
+    const inside = sp.filter(([x, z]) => insideRing(x, z) && !inForest(x, z))
+    check(sp.length > 0 && inside.length === 0, `  the scatter (${sp.length} instances in ${scatter.length} meshes): ${inside.length} inside the ring outside SUR_FOREST${inside.length ? ` (${inside.slice(0, 3).map((p) => `${p[2]} at ${p[0].toFixed(0)}, ${p[1].toFixed(0)}`).join('; ')})` : ''}`)
+    const kus = (await import(path.join(ROOT, 'app/data/tree-species.ts'))).TREE_SPECIES.kusunoki
+    check(kus.tint[0][1] <= 0.75 && kus.tint[2][1] <= 0.65, `  kusunoki tint darkened (${JSON.stringify(kus.tint)})`)
   }
 }

@@ -3,6 +3,7 @@ import { buildCuttings } from './cuttings'
 import type { EnvBuildContext } from './environment'
 import type { FigureRole } from './figures'
 import { buildInfieldGround } from './infield-ground'
+import { buildInfieldWater } from './infield-water'
 import { buildMarshalPosts } from './marshal-posts'
 import { buildOps } from './ops'
 import { buildPaddock } from './paddock'
@@ -12,12 +13,12 @@ import { buildTvTowers } from './tv-towers'
 /**
  * The infield umbrella (plan I0-a): everything inside the perimeter fence that is not the pit
  * building itself — the pit lane, the paddock, the operations layer, the marshal posts and TV
- * towers, the infield ground's facilities and the cuttings — built synchronously in this order
+ * towers, the infield ground's facilities, the ponds and the cuttings — built synchronously in this order
  * between `buildPitComplex` and `buildLanes`, so every sub-builder still has `ctx.boxes` (flushed
  * later), the settled ground (`ground.standY / standAt`, decals) and the pit complex's shared
  * roof material. The far-field registry is borrowed for LOD only (`registerPropSet`,
- * `buildOpsFigures`); the one deferred job of the infield (the south course's trees, I5) is
- * queued by the ground builder.
+ * `buildOpsFigures`); the one deferred job of the infield (the south course's trees, I5-c) is
+ * queued by vegetation.ts (`infield-south-trees`).
  *
  * Every sub-builder reports through the same shapes: `ctx.infieldStats` (instances per prop
  * set), `OpsStats`, `TracksideStats` — `Environment.stats.ops / .trackside / .infield`, which
@@ -81,6 +82,7 @@ export function buildInfield(ctx: EnvBuildContext, opts: InfieldOptions): Infiel
   const towers = buildTvTowers(ctx)
   lap('trackside')
   buildInfieldGround(ctx)
+  buildInfieldWater(ctx)
   buildCuttings(ctx)
   lap('infield')
   return { ops, trackside: { ...posts, ...towers }, infield: ctx.infieldStats }
