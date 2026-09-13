@@ -1416,7 +1416,6 @@ export const SUR_BUILDINGS: SurBuilding[] = surBuildings([
   [466813347,'house',139,676,73,5640,116,{building: 'yes'},'EgCUALX/4P4tAPT/SwAgAQ=='],
   [466813348,'canopy',145,691,84,5641,134,{building: 'roof', layer: '1'},'MwCgAID/4v4qAO7/CAAUAA0A+/8oAF4A8v8FAEoArwA='],
   [466891877,'retail',169,515,468,5393,326,{building: 'retail'},'x/9lAM7/w/+hAHv/NABBAA=='],
-  [466925741,'generic',1545,820,-56,25,130,{name: '鈴鹿サーキット交通教育センター', building: 'yes'},'3/8a/xkAPACDAMr/iwBRAZ/+kQBd/3L+'],
   [466981877,'canopy',121,665,469,5443,396,{name: 'チクタクトレイン', building: 'roof', layer: '1'},'4P9GANP/pf9nAM3/BwAOABwA8v8KABUA4P8QABwAOQA='],
   [466981878,'canopy',195,655,459,5443,380,{name: 'ルンルンポップ', building: 'roof', layer: '1'},'n//e/38Awv88AH0Agf89AA=='],
   [466981879,'generic',119,656,446,5446,373,{name: 'ルンルンバルーン', building: 'yes'},'ov8DAJIAt/8gAEIAbv9IAA=='],

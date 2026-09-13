@@ -262,6 +262,23 @@ export function slice(geo: THREE.BufferGeometry, start: number, count: number): 
 }
 
 /** Local EN (shape x = e, y = n, z = up) → world: x = e·k, y = z + base, z = −n·k. Determinant k² > 0, so the winding survives. */
+/**
+ * An OSM footprint (EN vertices) extruded `height` m from `base` (world y), split into its roof
+ * cap and its walls (I5-a, shared by paddock.ts's v1 extrusion and infield-ground.ts): the caps
+ * are ExtrudeGeometry's first material group. The base is sunk 0.5 m so the bottom cap is never
+ * an up-facing floor near the ground (surface-check G8 ignores down-facing caps).
+ */
+export function extrudeFootprint(track: Track, en: readonly (readonly [number, number])[], base: number, height: number, sink = 0.5): { cap: THREE.BufferGeometry[]; walls: THREE.BufferGeometry[] } {
+  const shape = new THREE.Shape(en.map(([e, n]) => new THREE.Vector2(e, n)))
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: height + sink, bevelEnabled: false })
+  geo.applyMatrix4(enMatrix(track, base - sink))
+  const cap: THREE.BufferGeometry[] = []
+  const walls: THREE.BufferGeometry[] = []
+  for (const g of geo.groups) (g.materialIndex === 0 ? cap : walls).push(slice(geo, g.start, g.count))
+  geo.dispose()
+  return { cap, walls }
+}
+
 export function enMatrix(track: Track, base: number): THREE.Matrix4 {
   const k = track.enScale
   return new THREE.Matrix4().set(k, 0, 0, 0, 0, 0, 1, base, 0, -k, 0, 0, 0, 0, 0, 1)

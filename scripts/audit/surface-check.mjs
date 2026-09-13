@@ -94,16 +94,18 @@ const ALLOWANCES = [
   { guard: 'G3', key: "ground:grassArea", bound: 1.25, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:gravelArea", bound: 7.5, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G3', key: "ground:gravelBand", bound: 1.55, why: WHY.fieldCells, until: 'P7' },
+  { guard: 'G3', key: "ground:asphaltArea", bound: 4.07, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 3.87 high (--suggest), was 0 — the service road along the foot of the D / E terraces (OSM 467945733) and the Dunlop inner road chord the terrace relief and the DEM
   { guard: 'G3', key: "ground:paddock", bound: 8.1, why: `${WHY.fieldCells} ${WHY.demCurvature} ${WHY.infieldRings}`, until: 'P7' }, // I2-a: measured 7.71 on both tiers (--suggest), was 3.4
-  { guard: 'G3', key: "ground:water", bound: 9.3, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
-  { guard: 'G4', key: "ground:asphaltArea.steep", bound: 70, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:asphaltBand.steep", bound: 280, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:grass.steep", bound: 1631, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I2-a: measured 1553 on both tiers (--suggest), was 1400
+  { guard: 'G3', key: "ground:water", bound: 11.41, why: `${WHY.fieldCells} ${WHY.demCurvature} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 10.86 high (--suggest), was 9.3 — the C paddock lot and the D paddock ring the T1 pond and the T1–T2 basin and re-station their banks
+  { guard: 'G4', key: "ground:asphaltArea.steep", bound: 1994, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 1899 high (--suggest), was 70 — the E-stand service road under the D1–4 / E terraces, the Dunlop inner road on the E hill, the Spoon outside road on the M site
+  { guard: 'G4', key: "ground:asphaltBand.steep", bound: 338, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 321 high (--suggest), was 280 — the new rings' stations subdivide the bands beside them
+  { guard: 'G4', key: "ground:grass.steep", bound: 1890, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 1800 high (--suggest), was 1631 (I2-a 1553)
   { guard: 'G4', key: "ground:grassArea.steep", bound: 35, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:gravelArea.steep", bound: 65, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:gravelBand.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:lane.steep", bound: 50, why: WHY.fieldCells, until: 'P7' },
-  { guard: 'G4', key: "ground:paddock.steep", bound: 2110, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
+  { guard: 'G4', key: "ground:gravelArea.steep", bound: 161, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 153 high (--suggest), was 65 — the 130R gravel's world part beyond the west straight's end re-triangulated (+476 triangles) when the 南コース ribbon beside it went from 10 to 8 m; nothing steeper than before (worst 65.4°)
+  { guard: 'G4', key: "ground:gravelBand.steep", bound: 56, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 53 high (--suggest), was 50
+  { guard: 'G4', key: "ground:helipad.steep", bound: 3, why: WHY.infieldRings, until: 'P7' }, // I5-a: measured 2 high (--suggest), was 0 — the second helipad's disc on the Dunlop-loop apron's slope (worst 31.5°)
+  { guard: 'G4', key: "ground:lane.steep", bound: 54, why: `${WHY.fieldCells} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 51 high (--suggest), was 50
+  { guard: 'G4', key: "ground:paddock.steep", bound: 3137, why: `${WHY.fieldCells} ${WHY.demCurvature} ${WHY.infieldRings}`, until: 'P7' }, // I5-a: measured 2987 high (--suggest), was 2110 — the D rear apron on the D plateau's edge, the Dunlop-loop apron, the L yard, the Spoon and west-course lots on the DEM
   { guard: 'G4', key: "ground:turf.steep", bound: 8, why: WHY.fieldCells, until: 'P7' },
   { guard: 'G4', key: "ground:water.steep", bound: 1040, why: `${WHY.fieldCells} ${WHY.demCurvature}`, until: 'P7' },
   // --- relief joins (P7: stands.ts) ---------------------------------------------------------------

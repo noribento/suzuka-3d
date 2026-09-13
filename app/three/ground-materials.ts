@@ -68,10 +68,30 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
   const asphaltBand = pbr(asphaltMaps(false), {}, 1)
   addRoadSurface(asphaltBand, new THREE.Vector2(1, ASPHALT_TILE_M / 300))
 
-  // --- paved areas and the offset lanes: world-planar, so the macro variation is isotropic
+  // --- the offset lanes: world-planar, so the macro variation is isotropic
   const area = PLANAR_UV.asphaltArea!
-  const asphaltArea = pbr(asphaltMaps(false), {}, 1)
-  addRoadSurface(asphaltArea, new THREE.Vector2(area[0] / 120, area[1] / 120), area[0])
+  const lane = pbr(asphaltMaps(false), {}, 1)
+  addRoadSurface(lane, new THREE.Vector2(area[0] / 120, area[1] / 120), area[0])
+  // --- the paved areas (I5-a): the south course, the service roads and the aprons are a darker,
+  // coarser tarmac than the racing surface — ambientCG Asphalt033 (2.5 m tile) sampled
+  // world-planar with the paddock's macro period on the high tier (pbrFromAssets + addMacro, the
+  // paddock's own program), the unlined tile darkened to 0x8c8c8a everywhere else
+  const proceduralArea = () => {
+    const m = pbr(asphaltMaps(false), { color: 0x8c8c8a }, 1)
+    addRoadSurface(m, new THREE.Vector2(area[0] / 120, area[1] / 120), area[0])
+    return m
+  }
+  let asphaltArea: THREE.MeshStandardMaterial
+  if (assets && (['diff', 'nor_gl', 'arm'] as const).every((r) => assets.has(`tex/asphalt033/${r}`))) {
+    asphaltArea = pbrFromAssets(assets, 'asphalt033', { fallback: proceduralArea, ground: true, handBuiltUv: true, normalScale: 0.8 })
+    const tile = tileMetres(assets, 'tex/asphalt033/diff', 2.5)
+    asphaltArea.map = repeatMetres(asphaltArea.map!.clone(), tile, area)
+    asphaltArea.normalMap = repeatMetres(asphaltArea.normalMap!.clone(), tile, area)
+    const arm = repeatMetres(asphaltArea.aoMap!.clone(), tile, area)
+    asphaltArea.aoMap = asphaltArea.roughnessMap = asphaltArea.metalnessMap = arm
+    const rep = asphaltArea.map.repeat
+    addMacro(asphaltArea, new THREE.Vector2(area[0] / 250 / rep.x, area[1] / 250 / rep.y))
+  } else asphaltArea = proceduralArea()
 
   const turf = pbr(turfMaps(), { roughness: 0.95 }, 0.9)
   const gravel = pbr(gravelMaps(), {}, 1.0)
@@ -116,7 +136,7 @@ export function groundMaterials(assets: AssetRegistry | null, cover: CoverLayer 
     deckShoulder: concrete,
     pitLane,
     pitApron,
-    lane: asphaltArea,
+    lane,
     asphaltArea,
     turf,
     gravelArea: gravel,

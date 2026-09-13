@@ -970,8 +970,10 @@ export interface BankDef {
 }
 
 export const SPECTATOR_BANKS: BankDef[] = [
-  { id: 'BANK_OASIS', name: '逆バンクオアシスの芝', side: 1, sRange: [1255, 1385], lateral: [66, 96], density: 0.22, occupancy: 0.85, seated: 0.7, unverified: ['extent: the plateau behind the D temporary block (aerial, ±5 m)', 'density'] },
-  { id: 'BANK_E_HILL', name: 'E の丘（NIPPO 出口側）', side: 1, sRange: [1666, 1682], lateral: [22, 60], density: 0.2, occupancy: 0.8, seated: 0.65, unverified: ['extent: the hillside past E-1 (aerial, ±5 m). Trimmed to s 1682 because that is where the fence-carrying run behind E-1 ends: dunlop-inside (s 1682–1824) is a bare concrete wall in BARRIERS, so people past it would sit unscreened. If a photo shows a debris fence on that wall, put fence on the run and give this row its full extent back (…1725).', 'density'] },
+  // I5-a: shortened to s 1360 — the D rear apron (GROUND_AREAS 'D 裏エプロン', OSM 184253118) is paved from s 1362 on
+  { id: 'BANK_OASIS', name: '逆バンクオアシスの芝', side: 1, sRange: [1255, 1360], lateral: [66, 96], density: 0.22, occupancy: 0.85, seated: 0.7, unverified: ['extent: the plateau behind the D temporary block (aerial, ±5 m)', 'density'] },
+  // I5-a: lateral from 28 — the Dunlop inner service road (GROUND_AREAS, OSM 467913438) is tarmac out to lateral 16–21 here, and its spur to the compound leaves at s 1683
+  { id: 'BANK_E_HILL', name: 'E の丘（NIPPO 出口側）', side: 1, sRange: [1666, 1682], lateral: [28, 60], density: 0.2, occupancy: 0.8, seated: 0.65, unverified: ['extent: the hillside past E-1 (aerial, ±5 m). Trimmed to s 1682 because that is where the fence-carrying run behind E-1 ends: dunlop-inside (s 1682–1824) is a bare concrete wall in BARRIERS, so people past it would sit unscreened. If a photo shows a debris fence on that wall, put fence on the run and give this row its full extent back (…1725).', 'density'] },
   { id: 'BANK_I', name: 'ヘアピン外側の芝（I 席手前）', side: -1, sRange: [2630, 2691], lateral: [32, 46], density: 0.25, occupancy: 0.85, seated: 0.6, unverified: ['extent (aerial, ±5 m)', 'density'] },
   { id: 'BANK_J', name: 'J 200R の芝（西エリア）', side: -1, sRange: [2810, 2900], lateral: [41, 58], density: 0.18, occupancy: 0.6, seated: 0.7, west: true, unverified: ['extent: the lawn behind the J stand (aerial, ±5 m)', 'density'] },
   { id: 'BANK_L', name: 'L スプーン入口の芝（西エリア）', side: -1, sRange: [3460, 3595], lateral: [57, 74], density: 0.18, occupancy: 0.55, seated: 0.7, west: true, unverified: ['extent: the bank behind the L stand (aerial, ±5 m)', 'density'] },
@@ -1000,9 +1002,10 @@ export interface BuildingDef {
   roof: 'flat' | 'gable' | 'curved'
   /**
    * Which builder extrudes the block: every row is paddock.ts today (the v1 footprint
-   * extrusion moved there in I1-a); 'paddock' marks the rows I2 rebuilds from the drawings.
+   * extrusion moved there in I1-a); 'paddock' marks the rows I2 rebuilds from the drawings,
+   * 'infield' the rows infield-ground.ts extrudes (I5-a: the driving school).
    */
-  builder?: 'paddock'
+  builder?: 'paddock' | 'infield'
   unverified?: string[]
 }
 
@@ -1023,6 +1026,10 @@ export const BUILDINGS: BuildingDef[] = [
   { id: 'dunlop_office', name: '日本ダンロップ鈴鹿事務所', osmWay: 184423961, height: 7, levels: 2, anchor: { s: 5690, lateral: -182 }, colour: '#d9d6cf', roof: 'flat', unverified: ['height'] },
   { id: 'west_tower', name: '西コントロールタワー', osmWay: 184415318, height: 12, levels: 3, anchor: { s: 4225, lateral: -20.4 }, colour: COLOURS.pitFacade.mid, roof: 'flat', unverified: ['height'] },
   { id: 'circuit_plaza', name: 'CIRCUIT PLAZA', osmWay: 308666565, height: 9, levels: 2, anchor: 'terrain', colour: '#e4e0d6', roof: 'flat', unverified: ['height'] },
+  // the driving school (I5-a): a 2-storey block behind the A1 stand (OSM 466925741, 52 × 49 m,
+  // 1,545 m²) on its own practice loops (GROUND_AREAS 交通教育センター); infield-ground.ts extrudes
+  // it, the surroundings generator's OWNED set drops it from SUR_BUILDINGS
+  { id: 'stec', name: '鈴鹿サーキット交通教育センター', osmWay: 466925741, height: 8, levels: 2, anchor: 'terrain', colour: '#e4e0d6', roof: 'flat', builder: 'infield', unverified: ['height / storeys (shadow length in the aerial)'] },
 ]
 
 /**
@@ -1031,6 +1038,24 @@ export const BUILDINGS: BuildingDef[] = [
  * "医務室横"; the 2026 medical centre itself is the control pod's ground floor (PIT_BUILDING.v2).
  */
 export const HELIPAD = { s: 5566, lateral: -78, radius: 8 }
+/**
+ * The west loop's fresh asphalt (I5-a): the stretch resurfaced before the 2026 race reads darker
+ * and smoother than the rest of the lap — ground-mesh.ts writes a per-vertex `aFresh` on the
+ * road face (0 → 1 over `fade` metres at both ends, inside the range) and materials.ts
+ * `addRoadSurface` darkens the diffuse (× 0.72) and lowers the roughness (− 0.1) by it.
+ */
+export const FRESH_ASPHALT = { sRange: [3540, 4760] as [number, number], fade: 40, unverified: ['extent: the west loop (200R exit → Spoon → west straight → 130R entry) per the user\'s brief; the joints ±20 m'] }
+
+/**
+ * The second helipad (I5-a): on the Dunlop-loop paddock apron, an H inside an orange / yellow
+ * square border ≈ 20 m across in the GSI z18 aerial (misc/audit/sections/06-nippo-e1-dunlop and
+ * 15-130r-g-p, bottom right). No OSM way (aeroway is not queried); position ±5 m (unverified).
+ * `mark` picks the tile of the helipad atlas (textures.ts helipadTexture): 0 = the white circle
+ * of the pit-complex pad, 1 = the orange square of this one.
+ */
+export const HELIPAD_2 = { s: 2050, lateral: 70, radius: 10 }
+/** every helipad disc with its atlas tile — ground-mesh.ts `uvOf` maps a `helipad` face onto the nearest one */
+export const HELIPADS: { s: number; lateral: number; radius: number; mark: 0 | 1 }[] = [{ ...HELIPAD, mark: 0 }, { ...HELIPAD_2, mark: 1 }]
 
 /**
  * The grass island in the centre house's round drive (I2-a): OSM landuse=grass 469896637, a
@@ -1695,7 +1720,8 @@ export const RUNOFF_ZONES: RunoffZone[] = [
   // outside (right) = asphalt then a gravel band at its far edge; inside (left) = grass to the
   // infield hard-standing. The two were the wrong way round.
   { name: 'Spoon 1–2', sRange: [3552, 3830], left: { asphalt: [0, 5], grass: [5, 20], gravel: null }, right: { asphalt: [0, 22], grass: [35, 44], gravel: [22, 35] }, source: 'photo', unverified: ['band widths ±4 m (aerial)'] },
-  { name: 'west straight', sRange: [3830, 4329], left: { asphalt: [0, 7], grass: [7, 12], gravel: null }, right: { asphalt: [0, 7], grass: [7, 12], gravel: null }, source: 'osm' },
+  // I5-a: the left asphalt band to 7.5 — the west-course pit-exit road ring (GROUND_AREAS) starts 1.4 m off the edge, past the green strip, and the band joins the two
+  { name: 'west straight', sRange: [3830, 4329], left: { asphalt: [0, 7.5], grass: [7.5, 12], gravel: null }, right: { asphalt: [0, 7], grass: [7, 12], gravel: null }, source: 'osm' },
   { name: 'west straight (gravel)', sRange: [4329, 4521], left: { asphalt: [0, 7], grass: [7, 12], gravel: null }, right: { asphalt: [0, 4], grass: [22, 28], gravel: [4, 22] }, source: 'osm' },
   { name: 'west straight end → bridge', sRange: [4521, 4713], left: { asphalt: [0, 4.5], grass: [4.5, 12], gravel: null }, right: { asphalt: [0, 8], grass: [8, 17], gravel: null }, source: 'osm' },
   { name: '130R', sRange: [4713, 4900], left: { asphalt: [0, 7.5], grass: [7.5, 21], gravel: null }, right: { asphalt: [0, 11], grass: [29, 36], gravel: [11, 29] }, source: 'osm' },
@@ -1734,6 +1760,12 @@ export type PatchNode =
   | { edge: Side; from: number; to: number; off?: number }
   /** an OSM way's world polyline, `offset` metres to the LEFT of its own direction of travel; `verts` = the vertex index range [first, last] to use (an open wall that runs on past the area) */
   | { way: number; offset?: number; reverse?: boolean; verts?: [number, number] }
+  /**
+   * a vertex digitised in EN metres (the OSM / DEM frame, `Track.enToWorld`): the far side of an
+   * area the swept frame cannot describe — beyond a bend's radius (the Spoon infield) or across
+   * the figure-8 fold — where `[s, lateral]` would land on the wrong road or fold back on itself
+   */
+  | { en: [number, number] }
 
 
 /**
@@ -1758,6 +1790,14 @@ export type GroundFootprint =
   | { osm: number[]; sRange: [number, number]; straight?: boolean; latMax?: number; minGap?: number; /** metres the polygon is grown outward (closes the slivers between OSM polygons that share an edge; pair with a lower `layer`) */ grow?: number }
   /** an OSM polyline swept `width` metres wide (the secondary paving) */
   | { way: number; width: number; sRange?: [number, number] }
+  /**
+   * several OSM polylines chained end to end (each next way is oriented to meet the chain's
+   * end; `verts` = the vertex range of a way to use, `reverse` forces its direction) and swept
+   * `width` wide as ONE polygon — a loop road mapped as two or more ways (the driving school's
+   * practice loop): a closed chain becomes an annulus. Two sweeps that met at a junction beyond
+   * the raster were two world polygons overlapping at one layer, which the mesh cannot trace
+   */
+  | { ways: { id: number; verts?: [number, number]; reverse?: boolean }[]; width: number; sRange?: [number, number] }
   /** a lateral band on `side` from the centreline (the paddock aprons) */
   | { band: Side; sRange: [number, number]; lat: [number, number] }
   /** a disc in the lap frame (the helipad) */
@@ -1881,7 +1921,9 @@ export const GROUND_AREAS: GroundArea[] = [
   // (paddock.ts, GROUND_OBJECTS.islandKerb), not a face
   { name: 'センターハウス芝島', kind: 'grassArea', layer: 2, source: 'osm', footprint: { disc: { s: PADDOCK_ISLAND.s, lateral: PADDOCK_ISLAND.lateral, r: PADDOCK_ISLAND.radius } }, note: 'OSM landuse=grass 469896637' },
   // --- secondary paving: OSM raceways that are not the lap (props.ts used to filter OSM_RACEWAY at runtime)
-  { name: '南コース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525062, width: 10 } },
+  // 8 m (was 10): the aerial (misc/audit/sections/07-degner-under) reads an 8 m loop, and the OSM
+  // paddock aprons beside it are digitised 3.5–5.8 m from its centreline (I5-a)
+  { name: '南コース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525062, width: 8 }, unverified: ['width (aerial 07 at 0.49 m/px, ±1 m)'] },
   { name: 'カートコース', kind: 'asphaltArea', source: 'osm', footprint: { way: 153525698, width: 7 } },
   // 8 m, not 9: the loop's two legs run 9.5 m apart at their closest and a 9 m sweep drew 4 m² twice
   { name: 'OSM raceway 183393709（最終コーナー外側のループ）', kind: 'asphaltArea', source: 'osm', footprint: { way: 183393709, width: 8 }, unverified: ['width', 'purpose'] },
@@ -1958,4 +2000,177 @@ export const GROUND_AREAS: GroundArea[] = [
     footprint: { band: 1, sRange: [2262, 2378], lat: [5.9, 8.3] },
     unverified: ['width and s extent read off the photo and the aerial (07-degner-under), ±3 m'],
   },
+
+  // ================================================================ the infield ground (I5-a)
+  // Everything paved inside the perimeter fence that the tables above did not carry: the OSM
+  // highway=service area=yes hard-standings and amenity=parking lots (one OSM polygon per row —
+  // `patchOutline` chains an `osm: [a, b]` pair into ONE ring, so only touching polygons may
+  // share a row), the hand rings the aerial shows where OSM has nothing, and the service roads
+  // (`{ way, width }` sweeps; infield-ground.ts paints their dashed centre lines). Kinds:
+  // `paddock` = grey lot asphalt (car parks, aprons, hard-standings; not an A11 apron),
+  // `asphaltArea` = the darker service-road tarmac (A11 keeps signs, boards and barriers off it).
+  // Rows in the figure-8 fold are windowed (`sRange`) to the stretch they belong to; the far sides
+  // of areas beyond a bend's radius are `{ way, verts }` / `{ en }` nodes, never `[s, lateral]`.
+  // --- T1 infield and the pit-exit end ------------------------------------------------------------
+  // the D paddock: the hard-standing between the pit-exit lane and the C car park (OSM 469065002,
+  // 3,450 m²). Its vertices 0–3 lie in the road (the OSM registration is 3 m off there) and the
+  // clamped chain zig-zags, so the ring starts at vertex 4 and closes across the pit-exit merge,
+  // where the lane wins by precedence anyway
+  { name: 'D パドック', kind: 'paddock', source: 'osm', footprint: { sRange: [215, 415], straight: true, ring: [{ way: 469065002, verts: [4, 35] }] } },
+  // the two pit-exit aprons beside the course-vehicle base (OSM 469451642 / 469451657): one layer
+  // over the ピット出口ヤード band so their OSM edges, not the band's, show
+  { name: 'ピット出口エプロン 東', kind: 'paddock', layer: 1, source: 'osm', footprint: { osm: [469451642], sRange: [130, 230], straight: true } },
+  // NOTE (I5-a): the west one (469451657, s 101–175, lateral −15…−23) lies wholly under the pit
+  // lane and the garage apron (road-frame owners, higher precedence) — measured 0 % ownership in
+  // the built plan — so it is not a row
+  // the works tunnel's north portal apron on the grandstand side (OSM 469657637, s 71–133, lateral 8–25)
+  { name: '構内トンネル北口エプロン', kind: 'paddock', source: 'osm', footprint: { osm: [469657637], sRange: [65, 140], straight: true, latMax: 30 }, unverified: ['use: the paved approach to the works tunnel\'s NE portal (aerial 01, ±3 m)'] },
+  // the C paddock car park (OSM amenity=parking 469079400, 8,113 m²) around the T1–T2 retention
+  // basin, and the T3 outer lot beside it (184429450): a layer under the basin's water row, whose
+  // OSM edge they share
+  { name: 'C パドック駐車場', kind: 'paddock', layer: -1, source: 'osm', footprint: { osm: [469079400], sRange: [300, 880], straight: true } },
+  { name: 'T3 外側駐車場', kind: 'paddock', layer: -2, source: 'osm', footprint: { osm: [184429450], sRange: [850, 900], straight: true }, note: 'layer −2: shares its NE edge with the C paddock lot' },
+  // --- the E hillside and the Dunlop loop -----------------------------------------------------------
+  // the service road along the foot of the D / E terraces (OSM 467945733, s 1329–1722, lateral
+  // 7–40). The polygon also carries the footway tunnel under NIPPO (vertices 45–49 cross the road
+  // to lateral −62): the way nodes skip that spike, closing across its 4 m mouth. Along the NIPPO
+  // exit (s 1580–1706) OSM's road-side edge (lateral 6.9–8.4) lies INSIDE the guardrail the app
+  // carries there (BARRIERS nippo-exit-inside, 7.6–12): hand nodes 0.6 m behind the rail replace
+  // vertices 29–38, so the rail stands at the tarmac's edge, not in it
+  {
+    name: 'E スタンド下 管理道路', kind: 'asphaltArea', source: 'osm',
+    footprint: {
+      sRange: [1320, 1730], straight: true,
+      ring: [{ way: 467945733, verts: [50, 98] }, { way: 467945733, verts: [0, 28] }, [1706, 11], [1682, 12.6], [1660, 10.6], [1640, 8.6], [1620, 8.2], [1600, 8.7], [1580, 8.7], { way: 467945733, verts: [39, 44] }],
+    },
+    note: 'OSM highway=service area=yes + tunnel=yes: the tunnel part (vertices 45–49) is left out',
+  },
+  // the D rear apron on the plateau behind the D stands (OSM 184253118; BANK_OASIS ends at s 1360 for it)
+  { name: 'D 裏エプロン', kind: 'paddock', source: 'osm', footprint: { osm: [184253118], sRange: [1355, 1430], straight: true } },
+  // the Dunlop inner service road (OSM 467913438, s 1665–1968, lateral 8–27) with its spur to the
+  // compound at s 1683–1696 (BANK_E_HILL starts at lateral 28 for it)
+  { name: 'ダンロップ内側 管理道路', kind: 'asphaltArea', source: 'osm', footprint: { osm: [467913438], sRange: [1660, 1975], straight: true, latMax: 60 } },
+  // the Dunlop-loop paddock apron: five white sheds (OSM 184103155/156/158/159/160), a marquee
+  // and the second helipad stand on one asphalt sheet left of the Dunlop → Degner run (aerial 06)
+  {
+    name: 'ダンロップループ 舗装エプロン', kind: 'paddock', source: 'photo',
+    // the end edges are slanted a metre: an edge along one station's ray left the census a
+    // 3-sample sliver of the neighbouring grass drawn as paddock at its corner (G1)
+    footprint: { sRange: [1840, 2075], straight: true, ring: [[1851, 34], [1849, 82], [2064, 82], [2066, 60], [2030, 45], [2010, 34]] },
+    unverified: ['extent (aerial 06 / 15 at 0.49 m/px, ±5 m); extended to s 2065 so the second helipad sits on it'],
+  },
+  { name: '第 2 ヘリパッド', kind: 'helipad', layer: 1, source: 'photo', footprint: { disc: { s: HELIPAD_2.s, lateral: HELIPAD_2.lateral, r: HELIPAD_2.radius } }, unverified: ['position ±5 m (aerial 06 bottom right; no OSM way)'] },
+  // --- the crossover wedge between 130R and the Dunlop → Degner run ---------------------------------
+  // OSM maps the whole wedge as one highway=service area (467386920, 11,843 m², 122 vertices in
+  // the fold) but the aerial reads dormant grass with gravel islands there; only the service
+  // road along the area's Degner-side boundary (vertices 81–87, a 4 m strip offset into the
+  // wedge) is paved, windowed to the lower road. A matching strip behind the 130R exit-pocket
+  // tyre wall (467219910's back face, windowed to 130R) was tried and dropped: the strip lies
+  // in the fold within reach of the Dunlop stretch's rays too, which graze its 4 m end edge
+  // and leave a column inversion no station can resolve (G12 residual 46 mm)
+  {
+    name: 'デグナー側 くさびの管理道路', kind: 'asphaltArea', layer: -1, source: 'osm',
+    footprint: { sRange: [1860, 2194], straight: true, ring: [{ way: 467386920, verts: [81, 87], offset: -1 }, { way: 467386920, verts: [81, 87], offset: -5, reverse: true }] },
+    unverified: ['the OSM service-area boundary along the Degner side of the wedge; the aerial (07) reads grass beside it'],
+  },
+  // --- the Casio Triangle's right side --------------------------------------------------------------
+  // the chicane right apron as OSM has it (467417584, s 5147–5292): the hand ring above and the
+  // OSM grass 467219900 keep their measured edges (layers 0 / −1), this row carries the paving on
+  // past s 5227 to the T17 exit where the run-off band used to stop it — only that part
+  // (vertices 13–26): the OSM edges along the hand ring left a column inversion the plan could
+  // not resolve (G12 residual 1.5 m) when the whole polygon was a layer under it
+  { name: 'シケイン右 エプロン延長', kind: 'asphaltArea', layer: -2, source: 'osm', footprint: { sRange: [5140, 5300], straight: true, ring: [{ way: 467417584, verts: [14, 24] }] } },
+  // the T17-exit service road behind that grass (OSM 467223464, s 5203–5274, lateral 15–49),
+  // shrunk 0.5 m: its north edge is digitised on the grass polygon's edge vertex for vertex, and
+  // two coincident boundaries left the plan a column inversion (G12 residual) it could not snap
+  { name: 'T17 出口右 管理道路', kind: 'asphaltArea', source: 'osm', footprint: { sRange: [5195, 5285], straight: true, ring: [{ way: 467223464, verts: [7, 43] }] } },
+  // --- Spoon and the west course --------------------------------------------------------------------
+  // the Spoon infield hard-standing: the inside of the Spoon curve up to the perimeter service
+  // road that rings it (OSM 184419756, closed) — the ring is the road's centreline offset 2 m
+  // outward, so the road lies on the sheet and its dashed centre line (infield-ground.ts) 2 m in
+  // from the edge. 18,795 m² in one ring (the eye is smaller than the aerial's 250 × 180 m box
+  // suggested — the loop closes across it at s 3421 ↔ 4009). The aerial's edge (+15 at 3430,
+  // +25 at 3560–3740, +37.5 at 3780) is the loop's own edge; a wall on the inside (I4-c) belongs
+  // on the grass between the kerb and it, not on the sheet
+  { name: 'スプーン インフィールド硬地', kind: 'paddock', source: 'osm', footprint: { sRange: [3400, 4020], straight: true, ring: [{ way: 184419756, offset: 2 }] } },
+  // the west paddock apron NE of the Spoon exit, between the wall 183953793 and the hard-standing
+  // (shares the loop road's vertices 21–25 with it, offset the same 2 m)
+  {
+    name: '西パドック エプロン', kind: 'paddock', layer: 1, source: 'photo',
+    footprint: { sRange: [3890, 4110], straight: true, ring: [[3900, 15], { way: 184419756, verts: [21, 25], offset: 2, reverse: true }, [4060, 40], [4100, 15]] },
+    unverified: ['extent (aerial 13, ±3 m); the two white sheds and the block stack stand on it (I5-b)'],
+  },
+  // the west-course pit-exit road merging from the left at s 3915–3970 (aerial 13; no OSM way):
+  // the taper between the road edge and the fence 184419761, which converges from +13.6 at s 3916
+  // to +8.8 at 3973 (BARRIERS west-straight-left runs on it; the ring stays 0.3 m inside its line)
+  {
+    name: '西コース ピット出口路', kind: 'asphaltArea', layer: 2, source: 'photo',
+    // the edge run starts at s 3937, past the green strip (KERBS 'Spoon exit inside green' to
+    // 3935, a decal on the run-off band: a decal across two faces' triangulations reads buried by
+    // a few mm), and 1.4 m off the road edge so the band's own asphalt (RUNOFF 'west straight'
+    // left [0, 7.5]) joins the two; fence vertices 11–13 (s 3973 → 3939) close it
+    footprint: { sRange: [3930, 3980], straight: true, ring: [{ edge: 1, from: 3937, to: 3972, off: 1.4 }, { way: 184419761, verts: [11, 13], offset: 0.3 }] },
+    unverified: ['aerial 13: "8 m road merging from the left between 3915–3970 with wall 183953793 on its track side" — read here as the wedge inside the OSM fence (±2 m)'],
+  },
+  // NOTE (I5-a): the west-course pit apron (OSM highway=service area=yes 468377672, s 4180–4207,
+  // lateral −2.5…−9) lies inside the track's own width where OSM is registered 3 m off; after the
+  // road's precedence 17 m² would remain (A9 minimum 20), so it is not a row
+  // the west-course paddock car parks (OSM amenity=parking 184415332 / 184415335, s 4270–4355,
+  // lateral −68…−161): the aerial's "South-course paddock car park" is these two lots
+  { name: '西パドック駐車場 東', kind: 'paddock', source: 'osm', footprint: { osm: [184415332], sRange: [4260, 4360], straight: true } },
+  { name: '西パドック駐車場 西', kind: 'paddock', layer: 1, source: 'osm', footprint: { osm: [184415335], sRange: [4260, 4360], straight: true }, note: 'layer 1: the two lots share their common edge' },
+  // the south course's paddock aprons (OSM 467572919 / 467572920 / 468377676), 190–270 m out,
+  // shrunk 1 m: OSM digitised their edges 3.5–5.8 m from the raceway's centreline (the loop is
+  // 8 m wide in the aerial, so 南コース above sweeps 8), and a world polygon touching the ribbon
+  // is drawn twice with it at one layer (G2) or leaves arcs the mesh cannot trace at another
+  // (G12) — a strip of ground separates them from the ribbon instead
+  { name: '南コース パドックエプロン 北', kind: 'paddock', source: 'osm', footprint: { osm: [467572919], sRange: [4440, 4580], straight: true, grow: -1 } },
+  { name: '南コース パドックエプロン 南', kind: 'paddock', source: 'osm', footprint: { osm: [467572920], sRange: [4440, 4580], straight: true, grow: -1 } },
+  { name: '南コース ガレージ前', kind: 'paddock', source: 'osm', footprint: { osm: [468377676], sRange: [4440, 4580], straight: true, grow: -1 } },
+  // --- the 200R and the Spoon's outside -------------------------------------------------------------
+  // the L yard: the paved lot behind the 200R-exit guardrail (BARRIERS l-yard-edge) where the
+  // temporary L stand goes up; its inner edge 0.6 m behind the rail, its east end short of the L stand
+  {
+    name: 'L ヤード', kind: 'paddock', source: 'photo',
+    footprint: { sRange: [3290, 3470], straight: true, ring: [[3300, -15.6], [3330, -21.4], [3400, -34], [3462, -31.5], [3462, -45], [3300, -45]] },
+    unverified: ['extent (aerial 11: ~75 × 115 m at −12…−45 over 3300–3480, ±3 m)'],
+  },
+  // the 5 m service strip behind the 200R right guardrail (aerial 11), leading to the officials' building
+  { name: '200R 管理帯', kind: 'asphaltArea', layer: -1, source: 'photo', footprint: { band: -1, sRange: [3200, 3260], lat: [-15, -10] }, unverified: ['aerial 11 (±2 m)'] },
+  // the service road behind the Spoon outside walls (184104883 / 184104881: 2–4 m behind their
+  // line) and the paved area at −52…−76 under the M stand site (aerial 12)
+  {
+    name: 'スプーン外側 管理道路', kind: 'asphaltArea', source: 'photo',
+    footprint: {
+      sRange: [3590, 3780], straight: true,
+      ring: [[3600, -44.5], [3630, -44.5], [3660, -44.5], [3680, -45], [3700, -45.5], [3720, -49], [3740, -48.5], [3755, -45], [3770, -41], [3770, -76], [3745, -76], [3720, -76], [3700, -53], [3680, -52], [3660, -51.5], [3630, -51], [3600, -50.5]],
+    },
+    unverified: ['aerial 12 (±3 m): "a light 4–6 m service road behind the wall (−45…−52), a paved area −52…−76 (3720–3770)"'],
+  },
+  // the Degner-east car park on the approach to the crossover (OSM amenity=parking 184410563)
+  { name: 'デグナー東 駐車場', kind: 'paddock', source: 'osm', footprint: { osm: [184410563], sRange: [2240, 2310], straight: true, latMax: 100 } },
+  // the small lot behind the Spoon's outside (OSM amenity=parking 183953784, 269 m², 100 m out)
+  { name: 'スプーン駐車場', kind: 'paddock', source: 'osm', footprint: { osm: [183953784], sRange: [3740, 3770], straight: true } },
+  // --- the driving school (交通教育センター) behind the A1 stand --------------------------------------
+  // its practice loop: the outer loop road is two OSM service ways (1461954354 from its vertex 4
+  // — vertices 0–3 are a stub towards the road outside the ring — round to 1489655892, which
+  // closes it on that vertex), chained into ONE 8 m annulus (the aerial reads a two-lane practice road); three 20 m
+  // skid-pad discs inside it. The three cross roads inside the loop (1461954352 / 1461954353 /
+  // 1461954355) are not rows: they meet the loop and each other at junctions, and two world
+  // polygons overlapping at one layer leave arcs the mesh cannot trace (G12 untracedArcs)
+  { name: '交通教育センター 周回路', kind: 'asphaltArea', source: 'osm', footprint: { ways: [{ id: 1461954354, verts: [4, 19] }, { id: 1489655892 }], width: 8, sRange: [0, 120] }, unverified: ['width'] },
+  { name: '交通教育センター スキッドパッド 1', kind: 'paddock', source: 'photo', footprint: { disc: { s: 168, lateral: 88, r: 10 } }, unverified: ['position: the triangular pad NE of the pit exit (aerial 01 / 02), ±8 m'] },
+  { name: '交通教育センター スキッドパッド 2', kind: 'paddock', source: 'photo', footprint: { disc: { s: 190, lateral: 80, r: 10 } }, unverified: ['as pad 1'] },
+  { name: '交通教育センター スキッドパッド 3', kind: 'paddock', source: 'photo', footprint: { disc: { s: 188, lateral: 106, r: 10 } }, unverified: ['as pad 1'] },
+  // --- the service roads (4 m, dashed centre line; SUR_ROADS drops ribbons within 76 m of the lap)
+  // the T1-infield road along the inside wall from the pit exit to T3 (1420756725), the road
+  // behind the A2 stands (470173099), the perimeter road behind A2 / B / C (184120107) and the
+  // road behind the C terrace and D5 (468709099)
+  // (layers: the T1 road runs across the D paddock — a later row at the same layer, it wins
+  // there — and under the pit-exit apron's layer 1; the perimeter road meets the other two at
+  // junctions, so they nest above it)
+  { name: '管理道路 T1 インフィールド', kind: 'asphaltArea', source: 'osm', footprint: { way: 1420756725, width: 4, sRange: [140, 890] } },
+  { name: '管理道路 A2 裏', kind: 'asphaltArea', layer: 1, source: 'osm', footprint: { way: 470173099, width: 4, sRange: [80, 550] } },
+  { name: '管理道路 外周（A2・B・C 裏）', kind: 'asphaltArea', source: 'osm', footprint: { way: 184120107, width: 4 } },
+  { name: '管理道路 C・D5 裏', kind: 'asphaltArea', layer: 2, source: 'osm', footprint: { way: 468709099, width: 4, sRange: [570, 1335] } },
 ]

@@ -420,20 +420,33 @@ export function addRoadSurface(mat: THREE.MeshStandardMaterial, macroScale: THRE
     shader.uniforms.uDetail = { value: detail.map }
     shader.uniforms.uDetailNormal = { value: detail.normalMap! }
     shader.uniforms.uDetailScale = { value: detailScale }
+    // `aFresh` (I5-a): the west loop's fresh asphalt, a per-vertex 0–1 the road face carries
+    // (ground-mesh.ts, FRESH_ASPHALT); a geometry without the attribute reads 0 (WebGL's disabled
+    // attribute value), so the run-off bands, the areas and the pit lane share this one program
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        attribute float aFresh;
+        varying float vFresh;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vFresh = aFresh;`)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform sampler2D uMacro;
         uniform vec2 uMacroScale;
         uniform sampler2D uDetail;
         uniform sampler2D uDetailNormal;
-        uniform vec2 uDetailScale;`)
+        uniform vec2 uDetailScale;
+        varying float vFresh;`)
       .replace('#include <map_fragment>', `#include <map_fragment>
         // ±7 %: the old ±15 % read as blotches at overview scale (2026-09 audit)
         float macro = 1.0 + (texture2D(uMacro, vMapUv * uMacroScale).r * 1.25 - 1.0) * 0.45;
         // mean-1.0 multiplier: its mips converge to 1.0, so the grain fades out on its own
-        diffuseColor.rgb *= macro * (texture2D(uDetail, vMapUv * uDetailScale).r * 2.0);`)
+        diffuseColor.rgb *= macro * (texture2D(uDetail, vMapUv * uDetailScale).r * 2.0);
+        // fresh asphalt: darker, and its macro variation is not there yet
+        diffuseColor.rgb *= mix(1.0, 0.72, vFresh);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));`)
+        roughnessFactor *= mix(0.92, 1.08, clamp((macro - 0.85) / 0.3, 0.0, 1.0));
+        roughnessFactor -= 0.1 * vFresh;`)
       // Perturb AFTER the chunk rather than inside it: onBeforeCompile sees `#include` directives
       // (resolveIncludes runs later), and appending keeps this independent of the chunk's internals.
       // `mapN` and `tbn` are both declared in main()'s scope by normal_fragment_begin /

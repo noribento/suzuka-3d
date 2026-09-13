@@ -92,6 +92,13 @@ if (ADD_FROM !== null && !ROLE_BY_ID.size) {
  */
 const EXTRA_WAYS = [175231859, 34096664, 411291884, 467219905, 183309812, 34096665]
 /**
+ * The service roads inside the fence that GROUND_AREAS sweeps as paving (I5-a, role 'road'):
+ * the T1-infield / T2 / paddock service roads with their dashed centre lines and the driving
+ * school's (交通教育センター) practice loops. Spliced from the cached surroundings response with
+ * `--add-ways-from … --role "road:…"` and kept by id across a full regeneration like EXTRA_WAYS.
+ */
+const SERVICE_ROAD_WAYS = [184120107, 468709099, 1420756725, 184419756, 470173099, 411303620, 1489655892, 1461954352, 1461954353, 1461954354, 1461954355]
+/**
  * Ways inside the fence that the tag filter does not select either, spliced in from the cached
  * surroundings response with `--add-ways-from … --role …` (2026-09-11) and kept by id across a
  * full regeneration. roleOf() classifies them the same way the --role argument did:
@@ -139,6 +146,7 @@ const QUERY = `[out:json][timeout:180];
   way[name~"サーキット"](${BBOX});
   node[name~"サーキット"](${BBOX});
   way(id:${EXTRA_WAYS.join(',')});
+  way(id:${SERVICE_ROAD_WAYS.join(',')});
   way(id:${SPLICED_IDS.join(',')});
 );
 out body geom;`
@@ -500,7 +508,7 @@ for (const el of json.elements) {
   if (!f) continue
   const named = !!f.tags.name
   const far = ['building', 'attraction', 'man_made', 'named'].includes(f.role)
-  if (f.dmin <= NEAR || STAND_ID_BY_WAY.has(f.id) || f.role === 'pit_building' || f.role === 'ferris_wheel' || f.role === 'leader_tower' || EXTRA_WAYS.includes(f.id) || SPLICED_IDS.includes(f.id)) features.push(f)
+  if (f.dmin <= NEAR || STAND_ID_BY_WAY.has(f.id) || f.role === 'pit_building' || f.role === 'ferris_wheel' || f.role === 'leader_tower' || EXTRA_WAYS.includes(f.id) || SERVICE_ROAD_WAYS.includes(f.id) || SPLICED_IDS.includes(f.id)) features.push(f)
   else if (named && far && f.dmin <= NEAR_NAMED) features.push(f)
 }
 features.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.id - b.id)

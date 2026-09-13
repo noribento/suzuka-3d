@@ -21,7 +21,7 @@ import { sweepKerb } from './lanes'
 import { latticeGeometry } from './lattice'
 import { assetAspect, cutoutFromAssets, cutoutParams, pbrFromAssets, tileMetres } from './materials'
 import { canopyTopAt } from './pit-building'
-import { addMerged, canvas, enMatrix, frameAt, pitMaterials, slice, tex } from './pit-geometry'
+import { addMerged, canvas, enMatrix, extrudeFootprint, frameAt, pitMaterials, slice, tex } from './pit-geometry'
 import { glbOr, packProp, procProp, propMaterial, type PropProto } from './props-pack'
 import { chainLinkTexture } from './textures'
 import type { LanePoint } from './trackside'
@@ -1295,20 +1295,19 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
     const capGeos: THREE.BufferGeometry[] = []
     const wallGeos: THREE.BufferGeometry[] = []
     for (const b of BUILDINGS) {
-      if (b.osmWay === null || b.builder === 'paddock') continue
+      // 'paddock' rows are the dossier buildings above; 'infield' rows are infield-ground.ts's
+      if (b.osmWay === null || b.builder !== undefined) continue
       const f = osmFeature(b.osmWay)
       if (!f) continue
       let base: number
       if (b.anchor === 'terrain') {
         const [ce, cn] = f.en.reduce(([ae, an], [e, n]) => [ae + e / f.en.length, an + n / f.en.length], [0, 0])
         track.enToWorld(ce, cn, _p)
-        base = ground.standY(_p.x, _p.z) - 0.5
-      } else base = standWorld(b.anchor.s, b.anchor.lateral) - 0.5
-      const shape = new THREE.Shape(f.en.map(([e, n]) => new THREE.Vector2(e, n)))
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: b.height + 0.5, bevelEnabled: false })
-      geo.applyMatrix4(enMatrix(track, base))
-      for (const g of geo.groups) (g.materialIndex === 0 ? capGeos : wallGeos).push(slice(geo, g.start, g.count))
-      geo.dispose()
+        base = ground.standY(_p.x, _p.z)
+      } else base = standWorld(b.anchor.s, b.anchor.lateral)
+      const ext = extrudeFootprint(track, f.en, base, b.height)
+      capGeos.push(...ext.cap)
+      wallGeos.push(...ext.walls)
     }
     add(wallGeos, whiteMat, 'paddockBuildings', true)
     add(capGeos, opts.buildingRoofMat, 'paddockRoofs', true)

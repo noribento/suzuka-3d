@@ -383,6 +383,7 @@ const osmRefs = (row) => {
   const take = (v) => (Array.isArray(v) ? ids.push(...v.filter((n) => typeof n === 'number')) : typeof v === 'number' && ids.push(v))
   for (const k of ['osmWay', 'osm', 'way']) take(row?.[k])
   if (row?.footprint) for (const k of ['osm', 'way']) take(row.footprint[k])
+  for (const w of row?.footprint?.ways ?? []) take(w?.id)
   for (const node of row?.footprint?.ring ?? []) take(node?.way)
   return ids
 }
@@ -1282,7 +1283,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     demBytes = fs.statSync(demPath).size
   } else console.log('\nsuzuka-dem.ts not present yet — DEM header / size not checked')
   const surBytes = fs.statSync(surPath).size
-  const CAP = 1024 * 1024
+  // I5-a: 1,150,000 (was 1 MiB) — the same ceiling as perf-budgets.json data.generatedBytes, raised when the three generated files reached 1,023,525 B together
+  const CAP = 1150000
   if (surBytes + demBytes > CAP) fail(`suzuka-surroundings.ts (${surBytes}) + suzuka-dem.ts (${demBytes}) = ${surBytes + demBytes} bytes, over the ${CAP} byte cap`)
 
   console.log('\nsurroundings')

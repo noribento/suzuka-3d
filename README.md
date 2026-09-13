@@ -82,9 +82,9 @@ node scripts/audit/osm-edge.mjs 400 960 1 469261663   # OSM way の track 側の
 写真と突き合わせてから `node scripts/audit/shoot.mjs` でシーンを撮ります。
 表の行が指す OSM way が `suzuka-facilities.ts` に無ければ `facilities-check` §6 が `--strict` で error にします。
 bbox クエリのタグ条件に掛からない way（柵内の highway=service + area=yes の硬地 `apron`、amenity=parking の
-`parking`、歩行者・構内のトンネル `tunnel`、歩道橋 `footbridge`、切通しの道路 `road`）は
+`parking`、歩行者・構内のトンネル `tunnel`、歩道橋 `footbridge`、切通しの道路と柵内の管理道路・教習コース `road`）は
 `build-facilities.mjs --add-ways-from .cache/overpass/surroundings.json --role "<役割>:<id,…>"` で
-キャッシュ済みの Overpass 応答から網なしで差し込みます（`SPLICED_WAYS` に載せておくとフル再生成でも残ります）。
+キャッシュ済みの Overpass 応答から網なしで差し込みます（`SPLICED_WAYS` / `SERVICE_ROAD_WAYS` に載せておくとフル再生成でも残ります）。
 後ろへ行くほど高価で、後ろへ行くほど真実に近く、最初の 2 つは GPU もネットワークも要りません。タイル・モザイクは `.cache/audit/`（gitignore）に
 置き、リポジトリには入れません。撮影は 2017–2020 年なので、2024 年以降の変更（緑帯・塗装・仮設
 スタンド・乾いた調整池）はユーザーの実写（`misc/ref/user/`、gitignore）を正とします。
@@ -190,7 +190,7 @@ app/
     useTrackGeometry.ts        # コース形状の SVG パス（トラックマップとドライバートラッカーで共有）
   data/
     suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム（DEM5A）、レーシングラインのピン、コーナー速度目標、DRS、ピット
-    suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ・柵内の硬地 apron／駐車場 parking／歩行者トンネル tunnel／歩道橋 footbridge、ODbL、生成物）
+    suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ・柵内の硬地 apron／駐車場 parking／歩行者トンネル tunnel／歩道橋 footbridge／柵内の管理道路と教習コース road（SERVICE_ROAD_WAYS）、ODbL、生成物）
     suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット（手書き）
     suzuka-barriers-spec.ts    # 全周のバリア run（`BARRIERS` 73 本: I4-c で色・上部レール・写真窓・門・面塗装・広告帯のフィールド、`AD_PANELS` 5、`SIGNS` の pitEntry）・実在する縁石／緑帯・白線・二輪路・マーシャルポスト v2（`MARSHAL_POSTS` 32 行 + `marshalNumbers()` + `TRACKSIDE_CCTV`）・`TV_CAMERAS`・調整池（手書き、OSM way id 参照）
     suzuka-power.ts            # 送電鉄塔・架線（OSM、生成物）
@@ -262,7 +262,7 @@ app/
     marshal-posts.ts           # マーシャルポスト v2（I4-a）: 架台上のキャビン 28 + 低ポスト 3（`registerPropSet 'infield-marshal-cabins'`、GLB の警備ブース／消火器が近景）、番号板 29（`marshalNumbers` メッシュ、8 × 4 アトラス）、消灯 EM パネル 30（`emPanels` IM、発光無し）、PTZ CCTV 42（`cctvPoles` / `cctvHeads`）、旗架・消火器・キャビネット。「マーシャルポスト v2」参照
     tv-towers.ts               # TV カメラ塔（I4-b: TV_CAMERAS の行ごとに足場塔／格子塔／黄クレーン柱／ポール、天板・手摺・梯子・三脚・カメラヘッド（security_camera_01 の glbOr）、操作者 1 人、registerPropSet 'infield-towers' / 'infield-tower-cams'、group.userData.tvLenses。「TV タワーとレンズ」参照）
     tv-lens.ts                 # TV レンズ点の唯一の解決（純関数）: cameraSide、'auto' 横位置 = バリア線 + 2.5、tvLensAt（塔中心・レンズ・世界座標）、TV_LENS / TV_TOWER_FOOTPRINT — 塔ビルダー・カメラリグ・facilities-check O7・smoke が同じ数を読む
-    infield-ground.ts          # インフィールドの施設・壁・柵・池の岸・西／南コースのピット・車・街灯（I5。地面そのものは GROUND_AREAS の行が描く。I0 は入口のみ）
+    infield-ground.ts          # インフィールドの地面の上の物（I5）: I5-a = 管理道路・教習コースの破線中央線デカール（`wayLineDecal`、LAYER.verge.line、面の無い所・路面・段差の上は塗らない）と BUILDINGS `builder: 'infield'` の押出し（交通教育センター）。地面そのものは GROUND_AREAS の行が描く（README「柵の内側の地面行」）。施設・壁・柵・池の岸・車・街灯は I5-b/c
     cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
     infield-lod.ts             # 小物セットの LOD と実体化 registerPropSet（250 m セル × 段ごとに 1 InstancedMesh、GLB の近景 → 手続きの遠景 → 空、近景だけが影を落とす、低ティアは 1 バケット）、周回柵の内外判定 insideRing（OSM 775428456）
@@ -1041,6 +1041,69 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   （3 : 1 セルの文字が遠景で潰れないこと）、タイヤ積みの GLB ↔ トーラス切替（120 m）とスタックの影の無さ、写真窓の枠が金網から
   浮かないこと、橋の化粧板 2 m が桁の影で暗くならないこと、青白ビームの縞。
 
+### 柵の内側の地面行
+
+I5-a は柵の内側で舗装されているのに何も描いていなかった面を `GROUND_AREAS` の行にしました（`app/data/suzuka-facilities-spec.ts`
+「the infield ground (I5-a)」以降の 33 行）。地面の契約（R1〜R14）どおり、行が言えるのは「何が・どこに」だけです。原則: **OSM
+ポリゴン 1 面 = 1 行**（`patchOutline` は `osm: [a, b]` を 1 つのリングに繋ぐので、接している面しか同居できない）、20 m² < A <
+20,000 m²、fold を跨ぐ形は `{ way, verts }` ノード、曲がりの半径より外は `{ en: [E, N] }` ノード（I5-a で `PatchNode` に追加、
+`track.enToWorld`）、s の射影が曖昧な行は必ず `sRange` の窓。kind は `paddock` = 灰の駐車場アスファルト（A11 の `pavedApronAt`
+対象外）、`asphaltArea` = 管理道路の濃いタール舗装（A11 が看板・ボード・バリアを寄せつけない）、`helipad`、`gravelArea`。
+
+| 行 | kind / layer | footprint | 根拠 |
+|---|---|---|---|
+| D パドック | paddock | `{ way: 469065002, verts: [4, 35] }`（頂点 0–3 は路面の中: 登録が 3 m ずれている） | OSM |
+| ピット出口エプロン 東 | paddock L1 | osm 469451642 [130, 230] | OSM。西 469451657 はピットレーンとエプロンの下（所有 0 %）なので行にしない |
+| 構内トンネル北口エプロン | paddock | osm 469657637 [65, 140] latMax 30 | OSM、用途 unverified |
+| C パドック駐車場 / T3 外側駐車場 | paddock L−1 / L−2 | osm 469079400 [300, 880] / 184429450 [850, 900] | OSM（池の行と辺を共有するので下の layer） |
+| E スタンド下 管理道路 | asphaltArea | 467945733 の `{ way, verts }` 2 本 + 手ノード 7（NIPPO 出口の路側は guardrail の 0.6 m 裏） | OSM（トンネル部 45–49 を除く） |
+| D 裏エプロン | paddock | osm 184253118 [1355, 1430]（BANK_OASIS を 1360 で切る） | OSM |
+| ダンロップ内側 管理道路 | asphaltArea | osm 467913438 [1660, 1975] latMax 60（BANK_E_HILL を lateral 28 から） | OSM |
+| ダンロップループ 舗装エプロン | paddock | ring (1851, 34) (1849, 82) (2064, 82) (2066, 60) (2030, 45) (2010, 34) | 空撮 06 / 15、±5 m |
+| 第 2 ヘリパッド | helipad L1 | disc `HELIPAD_2` (2050, 70, r 10)、アトラス 2 枚目（橙の四角枠） | 空撮 06、±5 m |
+| デグナー側 くさびの管理道路 | asphaltArea L−1 | 467386920 頂点 81–87 を −1 / −5 m オフセットした 4 m 帯 [1860, 2194] | OSM の service area 境界。130R 側の帯は G12 residual で断念 |
+| シケイン右 エプロン延長 / T17 出口右 管理道路 | asphaltArea L−2 / L0 | `{ way: 467417584, verts: [14, 24] }` / `{ way: 467223464, verts: [7, 43] }` | OSM（端の頂点を落として列の反転を消す） |
+| スプーン インフィールド硬地 | paddock | `{ way: 184419756, offset: 2 }`（周回管理道路の外縁）、18,795 m² | OSM。空撮の縁 +15 @3430 → +25 → +37.5 はこのループの縁。1 リングで足りるので 3 分割しない |
+| 西パドック エプロン / 西コース ピット出口路 | paddock L1 / asphaltArea L2 | ring [3900, 15] + ループ頂点 21–25 (offset 2) + [4060, 40] [4100, 15] / edge 3937–3972 off 1.4 + フェンス 184419761 頂点 11–13 | 空撮 13、±3 m |
+| 西パドック駐車場 東 / 西 | paddock L0 / L1 | osm 184415332 / 184415335 [4260, 4360] | OSM（空撮の「南コースパドック駐車場」はこの 2 面） |
+| 南コース パドックエプロン 北 / 南 / ガレージ前 | paddock | osm 467572919 / 467572920 / 468377676 `grow: -1` | OSM（縁が 8 m ループの中心線から 3.5–5.8 m: 南コースの幅を 10 → 8 に） |
+| L ヤード | paddock | ring [3300, −15.6] … [3462, −45]（l-yard-edge の 0.6 m 裏、L 席の手前） | 空撮 11、±3 m |
+| 200R 管理帯 | asphaltArea L−1 | band −1 [3200, 3260] lat [−15, −10] | 空撮 11 |
+| スプーン外側 管理道路 | asphaltArea | ring 17 点（壁 184104883/881 の 2–4 m 裏 → [3720…3770, −76]） | 空撮 12、±3 m |
+| デグナー東 駐車場 / スプーン駐車場 | paddock | osm 184410563 [2240, 2310] latMax 100 / 183953784 [3740, 3770] | OSM |
+| 交通教育センター 周回路 | asphaltArea | `{ ways: [{ id: 1461954354, verts: [4, 19] }, { id: 1489655892 }], width: 8 }`（I5-a で追加した連結 way の足跡: 閉じた鎖は環になる） | OSM。内側の 3 本 (1461954352/353/355) は交差点で重なるので行にしない |
+| 交通教育センター スキッドパッド 1–3 | paddock | disc (168, 88) (190, 80) (188, 106) r 10 | 空撮 01 / 02、±8 m |
+| 管理道路 4 本 | asphaltArea | `{ way, width: 4 }`: 1420756725（T1 インフィールド [140, 890]）、470173099（A2 裏 [80, 550]、L1）、184120107（外周 A2・B・C 裏、窓無し）、468709099（C・D5 裏 [570, 1335]、L2） | OSM `SERVICE_ROAD_WAYS`（`build-facilities.mjs --add-ways-from … --role road`） |
+
+- **落とした行**（計画にあったもの）: 西コース ピットエプロン 468377672（路面の中、残り 17 m² < A9 の 20）、ピット出口エプロン 西、
+  130R 出口タイヤバリア裏の帯（fold の中で Dunlop 側の駅の光線がその 4 m の端を掠め、G12 residual 46 mm）、南コース駐車場の手描き
+  リング（空撮の白枠は西パドック駐車場 184415332/335 そのもの）、200R 越しの 411303620（L ヤードの中、s 3481 でトンネル）、教習
+  コース内側の 3 本。
+- **破線中央線**: `infield-ground.ts wayLineDecal(ground, track, way | ways, 0.15, [3, 3])` — way の折れ線に沿って 3 m 毎の破線を
+  ≤ 2 m の quad に切り、`ground.decal` で面の三角形に乗せ（`LAYER.verge.line` 16 mm、`markDecal`）、面が無い所・路面フレームの面・
+  0.25 m 毎の標本で 8 cm 以上段差のある所・面のソース（ラスター／ワールド／ステッチ）が跨がる所は塗らない（C 席の段の上で 5 mm
+  埋まった）。`stats.infield`: wayLineM ≈ 1,875 m、skipped ≈ 420 m、uncovered 0。`infield-wayLines-<way>` 5 メッシュ。
+- **交通教育センター**: BUILDINGS `stec`（OSM 466925741、8 m、2 階、`anchor 'terrain'`、`builder: 'infield'`）を
+  `pit-geometry.ts extrudeFootprint()`（paddock.ts の v1 押出しも同じ関数）で `infield-buildings` / `infield-buildingRoofs` に。
+  `build-surroundings.mjs --offline` で SUR_BUILDINGS から落ちる（OWNED）。
+- **西ループの新舗装（aFresh）**: `FRESH_ASPHALT`（s 3540–4760、両端 40 m の smoothstep、unverified）を `ground-mesh.ts` が
+  `ground:road` の頂点属性 `aFresh` に書き、`materials.ts addRoadSurface` が `diffuse *= mix(1, 0.72, aFresh)`、roughness −0.1·aFresh
+  で読む。同じ `'macro|road'` プログラム（属性の無いジオメトリは 0 を読む）、program +0。`asphaltArea` は `lane` と分かれて自前の材質に:
+  高ティアは `Asphalt033`（2.5 m タイル、`pbrFromAssets + addMacro` = paddock と同じ 'macro' プログラム）、無パックは 0x8c8c8a。
+- **ヘリパッド 2 面**: `helipadTexture()` は 2 タイルのアトラス（左 = 白丸の H、右 = 橙の四角枠の H）になり、`uvOf` は最寄りの
+  `HELIPADS[].mark` のタイルに写す（材質 1 つ、program +0）。
+- **計測**（surface-check `--suggest`、high）: G1 mismatch 0、G2 0、G5 jumps 231（上限 313、不変）、G9 0、G12 residual 0 / untraced 0。
+  ALLOWANCES 'P6i'（理由は既存の `WHY.infieldRings` / `demCurvature`）: G3 `ground:asphaltArea` 0 → 3.87 %（上限 4.07、E スタンド下の
+  管理道路が D/E の段を弦で渡る、max 3.7 m）、`ground:water` 8.7 → 10.86（11.41、C パドックが池の岸に駅を入れる）；G4 `.steep`
+  asphaltArea 19 → 1,899（1,994）、paddock 257 → 2,987（3,137）、helipad 0 → 2（3）、grass 1,559 → 1,800（1,890）、asphaltBand 267 →
+  321（338）、gravelBand 42 → 53（56）、lane 44 → 51（54）、gravelArea 62 → 153（161: 南コースの幅で 130R グラベルのワールド部が
+  三角形分割し直された）。**起動コスト**（Node、行の追加だけで）: プラン 8.7 → 18.9 s（高）/ 10.6 → ≈ 22 s（低）、メッシュ 7.9 → 15.1 s
+  （高）。駅 8,633 → 11,694（crossings 1,275 → 2,116、snapped 2,087 → 3,405）、パス 1,210 → 1,940 で pass-detect / pass-eval が 2.5 倍。
+  計画の見込み +1.5〜2.5 s を大きく超えており、低ティアの `setupMs`（perf-gate 19.4 s WARN / 29.1 s FAIL）は I7 の実測で判断が
+  要る — P7 のラスター精緻化と同時に、リングの箱に光線が届く駅だけを候補にする剪定が要る。`infield-smoke.mjs` が差分を印字する。
+- **ガードで直したもの**: `ground-mesh.ts Pool` の 1 mm 丸め境界を跨ぐ重複頂点（G9 crackY、C 席裏の管理道路）、`resolveFootprint`
+  の way の連続重複頂点（掃引の零長セグメント）。
+
 ## GPU で確認すること
 
 このリポジトリの検証はすべてソフトウェア描画（SwiftShader）で行っているため、高品質ティアの見た目は実 GPU で確認してください
@@ -1102,6 +1165,12 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   で −x = トラック向きに回してある — 窓面が本当にトラックを向くか）↔ 手続き本体 2.5 m の 120 m 切替の飛び、番号板の数字が chase / TV
   から読めること（板は柵柱の走行側 0.08 m、金網と z-fight しないこと）、消灯パネルの LED ドット面が黒枠から浮かず反射で緑に見えないこと、
   赤白帯の 5 周期が四隅で切れないこと、架台 + 本体の影と 6 m の CCTV ポールの細さ（1 km 先で消えてよい）
+- 柵の内側の地面行（I5-a）: 西ループ（s 3540–4760）の `aFresh` 新舗装が両端 40 m で滑らかに濃くなり、macro の斑と detail の骨材が
+  その上でも読めること（0.72 倍が黒つぶれしないこと、roughness −0.1 の艶が反転 Z の反射で白飛びしないこと）、`asphaltArea` の
+  `Asphalt033`（2.5 m タイル、法線 0.8）が paddock の `asphalt_04` より濃く粗く見え、南コース・管理道路・教習コースで 13 × 20 m の
+  ワールド uv にモアレが出ないこと、破線中央線（16 mm）が反転 Z で管理道路の面と z-fight せず 300 m 先でも残ること、第 2 ヘリパッド
+  の橙の四角枠と H がアトラスの左タイル（白丸）と混ざらないこと（ClampToEdge の継ぎ目）、C パドック駐車場・スプーン硬地・L ヤードの
+  灰アスファルトが DEM の起伏で段になって見えないこと（P7 まで 2 m ラスターの弦）
 - `node scripts/perf-probe.mjs --gpu` で draw call と三角形数を採取し、`.perf/` の SwiftShader 値と比較
 
 ## Simulation notes

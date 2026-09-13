@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { type Side } from '~/data/suzuka-facilities-spec'
-import { HELIPAD } from '~/data/suzuka-facilities-spec'
+import { FRESH_ASPHALT, HELIPADS } from '~/data/suzuka-facilities-spec'
 import { CIRCUIT } from '~/data/suzuka'
-import type { Track } from '~/sim/track'
+import { forwardDelta, signedDelta, type Track } from '~/sim/track'
 import { ASPHALT_TILE_M, ASPHALT_WIDTH_M } from './textures'
 import {
   DECK_SHOULDER, PRECEDENCE, ROAD_FRACTIONS, RULE_OF, STRIP_DROP, inRing, inWorldRing, kerbAt, kerbProfileHeight, ownerBeats,
@@ -151,13 +151,26 @@ class Pool {
   private xzKey(x: number, z: number): string {
     return `${Math.round(x * 1e3)}|${Math.round(z * 1e3)}`
   }
+  /**
+   * The vertex within 1 mm of world (x, z), if any: the exact key first, then the eight cells
+   * around it — a world-part vertex and the station vertex it lands on can straddle a rounding
+   * boundary of the 1 mm grid (0.04 mm apart, keys one cell apart), and two vertices there
+   * are a crack the seam guard (G9) sees at 0.1 mm (I5-a, the service road behind the C stand)
+   */
+  private nearXZ(x: number, z: number): number | undefined {
+    const kx = Math.round(x * 1e3), kz = Math.round(z * 1e3)
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const idx = this.xz.get(`${kx + dx}|${kz + dz}`)
+      if (idx !== undefined && Math.hypot(this.x[idx]! - x, this.z[idx]! - z) <= 1e-3) return idx
+    }
+    return undefined
+  }
   /** a vertex that is not on a station: keyed on its world position */
   addWorld(x: number, y: number, z: number, s: number, lateral: number): number {
-    const k = this.xzKey(x, z)
-    let idx = this.xz.get(k)
+    let idx = this.nearXZ(x, z)
     if (idx !== undefined) return idx
     idx = this.x.length
-    this.xz.set(k, idx)
+    this.xz.set(this.xzKey(x, z), idx)
     this.x.push(x); this.y.push(y); this.z.push(z); this.s.push(s); this.lat.push(lateral)
     return idx
   }
@@ -168,12 +181,11 @@ class Pool {
     const k = this.key(i, lateral)
     let idx = this.keys.get(k)
     if (idx !== undefined) return idx
-    const kx = this.xzKey(x, z)
-    idx = this.xz.get(kx)
+    idx = this.nearXZ(x, z)
     if (idx !== undefined) { this.keys.set(k, idx); return idx }
     idx = this.x.length
     this.keys.set(k, idx)
-    this.xz.set(kx, idx)
+    this.xz.set(this.xzKey(x, z), idx)
     this.x.push(x); this.y.push(y); this.z.push(z); this.s.push(s); this.lat.push(lateral)
     return idx
   }
@@ -1442,7 +1454,13 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       }
       case 'pitApron': out[0] = (-lat + pit.laneOffset - pit.laneWidth / 2) / 6; out[1] = s / 4; return
       case 'deckShoulder': out[0] = off / DECK_SHOULDER; out[1] = s / 10; return
-      case 'helipad': out[0] = 0.5 + (s - HELIPAD.s) / (2 * HELIPAD.radius); out[1] = 0.5 + (lat - HELIPAD.lateral) / (2 * HELIPAD.radius); return
+      case 'helipad': {
+        // the nearest pad's tile of the helipad atlas (textures.ts helipadTexture: two tiles along u)
+        let pad = HELIPADS[0]!
+        let best = Infinity
+        for (const h of HELIPADS) { const d = Math.abs(signedDelta(h.s, s, track.length)); if (d < best) { best = d; pad = h } }
+        out[0] = (pad.mark + 0.5 + (s - pad.s) / (2 * pad.radius)) / HELIPADS.length; out[1] = 0.5 + (lat - pad.lateral) / (2 * pad.radius); return
+      }
       default: out[0] = pool.x[v]! / 10; out[1] = -pool.z[v]! / 10
     }
   }
@@ -1469,6 +1487,20 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+    if (kind === 'road') {
+      // the west loop's fresh asphalt (FRESH_ASPHALT): 0 → 1 over `fade` m inside both ends; the
+      // road material reads it as `aFresh` (materials.ts addRoadSurface), every other face that
+      // shares the program has no such attribute and reads 0
+      const fresh = new Float32Array(n)
+      const [f0, f1] = FRESH_ASPHALT.sRange
+      const len = forwardDelta(f0, f1, track.length)
+      const smooth = (t: number) => { const x = Math.max(0, Math.min(1, t)); return x * x * (3 - 2 * x) }
+      for (const [v, li] of local) {
+        const d = forwardDelta(f0, pool.s[v]!, track.length)
+        fresh[li] = d <= len ? smooth(d / FRESH_ASPHALT.fade) * smooth((len - d) / FRESH_ASPHALT.fade) : 0
+      }
+      geo.setAttribute('aFresh', new THREE.BufferAttribute(fresh, 1))
+    }
     geo.setIndex(index)
     geo.computeBoundingSphere()
     const mat = materials[kind]

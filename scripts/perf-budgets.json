@@ -132,25 +132,25 @@
   },
   "static": {
     "highNoAssets": {
-      "triangles": 4039200,
+      "triangles": 4637500,
       "meshes": 982,
       "instancedMeshes": 1134,
       "farFieldEntries": 1221,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured, +10 %; re-based again at I3-d: 926 measured (the ops layer's per-cell sets: ops-vehicles / -hospitality / -tents / -containers / -compound of I3-b, ops-pitEquipment / -perches / -cones / -cables of I3-c, the five ops-figures-<role> impostor sets and ops-flags of I3-d — 3,961,823 tris / 970 meshes / 926 IM / 1,044 entries), +10 %; instancedMeshes and farFieldEntries re-based at I4-c (the I4-a + I4-b merge — the marshal posts' per-cell cabin / panel / camera sets and the TV towers' tower / camera / crew sets — plus the fence-window photographers' impostor cells: 4,014,014 tris / 969 meshes / 1,031 IM / 1,110 entries measured, scene-cost high, Node, assets null), +10 %"
+      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured, +10 %; re-based again at I3-d: 926 measured (the ops layer's per-cell sets: ops-vehicles / -hospitality / -tents / -containers / -compound of I3-b, ops-pitEquipment / -perches / -cones / -cables of I3-c, the five ops-figures-<role> impostor sets and ops-flags of I3-d — 3,961,823 tris / 970 meshes / 926 IM / 1,044 entries), +10 %; instancedMeshes and farFieldEntries re-based at I4-c (the I4-a + I4-b merge — the marshal posts' per-cell cabin / panel / camera sets and the TV towers' tower / camera / crew sets — plus the fence-window photographers' impostor cells: 4,014,014 tris / 969 meshes / 1,031 IM / 1,110 entries measured, scene-cost high, Node, assets null), +10 %triangles re-based at I5-a: 4,215,843 measured (the infield ground rows: ground triangles 420 k → 615 k — the C paddock lot, the Spoon hard-standing, the E-stand / Dunlop / T1 service roads and the school loop as raster and world parts, + the way-line decals; 972 meshes / 990 IM / 1,068 entries), +10 %"
     },
     "lowNoAssets": {
-      "triangles": 2243800,
+      "triangles": 2594000,
       "meshes": 801,
       "instancedMeshes": 835,
       "farFieldEntries": 866,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 1,853,053 tris / 656 meshes / 624 InstancedMeshes / 787 entries, +10 %; meshes re-based at I2-b: 728 measured (the paddock's named meshes — offices A, centre house 8, SMSC, fuel station 6, service house / tyre garage 6, vehicle base 3, tunnel heads, fence, gates, masts, rails, glass, steps), +10 %; triangles and instancedMeshes re-based at I2-c: 2,039,776 tris / 688 IM measured (the paddock car parks: 6 bay-line decals + the hatch decal ≈ 9 k tris, infield-paddock-cars 141 bodies in 7 InstancedMeshes (one per body kind, one bucket on the low tier)), +10 %; instancedMeshes re-based at I4-a: 759 measured (the marshal posts v2: infield-marshal-cabins — stands / bodies / low / extinguishers in one bucket on the low tier — plus emPanels, cctvPoles, cctvHeads and the trackside marshals' impostor cells; digitalFlags and its housings gone; 2,128,973 tris / 730 meshes / 759 IM / 813 entries), +10 %"
+      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 1,853,053 tris / 656 meshes / 624 InstancedMeshes / 787 entries, +10 %; meshes re-based at I2-b: 728 measured (the paddock's named meshes — offices A, centre house 8, SMSC, fuel station 6, service house / tyre garage 6, vehicle base 3, tunnel heads, fence, gates, masts, rails, glass, steps), +10 %; triangles and instancedMeshes re-based at I2-c: 2,039,776 tris / 688 IM measured (the paddock car parks: 6 bay-line decals + the hatch decal ≈ 9 k tris, infield-paddock-cars 141 bodies in 7 InstancedMeshes (one per body kind, one bucket on the low tier)), +10 %; instancedMeshes re-based at I4-a: 759 measured (the marshal posts v2: infield-marshal-cabins — stands / bodies / low / extinguishers in one bucket on the low tier — plus emPanels, cctvPoles, cctvHeads and the trackside marshals' impostor cells; digitalFlags and its housings gone; 2,128,973 tris / 730 meshes / 759 IM / 813 entries), +10 %; triangles re-based at I5-a: 2,358,122 measured (the infield ground rows, as the high tier; 735 meshes / 756 IM), +10 %"
     }
   },
   "data": {
-    "generatedBytes": 1048576,
+    "generatedBytes": 1150000,
     "measured": true,
-    "measuredAt": "2026-09-11: suzuka-dem.ts + suzuka-surroundings.ts = 991,024 B of the 1 MiB cap"
+    "measuredAt": "2026-09-11: suzuka-dem.ts + suzuka-surroundings.ts = 991,024 B of the 1 MiB cap; I5-a (2026-09-13): the cap raised to 1,150,000 when the generated total (suzuka-facilities.ts 215,945 with the 11 spliced service-road ways of role 'road' + suzuka-surroundings.ts 634,827 without the driving school 466925741 + suzuka-dem.ts 172,753) reached 1,023,525 B"
   }
 }

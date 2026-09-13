@@ -1845,22 +1845,37 @@ export function paddockAsphaltTexture(): THREE.Texture {
 }
 
 /** The helipad disc: grey pad, white ring and H, one texture across the whole disc (uv 0..1). */
+/**
+ * The helipad marks, two tiles side by side (u 0–0.5 / 0.5–1; ground-mesh.ts `uvOf` maps each
+ * `helipad` disc onto the tile HELIPADS[].mark names): 0 = the pit complex's white circle and H,
+ * 1 = the Dunlop-loop pad's H inside an orange square border (I5-a, aerial 06). One texture, one
+ * material, so a second pad costs no program and no draw call of its own.
+ */
 export function helipadTexture(): THREE.Texture {
   return cached(`helipad|${textureScale}`, () => {
     const [w] = scaled(256, 256)
-    const { c, ctx } = canvas(w, w)
+    const { c, ctx } = canvas(w * 2, w)
     ctx.fillStyle = '#6f7275'
-    ctx.fillRect(0, 0, w, w)
+    ctx.fillRect(0, 0, w * 2, w)
+    const H = (x0: number, colour: string) => {
+      ctx.fillStyle = colour
+      ctx.font = `900 ${Math.round(w * 0.58)}px 'Titillium Web', 'Segoe UI', Arial, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('H', x0 + w / 2, w / 2 + w * 0.02)
+    }
+    // tile 0: the white circle
     ctx.strokeStyle = '#f4f4f2'
     ctx.lineWidth = w * 0.04
     ctx.beginPath()
     ctx.arc(w / 2, w / 2, w * 0.44, 0, Math.PI * 2)
     ctx.stroke()
-    ctx.fillStyle = '#f4f4f2'
-    ctx.font = `900 ${Math.round(w * 0.58)}px 'Titillium Web', 'Segoe UI', Arial, sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText('H', w / 2, w / 2 + w * 0.02)
+    H(0, '#f4f4f2')
+    // tile 1: the orange square border (the tile's edge is the disc's rim, the square 0.92 wide)
+    ctx.strokeStyle = '#e8842a'
+    ctx.lineWidth = w * 0.05
+    ctx.strokeRect(w + w * 0.04, w * 0.04, w * 0.92, w * 0.92)
+    H(w, '#f4f4f2')
     return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
   })
 }

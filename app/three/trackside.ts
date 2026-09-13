@@ -34,6 +34,34 @@ export function osmWay(id: number): OsmFeature | undefined {
   return byId.get(id)
 }
 
+/**
+ * Several OSM ways chained into one world polyline (GROUND_AREAS `ways` footprints, the way-line
+ * decals): each way's vertex range is taken in the direction that meets the chain's current end
+ * (or `reverse`), and a vertex within 1 mm of the previous one is dropped. `closed` says the
+ * chain's last vertex came back to its first (which is then not repeated).
+ */
+export function wayChainPath(track: Track, ways: { id: number; verts?: [number, number]; reverse?: boolean }[]): { pts: { x: number; z: number }[]; closed: boolean } {
+  const pts: { x: number; z: number }[] = []
+  const push = (p: { x: number; z: number }) => { const prev = pts[pts.length - 1]; if (!prev || Math.hypot(p.x - prev.x, p.z - prev.z) > 1e-3) pts.push(p) }
+  for (const w of ways) {
+    const f = byId.get(w.id)
+    if (!f) continue
+    const [v0, v1] = w.verts ?? [0, f.en.length - 1]
+    let seg = f.en.slice(Math.max(0, v0), Math.min(f.en.length - 1, v1) + 1).map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
+    if (w.reverse) seg = seg.reverse()
+    else if (pts.length && seg.length > 1) {
+      // orient the way to meet the chain's end
+      const end = pts[pts.length - 1]!
+      const dFirst = Math.hypot(seg[0]!.x - end.x, seg[0]!.z - end.z), dLast = Math.hypot(seg[seg.length - 1]!.x - end.x, seg[seg.length - 1]!.z - end.z)
+      if (dLast < dFirst) seg = seg.reverse()
+    }
+    for (const p of seg) push(p)
+  }
+  let closed = false
+  if (pts.length > 3 && Math.hypot(pts[0]!.x - pts[pts.length - 1]!.x, pts[0]!.z - pts[pts.length - 1]!.z) <= 1e-3) { pts.pop(); closed = true }
+  return { pts, closed }
+}
+
 /** Piecewise-linear interpolation over forward distance from s0 (samples must be sorted by it). */
 export function lateralFn(samples: LatSample[], s0: number, L: number): (s: number) => number {
   if (!samples.length) return () => 0
@@ -396,6 +424,13 @@ export function patchOutline(track: Track, p: SurfacePatchLike, step = 2): { x: 
         const len = forwardDelta(node.from, node.to, track.length)
         const off = node.off ?? 0.2
         for (let d = 0; d <= len; d++) atLat(track.wrap(node.from + d), node.edge * (track.halfWidthAt(track.wrap(node.from + d)) + off))
+      } else if ('en' in node) {
+        // a vertex in the EN frame (the far side of an area beyond the bend's radius or across the
+        // fold): world XZ directly, clamped out of the road like an OSM vertex would be
+        track.enToWorld(node.en[0], node.en[1], _v)
+        const m = track.nearestOnRange(_v.x, _v.z, s0, s1, 60)
+        if (Math.abs(m.lateral) < track.halfWidthAt(m.s) + gapAt(m.s, m.lateral >= 0 ? 1 : -1)) atLat(m.s, m.lateral)
+        else push(_v.x, _v.z)
       } else {
         const f = byId.get(node.way)
         if (!f) continue

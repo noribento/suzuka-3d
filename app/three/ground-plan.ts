@@ -3,7 +3,7 @@ import { CIRCUIT } from '~/data/suzuka'
 import { GROUND_AREAS, PIT_PLANNED, RUNOFF_ZONES, type GroundArea, type GroundFootprint, type Side } from '~/data/suzuka-facilities-spec'
 import { KERBS, OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, ROLL_CAP, signedDelta, type Track } from '~/sim/track'
-import { laneWorldPath, osmWay, patchOutline, simplifyRing } from './trackside'
+import { laneWorldPath, osmWay, patchOutline, simplifyRing, wayChainPath } from './trackside'
 
 /**
  * The GROUND PLAN: a partition of the ground beside the road into exactly one opaque owner per
@@ -588,12 +588,23 @@ export function resolveFootprint(track: Track, fp: GroundFootprint): WorldRing |
     if (outer.length < 3) return null
     return { outer, holes: [], box: ringBox(outer), sRange: fp.sRange }
   }
-  if ('way' in fp) {
-    const f = osmWay(fp.way)
-    if (!f) return null
-    const pts = resampleClosed(f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale })), 2)
-    const raw = f.closed ? pts : f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
-    const sw = sweptWay(f.closed ? pts : resampleOpen(raw, 2), f.closed, fp.width / 2)
+  if ('way' in fp || 'ways' in fp) {
+    let en: Pt[]
+    let closed: boolean
+    if ('ways' in fp) {
+      const chain = wayChainPath(track, fp.ways)
+      en = chain.pts
+      closed = chain.closed
+    } else {
+      const f = osmWay(fp.way)
+      if (!f) return null
+      // consecutive duplicate vertices (OSM ways carry them where two ways meet) would give the
+      // sweep a zero-length segment and a garbage normal — a crack between the two sides (G9)
+      en = f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale })).filter((p, i, a) => i === 0 || Math.hypot(p.x - a[i - 1]!.x, p.z - a[i - 1]!.z) > 1e-3)
+      closed = f.closed
+    }
+    if (en.length < 2) return null
+    const sw = sweptWay(closed ? resampleClosed(en, 2) : resampleOpen(en, 2), closed, fp.width / 2)
     const outer = windPositive(sw.outer)
     return { outer, holes: sw.holes.map((h) => windPositive(h)), box: ringBox(outer), sRange: fp.sRange }
   }
