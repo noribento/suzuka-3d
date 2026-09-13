@@ -98,13 +98,30 @@ const LANE_STEP = 3.4
  * the entry ramp instead of lagging it by 5 m toward the track and clipping the T18 separator
  * wall), over the last PIT_STEER_BOOST_M before the box (a queued car creeping in after its
  * team-mate still reaches the stop line), and on the way out until it is back within
- * PIT_STEER_REJOIN of the lane centreline. Measured with `pnpm sim -- --pit-trace` (8 laps, all
- * 22 cars on one lap): every stop at −23.5 ± 0.1, an unobstructed car back within c(s) + 2 m
- * 30 m after the box (40 m is the gate), entry-ramp lag ≤ 1.7 m past the first 10 m.
+ * PIT_STEER_REJOIN of the lane centreline. A released car first drives PIT_EXIT_HOLD_M straight
+ * along the stop line and then steers for the lane PIT_STEER_EXIT_BOOST × faster over the
+ * first PIT_STEER_BOOST_M: the static ops layer (app/data/ops-spec.ts OPS_LAYOUT.crew) crouches
+ * lane-side gunners at stop + 1.9 beside the wheels of every block, so the body (stop ± 0.95,
+ * 5.8 m long) must still be at the stop lateral when its tail passes its own front gunner
+ * (boxS + 1.7 + 2.9 = 4.6 m) and already past stop + 2.2 when its nose reaches the next
+ * block's rear gunner (boxS + 17.3 on the 19 m pitch, nose there at 14.4 m). Neither the plain
+ * boost (the nose sweeps that gunner, the body being still at + 1.5 at 14 m) nor a longer hold
+ * (9 m: the same, and the median rejoin past the 40 m gate) does both. Measured with the
+ * 53-lap race × 3 seeds (box trace, 66 stops, 0.5 m bins of the distance past boxS): the car
+ * centre is stop + 0.00 to 3.5 m, ≤ + 0.16 at 3.5 … 4, + 0.24 … 0.32 at 4, + 0.41 … 0.49 at
+ * 4.5, + 1.6 … 1.7 at 8, + 3.56 at 14, + 4.68 at 18 m — no exiting car touches a figure, jack or
+ * cone of the static layer (`pnpm sim -- --pit-trace` repeats that contact test). Measured with
+ * `pnpm sim -- --laps 8 --seeds 3 --pit-trace` (all 22 cars on one lap): every stop at
+ * −23.5 ± 0.1, an unobstructed car back within c(s) + 2 m 26.1 m after the box (40 m is the
+ * gate), exit-ramp lag ≤ 2.0 m, entry-ramp lag ≤ 4.3 m, pit loss 26.0 s (21.7 s over 53 laps).
  */
 const PIT_STEER_BOOST = 2.0
 const PIT_STEER_BOOST_M = 40
 const PIT_STEER_REJOIN = 1
+/** metres past boxS a released car holds the stop lateral before steering for the lane (see above) */
+const PIT_EXIT_HOLD_M = 3.5
+/** the steering boost of a released car over the first PIT_STEER_BOOST_M after boxS (see above); PIT_STEER_BOOST beyond */
+const PIT_STEER_EXIT_BOOST = 3.0
 /** Minimum nose-to-nose spacing (m) for cars in the same lateral band. */
 const MIN_GAP = 5.2
 /** Fuel load at the start (kg) and its cornering-speed cost per kg. */
@@ -761,6 +778,8 @@ export class RaceSim {
         const toBox = forwardDelta(s, this.boxS(car), L)
         if (toBox < PIT_PLANNED.stopSwitchM) car.lateralTarget = PIT_PLANNED.stopLateral
       }
+      // leave the box straight: the body clears its own crew rows before the car steers for the lane
+      if (car.pitState === 'exiting' && signedDelta(this.boxS(car), s, L) < PIT_EXIT_HOLD_M) car.lateralTarget = PIT_PLANNED.stopLateral
     }
 
     // --- integrate speed --------------------------------------------------
@@ -785,7 +804,7 @@ export class RaceSim {
       const boost = car.pitState === 'exiting'
         ? car.lateralTarget - car.lateral > PIT_STEER_REJOIN
         : car.pitState === 'entering' || (car.lateralTarget === PIT_PLANNED.stopLateral && forwardDelta(s, this.boxS(car), L) < PIT_STEER_BOOST_M)
-      if (boost) rate *= PIT_STEER_BOOST
+      if (boost) rate *= car.pitState === 'exiting' && signedDelta(this.boxS(car), s, L) < PIT_STEER_BOOST_M ? PIT_STEER_EXIT_BOOST : PIT_STEER_BOOST
     }
     const diff = car.lateralTarget - car.lateral
     let stepL = Math.sign(diff) * Math.min(Math.abs(diff) * Math.min(1, h * 3), rate * h)

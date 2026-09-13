@@ -24,7 +24,10 @@ import { orientPack } from './road-furniture'
  *
  * `glbOr` is the tier switch: the pack prototype as the near level when the tier asks for GLBs
  * and the registry has the drop, else the procedural one — the procedural prototype is what
- * scene-cost and surface-check measure, and the far level behind a GLB near level.
+ * scene-cost and surface-check measure, and the far level behind a GLB near level. A GLB near
+ * level keeps its own textures: the procedural prototype's colours never reach it, so a drop
+ * that must match the procedural colour is recoloured at import (`retouch` fill in
+ * scripts/assets/sources.mjs) or not used (the pit-lane cones).
  */
 
 export interface PropProto {

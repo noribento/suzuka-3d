@@ -22,8 +22,10 @@ import { barrierLateralAt } from './trackside'
  *    `ops-figures-crew` / `-officials` / `-marshals` / `-photographers` / `-staff` (kind 'ops',
  *    per 250 m cell: the 3D level within `Quality.infield.figures3dM` with the pack, the
  *    impostors to `figuresFarM`) — sharing the crowd's three programs and nothing of its budget.
- *  - `flagPlacements()` — the E paddock's eight 9 m poles with fictional tricolours: one
- *    procedural prototype per colour pair (pole + three bands, plain colours through
+ *  - `flagPlacements()` — the E paddock's eight 9 m poles with fictional tricolours (upper /
+ *    white / lower band; `FLAG_COLOURS` stays off red, blue and green so no pair reads as a
+ *    national white-middle tricolour — red / blue is the Netherlands, blue / red Russia, green /
+ *    red Iran, red / green Hungary): one procedural prototype per colour pair (pole + three bands, plain colours through
  *    `propMaterial`, the bands two-sided like the paddock gate flags of paddock.ts), instanced
  *    through `registerPropSet(ctx, 'ops', 'ops-flags', …)`. Static: the trackside's flag wave is
  *    an `onBeforeCompile` program of props.ts (plan §横断 7 forbids a new program here) and the

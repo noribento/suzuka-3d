@@ -21,7 +21,16 @@
  * entering car reaches stop + 0.5, and overlap samples between two pit-lane cars. Exit code 1
  * when a lag exceeds the envelope, a stop misses PIT_ENVELOPE.stop by more than 0.5 m or the
  * median rejoin takes more than 40 m. --envelope <json> writes the bins (the ops-check can verify
- * against a measured envelope instead of the analytic one).
+ * against a measured envelope instead of the analytic one). The trace also tests every moving
+ * pit-lane car's body (s ± carBox.halfS × lateral ± carHalf) against the static ops layer
+ * (app/data/ops-spec.ts: the apron equipment rows taller than 0.1 m — the cable ramps are driven
+ * over — and the crew figures, r 0.3): a contact with an equipment row (jack / cone / tyre stack /
+ * monitor …) of any block fails; figure contacts are reported per row and block. In the normal
+ * race (53 laps) no car touches a figure of its own block or on its way out; the arriving car
+ * drives the stop lateral across the block before its own and, where a core separates the two
+ * (26 m pitch), is still converging over that block's lane-side gunners — ops-spec section A
+ * accepts that, and in this crowded 8-lap run a queued car beside its team-mate's box stands in
+ * its own block's lane-side gunners too.
  */
 import './ts-hooks.mjs'
 
@@ -42,6 +51,7 @@ const VERBOSE = args.includes('--verbose')
 const PIT_TRACE = args.includes('--pit-trace')
 const ENVELOPE_OUT = opt('envelope', null)
 const spec = PIT_TRACE || ENVELOPE_OUT ? await import('../app/data/suzuka-facilities-spec.ts') : null
+const opsSpec = PIT_TRACE || ENVELOPE_OUT ? await import('../app/data/ops-spec.ts') : null
 
 const log = (...a) => { if (!JSON_OUT) console.log(...a) }
 const kmh = (v) => v * 3.6
@@ -218,6 +228,7 @@ for (let k = 0; k < SEEDS; k++) {
     const p = res.pitTrace
     log(`  pit trace: entry lag ${p.entryLag.toFixed(2)} m @s ${p.entryLagS.toFixed(0)} (envelope ${p.envelope.entryLag}), exit lag ${p.exitLag.toFixed(2)} m @s ${p.exitLagS.toFixed(0)} (envelope ${p.envelope.exitLag}), pit-car overlaps ${p.pitOverlaps}`)
     log(`  pit trace: stopped lateral ${p.stop.min.toFixed(2)}…${p.stop.max.toFixed(2)} (${p.stop.n} stops, target ${p.envelope.stop}); back within c + 2 m after the box: median ${p.exitRecovery.median.toFixed(1)} m, max ${p.exitRecovery.max.toFixed(1)} m, ${p.exitRecovery.over} of ${p.exitRecovery.n} over 40 m; at stop + 0.5 before the box: median ${p.entryRecovery.median.toFixed(1)} m, max ${p.entryRecovery.max.toFixed(1)} m, ${p.entryRecovery.over} never`)
+    log(`  pit trace: static ops layer contacts (car body vs the apron equipment rows > 0.1 m and the crew figures r 0.3; ${p.contactStops} stops): ${p.contacts.length ? p.contacts.map((r) => `${r.key} × ${r.n}`).join('; ') : 'none'}`)
     if (p.failures.length) for (const f of p.failures) log(`  pit trace FAIL: ${f}`)
   }
   if (VERBOSE || SEEDS === 1) {
@@ -291,6 +302,18 @@ function pitTracer(track, race) {
   const entryRecoveries = []
   let pitOverlaps = 0
   let tick = 0
+  // the static ops layer along the box strip: the apron equipment rows (jack / cone / tyres …, their
+  // footprint half-extents in (s, lateral)) and the crew figures (point + FIG_R), each keyed to its block
+  const FIG_R = 0.3
+  const blockOf = (s) => { let g = -1, bd = Infinity; for (let i = 0; i < spec.PIT_GARAGE_COUNT; i++) { const d = Math.abs(signedDelta(spec.garageS(i), s, L)); if (d < bd) { bd = d; g = i } } return g }
+  const statics = [
+    ...opsSpec.pitEquipmentPlacements().filter((r) => r.mount === 'apron' && r.size[2] > 0.1).map((r) => { const along = r.yawDeg % 180 === 0; return { id: r.id.replace(/-\d+(-|$)/, '-*$1'), kind: 'row', s: r.s, lateral: r.lateral, hs: (along ? r.size[0] : r.size[1]) / 2, hl: (along ? r.size[1] : r.size[0]) / 2, block: blockOf(r.s) } }),
+    ...opsSpec.figuresAt().filter((f) => f.role === 'crew' && f.mount === 'apron').map((f) => { const g = blockOf(f.s); const slot = opsSpec.OPS_LAYOUT.crew.findIndex((o) => Math.abs(signedDelta(spec.garageS(g) + o.dS, f.s, L)) < 0.01 && Math.abs(E.stop + o.dLat - f.lateral) < 0.01); return { id: `crew[${slot}] (${opsSpec.OPS_LAYOUT.crew[slot]?.dS}, ${opsSpec.OPS_LAYOUT.crew[slot]?.dLat})`, kind: 'figure', s: f.s, lateral: f.lateral, hs: FIG_R, hl: FIG_R, block: g } }),
+  ]
+  const touching = new Map() // idx -> Set of contact keys during the current stop (each counted once per stop)
+  const contacts = new Map() // key -> stops
+  let contactStops = 0
+  const flushContacts = (idx) => { const set = touching.get(idx); if (!set) return; for (const k of set) contacts.set(k, (contacts.get(k) ?? 0) + 1); touching.delete(idx); contactStops++ }
   const sample = () => {
     tick++
     for (const c of race.cars) {
@@ -298,9 +321,25 @@ function pitTracer(track, race) {
         if (exiting.has(c.idx)) { recoveries.push(exiting.get(c.idx) ?? Infinity); exiting.delete(c.idx); rejoined.delete(c.idx) }
         if (entryRec.has(c.idx)) { entryRecoveries.push(entryRec.get(c.idx) ?? Infinity); entryRec.delete(c.idx) }
         stopped.delete(c.idx)
+        flushContacts(c.idx)
         continue
       }
       const s = track.wrap(c.s)
+      if (c.pitState !== 'box') {
+        const box = race.boxS(c)
+        const dBox = signedDelta(box, s, L)
+        if (Math.abs(dBox) < 60) {
+          const own = blockOf(box)
+          if (!touching.has(c.idx)) touching.set(c.idx, new Set())
+          const phase = c.pitState === 'exiting' ? 'exit' : 'arrival'
+          for (const o of statics) {
+            if (Math.abs(signedDelta(s, o.s, L)) < E.carBox.halfS + o.hs && Math.abs(o.lateral - c.lateral) < E.carHalf + o.hl) {
+              const rel = o.block === own ? 'own block' : `block ${o.block > own ? '+' : '−'}${Math.abs(o.block - own)} (${o.block > own ? 'before' : 'after'} its own)`
+              touching.get(c.idx).add(`${phase} ${o.kind} ${o.id} ${rel}`)
+            }
+          }
+        }
+      }
       const k = Math.floor(s / BIN) * BIN
       const b = bins.get(k)
       if (!b) bins.set(k, { s: k, min: c.lateral, max: c.lateral, n: 1 })
@@ -361,7 +400,12 @@ function pitTracer(track, race) {
     if (exitLag > E.exitLag) failures.push(`exit lag ${exitLag.toFixed(2)} m > PIT_ENVELOPE.exitLag ${E.exitLag}`)
     if (stops.length && (Math.abs(stop.min - E.stop) > 0.5 || Math.abs(stop.max - E.stop) > 0.5)) failures.push(`stopped lateral ${stop.min.toFixed(2)}…${stop.max.toFixed(2)} outside PIT_ENVELOPE.stop ${E.stop} ± 0.5`)
     if (recoveries.length && exitRecovery.median > 40) failures.push(`median rejoin ${exitRecovery.median.toFixed(1)} m after the box > 40 m`)
+    for (const c of race.cars) flushContacts(c.idx)
+    const contactRows = [...contacts.entries()].sort((a, b) => b[1] - a[1]).map(([key, n]) => ({ key, n }))
+    for (const r of contactRows) if (r.key.includes(' row ')) failures.push(`${r.n} stop(s) drive through the static ops layer: ${r.key}`)
     return {
+      contacts: contactRows,
+      contactStops,
       envelope: { entryLag: E.entryLag, exitLag: E.exitLag, stop: E.stop },
       entryLag, entryLagS, exitLag, exitLagS, pitOverlaps,
       stop,

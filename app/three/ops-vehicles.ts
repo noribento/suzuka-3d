@@ -32,11 +32,14 @@ import { CAR_PARK } from './vehicles'
  *    and it fits — roof rail) with the team-colour vinyl band and roof logo frame as a coloured
  *    InstancedMesh;
  *  - `ops-tents`: the 3 × 3 gazebos behind the cores and the marquees (walls + a gable roof;
- *    the `tent_canopy` drop, fitted to the marquee's box, as the near roof);
+ *    the `tent_canopy` drop, fitted to the marquee's box, as the near roof). Rigid boxes stand
+ *    at the lowest of their four ground corners (`placeAt(p, true, 0)`), so the rows keep them
+ *    on the lots' flat bands — the I2 relief ring climbs 3.9 m across the B lot's outer ring and
+ *    3.2 m across the E lot's, and ops-smoke fails a box whose corners spread more than 0.3 m;
  *  - `ops-containers`: the 20 ft air-freight containers behind the cores (two-high);
- *  - `ops-compound`: the broadcast compound in the E paddock — 40 ft containers, satellite
- *    dishes on tripods, generators (`diesel_generator` / a box), a cable-ramp run, the white pipe
- *    fence and its gate.
+ *  - `ops-compound`: the broadcast compound in the E paddock — 40 ft containers (three rows
+ *    along s in the paving's flat band), satellite dishes on tripods, generators
+ *    (`diesel_generator` / a box), a cable-ramp run, the white pipe fence and its gate.
  *
  * Paint on the GLB vehicles: every part gets car-glb.ts's `carGlbMaterial(map, 'tint')` — the
  * body materials of the drops carry no colour map, so they take a shared 1 × 1 white map (a
@@ -165,7 +168,10 @@ export function buildOpsVehicles(ctx: EnvBuildContext): OpsPartial {
   const glass = reg ? pbrFromAssets(reg, 'facade001', { fallback: () => pm.glassMat, handBuiltUv: true, normalScale: 0.5 }) : pm.glassMat
   const containerTile = tileMetres(reg, 'tex/container_side/diff', 1.94)
   const containerWhite = plain(0xe6e7e3, 0.6, 0.35)
-  const container = reg ? pbrFromAssets(reg, 'container_side', { fallback: () => containerWhite, handBuiltUv: true, normalScale: 0.6, extra: { color: 0xe6e7e3 } }) : containerWhite
+  // the air-cargo / broadcast units are white-grey: container_side's albedo is a green shipping
+  // container and a colour multiplier cannot whiten it, so only its corrugation normal + ARM
+  // maps over the flat colour (noMap — the program the pit building's white_plaster_02 already compiles)
+  const container = reg ? pbrFromAssets(reg, 'container_side', { fallback: () => containerWhite, handBuiltUv: true, normalScale: 0.6, noMap: true, extra: { color: 0xe6e7e3, roughness: 0.6, metalness: 0.35 } }) : containerWhite
   const pvcTile = tileMetres(reg, 'tex/plastic013a/diff', 1)
   const pvcWhite = plain(0xf6f6f2, 0.75, 0.05)
   const pvc = reg ? pbrFromAssets(reg, 'plastic013a', { fallback: () => pvcWhite, handBuiltUv: true, normalScale: 0.4, extra: { color: 0xf6f6f2 } }) : pvcWhite

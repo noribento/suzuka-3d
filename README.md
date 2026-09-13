@@ -53,7 +53,7 @@ node scripts/assets/retouch-glb.mjs --dump <in.glb> <dir>  # GLB 内テクスチ
 # I フェーズの Sketchfab CC-BY 4.0 ドロップ 20 件（I0-e2。zip は misc/ops・trackside・pit に置いたまま、license.txt の author / CC-BY-4.0 を検査し、全画像を `retouch-glb --dump` で書き出して読んだ）。group / モデル（作者、uid 先頭）/ 用途 / 処理:
 #   ops: JDM Sport '99・Sigil '07・Ace '11・Urban '10・Lightbody '90 MD Flatbed・Tow Truck・Shvan '92 Ambulance（Daniel Zhabotinsky、6dd4ae19 / 22abe528 / 055ff8a2 / 2866efdf / 39195e55 / 5cba2080 / 2856dd3c）= SC・メディカルカー・コース車・回収車・救急車: 架空ブランド、512 px、simplify 0.4（7〜10 k tris）、バッジのノード（/Badges/）を落として badge アトラスごと削除（架空の中に ROVER / OUTBACK の綴りがあった）、ナンバープレートは架空の文字アトラス。救急車の 4K 車体シートは米国仕様なので Star of Life ×3・星条旗 ×2・911・EMERGENCY ブロック・269 64 PCT・MADE IN USA・HANDLE WITH CARE を車体色で fill（AMBULANCE / FIRST RESPONDER は残す）
 #        Tent Canopy – rectangular（MozillaHubs、256b7c9e）マーキー 512 / Porta Potty（Sean Thomas、b970702e）仮設トイレ / Diesel Generator（Eugene Flerko、03db834f）発電機 / Forklift low poly（Ricardo Sanchez、8ab650b3）フォークリフト — いずれも文字なし、256（テントは 512）、retouchReviewed
-#   trackside: Small Guard Booth（Arsen Ismailov、422ec83e）マーシャルキャビン: dropNodes で門扉（RootNode/Cube）を落とす、ガラスの KHR_materials_transmission は残る / Racetrack tire stack standard v2（mira9、65cc7bcf）側壁刻印なし / Flood light 02（CHAMOD、95ad365a）/ Barrier & Traffic Cone Pack（Sabri Ayeş、23c4dfca）keepNodes で Object_3・5（コーン）・13・14（縞ドラム）・10（ポール）・15〜17（小バリア 3 種）だけ残す（22 画像 256 px）/ Police Crowd Barrier（exiS7-Gs、27146861）"POLICE LINE - DO NOT CROSS / POLICE DEPT" をレールの青で fill
+#   trackside: Small Guard Booth（Arsen Ismailov、422ec83e）マーシャルキャビン: dropNodes で門扉（RootNode/Cube）を落とす、ガラスの KHR_materials_transmission は残る / Racetrack tire stack standard v2（mira9、65cc7bcf）側壁刻印なし / Flood light 02（CHAMOD、95ad365a）/ Barrier & Traffic Cone Pack（Sabri Ayeş、23c4dfca）keepNodes で Object_3・5（コーン）・13・14（縞ドラム）・10（ポール）・15〜17（小バリア 3 種）だけ残す（22 画像 256 px）— コーン 2 種はどちらも橙で、緑のピットレーンコーンには使わない（手続きのみ、I3 レビュー）/ Police Crowd Barrier（exiS7-Gs、27146861）"POLICE LINE - DO NOT CROSS / POLICE DEPT" をレールの青で fill
 #   pit: Pit Board（Alex Werner、42e680a0）11 枚のパネル画像を白で fill（文字は実行時に描く）/ Impact wrench（chupin、538a84dc）工具ブランドなし（レーザー注意ラベルと CE のみ）/ Trolley Jack Lo Poly（almartin、c4ea505c）simplify 0.4 / Basic PC Monitors（Sousinho、58a2dba7）— 256 px。scaffold（@Js_TuruokaJunpei、90789439）は未ドロップ（TV 足場塔は手続きのまま）。合計 +7.9 MB / VRAM +36 MB（67.99 MB / 260.6 MB）
 node scripts/facilities/build-facilities.mjs --offline   # OSM のフットプリント → app/data/suzuka-facilities.ts（ODbL、キャッシュは .cache/overpass/facilities.json）
 node scripts/facilities/build-facilities.mjs --add-ways-from .cache/overpass/surroundings.json --role "apron:467386920;tunnel:184101996" --dry-run
@@ -148,7 +148,7 @@ pnpm test:e2e:report     # 失敗時の HTML レポート / トレースを表�
 
 テストは `tests/e2e/` にあり、シーンの描画確認には dev モードでのみ公開される
 `window.__suzuka` フックを使っています。`race.spec.ts` の 'infield and ops layer'（I3-d）は運営レイヤーの事実を読みます:
-`env.stats.ops.figures > 200`・`impostors + near3d === figures`・`byRole` の 5 役割・`mode` が baked / procedural、`vehicles ≥ 30`、
+`env.stats.ops.figures > 200`・`impostors === figures`・`near3d` が 0 か figures（高ティア + パックの 3D 近景は全員に付く）・`byRole` の 5 役割・`mode` が baked / procedural、`vehicles ≥ 30`、
 `group.userData.ops` に 300 行超で truck / vehicle / cabin / tent / container / equipment / tyres / cone / flag の kind、静的車両は
 `models` に入らない（22 のまま）、`stats.crowd.impostors` の窓（0.9 × budget … budget）が動かない、`farField.stats().byKind.ops ≥ 1`
 と失敗 0、`ops-figures-` / `ops-vehicles-` / `ops-pitEquipment-` の接頭辞、`buildMs.ops`、`groundCensus()` の mismatch 0。
@@ -668,7 +668,8 @@ sim の包絡: ボックス帯の走行レーン [−19.1, −11.5] にはレー
   （`group.userData.paddockParking` に街区ごとの walked / kept / rejects / cars）。現状 792 区画中 414（A 182 / B 32 / B45 14 /
   E 95 / ヤード 17 / S 74）: 落ちるのはほぼ `slope` = I2-a の外側リング（A 南列 −127 から、B −123 から、E −66 から）が relief 核の
   外で DEM フェードに乗って 6–20 % の勾配になる区画で、P7 の relief 継ぎが平らにするまで線も車も置かない（面だけ舗装）。
-  I3-b からは **B 街区が全部マーキーの下**（68 区画 = slope 34 + footprint 34、車 0・区画線無し）で、台数は
+  I3-b からは **B 街区が全部マーキーの下か斜面**（68 区画 = slope 34 + footprint 34、車 0・区画線無し。I3 レビューでマーキーを
+  平坦帯 −108.5…−123.5 の 15 × 15 × 3 に縮めても −112 軸の区画は足跡、−128 軸の区画は斜面で落ちる）で、台数は
   min(`paddockCars`, Σ occupancy × kept) = 高 305 / 低 140。
   **区画線**: 残した区画の長辺に白 0.1 m の quad（列内で隣と共有する線は 1 本）を街区ごとに `ground.decal`（yHint = その点の
   standY、rung `LAYER.paddock.line` 20 mm、`paddockBayLines-<id>`、`markDecal`、uncovered 0、plain colour）。**黄ハッチ**: チーム
@@ -713,9 +714,11 @@ sim の包絡: ボックス帯の走行レーン [−19.1, −11.5] にはレー
 
 #### 車両・ホスピタリティ・テント・コンパウンド
 
-`app/three/ops-vehicles.ts`（I3-b、ops-spec **B 区画** `vehiclePlacements()` = 105 行: truck 25 / vehicle 17 / crane 1 / cabin 11 / tent 15 /
-container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPropSet(ctx, 'ops', …)` の InstancedMesh（高 3 セル、低 1 バケット）、
-`ground.standAt` の上（長い箱は四隅の最低値、勾配で浮かない）、影は高さ ≥ 2.5 m の L0 だけ（§横断 6）。**静的車両は `models` に入らない**。
+`app/three/ops-vehicles.ts`（I3-b、ops-spec **B 区画** `vehiclePlacements()` = 103 行: truck 25 / vehicle 17 / crane 1 / cabin 11 / tent 15 /
+container 16 / equipment 4 / generator 2 / barrier 12）。すべて `registerPropSet(ctx, 'ops', …)` の InstancedMesh（高 3 セル、低 1 バケット）、
+`ground.standAt` の上（長い箱は四隅の最低値、勾配で浮かない — だから剛体の箱は街区の平坦帯にしか置けない: I2 の relief 環は B 街区の
+外周で 3.9 m、E 街区で 3.2 m 登り、ops-smoke は四隅の地面が原点から 0.3 m 以上ばらつく箱を落とす）、影は高さ ≥ 2.5 m の L0 だけ（§横断 6）。
+**静的車両は `models` に入らない**。
 
 - **トランスポーター**（`ops-vehicles`、`OPS_VEHICLE_MODELS`）: 白い日本の箱トラック = `car-bodies.ts` 'truck'（12 × 2.5 × 3.9、`carBody|tint`
   に白の instanceColor）+ **チーム色の帯 0.3 m**（ドア高さ 2.0–2.3、両側面 + 後扉の薄板、plain 白 + instanceColor の別 IM）。チーム毎 2 台
@@ -724,7 +727,9 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
   に置く（テールリフトは滴線 −56.4 から 0.5 m、鼻はユニットから 0.4 m）。**ブロック 5（5769.5）は 1 台**: +s 側の枠が裏スパーのトンネル
   ホール（5771.5–5778.9 × −56.7…−66）。21 台。白 2 t トラック 4（'truck' を 6 × 2 × 2.8 に縮めた車体、B パドック北の帯 −104.5、鼻は
   マーキー側）、バン 6（`van_h100` GLB `carGlb|tint`／手続きミニバン、ホスピタリティの隙間 −72、歩廊 −74.5 とトラックの鼻から 2.5 m）。
-- **航空コンテナ** 20 ft（`ops-containers`、6.06 × 2.44 × 2.59、`container_side` PBR 白灰／plain、隅柱と扉バー）: コア裏 6 スタック
+- **航空コンテナ** 20 ft（`ops-containers`、6.06 × 2.44 × 2.59、白灰 0xe6e7e3 の plain に `container_side` の法線 + ARM だけ（`noMap`:
+  Poly Haven の albedo は緑の海上コンテナで、色の乗算では白くならない — I3 レビュー。program は pit-building の white_plaster_02 と同じ）、
+  隅柱と扉バー）: コア裏 6 スタック
   （2 段 × 4 + 1 段 × 2 = 10 基）を **横向き**（yaw 90、core.mid + 0.5）で −63.5 に（表の −66 だと遠端がトラックの鼻に当たる）。
 - **ホスピタリティ**（`ops-hospitality`、手続きのみ、`unverified: form`）: チーム毎 1 基 (boxS, −71) 10 × 7 × 6.6 — コンクリ床スラブ
   （IM = G8 免除）、1F 全面ガラス（`facade001`／glassMat）+ 白の頭帯、2F 白パネル（`paintedmetal010`／plain）を歩廊側に 1.5 m
@@ -733,13 +738,16 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
   （3 × 1.2、文字無し）は 1 つの着色 IM。ブロック 5 のユニットは 2F ブリッジ（5773–5777、ソフィット 5.05）を避けて **−s に 3 m**（5766.5）。
 - **テント**（`ops-tents`）: ガゼボ 3 × 3 × 2.8（脚 4 + 四角錐 + 垂れ幕、`plastic013a`／plain）をコア毎 2 — **core.mid − 5.5 / − 2**
   （45° トラックの側面がコア間を斜めに横切るので ±2.5 では鼻に当たる；スパー脇のコアは core.mid − 1 に 1 基）= 11。マーキー
-  35 × 15 × 4.5（PVC 壁 3.0 + 切妻、近段は `tent_canopy` GLB を箱に非等方 fit）を **B パドックに横向き 3**（s 5, 22, 39 × −126、
-  yaw 90 → −108.5…−143.5 = 'B パドック' 面の全幅。計画の縦向き 3 は 17 m ピッチに 35 m が重なる）、メディアマーキー 20 × 10 を
+  （PVC 壁 3.0 + 切妻、近段は `tent_canopy` GLB を箱に非等方 fit）を **B パドックに 15 × 15 × 4.5 を s 沿いに 3**（s 5, 22, 39 × −116、
+  yaw 0、17 m ピッチ・2 m 通路、−108.5…−123.5 = 街区の平坦帯。計画の 35 × 15 は 17 m ピッチに重なり、I3-b の横向き 35 m
+  −108.5…−143.5 は −124 から 3.9 m 登る斜面に掛かって高い側の壁が埋まった — I3 レビュー、四隅ばらつき ≤ 0.25 m）、メディアマーキー 20 × 10 を
   E パドック縁 (5496, −88) に横向き（表の (5480, −92) 縦向きはコンパウンド南フェンスの上、しかも E パドックはピット入口の曲線の内側で
   s 20 m が世界の 15 m）。
-- **放送コンパウンド**（`ops-compound`、E パドック予備地の舗装部 OSM 474537492: s 5448–5488 × −52…−80）: 40 ft コンテナ 12.2 × 2.44 × 2.9
-  × 8（横向き 2 列 × 4、室外機 + 扉）、パラボラ 3.0 φ × 3（Lathe の椀を 40° に、三脚 + フィード）、発電機 2（`diesel_generator` GLB／
-  箱 + 排気管）、ケーブルランプ 1 列（黄黒 0.9 m 分割）、白パイプフェンス 1.1 m（支柱 + 2 桟の 2.5 m パネルを世界の端から端へ
+- **放送コンパウンド**（`ops-compound`、E パドック予備地の舗装部 OSM 474537492: s 5448–5488 × −51.5…−80。舗装が平らなのは −51…−63.6
+  だけで −66 から relief 環が 3.2 m 登るので、剛体は全部その帯に置く — I3 レビュー: 横向き 2 列目 −73 は端が 3.1 m 埋まっていた）:
+  40 ft コンテナ 12.2 × 2.44 × 2.9 × 6（**s 沿い 3 列 × 2**、−53.5 / −57.5 / −61.5、4 m ピッチ・1.56 m 通路、室外機 + 扉、四隅ばらつき
+  ≤ 0.25 m）、パラボラ 3.0 φ × 3（−54 / −58 / −62、Lathe の椀を 40° に、三脚 + フィード）、発電機 2（−57 / −61、`diesel_generator` GLB／
+  箱 + 排気管）、ケーブルランプ 1 列（s 5473.8、黄黒 0.9 m 分割）、白パイプフェンス 1.1 m（支柱 + 2 桟の 2.5 m パネルを世界の端から端へ
   並べる — ピット入口の曲線の内側では s 沿いの行の (s, lat) 矩形が世界では短い；s 沿いの辺は 10 m 行 × 4）+ 60° に開いた門扉。
 - **車両**（`OPS_VEHICLE_MODELS`、GLB は `modelPrototype` を材質毎の部位に分け全部 `carGlbMaterial(map, 'tint')` — 車体材質に map が
   無いので共有の 1 × 1 白 map（null map は別 program）、暗い写真部位は luma で無着色、+X 前 → +Z、`carGlb|tint` 1 program；遠段は
@@ -750,14 +758,16 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
   (154 / 160, −30)** — 計画の `OPS_LAYOUT.scPocket` (91–97, −24.3) は T1 キャップの中（OSM 外形 184422099 は s 92–103 で −24.3、
   88–92 は案内箱）で置けない；救急車 (168 / 174, −30)、消防 (180 / 186, −30)、車両基地のエプロン（ロールドア前 2 列: 鈴鹿 SC・SUV 2
   at s 142.5、クレーン・回収車・トラクター at 134）。計 43 台。
-- 検査: `facilities-check --strict` §16（105 行 0 faults）; `node scripts/audit/ops-smoke.mjs --tier both [--glb]` の `checkVehicles`
+- 検査: `facilities-check --strict` §16（103 行 0 faults）; `node scripts/audit/ops-smoke.mjs --tier both [--glb]` の `checkVehicles`
   — 行数 = ctx.ops、L0 全インスタンスがどれかの足跡の中、**各インスタンスの bbox が配置の箱 ± 0.3 m**（剛体は中心フレームの
-  直箱、端から端へ並べる薄い行は (s, lat) 四辺形）、車両 y ≥ standY − 0.05、chase レンズ柱 12 / レンズ→車の経路に何も無い、
+  直箱、端から端へ並べる薄い行は (s, lat) 四辺形）、車両 y ≥ standY − 0.05、**地面に立つ剛体の全インスタンスで四隅の地面
+  （`ground.standAt`）が原点 ± 0.3 m**（I3 レビュー: 斜面に掛かるマーキー・コンテナを捕まえる。最大ばらつき 0.29 m = bc-container-21）、
+  chase レンズ柱 12 / レンズ→車の経路に何も無い、
   駐車車両・街灯が足跡の中に無い、Node は 2 段（手続き + 空）で `-glb-` 無し; `--glb`（stub registry の ops / van / 非常階段 13 モデル）
-  は GLB 12 種が L0、車両プロトタイプ ≤ 12 k tris（最大 10,349）、ピットセルの可視 Σtris 304 k ≤ 1.2 M。静的コスト（Node）: 高
-  3,922,859 tris / 970 メッシュ / 872 IM / 1,022 エントリ、低 2,058,769 / 733 / 723 / 802 — 予算内、再ベース無し。programs +0
-  （plain / plain + instanceColor / {map} / pbrFromAssets / `carBody|tint` / `carGlb|tint`）。GPU 未確認: GLB 車両の着色（luma 帯の
-  写真部位）、テントキャノピーの非等方 fit、ホスピタリティの PBR パネル。
+  は GLB 12 種が L0、車両プロトタイプ ≤ 12 k tris（最大 10,349）、ピットセルの可視 Σtris ≤ 1.2 M。静的コスト（Node）: I3-b 時点
+  3,922,859 tris / 970 メッシュ / 872 IM / 1,022 エントリ、低 2,058,769 / 733 / 723 / 802（I3 の各コミットの数は「人物配置」末尾の
+  I3-d 実測が現行）。programs +0（plain / plain + instanceColor / {map} / pbrFromAssets / `carBody|tint` / `carGlb|tint`）。GPU 未確認:
+  GLB 車両の着色（luma 帯の写真部位）、テントキャノピーの非等方 fit、ホスピタリティの PBR パネル、白灰コンテナの法線だけの凹凸。
 
 #### ピットレーン機材とプラットペルチ
 
@@ -766,9 +776,14 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
 
 - **包絡の 2 つの事実が配置を決める**: (1) §16 O1 はボックス帯でも解析キープアウト `[c − 6.5, …]` = [−21.1, −9.1] を保つので、静的な物は
   `KEEP_OUT_EDGE` −21.1 より左に立てない — 計画の「走行レーン縁 −19.5 のコーン」「−19.3 からのケーブルランプ」は不可能で、どちらも
-  キープアウト縁から始める。(2) 隣ブロックへ到着する車は s = boxS を stop + 1.6 付近（車体 stop + 0.65…2.55）で通過し、退出車は隣の
-  作業エリアを斜めに横切るので、エプロン上の物のレーン側は **stop + 1.2 以下**（前ジャッキは停止線上、コーンはコア前 stop + 0.8）、
-  stop + 1.2…2.4 の帯は空。**注意**: sim は静的レイヤーと衝突判定しない。A 区画のクルー行（stop + 1.9 のガンナー）は I3-d の判断。
+  キープアウト縁から始める。(2) 隣ブロックへ到着する車は最後の 25 m を**停止 lateral そのもの**で走る（race.ts は boxS の 100 m 手前で
+  `PIT_PLANNED.stopLateral` に切り替える。53 周 × 3 seeds の実測: 24 m 手前で中心 ≤ stop + 0.5、14 m 手前で ≤ + 0.11）ので、ボックス帯
+  全長の **stop ± 0.95（`PIT_ENVELOPE.carHalf`）は車の空間** — 機材の列はすべて停止線のガレージ側に置く（両ジャッキ stop − 1.8、コーンは
+  コア前 stop − 2.0。I3-c の「前ジャッキは停止線上、コーン stop + 0.8」は、ブロック g に入る全車が g + 1 の前ジャッキとコーンを踏んで
+  いた — I3 レビュー）。§16 O1 はこの到着帯（ボックス帯 × stop ± carHalf、踏まれて良い ≤ 0.1 m のケーブルランプは除く；人物は点で同じ帯を弾く）も
+  弾き、`pnpm sim -- --pit-trace` が全ピットレーン車の車体（s ± 2.9 × ± 0.95）と機材列・クルー人物（r 0.3）の接触を数える（機材列は
+  接触 0 が門、人物はブロック別に報告）。**注意**: sim は静的レイヤーと衝突判定しない。A 区画のクルー行（stop + 1.9 のガンナー）は
+  「人物配置」の判断。
 - **チームブロック毎**（11、空きベイ 12 は消火器のみ）: ガントリー = 0.25² 支柱 2（`(boxS ± 2.9, stop − 2.4)` 4.2 m、OPS_LAYOUT.gantry の
   2.9 — 計画の 3.6 は梁端がレンズ経路 boxS − 3 に入る）+ 梁行 1（mount `'roof'`、y 3.85、boxS ± 2.9 × stop − 2.4…**+ 2.3**
   = キープアウト縁 −21.2 まで。s 方向の梁は支柱天端間 5.8、ホイールライン ±1.7 の腕 2 本が車の上を渡り、前腕の下に信号灯箱
@@ -776,34 +791,36 @@ container 18 / equipment 4 / generator 2 / barrier 12）。すべて `registerPr
   +1 program で IM に入らない）で 4 丁のホイールガン（`impact_wrench` Object_2 / 箱 0.35、底 1.15 m）を車輪の上に吊る = 停止車矩形
   内にある唯一の物）；タイヤスタック 3（`(boxS − 6 / −7.5 / −9, stop − 3.9)`: 計画の −3.2 はクルー表のタイヤ係と同点なので 0.7 m 奥、
   白ブランケット φ0.72 × 1.0 を instanceColor チーム色 + 上に `tyreMaps` の裸タイヤ、手続きのみ）；ジャッキ 2（`trolley_jack` / 箱、
-  前 (boxS + 4.6, stop)・後 (boxS − 4.6, stop − 1.8)）；燃料ドラム + ホース台車 (boxS + 7, **−30.5**) interior（OPS_LAYOUT.fuel の −33 は
+  前 (boxS + 4.6, stop − 1.8)・後 (boxS − 4.6, stop − 1.8)、どちらもジャッキ係の脇のガレージ側）；燃料ドラム + ホース台車 (boxS + 7, **−30.5**) interior（OPS_LAYOUT.fuel の −33 は
   pit-building のガレージ内タイヤ山と同点）；モニター台 1.9 m (boxS **+ 6**, stop − 3.9)（計画の (−7, −3.5) は第 2 タイヤスタックの
   上、−s 側は後ジャッキ係の位置。画面 2 枚 = `pc_monitors` / 箱 0.55 × 0.35 の `opsMonitor` 発光面）。
-- **コア毎**（6）: 緑コーン 5（コアの −s 面 + 0.4 から 0.9 m ピッチ、中心線は空ける、レーン側 stop + 0.8 — `cone_pack` Object_3 / 円錐）、
+- **コア毎**（6）: 緑コーン 5（コアの −s 面 + 0.4 から 0.9 m ピッチ、中心線は空ける、ガレージ側 stop − 2.0 — 手続きの円錐 + 白帯のみ、
+  全ティア: `cone_pack` の 2 種のコーンはどちらも橙で GLB 近段は手続き色を受けないので、高ティアで橙 → 120 m で緑に跳んでいた）、
   ケーブルランプ 1 × 0.3 × 0.05 黄黒を中心線上に −21.2 → −28.2 の 7 枚（IM `ops-cables`、エプロン +10 mm ≥ LAYER_MIN_STEP）。
   消火器 48（各ピットの +s ピア前、−27.85、`korean_fire_extinguisher_01` / 赤の車輪付き筒 φ0.32 × 1.0）。
 - **プラットペルチ v2**（mount `'wall'`、`perch-<b>`）: アルミ φ0.04 管の枠 5.5 × 1.3 × 2.6 を歩廊 +0.5 の中心 −10.4 に、床 +1.0、
   壁側にデスク +1.75 とモニター 4（座席側 −lateral 向き）、スツール 3（座面 +1.45 = `perchSeats` の y 1.4、I3-d が座らせる）、
   後隅に傘 2（φ1.4、天 +3.2）、天端にチーム色キャノピー（instanceColor）。**固定プラットホーム 31–69 上のペルチ**（ブロック 2 と、
   端 31 に跨るブロック 3 → 31.5–37.0 に移動）はデッキ +1.3 の上に幅 1.0（パラペット −11.05…−10.85 と壁の間、中心 −10.35）。
-  **ブロック 4（s 7.5）はスターター台 + 階段（3.7…9.5）と重なるので s 9.5–15.0** に置く（`perchCentreS(block)`、
+  **ブロック 4（s 7.5）はスターター台 + 階段（3.7…9.5）と重なるので s 10.1–15.6** に置く（`perchCentreS(block)`、
   `perchOnPlatform(block)` を C 区画から export。A 区画の `perchSeats` は boxS のままなので I3-d はこれを読む）。
-  ピットボード（`pit_board` / 0.8 × 0.5 板 + 柄、全高 1.2 で歩廊に立て掛け）を各ペルチの +s 側 3.2 m に。固定プラットホームに TV カメラ 2
+  ピットボード（`pit_board` / 0.8 × 0.5 板 + 柄、全高 1.2 で歩廊に立て掛け）を各ペルチの +s 側 3.75 m（枠半分 2.75 + 1.0、`PIT_EQUIPMENT.board.dS`）に。固定プラットホームに TV カメラ 2
   （s 40 / 60、三脚 1.4 + `security_camera_01` / 箱）とモニター台 1 (45.5)。v1 の `perchCanopies` / `perchBacks`（pit-lane.ts）は削除。
 - LOD / コスト: 4 セット `registerPropSet(ctx, 'ops', 'ops-pitEquipment' | 'ops-perches' | 'ops-cones' | 'ops-cables', …)`、段
   [GLB `Quality.infield.propsNearM` 120 m, 手続き `propsFarM` 600 m, 空]（Node / 低は手続き 1 段 1 バケット）、受けのみ（建物級無し）。
-  GLB / 手続きの対は長辺を local x に揃え同じ四半回転で置く（pit-building と同じ規約）。静的コスト（Node、高）: 近段 489 体 / 39.2 k tris、
-  `farField/ops` 66,010 → 105,234 tris / 21 → 60 IM / 1,962 → 2,459 体；合計 3,938,843 tris / 975 メッシュ / 867 IM / 1,022 エントリ
-  （予算内、再ベース無し）、低 2,080,257 / 738 / 708 / 801。programs は増えません（plain / plain + instanceColor / plain + emissive /
+  GLB / 手続きの対は長辺を local x に揃え同じ四半回転で置く（pit-building と同じ規約）。静的コスト（Node、高、I3-c 時点）: 近段 489 体 /
+  40.4 k tris（I3 レビューでコーンに白帯）、`farField/ops` 66,010 → 105,234 tris / 21 → 60 IM / 1,962 → 2,459 体；合計 3,938,843 tris /
+  975 メッシュ / 867 IM / 1,022 エントリ（予算内、再ベース無し。I3-b の 872 IM との差はコミット間の遠景セルの再分割）、低 2,080,257 / 738 / 708 / 801。programs は増えません（plain / plain + instanceColor / plain + emissive /
   {map, normalMap, roughnessMap} のタイヤ、いずれも既存）。
 - 検査: `facilities-check §16`（255 行すべて O1 / O3 / O5 / O12、梁行は 'roof' で地面規則を支柱に委ね O3 は受ける）、
   `scripts/audit/ops-smoke.mjs checkPitEquipment`（4 セットの存在、`userData.ops` に C 区画の全行、近段 489 体の世界 bbox がすべて作業
   エリア / 歩廊帯 [−12, −9.05] / ガレージ内のどれかに入る、底 1.0 m 未満の物が 12 の停止車矩形に無い、レンズ柱に 2.9 m 超無し・
-  レンズ→車の経路に何も無し、ガントリー天端が −19.1 より左に出ない、ケーブルランプ 42 枚が +8 mm 以上、`--glb` で stub registry の
-  7 プロトタイプが ≤ 2.9 m / ≤ 6 k tris で手続き遠段を持つ）、`pit-smoke checkLane`（レーン帯・レンズ柱、v1 ペルチ名を外した）。
+  レンズ→車の経路に何も無し、ガントリー天端がキープアウト縁 −21.1 より左に出ない、歩廊帯は壁の歩廊面 −9.75 まで（壁天端 1.8 を越える物だけレーン面 −9.05 まで）、ケーブルランプ
+  42 枚が +8 mm 以上、`--glb` で stub registry の 6 プロトタイプ（コーンは手続きのみ）が ≤ 2.9 m / ≤ 6 k tris で手続き遠段を持つ）、
+  `pit-smoke checkLane`（レーン帯・レンズ柱、v1 ペルチ名を外した）。
 - GPU で確認すること: `pc_monitors` の画面の向き（`front: 'moreArea'` — ペルチでは座席側、モニター台では車側）、`impact_wrench` の
   吊り姿勢、`trolley_jack` のレバーの向き、`pit_board` の白パネル、120 m の L0 ↔ 手続き切替、キャノピー / ブランケットの instanceColor、
-  信号灯の緑 2 灯（輝度 2.3、halo 無し）。
+  信号灯の緑 2 灯（輝度 2.3、halo 無し）、緑コーンの白帯。
 
 #### 人物配置
 
@@ -818,10 +835,17 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
 インポスター `figuresFarM` 600 m、`crowd|baked / crowd|figure / crowd|procedural` の共有 program、観客予算とは無関係）。
 
 - **ピットクルー 165** = 各チーム 12（ガンナー 4 `(boxS ± 1.7, stop ± 1.9)` crouch、タイヤ係 2 `(−6 / −7.5, −3.2)`、ジャッキ係 2
-  — 前は `(4.2, −0.8)`（停止線上だと前ジャッキ 3.95…5.25 の上に立つ）、後は `(−4.4, −2.7)` — ロリポップ `(5.5, +1.5)`、シャッター前 3
-  `(± 3 / 0, −27.0)`）+ ペルチ 3 座り。チーム色シャツ / 0x1e2126 / 白ヘルメット。**注意**: レーン側ガンナー 2（stop + 1.9）は隣ブロックへ
-  到着する車（車体 stop + 0.65…2.55）の通り道で、混雑した harness（22 台同一周回のストップ）では車が通り抜ける — sim は静的レイヤーと
-  衝突せず、chase-in-box の画のためのクルーなので受容（O1 の停止車矩形は守る）。
+  — 前 `(4.6, −2.6)`・後 `(−4.4, −2.7)`、どちらも自分のジャッキ (± 4.6, −1.8) の脇 — ロリポップ **`(5.8, −1.6)` ガレージ側**（I3-d の
+  レーン側 (5.5, +1.5) は退出車の車体が毎回通った）、シャッター前 3 `(± 3 / 0, −27.0)`）+ ペルチ 3 座り。チーム色シャツ / 0x1e2126 /
+  白ヘルメット。**退出車との関係**（I3 レビュー、race.ts `PIT_EXIT_HOLD_M` 3.5 / `PIT_STEER_EXIT_BOOST` 3.0）: リリースされた車は
+  停止 lateral を 3.5 m 保ってからレーンへ切るので、53 周 × 3 seeds = 66 ストップの実測で退出車は自ブロックの人物・ジャッキ・コーンに
+  触れず（車体 s ± 2.9 × ± 0.95、人物 r 0.3。テールが前ガンナーを過ぎる時に中心 ≤ + 0.49、鼻が次ブロックの後ガンナー boxS + 17.3 に
+  届く時に ≥ + 3.56）、pit-trace の門（停止 −23.5 ± 0.5・重なり 0・復帰中央値 26.1 m ≤ 40・8 周混雑ピットロス 26.0 s・53 周 21.7 s）は
+  緑のまま。**注意**: 到着車は最後の 25 m を停止 lateral で走るので隣（−s 側）ブロックのレーン側ガンナー 2 の 0.65 m 脇を毎回通り、
+  コアを挟む 26 m ピッチ（ブロック 0 / 2 / 4 / 6 / 8）ではまだ寄り切っておらず（24…30 m 手前で + 0.4…1.2）2 人を横切る（66 中 29）、
+  43 m 手前（中心 + 3.0…3.5、車体縁 −21.45）では 2 つ前のブロックの前ガンナー（−21.6）を掠める（66 中 38）；混雑した harness
+  （22 台同一周回のストップ）ではチームメイトの脇 stop + 2.0 で待つ車が通り抜ける — sim は静的レイヤーと衝突せず、chase-in-box の
+  画のためのクルーなので受容（O1 の停止車矩形と到着帯は守る）。`pnpm sim -- --pit-trace` がこの接触をブロック別に報告する。
 - **オフィシャル 27**（白 / 0x14161a）: コア扉前 2 × 6（core.mid ± 1.2、−27.0）、固定プラットホーム 6（s 41.5 / 47 / 48 / 57.5 / 64 / 66
   × −10.2、デッキ +1.3 — ペルチ 2 基・ボード・キャビネット・TV カメラの空き）、表彰台テラス 4（5632 ± 1.6 / 3.2 × −27.8: 黒ステップ
   −27.2 と背景壁 −28.3 の間、mount 'roof'）、出口灯 2（129 / 130.3 × −21.7: 灯柱 (128, −21.5) と `pit-exit-outer` 壁面 −22.3 の間、
@@ -836,19 +860,27 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
   1.5 m 空ける、6.2 m ピッチ + seeded ±1 m）、ユニット間の隙間（バンの両脇 ±2.7）、センターハウス前庭 8、放送コンパウンド 8
   （コンテナ列とパラボラの間の通路）、車両基地 6（扉列と後列の間、ロールドア前、帯の車の間）。
 - **旗**（I3-e）: E パドック縁の 9 m ポール 8 本（5410…5500 × −34 — 計画の 5350 からだと囲いフェンス 474537488 が 5360–5395 で
-  −34 を横切る）、架空 3 色（上下帯 + 白）を色対毎の手続きプロトタイプ（plain DoubleSide、paddock.ts の門旗と同じ program）で
+  −34 を横切る）、架空 3 色（上下帯 + 白。`FLAG_COLOURS` は赤・青・緑を避けた teal / 橙 / 紫 / 金 / 炭 の対 — I3-d の赤白青・青白赤・
+  緑白赤・赤白緑はオランダ・ロシア・イラン・ハンガリーの国旗そのものだった、I3 レビュー）を色対毎の手続きプロトタイプ（plain DoubleSide、paddock.ts の門旗と同じ program）で
   `ops-flags` に IM。**静止**: 波打ちは props.ts の `onBeforeCompile` program で、§横断 7 の下では新 program を作れない（paddock.ts の
   T1 キャップ／門の旗も静止）。
-- 検査: `facilities-check §16` O9 を mount 対応に（'wall' は歩廊帯、'roof' は O3 / O4 のみ、他は O1–O4）、さらに全人物が ops 足跡の外
+- 検査: `facilities-check §16` O9 を mount 対応に（'wall' は歩廊帯、'roof' は O3 / O4 のみ、他は O1–O4。O1 は到着帯 stop ± 0.95 も弾く）、さらに全人物が ops 足跡の外
   （座りクルーの自ペルチ枠と 'roof' 行の下は除く）と建物外形の外（O6）— 298 体 0 faults、`--envelope` の実測包絡でも同じ；
   `scripts/audit/ops-smoke.mjs checkPeople`（5 セット、インポスター 298 = 行数、各行の描画原点が `figureToWorld` の点 ± 5 cm、
-  standY からの高さが mount の帯 [地面 −0.05…0.3 / wall 0.4…2.6 / roof 4.5…5.5]、Node で mode 'procedural'、停止車矩形・レンズ経路・
+  **手続きインポスターの `aCell` が役割のアトラスセル**（marshalAtlas は上から描いて flipY で上げるので行 r は v = (3 − r) / 4 — I3-d
+  までは行が 0 ↔ 3 / 1 ↔ 2 に鏡映し、低ティアの McLaren クルーが Aston Martin 色・マーシャルが Alpine〜Cadillac のクルー色で出ていた、
+  I3 レビュー figures.ts）、standY からの高さが mount の帯 [地面 −0.05…0.3 / wall 0.4…2.6 / roof 4.5…5.5]、Node で mode 'procedural'、停止車矩形・レンズ経路・
   ops 足跡・パドック駐車車両の中に誰もいない、旗 8 本が接地、`--glb` は eclair の姿勢 GLB を stub registry に積んで 3D プロトタイプ
   ≤ 1.4 k tris — ヘルメットのドームを 20×14 → 16×12（352 tris）に落とした: 男性 + ヘルメット 1,240、女性素体 1,356）。
   `pnpm sim -- --laps 8 --seeds 3 --envelope` の 181 ビン（進入ラグ 4.26 / 退出 1.99、停止 −23.50、重なり 0）で O1 再検証済み。
   静的コスト（Node、高）: `farField/ops` 105,234 → 130,338 tris / 60 → 118 IM（人物の役割 × セル + 旗）、合計 3,961,823 tris / 970
   メッシュ / **926 IM** / 1,044 エントリ — IM 予算 889 を超えたので実測 × 1.10 = **1,019** に置き直し（`measuredAt` I3-d）；低
-  2,097,733 / 733 / 752 / 812（予算内）。programs +0（群衆の 3 program と plain DoubleSide の再利用）。
+  2,097,733 / 733 / 752 / 812（予算内）。programs +0（群衆の 3 program と plain DoubleSide の再利用）。I3 レビュー後（コンテナ 8 → 6、
+  コーンは手続きのみ + 白帯）: 高 3,961,961 / 970 / 924 / 1,044、低 2,100,167 / 733 / 752 / 812 — 予算内、再ベース無し。
+- GPU で確認すること（I3 レビュー、`?fx=1&assets=1`）: 低ティア／パック無しの手続きインポスターがクルー = チーム色・マーシャル = 橙・
+  オフィシャル = 白で出ること（`?assets=0`）、白灰コンテナ（法線 + ARM だけ）、緑コーンの白帯、B パドックの 15 × 15 マーキー 3 と
+  放送コンパウンドの s 沿いコンテナ列が平坦帯に立つこと（`--custom "b-marquee:60,-100,8:20,-116,4"`）、退出車が自ブロックのクルーを
+  避けてからレーンへ切ること（chase-in-box）、旗の新配色。
 - GPU で確認すること: 80 m（`Quality.infield.figures3dM`）の 3D ↔ インポスター切替が pit-follow の chase（ガレージ前 8–25 m）と
   ヘリで目立たないこと、白ヘルメット行（アトラス行 28–31 の再焼き後）とドームの継ぎ目、橙 0xf07020 の彩度が日陰のエプロンで
   くすまず MSAA で縁がにじまないこと、座りクルーがスツールに沈まず浮かないこと（原点 = 台床 + 0.05）、表彰台の 4 人が黒ステップと
@@ -1084,9 +1116,13 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   `GARAGE_CENTRES`、絶対位置 ±10 m 未確認）で、停止位置はシャッター前の作業エリア lateral −23.5（`PIT_PLANNED.stopLateral`、
   boxS の 100 m 手前でレーン中心線から切り替え）。ピットレーンでは進入の分岐・ボックス手前 40 m・退出でレーン中心線に
   戻るまで横方向レートを 2 倍にし（80 km/h 以下でグリップ限界から遠い）、先行車の 5.2 m 後ろに止まれる速度に抑えます。
-  実測（`pnpm sim -- --laps 8 --seeds 3 --pit-trace`、22 台が同じ周に入る混雑ケース）：停止 −23.5 ± 0.1、退出 30 m で
-  中心線 +2 m 以内（交通に譲ると最大 83 m）、進入ランプの遅れは分岐点で 4.3 m・s 5300 以降 1.7 m 以下、ピットロス平均
-  26.0 s（旧 25.5 s、53 周では 21.7 s で同じ）。包絡は `PIT_ENVELOPE` が持ち、ops-check §16 と `--pit-trace` が同じ表を読みます。
+  リリースされた車は停止 lateral を **3.5 m 保ってから**（`PIT_EXIT_HOLD_M`）最初の 40 m はレートを 3 倍（`PIT_STEER_EXIT_BOOST`）で
+  レーンへ切ります — 車体が自ブロックのレーン側クルーを過ぎてから曲がり、次ブロックの後ガンナー (boxS + 17.3) には届く前に
+  stop + 2.6 を越える（9 m 保持だと次ブロックのガンナーを掃き復帰も 40 m を越える。I3 レビュー、「運営レイヤー」）。
+  実測（`pnpm sim -- --laps 8 --seeds 3 --pit-trace`、22 台が同じ周に入る混雑ケース）：停止 −23.5 ± 0.1、退出 26.1 m で
+  中心線 +2 m 以内（交通に譲ると最大 82 m）、進入ランプの遅れは分岐点で 4.3 m、退出ランプ 2.0 m 以下、ピットロス平均
+  26.0 s（53 周では 21.7 s）。包絡は `PIT_ENVELOPE` が持ち、ops-check §16 と `--pit-trace` が同じ表を読み、`--pit-trace` は
+  静的運営レイヤー（ops-spec の機材列とクルー人物）との接触も数えます（機材列は 0 が門）。
   `pnpm sim -- --laps 8 --seeds 3 --envelope out.json` は 5 m ビンごとの実測（車体中心 lateral の min / max）を書き出し、
   `node scripts/facilities-check.mjs --strict --envelope out.json` がそれで箱帯（PIT_BOX_STRIP）の外の解析的キープアウト
   [c − 6.5, max(c + 5.5, −hw)] を [min − 0.95 − 1, max + 0.95 + 1] に置き換えて再検証します（箱帯の中は車が作業エリアへ

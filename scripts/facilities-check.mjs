@@ -1310,8 +1310,13 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *       it to their boxes — so the strip keeps the explicit rules below). Along the box strip
  *       nothing in the lane band PIT_ENVELOPE.lanes; apron / lane rows inside
  *       PIT_ENVELOPE.workArea and outside every block's stopped-car rectangle (ops-spec
- *       `stoppedCarRect`: stop ± (carHalf + margin) × boxS ± (halfS + margin)); wall rows in
- *       the walkway band; interior rows inside the building. Rows that hang on a structure
+ *       `stoppedCarRect`: stop ± (carHalf + margin) × boxS ± (halfS + margin)) and outside the
+ *       arrival strip stop ± carHalf along the whole box strip (a car reaches its box along
+ *       the stop lateral — race.ts PIT_PLANNED.stopSwitchM — and leaves it along the stop
+ *       lateral for PIT_EXIT_HOLD_M, so that strip is car space in front of every block; rows
+ *       that are driven over, ≤ 0.1 m tall — the cable ramps — are exempt; figures are tested
+ *       as points against the same strip);
+ *       wall rows in the walkway band; interior rows inside the building. Rows that hang on a structure
  *       the barrier checks cover (wall, pitWallTop, barrierTop, fencePost) skip the band
  *       rules. All 12 rectangles are checked to lie inside the working area and outside the
  *       lane band, and `crewSlots` / `perchSeats` of every block (the rows I3-d's figuresAt()
@@ -1493,6 +1498,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     if (mount === 'apron' || mount === 'lane') {
       for (const [s, l] of corners) if (!within(l, E.workArea)) { out.push(`${id}: ${mount} row leaves the working area [${E.workArea.join(', ')}] (corner s ${fmt(s, 0)}, lateral ${fmt(l)}) — O1`); break }
       for (const r of carRects) if (overlapsZone(corners, r.s0, r.s1, r.l0, r.l1)) { out.push(`${id}: ${mount} row overlaps the stopped car of block ${r.g} (s ${fmt(r.s0, 0)}→${fmt(r.s1, 0)}, lateral ${fmt(r.l0)}…${fmt(r.l1)}) — O1`); break }
+      // the arrival strip along the whole box strip (rows driven over — the cable ramps, ≤ 0.1 m — excepted)
+      if ((p.size?.[2] ?? 0) > 0.1 && overlapsZone(corners, E.boxStrip[0], E.boxStrip[1], stop - E.carHalf, stop + E.carHalf)) out.push(`${id}: ${mount} row lies in the arrival strip (stop ${fmt(stop)} ± ${E.carHalf} along the box strip s ${fmt(E.boxStrip[0], 0)}→${fmt(E.boxStrip[1], 0)}) — O1`)
     }
     if (mount === 'interior') {
       for (const [s, l] of corners) if (!within(l, INTERIOR)) { out.push(`${id}: interior row leaves the building interior lateral [${fmt(INTERIOR[0])}, ${fmt(INTERIOR[1])}] (corner s ${fmt(s, 0)}, lateral ${fmt(l)}) — O1`); break }
@@ -1508,6 +1515,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     if (ko && l >= ko[0] && l <= ko[1]) out.push(`${id}: at s ${fmt(s, 0)} lateral ${fmt(l)} is inside the pit keep-out [${fmt(ko[0])}, ${fmt(ko[1])}] — O1`)
     if (inArc(s, E.boxStrip) && within(l, E.lanes)) out.push(`${id}: at s ${fmt(s, 0)} lateral ${fmt(l)} is in the pit lane band along the box strip — O1`)
     for (const r of carRects) if (pointInZone(s, l, r.s0, r.s1, r.l0, r.l1)) out.push(`${id}: stands in the stopped car of block ${r.g} — O1`)
+    if (pointInZone(s, l, E.boxStrip[0], E.boxStrip[1], stop - E.carHalf, stop + E.carHalf)) out.push(`${id}: stands in the arrival strip (stop ${fmt(stop)} ± ${E.carHalf} along the box strip) — O1`)
     return out
   }
   // --- O3 / O4 -------------------------------------------------------------------------------------

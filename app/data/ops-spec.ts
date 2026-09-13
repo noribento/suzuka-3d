@@ -159,9 +159,13 @@ export const OPS_LAYOUT = {
    * porch line (−79.5), so lat = porch + walk + across / 2 = −71.
    */
   hospitality: { lat: OFFICE_PORCH_PIT + 5 + 3.5, walk: 5, size: [10, 7, 6.6] as [number, number, number] },
-  /** the marquees (35 × 15 × 4.5 gable PVC): three in the B paddock, one media marquee at the E paddock's edge */
+  /**
+   * The marquees (gable PVC): three 15 × 15 in the B paddock's flat band (the lot is flat only
+   * to −122 and climbs 3.9 m over −124 … −143 — the I2 relief ring; the plan's 35 × 15 units
+   * across the lot buried their high side), one 20 × 10 media marquee at the E paddock's edge.
+   */
   marquees: {
-    b: { s: [5, 22, 39], lat: -126, size: [35, 15, 4.5] as [number, number, number] },
+    b: { s: [5, 22, 39], lat: -116, size: [15, 15, 4.5] as [number, number, number] },
     e: { s: 5480, lat: -92, size: [20, 10, 4.5] as [number, number, number] },
   },
   /** the broadcast compound in the E paddock (OSM 474537492): s 5440 → 5510 stays free of parked cars for it (PADDOCK_PARKING E) */
@@ -204,39 +208,56 @@ export const OPS_LAYOUT = {
   /** three tyre stacks (4 tyres, team-colour blankets) on the garage side, at boxS + dS */
   tyreStacks: { dS: [-6, -7.5, -9], dLat: -3.2, size: [0.7, 0.7, 1.4] as [number, number, number] },
   /**
-   * The front / rear jacks just outside the car rectangle (halfS + margin = 3.5): the front one
-   * on the stop line, the rear one beside its jack man on the garage side (rearDLat) — on the
-   * stop line at boxS − 4.6 it would sit in the chase-lens path.
+   * The front / rear jacks just outside the car rectangle (halfS + margin = 3.5), BOTH on the
+   * garage side of the stop line (dLat) beside their jack men: on the stop line the rear one
+   * would sit in the chase-lens path, and the front one (I3-c put it there) lay on the arrival
+   * path of the block behind — a car arriving at block g drives the last 25 m at the stop
+   * lateral (its body stop ± 0.95), so every stop at block g drove over block g + 1's jack.
+   * At stop − 1.8 the jack spans stop − 2.0 … − 1.6: 0.65 m clear of an arriving body.
    */
-  jacks: { dS: 4.6, rearDLat: -1.8, size: [1.3, 0.4, 0.3] as [number, number, number] },
+  jacks: { dS: 4.6, dLat: -1.8, size: [1.3, 0.4, 0.3] as [number, number, number] },
   /** the monitor stand on the garage side */
   monitor: { dS: -7, dLat: -3.5, h: 1.9 },
   /** the fuel drum + hose trolley inside the garage (mount 'interior') */
   fuel: { dS: 7, lat: V2.interior.equipmentFront - 4 },
-  /** green cones along the working lane's outer edge at the block boundaries */
+  /** green cones at the block boundaries (the plan's lane-edge line; section C puts them on the garage side of the core fronts) */
   cones: { lat: E.lanes[0] - 0.4 },
   /** cable ramps across the apron at the core boundaries, from the lane edge to the shutter */
   cableRamps: { lat: [E.lanes[0] - 0.2, V2.shutter + 0.1] as [number, number] },
   /**
    * The pit crew per block (plan I3-d, 12 = the real 3 per wheel + 2 jacks condensed): four
    * gunners at the wheels (both sides of the car), two tyre men beside the stacks, the front
-   * and rear jack men (the front one crouches beside his jack's handle on the garage side —
-   * on the stop line at boxS + 4.2 he would stand on the jack itself, PIT_EQUIPMENT.jacks at
-   * boxS + 4.6 spans 3.95 … 5.25; the rear one beside his jack on the garage side, out of the
-   * chase-lens path s ∈ [boxS − 11, boxS − 3] × stop ± 1.5), the lollipop / release man at the
-   * front on the lane side, three at the shutter. Offsets (dS from boxS, dLat from the stop).
-   * CAVEAT (I3-c/d): the two lane-side gunners at stop + 1.9 stand where a car arriving at the
-   * NEXT block passes (its body stop + 0.65 … + 2.55 at s = boxS) — the sim does not collide
-   * with the static layer, so in the crowded harness case (all 22 cars pitting on one lap) an
-   * arriving neighbour drives through them; a real crew steps back. Accepted: they are what the
+   * and rear jack men (each crouching beside his jack on the garage side — the front jack
+   * PIT_EQUIPMENT.jacks at (boxS + 4.6, stop − 1.8) spans s 3.95 … 5.25 × stop − 2.0 … − 1.6,
+   * the man at (4.6, −2.6); the rear one at (−4.4, −2.7), out of the chase-lens path
+   * s ∈ [boxS − 11, boxS − 3] × stop ± 1.5), the lollipop / release man at the nose on the
+   * GARAGE side (5.8, −1.6; past the jack's +s end 5.25, before the monitor stand at 5.4 … 6.6
+   * × −4.15 … −3.65), three at the shutter. Offsets (dS from boxS, dLat from the stop).
+   * The moving cars (race.ts; measured over the 53-lap race × 3 seeds = 66 stops with the box
+   * trace, car body s ± 2.9 × stop ± 0.95, r 0.3 about every figure — `pnpm sim -- --pit-trace`
+   * repeats the contact test): a released car holds the stop lateral for PIT_EXIT_HOLD_M =
+   * 3.5 m and then steers for the lane at PIT_STEER_EXIT_BOOST, so its centre is still
+   * ≤ stop + 0.49 when its tail passes the front lane-side gunner (d 4.6 … 5.0; body ≤ + 1.44
+   * against the gunner's − 0.3 edge at + 1.6) and already ≥ stop + 3.56 when its nose reaches
+   * the NEXT block's rear lane-side gunner (boxS + 17.3 on the 19 m pitch; d 14.4; body
+   * ≥ + 2.61 against + 2.2) — no exiting car touches a figure, jack or cone (66 of 66 stops).
+   * What the static layer does NOT model: a car arriving at the NEXT block drives the last
+   * 25 m at the stop lateral itself (centre ≤ stop + 0.11 from 14 m out), so it passes 0.65 m
+   * from this block's lane-side gunners (its body edge stop + 0.95 … their r 0.3 at + 1.9) on
+   * EVERY stop; where a core separates the two blocks (26 m pitch: blocks 0 / 2 / 4 / 6 / 8) it
+   * is still converging over them (stop + 0.4 … + 1.2 at 24 … 30 m out) and crosses both
+   * (29 of 66 stops), 43 m out (centre + 3.0 … + 3.5, body edge −21.45) it grazes the front
+   * lane-side gunner of the block before that (−21.6, 38 of 66), and in the crowded harness
+   * case (all 22 cars pitting on one lap, a queued car stopped beside its team-mate at
+   * stop + 2.0) it drives through them; a real crew steps back. Accepted: they are what the
    * chase-in-box shot is about, and O1 (the stopped car's rectangle) holds.
    */
   crew: [
     { dS: 1.7, dLat: 1.9, pose: 'crouch', yawDeg: -90 }, { dS: -1.7, dLat: 1.9, pose: 'crouch', yawDeg: -90 },
     { dS: 1.7, dLat: -1.9, pose: 'crouch', yawDeg: 90 }, { dS: -1.7, dLat: -1.9, pose: 'crouch', yawDeg: 90 },
     { dS: -6, dLat: -3.2, pose: 'stand', yawDeg: 90 }, { dS: -7.5, dLat: -3.2, pose: 'hips', yawDeg: 0 },
-    { dS: 4.2, dLat: -0.8, pose: 'crouch', yawDeg: 180 }, { dS: -4.4, dLat: -2.7, pose: 'crouch', yawDeg: 45 },
-    { dS: 5.5, dLat: 1.5, pose: 'hips', yawDeg: 180 },
+    { dS: 4.6, dLat: -2.6, pose: 'crouch', yawDeg: 90 }, { dS: -4.4, dLat: -2.7, pose: 'crouch', yawDeg: 45 },
+    { dS: 5.8, dLat: -1.6, pose: 'hips', yawDeg: 180 },
     { dS: -3, dLat: -3.5, pose: 'stand', yawDeg: 90 }, { dS: 0, dLat: -3.5, pose: 'hips', yawDeg: 90 }, { dS: 3, dLat: -3.5, pose: 'stand', yawDeg: 90 },
   ] as readonly { dS: number; dLat: number; pose: string; yawDeg: number }[],
   /** the officials (white): two at every core door, on the fixed platform, at the podium (2F), at the pit-exit light, at the pit entry (apron, outside the keep-out) */
@@ -565,11 +586,13 @@ export function opsPlacements(): OpsPlacement[] {
  *    (OPS_LAYOUT.vehicleBase.strip), not in OPS_LAYOUT.scPocket: the pocket's lateral (−24.3)
  *    is inside the T1 cap (the OSM outline 184422099 runs at −24.3 from s 92 to 103.3 and the
  *    paddock-information box fills 88 → 92 to the drip line) — there is no apron there;
- *  - the B-paddock marquees stand across the lot (yawDeg 90, 15 m along s at 17 m pitch, 35 m
- *    across −108.5 … −143.5 = the whole 'B パドック' face): the B car park's bays are all under
- *    them and paddock.ts drops them (its footprint rule reads `vehiclePlacements()`), the four
- *    2 t trucks park on the band strip north of the marquees (−104.5, off the office road at
- *    −101);
+ *  - the B-paddock marquees are three 15 × 15 units along s (yawDeg 0, 17 m pitch, 2 m aisles,
+ *    −108.5 … −123.5 = the lot's flat band: the ground climbs 3.9 m across −124 … −143, so the
+ *    plan's 35 × 15 units across the lot stood on one corner with the far wall 3.5 m under the
+ *    slope): the B car park's bays are all under them or on the slope and paddock.ts drops them
+ *    (its footprint rule reads `vehiclePlacements()`), the four 2 t trucks park on the band
+ *    strip north of the marquees (−104.5, off the office road at −101, their bodies ending at
+ *    −107.5);
  *  - the six vans stand in the gaps between the hospitality units (yawDeg 90 at −72, off the
  *    walkway −74.5 … −79.5 and 2.5 m off the truck noses), not in the walkway itself;
  *  - the E-paddock media marquee stands across the lot at (5496, −88), see `LAYOUT_B.marqueeE`;
@@ -638,8 +661,8 @@ const LAYOUT_B = {
   vans: { lat: OPS_LAYOUT.hospitality.lat - 1.0, yawDeg: 90 },
   /** the 2 t trucks on the band strip north of the B-paddock marquees, nose to the marquees */
   truck2t: { s: [8, 17, 26, 35] as readonly number[], lat: -104.5, yawDeg: -90 },
-  /** the B-paddock marquees stand across the lot (15 m along s, 35 m across) */
-  marqueeYawDeg: 90,
+  /** the B-paddock marquees stand along s (15 × 15, the long side along the lot's flat band) */
+  marqueeYawDeg: 0,
   /**
    * The E-paddock media marquee also stands across the lot (its 20 m along lateral: a radial
    * line, straight in the world), 16 m past the layout's s — the E paddock lies inside the
@@ -649,16 +672,22 @@ const LAYOUT_B = {
   marqueeE: { dS: 16, lat: -88, yawDeg: 90 },
   /**
    * The broadcast compound inside OPS_LAYOUT.compound, on the paved part of OSM 474537492
-   * (its north edge runs −42.6 at s 5451 → −51.2 at 5490, its south edge −84.4 → −80.8): the
-   * white pipe fence 1.1 m, the containers across the enclosure in two rows of four, the three
-   * dishes and the two generators at the +s end, one cable-ramp run across the yard.
+   * (its north edge runs −42.6 at s 5451 → −51.2 at 5490, its south edge −84.4 → −80.8). The
+   * paving is flat only over −51 … −63.6 (the E lot's relief ring starts at −66 and climbs
+   * 3.2 m by −80), so everything rigid stays in that band (ops-smoke fails a rigid instance
+   * whose four ground corners spread more than 0.3 m): the white pipe fence 1.1 m (drawn per
+   * panel on the ground, it may run down the slope), six 40 ft containers ALONG s in three
+   * rows at 4 m pitch (two units end to end per row, 1.56 m aisles; every corner spread
+   * ≤ 0.25 m — across the enclosure a 12.2 m unit reached the slope), the three dishes and the
+   * two generators at the +s end, one cable-ramp run across the yard between the containers
+   * and the dishes.
    */
   compound: {
-    fence: { s: [5448, 5488] as [number, number], lat: [-52, -80] as [number, number], h: 1.1, gate: { lat: [-63, -69] as [number, number] } },
-    containers: { s: [5452, 5456, 5460, 5464] as readonly number[], lat: [-60, -73] as readonly number[], size: [12.2, 2.44, 2.9] as [number, number, number] },
-    dishes: { s: 5476, lat: [-58, -66, -74] as readonly number[], size: [3.0, 3.0, 3.4] as [number, number, number] },
-    generators: { s: 5484, lat: [-58, -70] as readonly number[], size: [2.6, 1.3, 2.0] as [number, number, number] },
-    cableRamp: { s: 5470, lat: [-54, -78] as [number, number], size: [0.9, 0.3, 0.06] as [number, number, number] },
+    fence: { s: [5448, 5488] as [number, number], lat: [-51.5, -80] as [number, number], h: 1.1, gate: { lat: [-63, -69] as [number, number] } },
+    containers: { s: [5454.2, 5466.6] as readonly number[], lat: [-53.5, -57.5, -61.5] as readonly number[], yawDeg: 0, size: [12.2, 2.44, 2.9] as [number, number, number] },
+    dishes: { s: 5476, lat: [-54, -58, -62] as readonly number[], size: [3.0, 3.0, 3.4] as [number, number, number] },
+    generators: { s: 5484, lat: [-57, -61] as readonly number[], size: [2.6, 1.3, 2.0] as [number, number, number] },
+    cableRamp: { s: 5473.8, lat: [-54, -78] as [number, number], size: [0.9, 0.3, 0.06] as [number, number, number] },
   },
   /** the course vehicles on the base's apron (two rows nose to its roll doors) and the yard's lane-side strip */
   base: {
@@ -771,7 +800,7 @@ function marqueeRows(): OpsPlacement[] {
 function compoundRows(): OpsPlacement[] {
   const K = LAYOUT_B.compound
   const out: OpsPlacement[] = []
-  K.containers.lat.forEach((lat, r) => K.containers.s.forEach((s, i) => out.push({ id: `bc-container-${r}${i}`, kind: 'container', s, lateral: lat, yawDeg: 90, size: K.containers.size, mount: 'paddock' })))
+  K.containers.lat.forEach((lat, r) => K.containers.s.forEach((s, i) => out.push({ id: `bc-container-${r}${i}`, kind: 'container', s, lateral: lat, yawDeg: K.containers.yawDeg, size: K.containers.size, mount: 'paddock' })))
   K.dishes.lat.forEach((lat, i) => out.push({ id: `bc-dish-${i}`, kind: 'equipment', s: K.dishes.s, lateral: lat, yawDeg: 0, size: K.dishes.size, mount: 'paddock' }))
   K.generators.lat.forEach((lat, i) => out.push({ id: `bc-generator-${i}`, kind: 'generator', s: K.generators.s, lateral: lat, yawDeg: 90, size: K.generators.size, mount: 'paddock' }))
   const R = K.cableRamp
@@ -829,12 +858,17 @@ export function vehiclePlacements(): OpsPlacement[] {
  *    whole box strip, so nothing static may stand left of `KEEP_OUT_EDGE` (−21.1): the cones
  *    cannot line the working lane's edge (OPS_LAYOUT.cones.lat −19.5) and the cable ramps
  *    cannot start at −19.3 — both start at the keep-out edge instead;
- *  - a car arriving at the NEXT block passes the stop line's lane side at ≈ stop + 1.6 (its
- *    body stop + 0.65 … + 2.55) as it crosses this block, and a car leaving crosses the next
- *    block's working area diagonally: the lane-side row of everything on the apron therefore
- *    stays ≤ stop + 1.2 (the front jack on the stop line, the cones at stop + 0.8 in front of
- *    the cores) — the band stop + 1.2 … + 2.4 stays empty (caveat: the sim does not collide
- *    with the static layer; the crew rows of section A at stop + 1.9 are I3-d's to judge).
+ *  - a car arriving at the NEXT block drives the last 25 m AT the stop lateral (race.ts
+ *    switches to PIT_PLANNED.stopLateral 100 m before the box; measured over the 53-lap race
+ *    × 3 seeds: centre ≤ stop + 0.5 from 24 m out, ≤ + 0.11 from 14 m out, + 0.00 over the
+ *    last 2 m; the crowded harness adds queued cars waiting at stop + 2.0), so the whole strip
+ *    stop ± 0.95 (PIT_ENVELOPE.carHalf) outside a block's own car rectangle is car space —
+ *    every equipment row therefore stands on the garage side of the stop line: both jacks at
+ *    stop − 1.8, the cones at stop − 2.0 in front of the cores (I3-c had the front jack on the
+ *    stop line and the cones at stop + 0.8: every car pitting at block g drove over block
+ *    g + 1's jack and the cones before its box). A car leaving holds the stop lateral for
+ *    PIT_EXIT_HOLD_M and then steers for the lane (the crew rows of section A say what that
+ *    clears); the sim does not collide with the static layer.
  *
  * The fallback stop (§横断 2, stop inside the auxiliary lane): `fromStop` folds every offset
  * to the right of the lane's outer edge (FOLD_BASE), the lane-side reach of the gantry arms
@@ -888,7 +922,7 @@ export const PIT_EQUIPMENT = {
    * tyre men of the crew table stand at (−6 / −7.5, −3.2) — beside, not inside, the stacks.
    */
   tyreStacks: { dS: OPS_LAYOUT.tyreStacks.dS, dLat: OPS_LAYOUT.tyreStacks.dLat - 0.7, size: [0.7, 0.7, 1.3] as [number, number, number] },
-  /** the front jack on the stop line at +dS, the rear jack on the garage side (OPS_LAYOUT.jacks; long side along s) */
+  /** the front / rear jacks at boxS ± dS, both on the garage side at stop + dLat (OPS_LAYOUT.jacks; long side along s) */
   jacks: OPS_LAYOUT.jacks,
   /**
    * The fuel drum + hose trolley inside the garage, 1.5 m behind the equipment front (−30.5):
@@ -906,9 +940,11 @@ export const PIT_EQUIPMENT = {
    * Five green cones per core in front of the core's doors (no stopped car there): from the
    * core's −s face + 0.4 every 0.9 m (none on the centre line: the cable ramps run there),
    * stopping 3 m short of its +s face — the lens → car path of the block beyond the core
-   * starts 1.5 m before that face. Lane side at stop + 0.8.
+   * starts 1.5 m before that face. Garage side at stop − 2.0: the lane side stop + 0.8 lies
+   * inside the arriving car's body band (PIT_ENVELOPE.carHalf 0.95 about the stop lateral),
+   * 1.1 m off the core-face marshals at −26.6 and outside the next lens column's stop ± 1.5.
    */
-  cones: { perCore: 5, fromFace: 0.4, pitch: 0.9, dLat: 0.8, size: [0.35, 0.35, 0.5] as [number, number, number] },
+  cones: { perCore: 5, fromFace: 0.4, pitch: 0.9, dLat: -2.0, size: [0.35, 0.35, 0.5] as [number, number, number] },
   /** the cable ramps (yellow / black, 1 m segments across the apron) at every core's centre line, from the keep-out edge to the shutter */
   cableRamps: { lat: [KEEP_OUT_EDGE - 0.1, V2.shutter + 0.1] as [number, number], segment: 1.0, size: [0.3, 1.0, 0.05] as [number, number, number] },
   /** one wheeled extinguisher (red) in front of every pit's +s pier, 0.45 m off the shutter line */
@@ -981,8 +1017,8 @@ export function pitEquipmentPlacements(): OpsPlacement[] {
     row({ id: `gantry-beam-${g}`, kind: 'equipment', s: c, lateral: (garageEdge + laneEdge) / 2, yawDeg: 0, y: G.h - G.beam - G.arm.section, size: [2 * G.dS, Math.max(0.3, laneEdge - garageEdge), G.beam + G.arm.section], mount: 'roof', team })
     // the tyre stacks, the jacks, the fuel trolley, the monitor stand
     Q.tyreStacks.dS.forEach((dS, i) => row({ id: `tyres-${g}-${i}`, kind: 'tyres', s: c + dS, lateral: fromStop(Q.tyreStacks.dLat), yawDeg: 0, size: Q.tyreStacks.size, mount: 'apron', team }))
-    row({ id: `jack-${g}-front`, kind: 'trolley', s: c + Q.jacks.dS, lateral: fromStop(0), yawDeg: 0, size: Q.jacks.size, mount: 'apron', team })
-    row({ id: `jack-${g}-rear`, kind: 'trolley', s: c - Q.jacks.dS, lateral: fromStop(Q.jacks.rearDLat), yawDeg: 0, size: Q.jacks.size, mount: 'apron', team })
+    row({ id: `jack-${g}-front`, kind: 'trolley', s: c + Q.jacks.dS, lateral: fromStop(Q.jacks.dLat), yawDeg: 0, size: Q.jacks.size, mount: 'apron', team })
+    row({ id: `jack-${g}-rear`, kind: 'trolley', s: c - Q.jacks.dS, lateral: fromStop(Q.jacks.dLat), yawDeg: 0, size: Q.jacks.size, mount: 'apron', team })
     row({ id: `fuel-${g}`, kind: 'trolley', s: c + Q.fuel.dS, lateral: Q.fuel.lat, yawDeg: 0, size: Q.fuel.size, mount: 'interior', team })
     row({ id: `monitor-${g}`, kind: 'equipment', s: c + Q.monitor.dS, lateral: fromStop(Q.monitor.dLat), yawDeg: 0, size: Q.monitor.size, mount: 'apron', team })
     // the pit-wall perch v2 and its pit board
@@ -1070,8 +1106,8 @@ export const STAFF = {
   forecourt: { s: [5760, 5790] as [number, number], lat: [-77.5, -80.5] as [number, number], n: 8 },
   /** between the hospitality units: the free s on either side of a gap's van (or the gap's centre when it has none) */
   gapDS: 2.7,
-  /** the broadcast compound's free aisles (LAYOUT_B.compound: between the container rows and the dishes, past the dishes) */
-  compound: [[5467, -57], [5468, -63], [5467.5, -70], [5468.5, -77], [5473, -61], [5473.5, -69], [5480, -62], [5480.5, -66]] as readonly [number, number][],
+  /** the broadcast compound's free aisles (LAYOUT_B.compound: the two 1.56 m aisles between the container rows, south of the rows, past the dishes) */
+  compound: [[5456, -55.5], [5466, -55.5], [5458, -59.5], [5469, -59.5], [5455, -64.5], [5468.5, -64.5], [5480, -62], [5480.5, -66]] as readonly [number, number][],
   /** the vehicle base: between the door row and the back row, before the roll doors, between the strip's cars */
   base: [[138.6, -37.5], [138.6, -40.8], [139, -44.2], [147, -38.5], [148, -41.8], [164, -30]] as readonly [number, number][],
 } as const
@@ -1209,8 +1245,14 @@ export function figuresAt(opts: { towers?: readonly TvTowerSlotInput[]; lineAt?:
   return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...marshalPostFigures(), ...photographerFigures(), ...staffFigures(), ...(opts.towers ?? []).flatMap(cameraSlots), ...(opts.lineAt ? windowSlots(opts.lineAt) : [])]
 }
 
-/** the flags' [upper band, lower band] colours (fictional tricolours: the middle band is white) */
-export const FLAG_COLOURS: readonly [string, string][] = [['#c8102e', '#1d5bb5'], ['#1d5bb5', '#c8102e'], ['#2e8b57', '#c8102e'], ['#c8102e', '#2e8b57']]
+/**
+ * The flags' [upper band, lower band] colours (fictional tricolours: the middle band is white).
+ * No pair may be a national white-middle tricolour — red / blue is the Netherlands, blue / red
+ * Russia, green / red Iran, red / green Hungary, black / red Upper Volta, blue / blue Argentina
+ * and Honduras — so the palette stays off plain red, blue and green altogether: teal / teal,
+ * orange / violet, violet / gold, charcoal / teal.
+ */
+export const FLAG_COLOURS: readonly [string, string][] = [['#0f8a8a', '#0f8a8a'], ['#f28a1f', '#5b2a86'], ['#5b2a86', '#e0b32d'], ['#2b2f33', '#0f8a8a']]
 
 /** the eight flag poles along the E paddock's edge (kind 'flag', 9 m, three fictional colours in turn — ops-people.ts draws them) */
 export function flagPlacements(): OpsPlacement[] {

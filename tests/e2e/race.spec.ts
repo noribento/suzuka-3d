@@ -185,9 +185,11 @@ test.describe('Suzuka 3D broadcast', () => {
         placementKinds: Array.isArray(placed) ? [...new Set(placed.map((p: any) => p.kind))].sort() : [],
       }
     })
-    // --- the people: ≈ 300 figures split between impostors and the near 3D level ---------------
+    // --- the people: ≈ 300 figures — every one has an impostor level; the near 3D level is added
+    // on top on the high tier with the pack (mode 'baked'), so near3d is 0 or every figure
     expect(st.ops.figures).toBeGreaterThan(200)
-    expect(st.ops.impostors + st.ops.near3d).toBe(st.ops.figures)
+    expect(st.ops.impostors).toBe(st.ops.figures)
+    expect([0, st.ops.figures]).toContain(st.ops.near3d)
     expect(Object.values(st.ops.byRole as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(st.ops.figures)
     for (const role of ['crew', 'official', 'marshal', 'photographer', 'staff']) expect(st.ops.byRole[role], `no ${role}`).toBeGreaterThan(0)
     // the low tier / no pack draws the procedural atlas; the pack the baked one — never nothing

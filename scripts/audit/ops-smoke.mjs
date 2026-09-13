@@ -100,7 +100,8 @@ for (const tier of tiers) {
   const KEYS = ['figures', 'byRole', 'impostors', 'near3d', 'mode', 'vehicles', 'equipment']
   check(s && KEYS.every((k) => k in s) && Object.keys(s).length === KEYS.length, `env.stats.ops has exactly { ${KEYS.join(', ')} } (${s ? Object.keys(s).join(', ') : 'absent'})`)
   if (s) {
-    check(s.impostors + s.near3d === s.figures, `stats.ops: impostors ${s.impostors} + near3d ${s.near3d} === figures ${s.figures}`)
+    // every figure has an impostor level; the 3D near level (high tier + the pack's baked atlas) is added on top, so near3d is 0 or figures
+    check(s.impostors === s.figures && s.near3d === 0, `stats.ops: impostors ${s.impostors} === figures ${s.figures}, near3d ${s.near3d} === 0 (Node has no baked atlas)`)
     check(['baked', 'procedural', 'none'].includes(s.mode) && s.mode !== 'baked', `stats.ops.mode '${s.mode}' (Node: procedural or none, never baked)`)
     const byRole = Object.values(s.byRole ?? {}).reduce((a, b) => a + b, 0)
     check(byRole === s.figures, `stats.ops.byRole sums to figures (${byRole} = ${s.figures})`)
@@ -128,7 +129,13 @@ for (const tier of tiers) {
  *    not (the E paddock lies inside the pit-entry bend: 10 m of s at lateral −88 is a 7.7 m
  *    chord), so the thin rows the builder draws from world end to end (the fence, the cable
  *    ramp) are held to the (s, lateral) quad and everything else to the frame box;
- *  - every vehicle instance's y ≥ ground.standY − 0.05 (nothing sunk);
+ *  - every vehicle instance's y ≥ ground.standY − 0.05 (nothing sunk); every rigid L0 instance
+ *    standing on the ground (not a row drawn end to end, not a stacked / mounted row with `y`)
+ *    has the ground the builder reads (`ground.standAt`, road-relative — the road's own grade
+ *    along a long box is not a placement fault) under its four bbox corners within 0.3 m of
+ *    its origin — a long box placed on the relief slope (the I2 ground climbs 3.9 m across the
+ *    B lot's outer ring and 3.2 m across the E lot's) would bury its high side or float its
+ *    low one (the I3-b marquees and the compound's second container row did, by 3.1–3.4 m);
  *  - no instance in a chase-lens column (top > maxH) or in a lens → car path (`lensColumns()`);
  *  - no paddock car (infield-paddock-cars L0) inside an ops footprint (paddock.ts drops those
  *    bays), no street lamp inside one (a note);
@@ -179,8 +186,10 @@ function checkVehicles(scene, tier, { glb: withGlb }) {
   const l0 = []
   for (const o of roots) if (/-L0-\d+$/.test(o.name)) o.traverse((m) => { if (m.isInstancedMesh) l0.push(m) })
   const m4 = new THREE.Matrix4(), c = new THREE.Vector3()
-  let instances = 0, unmatched = 0, outside = 0, sunk = 0, inColumn = 0, inPath = 0
+  let instances = 0, unmatched = 0, outside = 0, sunk = 0, inColumn = 0, inPath = 0, buried = 0, floating = 0
   const worst = []
+  const SPREAD = 0.3
+  let maxSpread = 0, maxSpreadId = ''
   const columns = ops.lensColumns()
   const E = spec.PIT_ENVELOPE
   const inArc = (s, [a, b]) => ops.forwardS(a, s) <= ops.forwardS(a, b)
@@ -209,6 +218,18 @@ function checkVehicles(scene, tier, { glb: withGlb }) {
       seen.add(r.id)
       if (out) { outside++; if (worst.length < 4) worst.push(`${m.name}[${i}] (${r.id}): ${out} of 8 bbox corners outside the footprint + ${GROW} m`) }
       if (vehicleKinds.has(r.kind) && c.y < ground.standY(c.x, c.z) - 0.05) { sunk++; if (worst.length < 4) worst.push(`${r.id}: y ${c.y.toFixed(2)} < standY ${ground.standY(c.x, c.z).toFixed(2)} − 0.05`) }
+      // a rigid box on the ground: the ground the builder reads (ground.standAt, in the road frame — the road's
+      // own grade along a long box is not a placement fault) under its four bbox corners against its origin
+      if (scored[0].k.box && !(r.y > 0)) {
+        const at = (x, z) => { const n = track.nearestOnRange(x, z, track.wrap(r.s - 30), track.wrap(r.s + 30)); return { n, y: track.pointAt(n.s, n.lateral, v3, 0).y } }
+        const o = at(c.x, c.z)
+        const yRel = c.y - o.y
+        let lo = Infinity, hi = -Infinity
+        for (const x of [bb.min.x, bb.max.x]) for (const z of [bb.min.z, bb.max.z]) { v3.set(x, bb.min.y, z).applyMatrix4(m4); const { n } = at(v3.x, v3.z); const g = ground.standAt(n.s, n.lateral); lo = Math.min(lo, g); hi = Math.max(hi, g) }
+        if (hi - lo > maxSpread) { maxSpread = hi - lo; maxSpreadId = r.id }
+        if (hi - yRel > SPREAD) { buried++; if (worst.length < 4) worst.push(`${r.id}: the ground under a corner is ${(hi - yRel).toFixed(2)} m above the origin (buried > ${SPREAD})`) }
+        if (yRel - lo > SPREAD) { floating++; if (worst.length < 4) worst.push(`${r.id}: the ground under a corner is ${(yRel - lo).toFixed(2)} m below the origin (floating > ${SPREAD})`) }
+      }
       // the chase-lens columns and paths (track frame, the pit strip window)
       const near = track.nearestOnRange(c.x, c.z, 5540, 130)
       if (near.d < 40) {
@@ -225,6 +246,7 @@ function checkVehicles(scene, tier, { glb: withGlb }) {
   const missing = rows.filter((r) => !seen.has(r.id))
   check(missing.length === 0, `every placement has a drawn instance (${missing.length} without${missing.length ? `: ${missing.slice(0, 5).map((r) => r.id).join(', ')}` : ''})`)
   check(sunk === 0, `every vehicle y ≥ standY − 0.05 (${sunk} sunk)`)
+  check(buried === 0 && floating === 0, `every rigid instance on the ground has the ground under its 4 corners within ${SPREAD} m of its origin (${buried} buried, ${floating} floating; max spread ${maxSpread.toFixed(2)} m at ${maxSpreadId})`)
   check(inColumn === 0 && inPath === 0, `nothing in the 12 chase-lens columns (${inColumn}) or lens → car paths (${inPath})`)
   for (const w of worst) console.log(`    ${w}`)
   // --- the paddock cars and lamps stay off the ops footprints ------------------------------------------
@@ -312,8 +334,15 @@ async function checkPeople(scene, check, { glb, reg }) {
   const drawn = []
   for (const m of imps) {
     m.updateWorldMatrix(true, false)
-    for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); v.setFromMatrixPosition(m4); drawn.push([v.x, v.y, v.z]) }
+    const cellAttr = m.geometry.getAttribute('aCell')
+    for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); v.setFromMatrixPosition(m4); drawn.push([v.x, v.y, v.z, cellAttr ? cellAttr.getX(i) : null, cellAttr ? cellAttr.getY(i) : null]) }
   }
+  // the procedural impostor's atlas cell (textures.ts marshalAtlas: 4 × 4, drawn top → bottom, flipY = true, so
+  // canvas row r lives at v = (3 − r) / 4): marshals row 0, the official cell 4, the crews cells 5 + TEAMS order
+  const { TEAMS } = await import('../../app/data/drivers.ts')
+  const teamOrder = Object.keys(TEAMS)
+  const expectedCell = (r) => (r.role === 'marshal' ? null : r.role === 'crew' && r.team ? 5 + teamOrder.indexOf(r.team) : 4)
+  let wrongCell = 0, cellsChecked = 0
   // 'platform' (I4-a): the marshal on a post's stand deck, platform 2.0 + floor 0.12 over the ground
   const BANDS = { wall: [0.4, 2.6], roof: [4.5, 5.5], platform: [1.9, 2.4], ground: [-0.05, 0.3] }
   let unmatched = 0, offBand = 0
@@ -344,6 +373,12 @@ async function checkPeople(scene, check, { glb, reg }) {
     let best = null, bd = Infinity
     for (const d of drawn) { const dd = Math.hypot(d[0] - w.x, d[2] - w.z); if (dd < bd) { bd = dd; best = d } }
     if (!best || bd > 0.05) { unmatched++; if (worst.length < 4) worst.push(`${r.role} at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): no drawn instance within 5 cm (nearest ${bd.toFixed(2)} m)`); continue }
+    if (best[3] !== null) {
+      cellsChecked++
+      const cell = expectedCell(r)
+      const ok = cell === null ? Math.abs(best[4] - 0.75) < 1e-6 : Math.abs(best[3] - (cell % 4) / 4) < 1e-6 && Math.abs(best[4] - (3 - Math.floor(cell / 4)) / 4) < 1e-6
+      if (!ok) { wrongCell++; if (worst.length < 4) worst.push(`${r.role}${r.team ? ' ' + r.team : ''} at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): aCell (${best[3]}, ${best[4]}) is not atlas cell ${cell ?? '0…3'}`) }
+    }
     const band = BANDS[r.mount === 'wall' ? 'wall' : r.mount === 'roof' ? 'roof' : r.mount === 'platform' ? 'platform' : 'ground']
     const dy = best[1] - 0.02 - ground.standY(w.x, w.z)
     if (dy < band[0] || dy > band[1]) { offBand++; if (worst.length < 4) worst.push(`${r.role} (${r.mount}) at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}): ${dy.toFixed(2)} m over standY, band ${band.join('…')}`) }
@@ -352,6 +387,7 @@ async function checkPeople(scene, check, { glb, reg }) {
     for (const { p, q } of footprints) if (Math.abs(p.lateral - r.lateral) < 20 && inQuad(r.s, r.lateral, q)) { inFootprint++; if (worst.length < 4) worst.push(`${r.role} at (s ${r.s.toFixed(1)}, ${r.lateral.toFixed(1)}) inside ops ${p.id}`) }
   }
   check(unmatched === 0, `every figuresAt() row has a drawn instance at figureToWorld's point (${unmatched} unmatched)`)
+  check(cellsChecked === rows.length && wrongCell === 0, `every procedural impostor samples its role's marshalAtlas cell — marshals row 0 (v 0.75), officials / staff / photographers cell 4, crews 5 + team (${wrongCell} wrong of ${cellsChecked})`)
   check(offBand === 0, `every figure's height over standY in its mount's band (ground ${BANDS.ground.join('…')}, wall ${BANDS.wall.join('…')}, roof ${BANDS.roof.join('…')}; ${offBand} off)`)
   check(inCar === 0 && inPath === 0, `no figure in a stopped-car rectangle (${inCar}) or a lens → car path (${inPath})`)
   check(inFootprint === 0, `no figure inside an ops footprint (${inFootprint})`)
@@ -435,7 +471,12 @@ function checkPitEquipment(scene, check, { glb }) {
   // --- every instance's world bbox against the envelopes ---------------------------------------------
   const carRects = Array.from({ length: spec.PIT_GARAGE_COUNT }, (_, g) => ops.stoppedCarRect(g))
   const columns = ops.lensColumns()
-  const WALL_BAND = [-12.0, -9.05]
+  // the walkway band ends at the pit wall's walkway face (PIT_WALL.walkway.from −9.75, + 2 cm of world-bbox
+  // rounding: the perch frames stand flush against it), not its lane face −9.05 — a board or monitor leaning
+  // through the wall body would otherwise pass; only what rises over the wall top (the perch canopies and
+  // umbrellas, top > PIT_WALL.wallTop) may overhang to the lane face
+  const WALL_BAND = [-12.0, spec.PIT_WALL.walkway.from + 0.02]
+  const WALL_TOP_BAND = [-12.0, spec.PIT_WALL.lateral + spec.PIT_WALL.wallWidth / 2]
   const INTERIOR = [spec.PIT_BUILDING.back + 5.1, E.workArea[0] - 0.7]
   const v = new THREE.Vector3(), road = new THREE.Vector3(), m4 = new THREE.Matrix4()
   let n = 0, outOfBand = 0, inCar = 0, inColumn = 0, inPath = 0, beamLeft = 0, rampLow = 0, ramps = 0
@@ -463,7 +504,8 @@ function checkPitEquipment(scene, check, { glb }) {
       n++
       const sA = track.wrap(ref + d0), sB = track.wrap(ref + d1)
       const name = `${m.name}[${i}]`
-      const band = within(l0, E.workArea) && within(l1, E.workArea) ? 'apron' : within(l0, WALL_BAND) && within(l1, WALL_BAND) ? 'wall' : within(l0, INTERIOR) && within(l1, INTERIOR) ? 'interior' : null
+      const wallBand = y1 > spec.PIT_WALL.wallTop ? WALL_TOP_BAND : WALL_BAND
+      const band = within(l0, E.workArea) && within(l1, E.workArea) ? 'apron' : within(l0, wallBand) && within(l1, wallBand) ? 'wall' : within(l0, INTERIOR) && within(l1, INTERIOR) ? 'interior' : null
       if (!band) { outOfBand++; note(`lateral ${l0.toFixed(2)}…${l1.toFixed(2)} in no band`, name) }
       /** does the bbox (s sA→sB, lateral l0…l1) overlap the zone (forward arc zs, lateral zl)? */
       const overlaps = (zs, zl) => {
@@ -477,7 +519,8 @@ function checkPitEquipment(scene, check, { glb }) {
         if (y1 > c.column.maxH && overlaps(c.column.s, c.column.lat)) { inColumn++; note(`${y1.toFixed(2)} m tall in the lens column of block ${c.block + 1}`, name); break }
         if (overlaps(c.path.s, c.path.lat)) { inPath++; note(`in the lens → car path of block ${c.block + 1} (lateral ${l0.toFixed(2)}…${l1.toFixed(2)}, s ${sA.toFixed(1)}→${sB.toFixed(1)})`, name); break }
       }
-      if (isGantryTop && l1 > E.lanes[0]) { beamLeft++; note(`gantry top reaches ${l1.toFixed(2)} (lane edge ${E.lanes[0]})`, name) }
+      // the spec's own limit is the analytic keep-out edge (KEEP_OUT_EDGE −21.1), 2 m short of the lane band's edge
+      if (isGantryTop && l1 > ops.KEEP_OUT_EDGE) { beamLeft++; note(`gantry top reaches ${l1.toFixed(2)} (keep-out edge ${ops.KEEP_OUT_EDGE.toFixed(1)})`, name) }
       if (isRamp) {
         ramps++
         v.setFromMatrixPosition(m4)
@@ -487,10 +530,10 @@ function checkPitEquipment(scene, check, { glb }) {
       }
     }
   }
-  check(outOfBand === 0, `${fmt(n)} instance bboxes: every one inside the working area [${E.workArea.join(', ')}], the walkway band [${WALL_BAND.join(', ')}] or the garage interior (${outOfBand} outside${outOfBand ? `: ${offenders.filter((o) => o.includes('band')).slice(0, 3).join('; ')}` : ''})`)
+  check(outOfBand === 0, `${fmt(n)} instance bboxes: every one inside the working area [${E.workArea.join(', ')}], the walkway band [${WALL_BAND.map((x) => x.toFixed(2)).join(', ')}] (to the wall's lane face ${WALL_TOP_BAND[1].toFixed(2)} above the wall top ${spec.PIT_WALL.wallTop}) or the garage interior (${outOfBand} outside${outOfBand ? `: ${offenders.filter((o) => o.includes('band')).slice(0, 3).join('; ')}` : ''})`)
   check(inCar === 0, `nothing lower than 1.0 m inside any of the ${carRects.length} stopped-car rectangles (${inCar}${inCar ? `: ${offenders.filter((o) => o.includes('stopped car')).slice(0, 3).join('; ')}` : ''})`)
   check(inColumn === 0 && inPath === 0, `chase lens: nothing taller than ${E.chaseLens.maxH} m in a lens column (${inColumn}), nothing in a lens → car path (${inPath})${inColumn + inPath ? `: ${offenders.filter((o) => o.includes('lens')).slice(0, 3).join('; ')}` : ''}`)
-  check(beamLeft === 0, `gantry tops never reach left of the lane band's edge ${E.lanes[0]} (${beamLeft})`)
+  check(beamLeft === 0, `gantry tops never reach left of the pit keep-out edge ${ops.KEEP_OUT_EDGE.toFixed(1)} (${beamLeft})`)
   check(ramps > 0 && rampLow === 0, `${ramps} cable ramp segments ≥ 8 mm over the apron (${rampLow} low)`)
   // --- the pack prototypes ----------------------------------------------------------------------------
   if (glb) {

@@ -23,9 +23,10 @@ import { tyreMaps } from './textures'
  *    (a team-colour blanket, `instanceColor`, with a bare tyre on top — `tyreMaps` like the
  *    garage stacks), the front / rear jacks, the fuel drum + hose trolley inside the garage,
  *    the monitor stand (two screens on a frame, `EMISSIVE.opsMonitor`);
- *  - per core: five green cones in front of its doors, the cable ramps (yellow / black, 1 m
- *    segments) across the apron on its centre line, 10 mm over the concrete (≥ LAYER_MIN_STEP;
- *    InstancedMesh, so G8 skips them);
+ *  - per core: five green cones (procedural on every tier — the pack's cones are orange) on the
+ *    garage side in front of its doors, the cable ramps (yellow / black, 1 m segments) across
+ *    the apron on its centre line, 10 mm over the concrete (≥ LAYER_MIN_STEP; InstancedMesh,
+ *    so G8 skips them);
  *  - one wheeled extinguisher in front of every pit's +s pier (48);
  *  - the pit-wall perches v2 (mount 'wall'): an aluminium tube frame 5.5 × 1.3 × 2.6 on the
  *    walkway (1.0 wide on the fixed platform's deck between its parapet and the wall), the
@@ -35,7 +36,7 @@ import { tyreMaps } from './textures'
  *    two TV cameras on tripods and a monitor stand. pit-lane.ts's v1 perches are gone.
  *
  * Prototypes: a pack model as the near level where the tier draws GLBs (`glbOr`: impact
- * wrench, trolley jack, pc monitors, pit board, fire extinguisher, cone pack, security camera)
+ * wrench, trolley jack, pc monitors, pit board, fire extinguisher, security camera)
  * over the procedural stand-in that Node and the low tier always draw; GLB / procedural pairs
  * are built with their long side along local x (`orientPack`'s PCA) and both placed with the
  * same quarter turn `Q`, the procedural-only pieces straight in the track frame (x = +lateral,
@@ -141,8 +142,16 @@ export function buildOpsPit(ctx: EnvBuildContext): OpsPartial {
   const monitor = glbOr(ctx, 'model/pit/pc_monitors', { id: 'monitor-glb', nodes: /SM_widescreen_(monitor_1|stand_2)/, scaleTo: { long: mw }, front: 'moreArea' }, monitorProc)
   const [sl, sw, sh] = P.monitor.size
   const monitorFrame = proc('monitor-frame', [box(sw, 0.04, sl, dark), ...[-sl / 2 + 0.1, sl / 2 - 0.1].map((z) => cyl(0.02, sh - 0.04, alu, 0, 0.04, z, 6)), box(0.04, 0.04, sl, alu, 0, sh - 0.08, 0)])
-  const coneProc = proc('cone', [box(0.36, 0.03, 0.36, black), { geometry: new THREE.ConeGeometry(0.17, P.cones.size[2] - 0.03, 10).translate(0, (P.cones.size[2] - 0.03) / 2 + 0.03, 0), material: green }])
-  const cone = glbOr(ctx, 'model/trackside/cone_pack', { id: 'cone-glb', nodes: /\/Object_3(\/|$)/, scaleTo: { height: P.cones.size[2] }, front: 'none' }, coneProc)
+  // the pit-lane cones are green (Suzuka's apron cones) on every tier: procedural only, with a
+  // white band — the pack's cone_pack cones keep their own orange texture (a GLB near level
+  // never takes the procedural colours) and would pop to green past propsNearM
+  const coneH = P.cones.size[2] - 0.03
+  const coneProc = proc('cone', [
+    box(0.36, 0.03, 0.36, black),
+    { geometry: new THREE.ConeGeometry(0.17, coneH, 10).translate(0, coneH / 2 + 0.03, 0), material: green },
+    { geometry: new THREE.CylinderGeometry(0.105, 0.125, 0.06, 10).translate(0, 0.03 + coneH * 0.42, 0), material: white },
+  ])
+  const cone = coneProc
   const [rl, rw, rh] = P.cableRamps.size
   const ramp = proc('cable-ramp', [box(rw, rh, rl, yellow), box(0.18, 0.004, rl + 0.002, black, -rw / 2 + 0.2, rh, 0), box(0.18, 0.004, rl + 0.002, black, rw / 2 - 0.2, rh, 0)])
   const exProc = proc('extinguisher', [cyl(0.16, 0.78, red, 0, 0.12, 0.05, 12), cyl(0.05, 0.1, steel, 0, 0.9, 0.05, 6), { geometry: new THREE.CylinderGeometry(0.14, 0.14, 0.05, 10).rotateZ(Q).translate(-0.19, 0.14, -0.1), material: black }, { geometry: new THREE.CylinderGeometry(0.14, 0.14, 0.05, 10).rotateZ(Q).translate(0.19, 0.14, -0.1), material: black }])

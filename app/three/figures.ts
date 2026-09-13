@@ -422,9 +422,9 @@ export interface OpsFigureStats {
   /** figures placed */
   figures: number
   byRole: Partial<Record<FigureRole, number>>
-  /** impostor instances (every figure has one) */
+  /** impostor instances (every figure has one: impostors === figures) */
   impostors: number
-  /** 3D instances (the near level, high tier with the pack) */
+  /** figures that also carry the 3D near level (high tier with the pack): 0 or figures */
   near3d: number
   mode: FigureLibrary['mode'] | 'none'
 }
@@ -486,7 +486,8 @@ export function buildOpsFigures(ctx: EnvBuildContext, placements: readonly Figur
       } else {
         const cellsArr = arrays[0]!
         cellsArr[k * 3] = (look.cell % MARSHAL_ATLAS.cols) / MARSHAL_ATLAS.cols
-        cellsArr[k * 3 + 1] = Math.floor(look.cell / MARSHAL_ATLAS.cols) / MARSHAL_ATLAS.rows
+        // marshalAtlas draws its canvas rows top → bottom and uploads with flipY = true, so atlas row r lives at v = (rows − 1 − r) / rows
+        cellsArr[k * 3 + 1] = (MARSHAL_ATLAS.rows - 1 - Math.floor(look.cell / MARSHAL_ATLAS.cols)) / MARSHAL_ATLAS.rows
         cellsArr[k * 3 + 2] = p.yaw
       }
     })
