@@ -5,7 +5,7 @@ import { signedDelta, type Track } from '~/sim/track'
 import type { EnvBuildContext } from './environment'
 import { LAYER, markDecal } from './ground'
 import type { DecalQuad } from './ground-mesh'
-import { brakingRubberTexture, labelTexture } from './textures'
+import { RUNOFF_LOGO_CELLS, brakingRubberTexture, distanceBoardTexture, runoffLogoTexture } from './textures'
 import { OSM_POWER_LINES, OSM_POWER_TOWERS } from '~/data/suzuka-power'
 import { GROUND_AREAS } from '~/data/suzuka-facilities-spec'
 import { osmWay } from './trackside'
@@ -19,7 +19,8 @@ const _m = new THREE.Matrix4()
 const _q = new THREE.Quaternion()
 
 /**
- * Trackside props: braking-distance boards, the rubbered-in braking zones and the overhead
+ * Trackside props: braking-distance boards (yellow with black figures since I4-c), the
+ * rubbered-in braking zones, the logos painted on the Spoon run-off (I4-c) and the overhead
  * power lines behind the circuit. (The OSM buildings of the surroundings used to be massed here
  * too; app/three/buildings.ts owns them since plan §2c. The marshal posts, their flags and light
  * panels moved to app/three/marshal-posts.ts at I4-a, and the 'SECTOR 2 / 3' boards went with
@@ -66,7 +67,7 @@ export function buildTracksideProps(ctx: EnvBuildContext, _hutRoofMat: THREE.Mat
     boardGeo.rotateY(Math.PI)
     for (const [label, mats] of Object.entries(boardGeos)) {
       if (!mats.length) continue
-      const mat = new THREE.MeshStandardMaterial({ map: labelTexture(label, '#1848a0', '#ffffff'), roughness: 0.6, side: THREE.DoubleSide })
+      const mat = new THREE.MeshStandardMaterial({ map: distanceBoardTexture(label), roughness: 0.6, side: THREE.DoubleSide })
       const inst = new THREE.InstancedMesh(boardGeo, mat, mats.length)
       mats.forEach((m, i) => inst.setMatrixAt(i, m))
       inst.instanceMatrix.needsUpdate = true
@@ -123,10 +124,64 @@ export function buildTracksideProps(ctx: EnvBuildContext, _hutRoofMat: THREE.Mat
     }
   }
 
+  buildRunoffLogos(ctx)
   buildPowerLines(ctx)
   keepOutSecondaryPaving(ctx)
 
   return { flagTime }
+}
+
+// ---------------------------------------------------------------- run-off paint
+
+/** the logos painted on the Spoon outside run-off (I4-c, unverified): s window, the lateral band (right of the road), each logo's size (m) */
+export const RUNOFF_LOGOS = { s: [3600, 3700] as const, lateral: [-26, -14] as const, size: [12, 6] as const, n: RUNOFF_LOGO_CELLS } as const
+
+/**
+ * The logos painted on the paved run-off outside Spoon (the 2026 photos: sponsor marks on the
+ * asphalt between the kerb and the gravel): `RUNOFF_LOGOS.n` boards of 12 × 6 m spread over the
+ * s window, each a decal on the DRAWN run-off (ground.decal at LAYER.verge.paint, markDecal) —
+ * the same rung as the painted aprons, on a stretch none of them covers. One cell of
+ * `runoffLogoTexture` per logo (u along s, v across).
+ */
+function buildRunoffLogos(ctx: EnvBuildContext) {
+  const { track, ground, group } = ctx
+  const L = track.length
+  const R = RUNOFF_LOGOS
+  const mat = new THREE.MeshStandardMaterial({ map: runoffLogoTexture(), roughness: 0.7, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+  const quads: DecalQuad[] = []
+  const [w, h] = R.size
+  const latMid = (R.lateral[0] + R.lateral[1]) / 2
+  const span = R.s[1] - R.s[0]
+  for (let k = 0; k < R.n; k++) {
+    const sc = R.s[0] + (span * (k + 0.5)) / R.n
+    const from = sc - w / 2, to = sc + w / 2
+    const inner = latMid + h / 2, outer = latMid - h / 2
+    const rows = ground.plan.lattice(from, to, 2)
+    for (let i = 0; i < rows.length - 1; i++) {
+      const sa = rows[i]!, sb = rows[i + 1]!
+      const xz: number[] = []
+      for (const [s, lat] of [[sa, outer], [sa, inner], [sb, inner], [sb, outer]] as const) {
+        track.pointAt(s, lat, _p, 0)
+        xz.push(_p.x, _p.z)
+      }
+      track.pointAt((sa + sb) / 2, latMid, _p, 0)
+      quads.push({ xz, yHint: _p.y, attrs: (x, zz) => {
+        const p = track.nearestOnRange(x, zz, sa, sb, 2)
+        const u = Math.min(1, Math.max(0, signedDelta(from, p.s, L) / w))
+        const v = Math.min(1, Math.max(0, (p.lateral - outer) / h))
+        return [u, (k + v) / R.n]
+      } })
+    }
+  }
+  const built = ground.decal(quads, LAYER.verge.paint, [{ name: 'uv', size: 2 }])
+  if (built.geo) {
+    const paint = new THREE.Mesh(built.geo, mat)
+    paint.name = 'runoffLogos'
+    paint.receiveShadow = true
+    paint.renderOrder = 1
+    markDecal(paint, LAYER.verge.paint, built.stats)
+    group.add(paint)
+  }
 }
 
 // ---------------------------------------------------------------- secondary paving

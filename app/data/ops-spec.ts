@@ -29,7 +29,7 @@
 
 import type { TeamId } from './drivers'
 import { CIRCUIT } from './suzuka'
-import { MARSHAL_POSTS, type MarshalPostDef } from './suzuka-barriers-spec'
+import { BARRIERS, MARSHAL_POSTS, type BarrierRun, type MarshalPostDef } from './suzuka-barriers-spec'
 import {
   GARAGE_ORDER, PIT_GARAGE_COUNT, PIT_CORES, PIT_BOX_STRIP, PIT_ENVELOPE, PIT_BUILDING, PIT_WALL,
   PADDOCK_BUILDINGS, PADDOCK_LAMPS, PADDOCK_OFFICE, PADDOCK_PARKING, garageS,
@@ -445,6 +445,38 @@ export function marshalSlots(post: MarshalPostDef): OpsFigure[] {
 /** the marshals of every trackside post (`marshalSlots` over MARSHAL_POSTS) */
 export function marshalPostFigures(): OpsFigure[] {
   return MARSHAL_POSTS.flatMap((m) => marshalSlots(m))
+}
+
+/** how far behind a BARRIERS run's line its back face is (m) — barriers.ts `barrierDepth`, restated here so the data stays three-free */
+export function barrierDepthOf(run: Pick<BarrierRun, 'kind'>): number {
+  return run.kind === 'tyre' ? 1.3 : run.kind === 'concrete' ? 0.35 : run.kind === 'fence' ? 0.05 : 0.14
+}
+
+/** a photographer at a fence window stands this far behind the wall's back face (m) */
+export const WINDOW_PHOTOGRAPHER_BACK = 0.6
+
+/**
+ * The photographers at the fences' windows (I4-c): one per `windows` entry of every BARRIERS
+ * run, behind the wall (the run's resolved line + its depth + WINDOW_PHOTOGRAPHER_BACK on the
+ * spectator side), camera up, facing the track ± 15° (a deterministic hash) — mount
+ * 'trackside' like the post marshals (O1 / O2 / ring / buildings apply, no pit window). Pure:
+ * `lineAt(s, side)` resolves the run's line (trackside.ts `barrierLateralAt` in the app and the
+ * guards); a window whose line cannot be resolved is skipped.
+ */
+export function windowSlots(lineAt: (s: number, side: 1 | -1) => number | null): OpsFigure[] {
+  const out: OpsFigure[] = []
+  for (const run of BARRIERS) {
+    if (!run.windows?.length) continue
+    const depth = barrierDepthOf(run)
+    for (const w of run.windows) {
+      const line = lineAt(w, run.side)
+      if (line === null) continue
+      const k = Math.round(w)
+      const yaw = -run.side * 90 + (unit(k, 31) - 0.5) * 30
+      out.push({ s: wrapS(w), lateral: line + run.side * (depth + WINDOW_PHOTOGRAPHER_BACK), role: 'photographer', pose: unit(k, 41) < 0.5 ? 'lookUp' : 'stand', yawDeg: yaw, mount: 'trackside' })
+    }
+  }
+  return out
 }
 
 /** What `cameraSlots` needs of a TV tower: a TV_CAMERAS row resolved by tv-lens.ts (the centre lateral is a number here, never 'auto'). */
@@ -1169,10 +1201,12 @@ function staffFigures(): OpsFigure[] {
  * tv-towers.ts, section A `cameraSlots`) appends the camera operators for a reader that has
  * them; the builder (ops-people.ts) and the guard (§16 O9 — its OPS_WINDOWS are the pit and the
  * paddock, not the trackside) read the list without them, and tv-towers.ts draws the operators
- * itself. The post marshals (`marshalPostFigures`, I4-a) are always in the list.
+ * itself. The post marshals (`marshalPostFigures`, I4-a) are always in the list; the fence-window
+ * photographers (`windowSlots`, I4-c) join it when a `lineAt` resolver is given (ops-people.ts
+ * and the guards pass trackside.ts `barrierLateralAt`).
  */
-export function figuresAt(opts: { towers?: readonly TvTowerSlotInput[] } = {}): OpsFigure[] {
-  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...marshalPostFigures(), ...photographerFigures(), ...staffFigures(), ...(opts.towers ?? []).flatMap(cameraSlots)]
+export function figuresAt(opts: { towers?: readonly TvTowerSlotInput[]; lineAt?: (s: number, side: 1 | -1) => number | null } = {}): OpsFigure[] {
+  return [...crewFigures(), ...officialFigures(), ...marshalFigures(), ...marshalPostFigures(), ...photographerFigures(), ...staffFigures(), ...(opts.towers ?? []).flatMap(cameraSlots), ...(opts.lineAt ? windowSlots(opts.lineAt) : [])]
 }
 
 /** the flags' [upper band, lower band] colours (fictional tricolours: the middle band is white) */

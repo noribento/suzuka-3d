@@ -34,6 +34,10 @@
  *  the high tier once more with the pack's `props_security_camera_01` (the tower cameras' near
  *  level, the procedural head its far level) behind the same stub registry (stub-registry.mjs,
  *  like furniture-smoke --glb).
+ *
+ *  I4-c `checkBarriers` (barriers.ts ← BARRIERS v2, built here like the viewport builds it —
+ *  `buildBarriers(track, quality, ground, reg)` is not part of app-runtime's scene): see its
+ *  header. `--glb` adds the pack's `trackside_tire_stack` (the tyre stacks' near level).
  * Exit 1 on any failure.
  */
 import { buildScene, THREE } from './app-runtime.mjs'
@@ -41,6 +45,7 @@ import { commonChecks, fmt, infieldRoots, smokeArgs, trisOf } from './smoke-comm
 import { buildSceneWith, stubRegistry } from './stub-registry.mjs'
 
 const { tiers, check, finish, glb } = smokeArgs('trackside-smoke')
+const _tmp = new THREE.Vector3()
 
 const bar = await import('../../app/data/suzuka-barriers-spec.ts')
 const ops = await import('../../app/data/ops-spec.ts')
@@ -54,16 +59,18 @@ for (const tier of tiers) {
   await commonChecks(scene, check, { buildKeys: ['trackside'], rootPrefix: /^(ops|infield|trackside)-/ })
   checkPosts(scene, check, { glb: false })
   await checkTowers(scene, check, { tier, glb: false })
+  await checkBarriers(scene, check, { tier, glb: false, reg: null })
 }
 
 if (glb) {
   console.log('\ntrackside-smoke: tier high with the trackside drops (stub registry)')
-  const reg = await stubRegistry(/^model\/(trackside\/guard_booth|props\/(korean_fire_extinguisher_01|security_camera_0[12]))$/)
+  const reg = await stubRegistry(/^model\/(trackside\/(guard_booth|tire_stack)|props\/(korean_fire_extinguisher_01|security_camera_0[12]))$/)
   console.log(`  loaded: ${reg.loaded.join(', ') || 'nothing (no drops in the manifest)'}`)
   const scene = await buildSceneWith('high', reg)
   await commonChecks(scene, check, { buildKeys: ['trackside'], rootPrefix: /^(ops|infield|trackside)-/ })
   checkPosts(scene, check, { glb: true, reg })
   await checkTowers(scene, check, { tier: 'high', glb: true })
+  await checkBarriers(scene, check, { tier: 'high', glb: true, reg })
 }
 
 // ===== I4-a: checkPosts (marshal-posts.ts) ==========================================================
@@ -409,4 +416,278 @@ async function checkTowers(scene, check, { tier, glb: withGlb }) {
   check(onDeck === slots.length, `every operator drawn on its deck / base plate (± 5 cm of the slot, y = floor: ${onDeck} of ${slots.length})`)
   const tris = towerMeshes.reduce((a, m) => a + trisOf(m), 0) + camMeshes.reduce((a, m) => a + trisOf(m), 0)
   console.log(`  note ${tier}: towers + cameras ${fmt(tris)} triangles in ${towerMeshes.length + camMeshes.length} L0 InstancedMeshes; lattice braces ${scene.quality?.fence ?? '?'}`)
+}
+
+// ===== I4-c: checkBarriers (barriers.ts / structures.ts / textures.ts) ==============================
+/**
+ * The barriers v2 (plan §I4-c), built here with `buildBarriers(track, quality, ground, reg)`:
+ *  - BARRIERS has 73 runs (the 72 of I4-b + spoon-inside-wall; README said 71) and `spoon-inside-wall` is drawn: wall
+ *    vertices stand on its resolved line at s 3600 (± 0.3 m);
+ *  - `group.userData.barriers` (BarrierStats) is published and its `runs` = the table;
+ *  - the fence colour buckets: the black runs' posts are `fencePostsDark-*`, the rest
+ *    `fencePosts-*` (counts = the stats; both present on a tier with fences, none on the other);
+ *    the two mesh sheets `debrisFence` / `debrisFenceDark`, the rails `fenceRails` / `fenceRailsDark`;
+ *  - every window of the table is cut: no fence vertex inside the opening (the 1.2 × 0.8 m
+ *    rectangle over the sill, 5 cm in) at each listed s — 7 windows on 5 runs;
+ *  - the tyre stacks: 2 per fence-post position of every tyre run when `quality.infield.detail`
+ *    (0 otherwise), a prop set on the far-field registry (`infield-tyreStacks`, L0 per cell,
+ *    markObject tyreStack), every one standing on the spectator side of its wall's back and ≥ hw + 1.5;
+ *  - the sponge blocks: two rows in front of chicane-exit-tyres (SPONGE), the ground row tagged
+ *    `sponge`, every block ≥ 0.7 m from the line on the track side and ≥ hw + 1.5;
+ *  - the triple beam (`guardrails3`) on the two 130R verge runs only;
+ *  - boards: `barrierBoards` (the face boards + 8 ad bands), `adPanels` = AD_PANELS.length;
+ *  - the bridge fascia's top is FASCIA_TOP over the road plane and the girder constants are
+ *    unchanged (the source still says SOFFIT −1.3, FASCIA_BOTTOM −1.05, GIRDER_Y = SOFFIT − GIRDER_H);
+ *  - no TecPro texture is left (textures.ts) and no mesh / material is named after it;
+ *  - the fence-window photographers: `figuresAt({ lineAt })` adds one 'trackside' photographer
+ *    per window, behind the line, and the ops set draws that many more photographers.
+ *  `--glb`: the tyre stacks' near level is the pack's tire_stack (a `tyre-stack-glb` prototype).
+ */
+async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
+  const { env, track, ground, quality } = scene
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const barMod = await import('../../app/three/barriers.ts')
+  const L = track.length
+  const fwd = (a, b) => (((b - a) % L) + L) % L
+  console.log(`  barriers${withGlb ? ' (GLB prototypes)' : ''}`)
+  const t0 = performance.now()
+  const group = barMod.buildBarriers(track, quality, ground, reg ?? null, env.farField)
+  group.updateMatrixWorld(true)
+  env.farField.group.updateMatrixWorld(true)
+  console.log(`    built in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
+  const st = group.userData.barriers
+  check(bar.BARRIERS.length === 73 && st?.runs === 73, `BARRIERS: ${bar.BARRIERS.length} runs = 72 + spoon-inside-wall (stats ${st?.runs})`)
+  const spoon = bar.BARRIERS.find((r) => r.id === 'spoon-inside-wall')
+  check(!!spoon && spoon.kind === 'concrete' && spoon.side === 1, `spoon-inside-wall in the table (concrete, left, ${spoon?.sRange.join('→')})`)
+  const byName = new Map()
+  group.traverse((o) => { if (o.name) byName.set(o.name, o) })
+  const meshes = []
+  group.traverse((o) => { if (o.isMesh || o.isInstancedMesh) meshes.push(o) })
+  const named = (re) => meshes.filter((m) => re.test(m.name))
+  // --- the Spoon wall is drawn: vertices on its line at 3600 ---------------------------------------------
+  {
+    const line = trackside.resolveLineCached(track, spoon.source, spoon.sRange, spoon.side, spoon.minGap ?? 0.6)
+    const walls = byName.get('barrierWalls')
+    let near = 0
+    if (walls) {
+      const pos = walls.geometry.attributes.position
+      const v = new THREE.Vector3()
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(walls.matrixWorld)
+        const q = track.nearestOnRange(v.x, v.z, 3560, 3640, 5)
+        if (Math.abs(q.s - 3600) < 3 && Math.abs(q.lateral - line.lat(q.s)) < 0.3) near++
+      }
+    }
+    check(near > 0, `spoon-inside-wall drawn: ${near} barrierWalls vertices on its line (${line.lat(3600).toFixed(1)}) at s 3600 ± 3`)
+  }
+  // --- fence buckets --------------------------------------------------------------------------------------
+  const fenceOn = quality.fence
+  const green = named(/^fencePosts-/), dark = named(/^fencePostsDark-/)
+  const nGreen = green.reduce((a, m) => a + m.count, 0), nDark = dark.reduce((a, m) => a + m.count, 0)
+  if (fenceOn) {
+    const darkRuns = bar.BARRIERS.filter((r) => r.fenceColour === bar.FENCE_BLACK && (r.fence || r.kind === 'fence')).length
+    check(nGreen > 0 && nDark > 0 && nGreen === st.fencePosts && nDark === st.fencePostsDark, `fence posts: ${nGreen} green + ${nDark} dark instances (= stats ${st.fencePosts} / ${st.fencePostsDark}; ${darkRuns} black runs)`)
+    check(byName.has('debrisFence') && byName.has('debrisFenceDark') && byName.has('fenceRails') && byName.has('fenceRailsDark'), `fence sheets and rails in both colours (${['debrisFence', 'debrisFenceDark', 'fenceRails', 'fenceRailsDark'].filter((n) => byName.has(n)).join(', ')})`)
+    // the second fences: posts behind gyaku-outside's back
+    const gy = bar.BARRIERS.find((r) => r.id === 'gyaku-outside')
+    const line = trackside.resolveLineCached(track, gy.source, gy.sRange, gy.side, gy.minGap ?? 0.6)
+    let behind = 0
+    const m4 = new THREE.Matrix4(), v = new THREE.Vector3()
+    for (const inst of green) for (let i = 0; i < inst.count; i++) {
+      inst.getMatrixAt(i, m4)
+      v.setFromMatrixPosition(m4.premultiply(inst.matrixWorld))
+      const q = track.nearestOnRange(v.x, v.z, gy.sRange[0], gy.sRange[1], 5)
+      if (fwd(gy.sRange[0], q.s) <= fwd(gy.sRange[0], gy.sRange[1]) && Math.abs(q.lateral - (line.lat(q.s) + 0.35 + bar.FENCE_BACK_SETBACK)) < 0.3) behind++
+    }
+    check(behind >= 30, `fenceSide 'both': ${behind} posts on gyaku-outside's spectator-side fence (line + 0.35 + ${bar.FENCE_BACK_SETBACK})`)
+  } else {
+    check(nGreen === 0 && nDark === 0 && !byName.has('debrisFence'), `no fence on the ${tier} tier (posts ${nGreen + nDark})`)
+  }
+  // --- the windows -----------------------------------------------------------------------------------------
+  const windowRuns = bar.BARRIERS.filter((r) => r.windows?.length)
+  const nWindows = windowRuns.reduce((a, r) => a + r.windows.length, 0)
+  check(nWindows === 7 && windowRuns.length === 5, `windows: ${nWindows} on ${windowRuns.length} runs (${windowRuns.map((r) => `${r.id} [${r.windows.join(', ')}]`).join('; ')})`)
+  if (fenceOn) {
+    check(st.windows === nWindows, `stats.windows ${st.windows} = ${nWindows}`)
+    const W = barMod.FENCE_WINDOW
+    let inside = 0, checked = 0
+    const sheets = named(/^debrisFence(Dark)?$/)
+    const v = new THREE.Vector3()
+    for (const run of windowRuns) {
+      const prof = barMod.barrierProfile(track, ground, run)
+      const k = barMod.BARRIER_KIND[run.kind]
+      for (const w of run.windows) {
+        const foot = prof.base(w) + (run.kind === 'fence' ? 0.8 : k.top)
+        const y0 = foot + W.sill + 0.05, y1 = foot + W.sill + W.h - 0.05
+        track.pointAt(w, prof.lat(w), v, 0)
+        const cx = v.x, cz = v.z
+        for (const sheet of sheets) {
+          const pos = sheet.geometry.attributes.position
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(sheet.matrixWorld)
+            if (Math.hypot(v.x - cx, v.z - cz) > 3) continue
+            const q = track.nearestOnRange(v.x, v.z, w - 6, w + 6, 2)
+            const ds = Math.abs(q.s - w)
+            checked++
+            // the road-frame height of the vertex: pointAt(q.s, lat, 0) gives the plane; the fence's foot is in that frame too
+            track.pointAt(q.s, q.lateral, _tmp, 0)
+            const yr = v.y - _tmp.y
+            if (ds < W.w / 2 - 0.05 && yr > y0 && yr < y1) inside++
+          }
+        }
+      }
+    }
+    check(inside === 0 && checked > 0, `no fence vertex inside any window opening (${inside} of ${checked} vertices near the windows)`)
+    check(Object.keys(st.windowCuts).length === windowRuns.length, `stats.windowCuts covers ${Object.keys(st.windowCuts).length} runs`)
+  }
+  // --- tyre stacks ---------------------------------------------------------------------------------------
+  {
+    const tyreRuns = bar.BARRIERS.filter((r) => r.kind === 'tyre')
+    let expected = 0
+    for (const r of tyreRuns) {
+      const len = fwd(r.sRange[0], r.sRange[1])
+      for (let d = 0; d <= len; d += barMod.FENCE_POST_PITCH) for (const dS of [-barMod.TYRE_STACK.dS, barMod.TYRE_STACK.dS]) if (d + dS >= 0 && d + dS <= len) expected++
+    }
+    // the stacks are a prop set on the far-field registry (the viewport passes env.farField): near level L0 per cell
+    const stacks = []
+    env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyreStacks-.*-L0-/.test(o.name)) stacks.push(o) })
+    const n = stacks.reduce((a, m) => a + m.count, 0)
+    if (quality.infield.detail) {
+      check(n === expected && st.tyreStacks === n, `tyre stacks: ${n} instances = 2 per post position of ${tyreRuns.length} tyre runs (${expected}; stats ${st.tyreStacks})`)
+      check(stacks.every((m) => m.userData.groundObject?.kind === 'tyreStack'), `every infield-tyreStacks L0 mesh tagged markObject tyreStack (${stacks.length} cells)`)
+      const far = []
+      env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyreStacks-.*-L1-/.test(o.name)) far.push(o) })
+      check(withGlb && reg?.has('model/trackside/tire_stack') ? far.length === stacks.length && stacks.every((m) => /tyre-stack-glb/.test(m.name)) : far.length === 0 && stacks.every((m) => /-tyre-stack-L0-/.test(m.name)), `tyre stack levels: ${stacks.length} near (${stacks[0]?.name.replace(/-\d+$/, '')}), ${far.length} far`)
+      // every stack on the spectator side of its wall's back, off the road
+      let bad = 0, inRoad = 0
+      const m4 = new THREE.Matrix4(), v = new THREE.Vector3()
+      for (const inst of stacks) for (let i = 0; i < inst.count; i++) {
+        inst.getMatrixAt(i, m4)
+        v.setFromMatrixPosition(m4.premultiply(inst.matrixWorld))
+        let ok = false
+        for (const r of tyreRuns) {
+          const q = track.nearestOnRange(v.x, v.z, r.sRange[0], r.sRange[1], 5)
+          if (fwd(r.sRange[0], q.s) > fwd(r.sRange[0], r.sRange[1])) continue
+          const line = trackside.resolveLineCached(track, r.source, r.sRange, r.side, r.minGap ?? 0.6).lat(q.s)
+          // ≥ the wall's depth behind the line (the projection back to s slides along a sloping line, so not the full 1.72 m the builder used)
+          if (r.side * (q.lateral - line) >= 1.3) { ok = true; if (Math.abs(q.lateral) < track.halfWidthAt(q.s) + 1.5) inRoad++; break }
+        }
+        if (!ok) bad++
+      }
+      check(bad === 0 && inRoad === 0, `every tyre stack behind its run's back (≥ 1.3 m off the line, spectator side: ${bad} off) and ≥ hw + 1.5 (${inRoad} in)`)
+      const tris = stacks.reduce((a, m) => a + trisOf(m), 0)
+      console.log(`    note: tyre stacks ${fmt(tris)} triangles in ${stacks.length} cells (near level, drawn inside ${quality.infield.propsNearM} m with the pack, the far tori to ${quality.infield.propsFarM} m)`)
+      if (withGlb && reg?.has('model/trackside/tire_stack')) {
+        const perStack = stacks.length ? Math.floor((stacks[0].geometry.index ? stacks[0].geometry.index.count : stacks[0].geometry.attributes.position.count) / 3) : 0
+        check(perStack === 960, `--glb: the tyre stack prototype is the pack's tire_stack (${perStack} tris per stack)`)
+      }
+    } else {
+      check(n === 0 && st.tyreStacks === 0, `no tyre stacks without infield.detail (${n})`)
+    }
+  }
+  // --- sponge blocks ---------------------------------------------------------------------------------------
+  {
+    const run = bar.BARRIERS.find((r) => r.id === barMod.SPONGE.run)
+    const len = fwd(run.sRange[0], run.sRange[1])
+    const [sl] = barMod.SPONGE.size
+    let low = 0, high = 0
+    for (let d = sl / 2; d + sl / 2 <= len; d += barMod.SPONGE.pitch) { low++; if (d + barMod.SPONGE.shift + sl / 2 <= len) high++ }
+    const lo = byName.get('spongeBlocks'), hi = byName.get('spongeBlocksTop')
+    check(lo?.count === low && hi?.count === high && st.sponges === low + high, `sponge blocks: ${lo?.count} + ${hi?.count} (expected ${low} + ${high}; stats ${st.sponges})`)
+    check(lo?.userData.groundObject?.kind === 'sponge' && !hi?.userData.groundObject, `the ground row tagged markObject sponge, the top row not`)
+    if (lo) {
+      // the wall is diagonal to the road: the clearance is the XZ distance to the line's polyline (0.5 m samples), O5's w / 2 + 0.2 = 0.7
+      const line = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
+      const pts = []
+      const v = new THREE.Vector3()
+      for (let d = 0; d <= len; d += 0.5) { track.pointAt(run.sRange[0] + d, line.lat(run.sRange[0] + d), v, 0); pts.push([v.x, v.z]) }
+      let bad = 0, worst = Infinity
+      const m4 = new THREE.Matrix4()
+      for (let i = 0; i < lo.count; i++) {
+        lo.getMatrixAt(i, m4)
+        v.setFromMatrixPosition(m4.premultiply(lo.matrixWorld))
+        let dist = Infinity
+        for (let k = 0; k < pts.length - 1; k++) {
+          const [ax, az] = pts[k], [bx, bz] = pts[k + 1]
+          const dx = bx - ax, dz = bz - az
+          const t = Math.max(0, Math.min(1, ((v.x - ax) * dx + (v.z - az) * dz) / (dx * dx + dz * dz || 1)))
+          dist = Math.min(dist, Math.hypot(v.x - (ax + dx * t), v.z - (az + dz * t)))
+        }
+        const q = track.nearestOnRange(v.x, v.z, run.sRange[0], run.sRange[1], 5)
+        worst = Math.min(worst, dist)
+        if (dist < 0.7 - 0.02 || -run.side * (q.lateral - line.lat(q.s)) < 0 || Math.abs(q.lateral) < track.halfWidthAt(q.s) + 1.5) bad++
+      }
+      check(bad === 0, `every sponge block ≥ 0.7 m in front of the line (nearest ${worst.toFixed(2)} m) and ≥ hw + 1.5 (${bad} off)`)
+    }
+  }
+  // --- the triple beam ------------------------------------------------------------------------------------
+  {
+    const g3 = bar.BARRIERS.filter((r) => r.kind === 'guardrail3').map((r) => r.id).sort()
+    check(g3.join(',') === '130r-inside-verge,130r-outside-verge' && st.guardrail3.length === 2 && !!byName.get('guardrails3'), `guardrail3 on the two 130R verge runs only (${g3.join(', ')}), mesh guardrails3 ${byName.has('guardrails3')}`)
+    check(!!byName.get('guardrails'), `the plain guardrails mesh stays (the table has no armco run)`)
+  }
+  // --- boards and panels -------------------------------------------------------------------------------------
+  {
+    const bands = bar.BARRIERS.filter((r) => r.adBand).length
+    check(bands === 8 && byName.has('barrierBoards'), `wall-top ad bands on ${bands} runs, mesh barrierBoards ${byName.has('barrierBoards')}`)
+    check(st.panels === bar.AD_PANELS.length && byName.has('adPanels') && byName.has('adPanelPosts'), `free-standing panels: ${st.panels} = AD_PANELS ${bar.AD_PANELS.length} (meshes ${['adPanels', 'adPanelPosts'].filter((n) => byName.has(n)).join(', ')})`)
+    check(bar.BARRIERS.filter((r) => r.face === 'painted-rwg').length === 3 && byName.has('tyreWallsPainted') && byName.has('barrierWallsPainted'), `painted faces: ${bar.BARRIERS.filter((r) => r.face === 'painted-rwg').map((r) => r.id).join(', ')} → tyreWallsPainted + barrierWallsPainted`)
+    const horns = named(/^pitHorns-/).reduce((a, m) => a + m.count, 0)
+    check(quality.infield.detail && fenceOn ? horns > 50 && horns === st.horns : horns === 0, `loudspeaker horns: ${horns} (stats ${st.horns})`)
+    check(st.gates === bar.BARRIERS.reduce((a, r) => a + (r.gates?.length ?? 0), 0) * (fenceOn ? 1 : 0), `gates: ${st.gates} (table ${bar.BARRIERS.reduce((a, r) => a + (r.gates?.length ?? 0), 0)})`)
+  }
+  // --- the bridge fascia -------------------------------------------------------------------------------------
+  {
+    const structures = await import('../../app/three/structures.ts')
+    const fascia = env.group.getObjectByName('structures-bridge-fascia')
+    let top = -Infinity
+    if (fascia) {
+      const pos = fascia.geometry.attributes.position
+      const v = new THREE.Vector3()
+      const sOver = track.crossing.sOver
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(fascia.matrixWorld)
+        const q = track.nearestOnRange(v.x, v.z, sOver - 25, sOver + 25, 5)
+        track.pointAt(q.s, q.lateral, _tmp, 0)
+        top = Math.max(top, v.y - _tmp.y)
+      }
+    }
+    check(!!fascia && Math.abs(top - structures.FASCIA_TOP) < 0.05 && structures.FASCIA_TOP === 0.95, `bridge fascia top ${top.toFixed(2)} m over the road plane = FASCIA_TOP ${structures.FASCIA_TOP}`)
+    const src = fs.readFileSync(path.join(process.cwd(), 'app/three/structures.ts'), 'utf8')
+    check(/const SOFFIT = -1\.3\b/.test(src) && /const FASCIA_BOTTOM = -1\.05\b/.test(src) && /const GIRDER_Y = SOFFIT - GIRDER_H\b/.test(src), `SOFFIT −1.3 / FASCIA_BOTTOM −1.05 / GIRDER_Y = SOFFIT − GIRDER_H unchanged in structures.ts`)
+  }
+  // --- no TecPro left ------------------------------------------------------------------------------------------
+  {
+    const src = fs.readFileSync(path.join(process.cwd(), 'app/three/textures.ts'), 'utf8')
+    const namedTec = meshes.filter((m) => /tecpro/i.test(m.name) || [m.material].flat().some((mm) => /tecpro/i.test(mm?.name ?? ''))).length
+    check(!/tecpro/i.test(src) && namedTec === 0, `no TecPro texture in textures.ts and no TecPro mesh / material (${namedTec})`)
+  }
+  // --- the photographers at the windows ----------------------------------------------------------------------
+  {
+    const lineAt = (s, side) => trackside.barrierLateralAt(track, s, side)
+    const withWin = ops.figuresAt({ lineAt })
+    const plain = ops.figuresAt()
+    const extra = withWin.length - plain.length
+    const slots = ops.windowSlots(lineAt)
+    let behind = 0
+    for (const f of slots) {
+      const run = windowRuns.find((r) => r.windows.some((w) => Math.abs(((w - f.s) % L + L) % L) < 1e-6 || Math.abs(w - f.s) < 1e-6))
+      if (!run) continue
+      const line = lineAt(f.s, run.side)
+      if (run.side * (f.lateral - line) > 0.5 && Math.abs(f.lateral) >= track.halfWidthAt(f.s) + 1.5 && f.mount === 'trackside' && f.role === 'photographer') behind++
+    }
+    check(extra === nWindows && slots.length === nWindows && behind === nWindows, `figuresAt({ lineAt }) adds ${extra} window photographers (${nWindows} windows), every one behind its line, off the road, mount 'trackside'`)
+    const drawn = env.stats.ops?.byRole?.photographer
+    const expectedPh = withWin.filter((f) => f.role === 'photographer').length
+    check(drawn === expectedPh, `stats.ops.byRole.photographer ${drawn} = ${expectedPh} (the pit / paddock ones + ${nWindows} at the windows)`)
+  }
+  // --- the sign on the separator wall -------------------------------------------------------------------------
+  {
+    const sign = bar.SIGNS.find((sg) => sg.id === 'pit-entry')
+    const structures = await import('../../app/three/structures.ts')
+    check(!!sign && sign.mount === 'barrierTop' && sign.run === 't18-pit-entry-separator' && structures.SIGN_CELL.pitEntry === 6 && structures.SIGN_TEXTS.pitEntry === 'PIT ENTRY', `SIGNS pit-entry: mount barrierTop on t18-pit-entry-separator, atlas cell 6 'PIT ENTRY'`)
+  }
+  const tris = meshes.reduce((a, m) => a + trisOf(m), 0)
+  console.log(`    note: ${tier}: barriers group ${meshes.length} meshes, ${fmt(tris)} triangles`)
 }

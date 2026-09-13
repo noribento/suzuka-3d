@@ -134,10 +134,10 @@
     "highNoAssets": {
       "triangles": 4039200,
       "meshes": 982,
-      "instancedMeshes": 1019,
-      "farFieldEntries": 1090,
+      "instancedMeshes": 1134,
+      "farFieldEntries": 1221,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured, +10 %; re-based again at I3-d: 926 measured (the ops layer's per-cell sets: ops-vehicles / -hospitality / -tents / -containers / -compound of I3-b, ops-pitEquipment / -perches / -cones / -cables of I3-c, the five ops-figures-<role> impostor sets and ops-flags of I3-d — 3,961,823 tris / 970 meshes / 926 IM / 1,044 entries), +10 %"
+      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured, +10 %; re-based again at I3-d: 926 measured (the ops layer's per-cell sets: ops-vehicles / -hospitality / -tents / -containers / -compound of I3-b, ops-pitEquipment / -perches / -cones / -cables of I3-c, the five ops-figures-<role> impostor sets and ops-flags of I3-d — 3,961,823 tris / 970 meshes / 926 IM / 1,044 entries), +10 %; instancedMeshes and farFieldEntries re-based at I4-c (the I4-a + I4-b merge — the marshal posts' per-cell cabin / panel / camera sets and the TV towers' tower / camera / crew sets — plus the fence-window photographers' impostor cells: 4,014,014 tris / 969 meshes / 1,031 IM / 1,110 entries measured, scene-cost high, Node, assets null), +10 %"
     },
     "lowNoAssets": {
       "triangles": 2243800,

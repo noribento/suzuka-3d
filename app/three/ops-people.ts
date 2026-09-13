@@ -6,6 +6,7 @@ import { registerPropSet, type PropPlacement, type PropSet } from './infield-lod
 import type { OpsPartial } from './ops'
 import { frameAt } from './pit-geometry'
 import { procProp, propMaterial, type PropProto } from './props-pack'
+import { barrierLateralAt } from './trackside'
 
 /**
  * The ops layer's people and flags (plan I3-d / I3-e), drawn from ops-spec section D:
@@ -75,7 +76,8 @@ export function figureToWorld(ctx: Pick<EnvBuildContext, 'track' | 'ground'>, f:
 
 export function buildOpsPeople(ctx: EnvBuildContext): OpsPartial {
   const { track, ground, quality } = ctx
-  const rows = figuresAt()
+  // the fence-window photographers (I4-c) need the barrier lines: the same resolver the guards use
+  const rows = figuresAt({ lineAt: (s, side) => barrierLateralAt(track, s, side) })
   // --- the figures, one prop set per role -----------------------------------------------------------
   const byRole = new Map<FigureRole, FigurePlacement[]>()
   for (const f of rows) {

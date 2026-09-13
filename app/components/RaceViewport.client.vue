@@ -282,7 +282,7 @@ async function setup() {
   // the TV cameras look from the lens points the towers drew (tv-towers.ts, plan I4-b)
   if (Array.isArray(env.group.userData.tvLenses)) rig.setTvCameras(env.group.userData.tvLenses)
   trackMeshes = buildTrackMeshes(track, env.ground, q.fence)
-  const barriers = buildBarriers(track, q, env.ground, assets)
+  const barriers = buildBarriers(track, q, env.ground, assets, env.farField)
   const whiteLines = buildLines(track, env.ground)
   // The ground was drawn, the terrain settled under it and the grid uploaded inside
   // buildEnvironment, before anything stood on it; the track meshes, barriers and lines above

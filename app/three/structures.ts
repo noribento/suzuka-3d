@@ -1,8 +1,10 @@
 /**
  * Circuit structures that are not ground, barriers or stands: the crossover bridge with its
- * abutments and the service road under it, the parapet railings over the roads that pass under
- * the lap, the chicane service bridge, and the trackside signs (DRS boards, the pit-exit boards
- * and signal). The screens are pit-building.ts, the Leader Tower and the pit wall pit-lane.ts, the start gantry track-mesh.ts.
+ * abutments, the 2 m advertising fascia and the white / blue guard beam along its parapets
+ * (I4-c), the service road under it, the parapet railings over the roads that pass under the
+ * lap, the chicane service bridge, and the trackside signs (DRS boards, the pit-exit boards and
+ * signal, the 'PIT ENTRY' board on the separator wall's top). The screens are pit-building.ts,
+ * the Leader Tower and the pit wall pit-lane.ts, the start gantry track-mesh.ts.
  *
  * Built after the trackside props and BEFORE `boxes.flush()` so single-material boxes (girders,
  * kerbs, posts, boards) merge into the shared `props` meshes; everything stands on
@@ -31,7 +33,7 @@ import { texturedWall } from './pit-geometry'
 import { barrierProfile, barrierRun } from './barriers'
 import { osmWay } from './trackside'
 import { cameraSide } from './props'
-import { cached, canvas, concreteMaps, makeTexture, scaled } from './textures'
+import { bridgeRailTexture, cached, canvas, concreteMaps, makeTexture, scaled } from './textures'
 import { assetAspect, pbr, pbrFromAssets, tileMetres } from './materials'
 import { EMISSIVE, emissiveScale } from './emissive'
 import type { BoxPlacer } from './boxes'
@@ -57,9 +59,13 @@ export interface Structures {
 const SPAN = 19
 /** the lower road's abutment line: BARRIERS crossover-abutment-left / right (±8.5) */
 const ABUTMENT_LAT = 8.5
-/** the deck slab's underside below the road plane; the fascia hangs from the road level to `FASCIA_BOTTOM` */
+/** the deck slab's underside below the road plane; the fascia (the white advertising board, mlc.jpg ≈ 2 m) hangs from `FASCIA_TOP` over the road level to `FASCIA_BOTTOM` */
 const SOFFIT = -1.3
 const FASCIA_BOTTOM = -1.05
+/** I4-c: the fascia's top over the road level (2.0 m of board with FASCIA_BOTTOM; the soffit and the girders stay where the chase lens passes under them) */
+export const FASCIA_TOP = 0.95
+/** the low guard beam along the deck's parapets (mlc.jpg: white with a blue band): height, thickness, bottom over the deck, and its gap to the parapet wall's face */
+export const BRIDGE_RAIL = { h: 0.4, t: 0.12, bottom: 0.3, gap: 0.3, seg: 4 } as const
 /** plate girders under the slab: height, and the yOffset BoxPlacer needs (its matrix adds height / 2) */
 const GIRDER_H = 1.0
 const GIRDER_Y = SOFFIT - GIRDER_H
@@ -91,14 +97,15 @@ export function fasciaTextTexture(text: string): THREE.Texture {
 }
 
 /** Every word the sign atlas draws (textures-lint reads this list; no series, tyre or team names). */
-export const SIGN_TEXTS = { fireStation: 'FIRE STATION', pitExit: 'PIT EXIT', drs: 'DRS', detection: 'DETECTION', zone: 'ZONE', speed60: '60' } as const
+export const SIGN_TEXTS = { fireStation: 'FIRE STATION', pitExit: 'PIT EXIT', drs: 'DRS', detection: 'DETECTION', zone: 'ZONE', speed60: '60', pitEntry: 'PIT ENTRY' } as const
 
 /**
  * The sign atlas: 4 × 2 cells of 256 × 128 (logical) pixels. Cell 0 is blank white — every box
  * face that does not carry the graphic maps to it — then the boards of SIGNS by kind; cell 5 is
- * the round red-bordered 60 of the pit entry (drawn on the wall top by pit-lane.ts, I1-c).
+ * the round red-bordered 60 of the pit entry (drawn on the wall top by pit-lane.ts, I1-c), cell 6
+ * the 'PIT ENTRY' board with its green arrow (on the separator wall's top, I4-c).
  */
-export const SIGN_CELL: Record<'blank' | 'fireStation' | 'pitExit' | 'drsDetection' | 'drsZone' | 'speed60', number> = { blank: 0, fireStation: 1, pitExit: 2, drsDetection: 3, drsZone: 4, speed60: 5 }
+export const SIGN_CELL: Record<'blank' | 'fireStation' | 'pitExit' | 'drsDetection' | 'drsZone' | 'speed60' | 'pitEntry', number> = { blank: 0, fireStation: 1, pitExit: 2, drsDetection: 3, drsZone: 4, speed60: 5, pitEntry: 6 }
 const ATLAS_COLS = 4
 const ATLAS_ROWS = 2
 
@@ -142,6 +149,21 @@ export function signAtlas(): THREE.Texture {
       ctx.stroke()
       text(SIGN_TEXTS.speed60, x + cw / 2, y + ch / 2, r * 1.05, '#141414')
     })
+    // PIT ENTRY: black letters on the left two thirds, a green arrow to the right (the lane is on the driver's right)
+    cell(SIGN_CELL.pitEntry, (x, y) => {
+      text(SIGN_TEXTS.pitEntry, x + cw * 0.36, y + ch / 2, ch * 0.34, '#1d1f22')
+      ctx.fillStyle = '#1f9a4a'
+      ctx.beginPath()
+      ctx.moveTo(x + cw * 0.72, y + ch * 0.38)
+      ctx.lineTo(x + cw * 0.84, y + ch * 0.38)
+      ctx.lineTo(x + cw * 0.84, y + ch * 0.22)
+      ctx.lineTo(x + cw * 0.96, y + ch * 0.5)
+      ctx.lineTo(x + cw * 0.84, y + ch * 0.78)
+      ctx.lineTo(x + cw * 0.84, y + ch * 0.62)
+      ctx.lineTo(x + cw * 0.72, y + ch * 0.62)
+      ctx.closePath()
+      ctx.fill()
+    })
     return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
   })
 }
@@ -151,7 +173,7 @@ export const FACING_FACE: Record<SignDef['facing'], number> = { '+lat': 0, '-lat
 
 /** the atlas cell of a board sign's kind (the pit-exit light has no board) */
 export function signCellOf(sign: SignDef): number {
-  return sign.kind === 'fireStation' ? SIGN_CELL.fireStation : sign.kind === 'pitExit' ? SIGN_CELL.pitExit : sign.kind === 'speed60' ? SIGN_CELL.speed60 : sign.id === 'drs-detection' ? SIGN_CELL.drsDetection : SIGN_CELL.drsZone
+  return sign.kind === 'fireStation' ? SIGN_CELL.fireStation : sign.kind === 'pitExit' ? SIGN_CELL.pitExit : sign.kind === 'speed60' ? SIGN_CELL.speed60 : sign.kind === 'pitEntry' ? SIGN_CELL.pitEntry : sign.id === 'drs-detection' ? SIGN_CELL.drsDetection : SIGN_CELL.drsZone
 }
 
 /**
@@ -245,6 +267,7 @@ export function buildStructures(ctx: EnvBuildContext, _mats: { buildingRoofMat: 
   const whiteMat = new THREE.MeshStandardMaterial({ color: 0xeeeeea, roughness: 0.7 })
   const postMat = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.6, metalness: 0.6 })
   const signMat = new THREE.MeshStandardMaterial({ map: signAtlas(), roughness: 0.5 })
+  const bridgeRailMat = new THREE.MeshStandardMaterial({ map: bridgeRailTexture(), roughness: 0.5, metalness: 0.3 })
   const lensMat = new THREE.MeshStandardMaterial({ color: 0x0b2d18, emissive: EMISSIVE.pitExitLight.color, emissiveIntensity: EMISSIVE.pitExitLight.intensity * emissiveScale(), roughness: 0.3 })
 
   const bridge = new THREE.Group()
@@ -254,12 +277,12 @@ export function buildStructures(ctx: EnvBuildContext, _mats: { buildingRoofMat: 
   const furniture = new THREE.Group()
   furniture.name = 'structures-bridge-furniture'
 
-  buildCrossover(track, ground, boxes, bridge, furniture, { slabMat, wallMat, fasciaMat, steelMat, whiteMat, postMat, concreteTile, wallTileU, wallTileV })
+  buildCrossover(track, ground, boxes, bridge, furniture, { slabMat, wallMat, fasciaMat, steelMat, whiteMat, postMat, bridgeRailMat, concreteTile, wallTileU, wallTileV })
   const rails = new THREE.Group()
   rails.name = 'structures-underpass'
   group.add(rails)
   buildUnderpasses(track, ground, boxes, rails, { steelMat, slabMat, concreteTile })
-  buildSigns(track, boxes, { signMat, postMat, steelMat, lensMat })
+  buildSigns(track, ground, boxes, { signMat, postMat, steelMat, lensMat })
 
   // the furniture is worth drawing only near the crossing: a near level, then nothing
   farField.register({
@@ -280,6 +303,7 @@ interface BridgeMats {
   steelMat: THREE.Material
   whiteMat: THREE.Material
   postMat: THREE.Material
+  bridgeRailMat: THREE.Material
   concreteTile: number
   wallTileU: number
   wallTileV: number
@@ -297,7 +321,23 @@ function buildCrossover(track: Track, ground: Ground, boxes: BoxPlacer, into: TH
   const slabW = 2 * (hwAt(sOver) + DECK_SHOULDER)
   const slab = merged(into, [ribbonGeometry(track, s0, s1, edge(1), edge(-1), K(SOFFIT), K(SOFFIT), 3, m.concreteTile, slabW / m.concreteTile)], m.slabMat, 'structures-bridge-slab', true)
   if (slab) slab.receiveShadow = true
-  merged(into, [texturedWall(track, s0, s1, edge(1)(sOver), FASCIA_BOTTOM, 0, 2 * SPAN, 1, 2), texturedWall(track, s0, s1, edge(-1)(sOver), FASCIA_BOTTOM, 0, 2 * SPAN, -1, 2)], m.fasciaMat, 'structures-bridge-fascia', false)
+  merged(into, [texturedWall(track, s0, s1, edge(1)(sOver), FASCIA_BOTTOM, FASCIA_TOP, 2 * SPAN, 1, 2), texturedWall(track, s0, s1, edge(-1)(sOver), FASCIA_BOTTOM, FASCIA_TOP, 2 * SPAN, -1, 2)], m.fasciaMat, 'structures-bridge-fascia', false)
+  // the low guard beam along both parapets (mlc.jpg): 4 m boxes of the white / blue beam on
+  // short posts, BRIDGE_RAIL.gap in front of the parapet wall's face, over the run of the
+  // BARRIERS parapet rows (on the road plane like the deck itself)
+  for (const id of ['bridge-parapet-left', 'bridge-parapet-right'] as const) {
+    const run = barrierRun(id)
+    const { lat } = barrierProfile(track, ground, run)
+    const [pa, pb] = run.sRange
+    const plen = forwardDelta(pa, pb, L)
+    const latRail: Fn = (s) => lat(s) - run.side * (BRIDGE_RAIL.gap + BRIDGE_RAIL.t / 2)
+    for (let d = 0; d < plen; d += BRIDGE_RAIL.seg) {
+      const seg = Math.min(BRIDGE_RAIL.seg, plen - d)
+      const s = pa + d + seg / 2
+      boxes.place(s, latRail(s), seg, BRIDGE_RAIL.t, BRIDGE_RAIL.h, m.bridgeRailMat, BRIDGE_RAIL.bottom, false, false)
+      boxes.place(pa + d + 0.1, latRail(pa + d + 0.1), 0.08, 0.08, BRIDGE_RAIL.bottom, m.postMat, 0, false, false)
+    }
+  }
   const steel: THREE.BufferGeometry[] = []
   for (const side of [1, -1] as const) steel.push(wallGeometry(track, s0, s1, edge(side), K(SOFFIT), K(FASCIA_BOTTOM), 2, 4))
   // girders: 1.0 m plates from the soffit down; BoxPlacer adds height / 2, hence GIRDER_Y = −2.3
@@ -457,14 +497,33 @@ interface SignMats {
   lensMat: THREE.Material
 }
 
-/** The SIGNS table: boards on posts through the shared box placer, one atlas; the pit-exit signal head. */
-function buildSigns(track: Track, boxes: BoxPlacer, m: SignMats) {
+/** a `barrierTop` sign's two posts rise this far over the wall's top before the board (m) */
+const BARRIER_SIGN_POST = 0.5
+
+/**
+ * The SIGNS table: boards on posts through the shared box placer, one atlas; the pit-exit
+ * signal head. A `barrierTop` row (I4-c) stands on the resolved line of its BARRIERS `run`, its
+ * posts BARRIER_SIGN_POST over the wall's top (the row's lateral is nominal there).
+ */
+function buildSigns(track: Track, ground: Ground, boxes: BoxPlacer, m: SignMats) {
   for (const sign of SIGNS) {
     // mounted rows are drawn by the wall's builder: pitWallBoard is a cell of the pit wall's
     // boards and pitWallTop a board on the wall's white block (both pit-lane.ts)
     if (sign.mount === 'pitWallBoard' || sign.mount === 'pitWallTop') continue
-    // TODO(I4): barrierTop rows are drawn by the barrier builder — skipped here until then
-    if (sign.mount === 'barrierTop') continue
+    if (sign.mount === 'barrierTop') {
+      const run = barrierRun(sign.run ?? '')
+      const prof = barrierProfile(track, ground, run)
+      // 8 cm on the track side of the line: the board hangs in front of the run's fence mesh, not through it
+      const lat = prof.lat(sign.s) - run.side * 0.08
+      // the wall's top over the drawn ground the placer stands on (barrierProfile caps the base at MAX_RISE)
+      const overGround = prof.top(sign.s) - ground.standAt(sign.s, lat)
+      const cell = signCellOf(sign)
+      const across = sign.facing === '+s' || sign.facing === '-s'
+      const bottom = overGround + sign.height + BARRIER_SIGN_POST
+      boxes.place(sign.s, lat, across ? 0.06 : sign.width, across ? sign.width : 0.06, sign.boardHeight, m.signMat, bottom, false, true, signUv(FACING_FACE[sign.facing], cell))
+      for (const o of [-sign.width * 0.4, sign.width * 0.4]) boxes.place(sign.s + (across ? 0 : o), lat + (across ? o : 0), 0.06, 0.06, sign.height + BARRIER_SIGN_POST + sign.boardHeight * 0.3, m.postMat, overGround, false, false)
+      continue
+    }
     const lat = sign.lateral === 'cameraSide' ? cameraSide(track, sign.s) * (track.halfWidthAt(sign.s) + 3.2) : sign.lateral
     if (sign.kind === 'pitExitLight') {
       // a pole, a dark three-lens head, the green lens on the face towards the lane's traffic

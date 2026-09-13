@@ -1066,9 +1066,11 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
 /**
  * A11. SCREENS / SIGNS / LEADER_TOWER: |lateral| ≥ hw + 1.5 (never in the road or its kerb),
  * outside every stand's OSM footprint (world space), not inside the pit lane's band where the
- * lane runs; `boards` only on concrete runs (the boards hang on a wall face). SIGNS rows with a
- * `mount` (pitWallBoard / pitWallTop / barrierTop) hang on a wall and are exempt; they must
- * name a wall that exists at their s (the pit wall's sRange, or a BARRIERS run).
+ * lane runs; `boards` only on concrete runs (the boards hang on a wall face); AD_PANELS (I4-c)
+ * under the same rules, on the spectator side of and ≥ 0.28 m off every BARRIERS line of their
+ * side. SIGNS rows with a `mount` (pitWallBoard / pitWallTop / barrierTop) hang on a wall and are
+ * exempt; they must name a wall that exists at their s (the pit wall's sRange, or a BARRIERS run
+ * — a barrierTop row names it in `run`).
  */
 {
   const laneHalf = pit.laneWidth / 2
@@ -1088,6 +1090,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       return { id: `sign ${sg.id}`, s: sg.s, lateral: sg.lateral === 'cameraSide' ? side * (track.halfWidthAt(sg.s) + 3.2) : sg.lateral }
     }),
     { id: 'LEADER_TOWER', s: spec.LEADER_TOWER.s, lateral: spec.LEADER_TOWER.lateral },
+    // the free-standing hoarding panels (I4-c): the same standing-room rules as a sign, plus O5 below
+    ...(bar.AD_PANELS ?? []).map((p) => ({ id: `ad panel ${p.id}`, s: p.s, lateral: p.lateral })),
   ]
   for (const it of items) {
     const hw = track.halfWidthAt(it.s)
@@ -1100,6 +1104,16 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     if (paved) fail(`${it.id}: stands on the paved GROUND_AREAS apron "${paved}" (a sign belongs beside the tarmac, not on it)`)
   }
   for (const run of bar.BARRIERS) if (run.boards && run.kind !== 'concrete') fail(`${run.id}: boards on a ${run.kind} run — boards hang on concrete walls only`)
+  // the panels stand off every BARRIERS line of their side (O5's rule: ≥ half their depth + 0.2), inside the circuit ring
+  for (const p of bar.AD_PANELS ?? []) {
+    const side = p.lateral >= 0 ? 1 : -1
+    for (const run of bar.BARRIERS) {
+      if (run.side !== side || !inArc(p.s, run.sRange)) continue
+      const line = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6).lat(p.s)
+      if (Math.abs(p.lateral - line) < 0.15 / 2 + 0.2) fail(`ad panel ${p.id}: ${fmt(Math.abs(p.lateral - line), 2)} m from the line of ${run.id} — O5`)
+      if (side * (p.lateral - line) < 0) fail(`ad panel ${p.id}: on the track side of ${run.id} (line ${fmt(line)})`)
+    }
+  }
   // mounted signs: the wall they hang on exists at their s
   for (const sg of bar.SIGNS) {
     if (!sg.mount) continue
@@ -1110,8 +1124,10 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       if (sg.mount === 'pitWallTop' && w.concrete && !inArc(sg.s, w.concrete)) fail(`sign ${sg.id}: mount pitWallTop at s ${sg.s} is off the concrete wall ${w.concrete[0]}→${w.concrete[1]} (the W-beam ends carry no block)`)
     } else if (sg.mount === 'barrierTop') {
       const s0 = sg.s
-      const run = bar.BARRIERS.find((r) => inArc(s0, r.sRange) && Math.sign(r.side) === Math.sign(sg.lateral))
-      if (!run) fail(`sign ${sg.id}: mount barrierTop at s ${sg.s} finds no BARRIERS run on that side`)
+      const run = sg.run ? bar.BARRIERS.find((r) => r.id === sg.run) : bar.BARRIERS.find((r) => inArc(s0, r.sRange) && Math.sign(r.side) === Math.sign(sg.lateral))
+      if (!run) fail(`sign ${sg.id}: mount barrierTop at s ${sg.s} finds no BARRIERS run ${sg.run ? `'${sg.run}'` : 'on that side'}`)
+      else if (!inArc(s0, run.sRange)) fail(`sign ${sg.id}: mount barrierTop at s ${sg.s} is outside its run ${run.id} ${run.sRange[0]}→${run.sRange[1]}`)
+      else if (Math.sign(run.side) !== Math.sign(sg.lateral)) fail(`sign ${sg.id}: mount barrierTop on ${run.id} (side ${run.side}) with lateral ${sg.lateral}`)
     }
   }
   for (const u of spec.UNDERPASSES) {
@@ -1324,7 +1340,7 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *       cabin's stand + stair / the low box / a sized building under O1 / O2 / O4, ≥ 0.6 m on
  *       the spectator side of the nearest barrier run's line (bare 'fence' runs excepted) and
  *       ≥ 0.2 m off every other overlapping run's line; the marshal slots under O1 / O2.
- *   O9  every figure of figuresAt() passes O1–O4 (a 'wall' figure the walkway band instead, a
+ *   O9  every figure of figuresAt({ lineAt }) (the fence-window photographers included, I4-c) passes O1–O4 (a 'wall' figure the walkway band instead, a
  *       'roof' one — the podium terrace — only O3 / O4) and stands inside the circuit ring,
  *       outside every ops footprint (a seated crew inside its own perch frame excepted, and
  *       nothing under a 'roof' row is a fault) and outside every building footprint (O6).
@@ -1345,7 +1361,8 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   const notes = []
   const skip = (what) => notes.push(`${what} (table absent, skipped)`)
   const placements = ops.opsPlacements()
-  const figures = ops.figuresAt()
+  // the fence-window photographers (I4-c) join the list when the barrier lines can be resolved
+  const figures = ops.figuresAt({ lineAt: (s, side) => trackside.barrierLateralAt(track, s, side) })
   /** the footprint's four corners in (s, lateral): size [long, across], yaw about up (0 = long side along +s) */
   const cornersOf = (p) => {
     const a = (p.size?.[0] ?? 0) / 2, b = (p.size?.[1] ?? 0) / 2

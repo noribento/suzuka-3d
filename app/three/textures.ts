@@ -1266,6 +1266,35 @@ export function armcoMaps(): MaterialMaps {
   })
 }
 
+/**
+ * The white triple-beam guard rail of the 130R verges (r130.jpg, I4-c): three rounded beams
+ * with a bolt at every post, a dark shadow line between the beams; tiles every 4 m along u,
+ * one tile = the rail's 0.7 m height. White through the material's colour like `guardMat`.
+ */
+export function armco3Maps(): MaterialMaps {
+  return cached('armco3', () => {
+    const w = 512, h = 192
+    const n = new Noise2(79)
+    const height = new Float32Array(w * h)
+    const map = paint(w, h, (x, y, out) => {
+      const v = y / h
+      // three beams of a third each: a rounded profile, a dark gap of 6 % between them
+      const k = Math.floor(v * 3)
+      const f = v * 3 - k
+      const beam = f < 0.06 || f > 0.94 ? 0 : Math.sin(((f - 0.06) / 0.88) * Math.PI) ** 0.6
+      const bolt = ((x % 128) - 64) ** 2 + (f - 0.5) ** 2 * 400 < 30 ? 1 : 0
+      const seam = x % 128 < 3 ? -0.5 : 0
+      const grain = n.fbm(x / 6, y / 6, 64, 16, 3) - 0.5
+      height[y * w + x] = beam * 0.7 + bolt * 0.4 + seam + grain * 0.08
+      const shade = 120 + beam * 80 + grain * 25 + bolt * 30 + seam * 60
+      out[0] = shade
+      out[1] = shade + 2
+      out[2] = shade + 5
+    })
+    return { map: makeTexture(map), normalMap: normalMapFrom(height, w, h, 3.0) }
+  })
+}
+
 /** Chain-link debris fence: transparent diamonds on a 64² tile (≈ 20 cm). */
 export function chainLinkTexture(): THREE.Texture {
   return cached('chainlink', () => {
@@ -1288,59 +1317,115 @@ export function chainLinkTexture(): THREE.Texture {
   })
 }
 
-/** Tyre barrier front: three rows of stacked tyres behind a white conveyor-belt cover; tiles every 0.66 m along u. */
+/** metres one tile of `tyreWallTexture` spans along the wall (six 0.66 m stacks under one length of belting) */
+export const TYRE_WALL_TILE_M = 3.96
+/** the tyre wall's height the tile is drawn for (BARRIER_KIND.tyre.top) */
+export const TYRE_WALL_H = 1.5
+
+/**
+ * Tyre barrier face v2 (I4-c, r130_post.jpg / r130.jpg): white conveyor belting over the whole
+ * face, one belt length per TYRE_WALL_TILE_M with a vertical seam every 0.66 m (one stack), the
+ * belt folded over the top as a 0.15 m band, a yellow marker 0.1 × 0.3 m at every belt joint,
+ * and the tyre bulges reading faintly through the belt. In the 国土地理院 aerial the walls sample
+ * at luminance 172–206, i.e. white; the v1 tile carried a red band that never existed.
+ */
 export function tyreWallTexture(): THREE.Texture {
-  return cached('tyrewall', () => {
-    const w = 128, h = 384
+  return cached('tyrewall2', () => {
+    const w = 1024, h = 384
     const { c, ctx } = canvas(w, h)
-    ctx.fillStyle = '#141416'
+    const px = w / TYRE_WALL_TILE_M
+    const py = h / TYRE_WALL_H
+    ctx.fillStyle = '#e6e6e3'
     ctx.fillRect(0, 0, w, h)
-    for (let row = 0; row < 3; row++) {
-      const cy = h - row * 128 - 64
-      const cx = w / 2 + (row % 2 ? 0 : 0)
-      const g = ctx.createRadialGradient(cx, cy, 20, cx, cy, 62)
-      g.addColorStop(0, '#0a0a0b')
-      g.addColorStop(0.55, '#2a2b2e')
-      g.addColorStop(0.85, '#1c1d20')
-      g.addColorStop(1, '#0e0e10')
-      ctx.fillStyle = g
-      ctx.beginPath()
-      ctx.arc(cx, cy, 62, 0, Math.PI * 2)
-      ctx.fill()
+    // the tyre rows under the belt: five 0.25 m tyres, each a faint dark band at its bead
+    ctx.fillStyle = 'rgba(0,0,0,0.06)'
+    for (let row = 0; row < 5; row++) ctx.fillRect(0, h - Math.round((row * 0.25 + 0.2) * py), w, Math.round(0.07 * py))
+    // the belt's top fold: a darker band and its crease
+    ctx.fillStyle = '#d2d2ce'
+    ctx.fillRect(0, 0, w, Math.round(0.15 * py))
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    ctx.fillRect(0, Math.round(0.15 * py) - 2, w, 3)
+    // the vertical seams between stacks (0.66 m) and the belt joint at the tile's edge
+    for (let k = 0; k < 6; k++) {
+      const x = Math.round(k * 0.66 * px)
+      ctx.fillStyle = 'rgba(0,0,0,0.14)'
+      ctx.fillRect(x, Math.round(0.15 * py), 3, h)
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'
+      ctx.fillRect(x + 3, Math.round(0.15 * py), 2, h)
     }
-    // Conveyor belting over the WHOLE face, which is how Suzuka wraps its stacks: in the 国土地理院
-    // aerial the tyre walls read at luminance 172-206, i.e. white, not black. It used to cover only
-    // the lower two rows, which left a black band along the top of every tyre barrier on the lap.
-    ctx.fillStyle = '#e8e8e6'
-    ctx.fillRect(0, 8, w, h - 8)
-    ctx.fillStyle = '#c8c8c4'
-    for (const y of [8, 128, 250, 330]) ctx.fillRect(0, y, w, 5)
-    // the tyre bulges still read through the belting
-    ctx.fillStyle = 'rgba(0,0,0,0.07)'
-    for (let row = 0; row < 3; row++) ctx.fillRect(0, h - row * 128 - 118, w, 34)
-    ctx.fillStyle = '#c8102e'
-    ctx.fillRect(0, 300, w, 40)
-    ctx.fillStyle = 'rgba(0,0,0,0.12)'
-    ctx.fillRect(w - 3, 8, 3, h - 8)
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
+    ctx.fillRect(0, 0, 4, h)
+    // the yellow marker at the joint, 0.1 wide × 0.3 tall, 0.4 m under the top
+    ctx.fillStyle = '#f2c400'
+    ctx.fillRect(6, Math.round(0.4 * py), Math.round(0.1 * px), Math.round(0.3 * py))
+    // a little grime along the foot
+    const g = ctx.createLinearGradient(0, h - Math.round(0.25 * py), 0, h)
+    g.addColorStop(0, 'rgba(60,55,45,0)')
+    g.addColorStop(1, 'rgba(60,55,45,0.35)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, h - Math.round(0.25 * py), w, Math.round(0.25 * py))
     return makeTexture(c)
   })
 }
 
-/** TecPro barrier: red and white blocks with the moulded edge lines; one block per 2 m along u. */
-export function tecproTexture(): THREE.Texture {
-  return cached('tecpro', () => {
-    const w = 256, h = 128
+/** metres one tile of `paintedBlockTexture` / `tricolourWallTexture` spans along the wall (three 2 m blocks) */
+export const PAINTED_BLOCK_TILE_M = 6
+
+/**
+ * The red / white / green blocks painted on the walls either side of a marshal post (r130_post.jpg:
+ * 2 m blocks in turn, a thin dark joint between them); tiles every PAINTED_BLOCK_TILE_M.
+ */
+export function paintedBlockTexture(): THREE.Texture {
+  return cached('paintedblocks', () => {
+    const w = 384, h = 128
     const { c, ctx } = canvas(w, h)
-    ctx.fillStyle = '#d61f26'
-    ctx.fillRect(0, 0, w / 2, h)
-    ctx.fillStyle = '#f3f3f1'
-    ctx.fillRect(w / 2, 0, w / 2, h)
+    const cols = ['#c8102e', '#f1f1ee', '#1f7a3f']
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = cols[i]!
+      ctx.fillRect(i * (w / 3), 0, w / 3, h)
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.fillRect(i * (w / 3), 0, 3, h)
+    }
+    // the weathering of paint on concrete: a lighter dusting along the top
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'
+    ctx.fillRect(0, 0, w, h * 0.12)
+    return makeTexture(c)
+  })
+}
+
+/**
+ * The T2 inside wall's tricolour (I4-c, unverified): three horizontal bands — red over white over
+ * green — with a faint block joint every 2 m; tiles every PAINTED_BLOCK_TILE_M along the wall.
+ */
+export function tricolourWallTexture(): THREE.Texture {
+  return cached('tricolourwall', () => {
+    const w = 384, h = 128
+    const { c, ctx } = canvas(w, h)
+    for (const [i, col] of ['#c8102e', '#f1f1ee', '#1f7a3f'].entries()) {
+      ctx.fillStyle = col
+      ctx.fillRect(0, i * (h / 3), w, h / 3)
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    for (let i = 0; i < 3; i++) ctx.fillRect(i * (w / 3), 0, 2, h)
+    return makeTexture(c)
+  })
+}
+
+/**
+ * The white guard beam with a blue band along the crossover deck's parapet (mlc.jpg): one metre
+ * of beam per tile, a bolt at the joint.
+ */
+export function bridgeRailTexture(): THREE.Texture {
+  return cached('bridgerail', () => {
+    const w = 128, h = 64
+    const { c, ctx } = canvas(w, h)
+    ctx.fillStyle = '#f2f2ef'
+    ctx.fillRect(0, 0, w, h)
+    ctx.fillStyle = '#1d5bb5'
+    ctx.fillRect(0, h * 0.38, w, h * 0.24)
     ctx.fillStyle = 'rgba(0,0,0,0.25)'
-    for (const x of [0, w / 2]) ctx.fillRect(x, 0, 4, h)
-    ctx.fillRect(0, 0, w, 4)
-    ctx.fillStyle = 'rgba(255,255,255,0.18)'
-    ctx.fillRect(0, h * 0.35, w, 4)
-    ctx.fillRect(0, h * 0.7, w, 4)
+    ctx.fillRect(0, 0, 2, h)
+    ctx.fillRect(0, h - 3, w, 3)
     return makeTexture(c)
   })
 }
@@ -1357,6 +1442,29 @@ export function labelTexture(text: string, bg: string, fg: string, w = 256, h = 
     ctx.textBaseline = 'middle'
     ctx.fillText(text, w / 2, h / 2 + font * 0.05)
     ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+    ctx.lineWidth = 6
+    ctx.strokeRect(3, 3, w - 6, h - 6)
+    return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
+  })
+}
+
+/**
+ * A braking-distance board (I4-c, unverified: F1's yellow boards with black figures): the figure
+ * over four black stripes along the foot. One texture per label.
+ */
+export function distanceBoardTexture(label: string): THREE.Texture {
+  return cached(`distance-${label}`, () => {
+    const w = 256, h = 256
+    const { c, ctx } = canvas(w, h)
+    ctx.fillStyle = '#f2c400'
+    ctx.fillRect(0, 0, w, h)
+    ctx.fillStyle = '#111111'
+    ctx.font = `900 118px 'Titillium Web', 'Segoe UI', Arial, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, w / 2, h * 0.4)
+    for (let i = 0; i < 4; i++) ctx.fillRect(w * (0.12 + i * 0.2), h * 0.74, w * 0.12, h * 0.16)
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'
     ctx.lineWidth = 6
     ctx.strokeRect(3, 3, w - 6, h - 6)
     return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
@@ -1502,24 +1610,94 @@ export function brakingRubberTexture(): THREE.Texture {
   })
 }
 
+/**
+ * Every word the hoardings paint (plan §横断 8 — descriptive, fictional: no series, sponsor,
+ * supplier or team name; scripts/textures-lint.mjs reads this list). One word per panel of
+ * `boardTexture` (16 × 8 m), one per cell of `bigPanelTexture` and per logo of `runoffLogoTexture`.
+ */
+export const BOARD_TEXTS: readonly string[] = ['SUZUKA', 'JAPANESE GP', 'ROUND 17', 'SUZUKA CIRCUIT', 'PIT LANE', '2026', 'EAST COURSE', 'WEST COURSE', 'GRAND PRIX', 'MOTORSPORT', 'RACE DAY', 'SPOON CURVE', '130R', 'HAIRPIN', 'CHICANE', 'DEGNER']
+/** the panel colours, in turn (the light panels take dark type) */
+const BOARD_COLOURS = ['#0b2545', '#c8102e', '#ffffff', '#1f7a3f', '#111111', '#f2c300', '#003b95', '#e10600']
+/** metres one tile of `boardTexture` covers along a wall: BOARD_TEXTS.length panels of 8 m */
+export const BOARD_TILE_M = BOARD_TEXTS.length * 8
+
+/** The hoarding band: BOARD_TEXTS panels of 8 m each in one strip (the wall-face boards, the wall-top ad bands, the B2 boards). */
 export function boardTexture(): THREE.Texture {
-  return cached('board', () => {
-    const w = 2048, h = 128
+  return cached('board2', () => {
+    const n = BOARD_TEXTS.length
+    const pw = 256, h = 128
+    const w = pw * n
     const { c, ctx } = canvas(w, h)
-    const colors = ['#0b2545', '#c8102e', '#ffffff', '#1f7a3f', '#111111', '#f2c300', '#003b95', '#e10600']
-    const text = ['SUZUKA', 'JAPANESE GP', 'ROUND 17', 'SUZUKA CIRCUIT', 'F1 LIVE', 'PIT LANE', 'MOBILITY RESORT', '2026']
-    for (let i = 0; i < 8; i++) {
-      ctx.fillStyle = colors[i % colors.length]!
-      ctx.fillRect(i * 256, 0, 256, h)
-      ctx.fillStyle = i === 2 || i === 5 ? '#111' : '#fff'
+    for (let i = 0; i < n; i++) {
+      const bg = BOARD_COLOURS[i % BOARD_COLOURS.length]!
+      ctx.fillStyle = bg
+      ctx.fillRect(i * pw, 0, pw, h)
+      ctx.fillStyle = bg === '#ffffff' || bg === '#f2c300' ? '#111' : '#fff'
       ctx.font = "900 44px 'Titillium Web', 'Segoe UI', Arial, sans-serif"
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(text[i]!, i * 256 + 128, h / 2)
+      ctx.fillText(BOARD_TEXTS[i]!, i * pw + pw / 2, h / 2)
       ctx.fillStyle = 'rgba(0,0,0,0.25)'
-      ctx.fillRect(i * 256, 0, 3, h)
+      ctx.fillRect(i * pw, 0, 3, h)
     }
     return makeTexture(c)
+  })
+}
+
+/** the cells of `bigPanelTexture` (one word each), stacked in v */
+export const BIG_PANEL_CELLS = 4
+
+/** The free-standing 12 × 4 m panels (AD_PANELS): BIG_PANEL_CELLS cells of 3 : 1, one BOARD_TEXTS word each on its own colour, stacked in v (cell k = v in [k / n, (k + 1) / n]). */
+export function bigPanelTexture(): THREE.Texture {
+  return cached('bigpanel', () => {
+    const n = BIG_PANEL_CELLS
+    const cw = 768, ch = 256
+    const { c, ctx } = canvas(cw, ch * n)
+    // BOARD_TEXTS[8] GRAND PRIX, [3] SUZUKA CIRCUIT, [10] RACE DAY, [9] MOTORSPORT — every painted word comes from the one list
+    const words = [8, 3, 10, 9].map((i) => BOARD_TEXTS[i]!)
+    const cols = ['#0b2545', '#e10600', '#1f7a3f', '#111111']
+    for (let k = 0; k < n; k++) {
+      // canvas rows run top-down: cell k occupies the (n − 1 − k)th row so v = k / n is its bottom
+      const y = (n - 1 - k) * ch
+      ctx.fillStyle = cols[k]!
+      ctx.fillRect(0, y, cw, ch)
+      ctx.fillStyle = '#ffffff'
+      ctx.font = "900 150px 'Titillium Web', 'Segoe UI', Arial, sans-serif"
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(words[k]!, cw / 2, y + ch / 2)
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'
+      ctx.fillRect(0, y + ch - 4, cw, 4)
+    }
+    return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
+  })
+}
+
+/** the logos of `runoffLogoTexture` (one word each), stacked in v like the big panels */
+export const RUNOFF_LOGO_CELLS = 3
+
+/** The logos painted on the Spoon run-off asphalt (12 × 6 m each, I4-c): RUNOFF_LOGO_CELLS cells of 2 : 1, white type on a blue field with a white border, stacked in v. */
+export function runoffLogoTexture(): THREE.Texture {
+  return cached('runofflogo', () => {
+    const n = RUNOFF_LOGO_CELLS
+    const cw = 512, ch = 256
+    const { c, ctx } = canvas(cw, ch * n)
+    // BOARD_TEXTS[0] SUZUKA, [8] GRAND PRIX, [10] RACE DAY
+    const words = [0, 8, 10].map((i) => BOARD_TEXTS[i]!)
+    for (let k = 0; k < n; k++) {
+      const y = (n - 1 - k) * ch
+      ctx.fillStyle = '#1d3f8a'
+      ctx.fillRect(0, y, cw, ch)
+      ctx.strokeStyle = '#f4f4f0'
+      ctx.lineWidth = 10
+      ctx.strokeRect(14, y + 14, cw - 28, ch - 28)
+      ctx.fillStyle = '#f4f4f0'
+      ctx.font = "900 110px 'Titillium Web', 'Segoe UI', Arial, sans-serif"
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(words[k]!, cw / 2, y + ch / 2)
+    }
+    return makeTexture(c, { wrap: THREE.ClampToEdgeWrapping })
   })
 }
 

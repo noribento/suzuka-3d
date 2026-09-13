@@ -5,11 +5,11 @@
     "the garage team names). Only strings not listed here fail scripts/textures-lint.mjs. Data-driven text — the",
     "garage panels paint `team.name` from app/data/drivers.ts through a variable, not a literal — is out of the",
     "lint's scope by construction (templates with interpolation and identifiers are never scanned).",
-    "'SUZUKA CIRCUIT' in a plain typeface is a place name and is not on the denylist."
+    "'SUZUKA CIRCUIT' in a plain typeface is a place name and is not on the denylist.",
+    "I4-c (plan §横断 8, 2026-09-12): the hoarding boards (boardTexture) paint BOARD_TEXTS — 16 fictional words — so the 'F1 LIVE' /",
+    "'MOBILITY RESORT' panels are gone from textures.ts and their entries with them; the pit-building fascia keeps its PIT_TEXTS entry."
   ],
   "allow": [
-    { "file": "app/three/textures.ts", "text": "F1 LIVE", "term": "F1", "reason": "existing hoarding-board texture (boardTexture); user decision 2026-09-10 keeps it" },
-    { "file": "app/three/textures.ts", "text": "MOBILITY RESORT", "term": "Mobility Resort", "reason": "existing hoarding-board texture (boardTexture); user decision 2026-09-10 keeps it" },
     { "file": "app/three/textures.ts", "text": "ROUND 17", "term": "-", "reason": "recorded per the user decision; a round number is not on the denylist and never matches" },
     { "file": "app/three/pit-geometry.ts", "text": "MOBILITY RESORT", "term": "Mobility Resort", "reason": "existing PIT_TEXTS entry (PANEL_TEXTS of pit-complex.ts until I1-a) on the pit-building fascia and the pit-wall boards; user decision 2026-09-10 keeps it" },
     { "file": "app/three/pit-geometry.ts", "text": "ROUND 17", "term": "-", "reason": "recorded per the user decision; a round number is not on the denylist and never matches" }

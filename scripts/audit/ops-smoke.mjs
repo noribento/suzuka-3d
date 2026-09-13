@@ -287,7 +287,8 @@ async function checkPeople(scene, check, { glb, reg }) {
   const { env, track, ground } = scene
   const people = await import('../../app/three/ops-people.ts')
   console.log(`  people${glb ? ' (GLB prototypes)' : ''}`)
-  const rows = ops.figuresAt()
+  const trackside = await import('../../app/three/trackside.ts')
+  const rows = ops.figuresAt({ lineAt: (s, side) => trackside.barrierLateralAt(track, s, side) })
   const s = env.stats.ops
   const byRole = {}
   for (const r of rows) byRole[r.role] = (byRole[r.role] ?? 0) + 1
