@@ -15,12 +15,19 @@
  *  and three extinguishers per cabin; every stand's floor and stair (MARSHAL_STAND's boxes
  *  through the instance matrix — the guard's rectangles, in the world) project to the
  *  spectator side of the nearest non-'fence' barrier run of its side, ≥ 0.6 m off the resolved
- *  line, and reach along s towards the row's `stair` side; the `marshalNumbers` mesh exists and `userData.trackside
+ *  line, and reach along s towards the row's `stair` side; every stand's base is the HIGHEST
+ *  ground under its four legs (no leg floats; the sloped sites — 200R — get `marshalFootings`
+ *  under the lower legs and the stair); the `marshalNumbers` mesh exists and `userData.trackside
  *  .numbers` lists every numbered post once, ascending with s (one wrap), 2.4 m ± 0.15 over
- *  the barrier's base; `emPanels` draws `panels` instances, none of its materials emissive
- *  (the green-flag state is DARK), every panel within one fence-post pitch of its row's
- *  `panel.s ?? s − 3.2` and its housing 0.35 … 0.75 m on the track side of the line;
- *  `cctvPoles` / `cctvHeads` draw one camera per numbered or building post plus every
+ *  the barrier's base, and its digits are on the board's 1.2 × 0.8 face that looks at the
+ *  track (two numbered triangles per board of 0.24 m², their normal along the lateral axis —
+ *  the I4 review found them on the 6 cm edge); `emPanels` draws `panels` instances with the
+ *  housing, the LED face and the control cabinet bolted to its back (three groups, nothing on
+ *  the ground), none of its materials emissive (the green-flag state is DARK), every panel
+ *  within one fence-post pitch of its row's `panel.s ?? s − 3.2`, its housing 0.35 … 0.75 m on
+ *  the track side of the line where the run carries a fence and BEHIND the run's back (+ its
+ *  spare tyre row) where it does not, every panel and number board ≥ hw + 1.5 off the
+ *  centreline; `cctvPoles` / `cctvHeads` draw one camera per numbered or building post plus every
  *  TRACKSIDE_CCTV row, each behind its fence line; every trackside / platform figure of
  *  `figuresAt()` stands outside the track envelope (|lateral| ≥ hw + 1.5) and the platform
  *  ones at platform + floor over the ground. `--glb` builds the high tier once more with the
@@ -147,7 +154,7 @@ function checkPosts(scene, check, { glb: withGlb, reg }) {
   const nStands = countOf(/-marshal-stand-(plus|minus)-L0-/), nBodies = countOf(/-marshal-(body-(plus|minus)|booth-(plus|minus))-L0-/), nLows = countOf(/-marshal-low-L0-/), nExt = countOf(/-marshal-extinguisher(-glb)?-L0-/)
   check(nStands === expected.cabins && nBodies === expected.cabins && nLows === expected.lows && nExt === 3 * expected.cabins, `infield-marshal-cabins: ${nStands} stands + ${nBodies} bodies (${expected.cabins} cabins), ${nLows} low posts, ${nExt} extinguishers (3 per cabin) in ${setMeshes.length} InstancedMeshes`)
   // every stand's bbox: spectator side of the nearest run, ≥ 0.6 m off, reaching towards the stair side
-  let standsOff = 0, stairWrong = 0, standsChecked = 0
+  let standsOff = 0, stairWrong = 0, standsChecked = 0, floating = 0, sloped = 0, maxSpread = 0
   const worst = []
   const corner = new THREE.Vector3()
   for (const mm of l0.filter((x) => /-marshal-stand-(plus|minus)-L0-/.test(x.name))) {
@@ -159,12 +166,31 @@ function checkPosts(scene, check, { glb: withGlb, reg }) {
       { x: [-aHalf, aHalf], z: [-Lp * (half + 0.1), Lp * (half + S.deckS + 0.1)] },
       { x: [-S.stairW / 2, S.stairW / 2], z: [Lp * (half + S.deckS + 0.1), Lp * (half + S.deckS + 0.1 + S.stairLen)] },
     ]
+    // the four legs (0.1 m inside the floor's ends) — the stand's origin must sit on the highest of their grounds
+    const feet = []
+    for (const x of [-(aHalf - 0.1), aHalf - 0.1]) for (const z of [-Lp * (half - 0.1), Lp * (half + S.deckS - 0.1)]) feet.push([x, z])
     for (let i = 0; i < mm.count; i++) {
       mm.getMatrixAt(i, m4)
       m4.premultiply(mm.matrixWorld)
       v.setFromMatrixPosition(m4)
+      const origin = v.clone()
       const { row } = rowNear(v.x, v.z)
       const side = row.lateral >= 0 ? 1 : -1
+      {
+        // the origin's height over the road plane at the row vs the ground under each leg's world corner, in the same frame
+        track.pointAt(row.s, row.lateral, _tmp, 0)
+        const originY = origin.y - _tmp.y
+        let hi = -Infinity, lo = Infinity
+        for (const [x, z] of feet) {
+          corner.set(x, 0, z).applyMatrix4(m4)
+          const g = ground.standY(corner.x, corner.z) - _tmp.y
+          hi = Math.max(hi, g)
+          lo = Math.min(lo, g)
+        }
+        maxSpread = Math.max(maxSpread, hi - lo)
+        if (hi - lo > 0.03) sloped++
+        if (originY < hi - 0.03) { floating++; if (worst.length < 6) worst.push(`stand at s ${row.s}: origin ${originY.toFixed(2)} under its highest leg's ground ${hi.toFixed(2)}`) }
+      }
       let minSpec = Infinity, sMin = Infinity, sMax = -Infinity, sSum = 0, n = 0
       const pts = []
       for (const b of boxes) for (const x of b.x) for (const z of b.z) {
@@ -187,6 +213,8 @@ function checkPosts(scene, check, { glb: withGlb, reg }) {
   }
   check(standsChecked === expected.cabins && standsOff === 0, `every stand's floor and stair (world corners) on the spectator side of its nearest barrier run, ≥ 0.6 m off the line (${standsChecked} stands, ${standsOff} off)`)
   check(stairWrong === 0, `every stand reaches along s towards its row's stair side (${stairWrong} wrong)`)
+  const footings = env.group.getObjectByName('marshalFootings')
+  check(floating === 0 && (sloped === 0 || !!footings), `every stand's origin on its highest leg's ground (${floating} floating; ${sloped} sloped sites, ground spread ≤ ${maxSpread.toFixed(2)} m, footings mesh ${footings ? trisOf(footings) + ' tris' : 'absent'})`)
   // --- the number boards ----------------------------------------------------------------------------------
   const td = env.group.userData.trackside ?? {}
   const boards = env.group.getObjectByName('marshalNumbers')
@@ -196,22 +224,68 @@ function checkPosts(scene, check, { glb: withGlb, reg }) {
   let descents = 0
   for (let i = 1; i < bySorted.length; i++) if (bySorted[i].number < bySorted[i - 1].number) descents++
   check(!!boards && nums.length === numbers.size && uniq.size === nums.length && descents <= 1, `marshalNumbers: ${nums.length} boards for ${numbers.size} numbered posts, numbers unique (${uniq.size}) and ascending with s (${descents} descent${descents === 1 ? ' = the wrap' : 's'})`)
-  let boardOff = 0
+  let boardOff = 0, boardInRoad = 0
   for (const b of nums) {
     const side = b.lateral >= 0 ? 1 : -1
     const r = runAt(b.s, side, b.lateral)
     const base = r ? Math.min(ground.standAt(b.s, r.line.lat(b.s)), 3) : ground.standAt(b.s, b.lateral)
     track.pointAt(b.s, b.lateral, v, base)
     if (Math.abs(b.y - v.y - 2.4) > 0.15) boardOff++
+    if (Math.abs(b.lateral) < track.halfWidthAt(b.s) + 1.5) boardInRoad++
   }
   check(boardOff === 0, `every number board's centre 2.4 m ± 0.15 over its barrier's base (${boardOff} off)`)
+  // the digits on the track-facing 1.2 × 0.8 face: the numbered triangles (uv outside the atlas's
+  // blank cell 0) are two per board, 0.24 m² each, their normal along the lateral axis at the board
+  if (boards) {
+    const g = boards.geometry
+    const pos = g.attributes.position, uv = g.attributes.uv
+    const NUM_COLS = 8, NUM_ROWS = 4
+    const blank = (u, w) => u < 1 / NUM_COLS && w > 1 - 1 / NUM_ROWS
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3()
+    let numbered = 0, blankTris = 0, areaBad = 0, normalBad = 0
+    const perBoard = new Map()
+    const triCount = g.index ? g.index.count / 3 : pos.count / 3
+    for (let t = 0; t < triCount; t++) {
+      const i0 = g.index ? g.index.getX(3 * t) : 3 * t, i1 = g.index ? g.index.getX(3 * t + 1) : 3 * t + 1, i2 = g.index ? g.index.getX(3 * t + 2) : 3 * t + 2
+      if (blank(uv.getX(i0), uv.getY(i0)) && blank(uv.getX(i1), uv.getY(i1)) && blank(uv.getX(i2), uv.getY(i2))) { blankTris++; continue }
+      numbered++
+      a.fromBufferAttribute(pos, i0).applyMatrix4(boards.matrixWorld)
+      b.fromBufferAttribute(pos, i1).applyMatrix4(boards.matrixWorld)
+      c.fromBufferAttribute(pos, i2).applyMatrix4(boards.matrixWorld)
+      n.copy(b).sub(a).cross(c.clone().sub(a))
+      const area = n.length() / 2
+      n.normalize()
+      const cx = (a.x + b.x + c.x) / 3, cz = (a.z + b.z + c.z) / 3
+      let near = null, nd = Infinity
+      for (const bd of nums) { const d = Math.hypot(bd.x - cx, bd.z - cz); if (d < nd) { nd = d; near = bd } }
+      if (near) perBoard.set(near, (perBoard.get(near) ?? 0) + 1)
+      if (Math.abs(area - 0.48) > 0.48 * 0.05) areaBad++
+      const h = track.headingAt(near ? near.s : 0)
+      const dot = Math.abs(n.x * h.tz + n.z * -h.tx)
+      if (dot < 0.95) normalBad++
+    }
+    const twoEach = nums.every((bd) => perBoard.get(bd) === 2)
+    check(numbered === 2 * nums.length && twoEach && areaBad === 0 && normalBad === 0, `the digits are on the track-facing 1.2 × 0.8 face: ${numbered} numbered triangles (2 per board × ${nums.length}; ${blankTris} blank), ${areaBad} off 0.48 m² ± 5 % (half the face), ${normalBad} not facing across the track`)
+  }
   // --- the light panels: dark ------------------------------------------------------------------------------
   const panels = env.group.getObjectByName('emPanels')
   const mats = panels ? (Array.isArray(panels.material) ? panels.material : [panels.material]) : []
   const lit = mats.filter((m) => m.emissive && (m.emissiveIntensity > 0 && (m.emissive.r > 0 || m.emissive.g > 0 || m.emissive.b > 0) || m.emissiveMap))
   check(!!panels && panels.count === expected.panels && (td.panels ?? []).length === expected.panels, `emPanels: ${panels?.count ?? 0} instances = ${expected.panels} panels, userData.trackside.panels ${(td.panels ?? []).length}`)
   check(mats.length > 0 && lit.length === 0, `the light panels are DARK: ${mats.length} materials, ${lit.length} emissive (green flag — no EMISSIVE row)`)
-  let panelFar = 0, panelSide = 0
+  // the control cabinet is the geometry's third group, bolted to the housing's back (+z, behind the 0.2 m housing), not a box on the ground
+  if (panels) {
+    const groups = panels.geometry.groups
+    let cabinetBehind = false
+    if (groups.length === 3) {
+      const pos = panels.geometry.attributes.position
+      let zMin = Infinity, yMax = -Infinity
+      for (let i = groups[2].start; i < groups[2].start + groups[2].count; i++) { zMin = Math.min(zMin, pos.getZ(i)); yMax = Math.max(yMax, pos.getY(i)) }
+      cabinetBehind = zMin >= 0.1 - 1e-6 && yMax <= 0.3
+    }
+    check(groups.length === 3 && cabinetBehind, `emPanels: housing + LED face + control cabinet on the housing's back (${groups.length} groups, cabinet behind ${cabinetBehind})`)
+  }
+  let panelFar = 0, panelSide = 0, panelInRoad = 0, panelsHung = 0, panelsBehind = 0
   for (const p of td.panels ?? []) {
     const { row, d } = rowNear(...(() => { track.pointAt(p.s, p.lateral, v, 0); return [v.x, v.z] })())
     void d
@@ -220,13 +294,26 @@ function checkPosts(scene, check, { glb: withGlb, reg }) {
     if (Math.min(ds, L - ds) > 4.01) panelFar++
     const side = row.lateral >= 0 ? 1 : -1
     const r = runAt(p.s, side, row.lateral)
+    if (Math.abs(p.lateral) < track.halfWidthAt(p.s) + 1.5) panelInRoad++
     if (r) {
       const off = side * (r.line.lat(p.s) - p.lateral)
-      if (off < 0.34 || off > 0.76) panelSide++
+      const hung = r.run.kind === 'fence' || (r.run.fence ?? 0) > 0
+      if (hung) {
+        panelsHung++
+        if (off < 0.34 || off > 0.76) panelSide++
+      } else {
+        // behind the line: the run's back (1.3 tyre / 0.35 wall / 0.14 rail posts / 0.05 fence), its spare tyre row on a tier that draws it, 0.2 m and the 0.7 m housing
+        panelsBehind++
+        const back = r.run.kind === 'tyre' ? 1.3 : r.run.kind === 'concrete' ? 0.35 : r.run.kind === 'fence' ? 0.05 : 0.14
+        const behind = back + (r.run.kind === 'tyre' && scene.quality.infield.detail ? 2 * bar.TYRE_STACK.radius : 0)
+        const clamped = Math.abs(Math.abs(p.lateral) - (track.halfWidthAt(p.s) + 1.5)) < 1e-6
+        if (off > -(behind + 0.2) + 1e-6 || (off < -(behind + 0.2 + 0.7) - 1e-6 && !clamped)) panelSide++
+      }
     }
   }
   check(panelFar === 0, `every panel within one fence-post pitch of its row's panel s (${panelFar} further)`)
-  check(panelSide === 0, `every panel's housing 0.35 … 0.75 m on the track side of its barrier line (${panelSide} off)`)
+  check(panelSide === 0, `every panel's housing 0.35 … 0.75 m on the track side of a fenced run's line (${panelsHung}) or 0.2 … 0.9 m behind an unfenced run's back + spare tyre row (${panelsBehind}; ${panelSide} off)`)
+  check(panelInRoad === 0 && boardInRoad === 0, `every panel and number board ≥ hw + 1.5 off the centreline (${panelInRoad} panels, ${boardInRoad} boards inside)`)
   // --- the cameras ---------------------------------------------------------------------------------------------
   const poles = env.group.getObjectByName('cctvPoles'), heads = env.group.getObjectByName('cctvHeads')
   const wantCctv = rows.filter((m) => !m.secondary).length + bar.TRACKSIDE_CCTV.length
@@ -279,11 +366,15 @@ finish()
  *    the lateral moves with their reason (the 'auto' rule puts the tower 2.5 m behind the
  *    barrier line; the v1 spot stood in the run-off or further back) — a note, not a check —
  *    and the height differs by the tower's ground only (checked);
- *  - every tower instance (`infield-towers-*`) stands where its row resolves (± 5 cm), its
- *    footprint edge ≥ 0.6 m behind the resolved BARRIERS line on the spectator side and
- *    ≥ hw + 1.5 from the centreline; the lens is `TV_LENS.forward` towards the track from the
- *    tower and `TV_LENS.deckDrop` above the deck (`towers[].deckY`), i.e. the deck is
- *    ≤ y_lens − 0.5 and the rails ≥ 0.5 m from the lens (the rig's NEAR);
+ *  - every tower instance (`infield-towers-*`) stands where its row resolves (± 5 cm) on the
+ *    HIGHEST ground under its four legs (`towerBaseAt`; the lower legs get `towerFootings`),
+ *    its footprint edge ≥ 0.6 m behind the resolved BARRIERS line on the spectator side and
+ *    ≥ hw + 1.5 from the centreline, and no leg or verge of a tower on a far-field road ribbon
+ *    (a downward ray at the centre and the corners + 0.5 m hits no `roads-*` mesh — the I4
+ *    review found b-tower on the service road behind B); the lens is `tvForwardOf(tower)`
+ *    towards the track from the tower and `TV_LENS.deckDrop` above the deck (`towers[].deckY`),
+ *    i.e. the deck is ≤ y_lens − 0.5 and the deck's front edge and its rail (the bar 0.05
+ *    inside the edge, 0.04 wide) ≥ 0.5 m BEHIND the lens (the rig's NEAR, at every pitch);
  *  - the lens height clears the fence: ≥ BARRIER_KIND[kind].top + fence + 1.5 over the run's base;
  *  - one camera operator per platform / crane (`infield-towers-crew` = 16 − poles), each on
  *    its tower's deck (y = deckY ± 5 cm in the road frame) — `figuresAt({ towers })` lists the
@@ -351,12 +442,23 @@ async function checkTowers(scene, check, { tier, glb: withGlb }) {
     for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, m4); m4.premultiply(m.matrixWorld); p.setFromMatrixPosition(m4); instances.push({ x: p.x, y: p.y, z: p.z, name: m.name }) }
   }
   check(instances.length === TV_CAMERAS.length, `infield-towers L0 instances: ${instances.length} (${towerMeshes.length} InstancedMeshes: ${[...new Set(towerMeshes.map((m) => m.name.replace(/^infield-towers-/, '').replace(/-L0-\d+$/, '')))].join(', ')})`)
-  let placed = 0, offLine = [], onRoad = [], deckBad = [], fenceLow = [], kinds = { scaffold: 0, lattice: 0, crane: 0, pole: 0 }
+  let placed = 0, offLine = [], onRoad = [], deckBad = [], fenceLow = [], floating = [], onRibbon = [], kinds = { scaffold: 0, lattice: 0, crane: 0, pole: 0 }
+  let maxSpread = 0
+  const ray = new THREE.Raycaster()
+  const ribbons = []
+  env.group.traverse((o) => { if (o.isMesh && /^roads-/.test(o.name ?? '')) ribbons.push(o) })
+  const rayFrom = new THREE.Vector3()
+  const ribbonUnder = (s, lat) => {
+    track.pointAt(s, lat, rayFrom, 60)
+    ray.set(rayFrom, new THREE.Vector3(0, -1, 0))
+    return ray.intersectObjects(ribbons, false)[0]?.object.name ?? null
+  }
   for (const row of TV_CAMERAS) {
     const t = towers.find((x) => x.id === row.id)
     kinds[row.tower]++
     const lateral = tvLens.towerLateralAt(track, row)
-    track.pointAt(row.s, lateral, v, env.ground.standAt(row.s, lateral))
+    const base = tvLens.towerBaseAt(track, row, env.ground.standAt, lateral)
+    track.pointAt(row.s, lateral, v, base)
     const inst = instances.find((q) => Math.hypot(q.x - v.x, q.y - v.y, q.z - v.z) < 0.05)
     if (inst && t && Math.abs(t.lateral - lateral) < 1e-9) placed++
     const half = TV_TOWER_FOOTPRINT[row.tower] / 2
@@ -365,12 +467,29 @@ async function checkTowers(scene, check, { tier, glb: withGlb }) {
     if (Math.abs(lateral) - half < hw + 1.5) onRoad.push(row.id)
     const line = trackside.barrierLateralAt(track, row.s, side)
     if (line !== null && (Math.sign(lateral - line) !== side || Math.abs(lateral - line) - half < 0.6)) offLine.push(`${row.id} (${(Math.abs(lateral - line) - half).toFixed(2)} m)`)
+    // the base over every leg's ground (the highest corner), and the ground's spread under the footprint
+    {
+      const corners = tvLens.towerCorners(row, lateral)
+      const gs = corners.map(([cs, cl]) => env.ground.standAt(cs, cl))
+      const spread = Math.max(...gs) - Math.min(...gs)
+      maxSpread = Math.max(maxSpread, spread)
+      if (inst && inst.y < v.y - 0.03) floating.push(row.id)
+      if (gs.some((g) => base < g - 1e-6)) floating.push(`${row.id} (base ${base.toFixed(2)} under a leg's ground ${Math.max(...gs).toFixed(2)})`)
+    }
+    // no far-field road ribbon under the centre or the corners + 0.5 m verge
+    for (const [cs, cl] of [[row.s, lateral], [row.s - half - 0.5, lateral - half - 0.5], [row.s - half - 0.5, lateral + half + 0.5], [row.s + half + 0.5, lateral - half - 0.5], [row.s + half + 0.5, lateral + half + 0.5]]) {
+      const rb = ribbonUnder(cs, cl)
+      if (rb) { onRibbon.push(`${row.id} on ${rb}`); break }
+    }
     if (row.lens !== false) {
       const lens = lenses.find((l) => l.id === row.id)
-      // the deck ≤ y_lens − 0.5 and the front rail ≥ 0.5 m ahead of the lens
-      if (!(lens.y - (v.y - env.ground.standAt(row.s, lateral) + t.deckY) >= 0.5)) deckBad.push(`${row.id} deck`)
-      if (!(half - TV_LENS.forward >= 0.5)) deckBad.push(`${row.id} rail`)
-      if (Math.abs(Math.abs(lens.lateral - lateral) - TV_LENS.forward) > 1e-9 || Math.sign(lateral - lens.lateral) !== side) deckBad.push(`${row.id} lens offset`)
+      const forward = tvLens.tvForwardOf(row.tower)
+      const deckHalf = tvLens.TV_DECK_HALF[row.tower]
+      // the deck ≤ y_lens − 0.5, the deck edge and the front rail's near face ≥ 0.5 m BEHIND the lens
+      if (!(lens.y - (v.y - base + t.deckY) >= 0.5)) deckBad.push(`${row.id} deck`)
+      if (!(forward - deckHalf >= 0.5)) deckBad.push(`${row.id} deck edge`)
+      if (!(forward - (deckHalf - 0.05) - 0.02 >= 0.5)) deckBad.push(`${row.id} rail`)
+      if (Math.abs(Math.abs(lens.lateral - lateral) - forward) > 1e-9 || Math.sign(lateral - lens.lateral) !== side) deckBad.push(`${row.id} lens offset`)
       // the fence under the lens: the run's kind top + its fence, over the run's base (the barrier's own MAX_RISE cap is ≤ the tower ground)
       const run = BARRIERS.find((r) => r.side === side && arcLen(r.sRange[0], row.s) <= arcLen(r.sRange[0], r.sRange[1]))
       if (run) {
@@ -383,7 +502,10 @@ async function checkTowers(scene, check, { tier, glb: withGlb }) {
   check(placed === TV_CAMERAS.length, `every tower stands where its row resolves (± 5 cm), towers[].lateral agrees (${placed} of ${TV_CAMERAS.length}: ${Object.entries(kinds).map(([k, n]) => `${n} ${k}`).join(', ')})`)
   check(onRoad.length === 0, `every footprint edge ≥ hw + 1.5 (${onRoad.length}${onRoad.length ? `: ${onRoad.join(', ')}` : ''})`)
   check(offLine.length === 0, `every footprint ≥ 0.6 m behind its barrier line on the spectator side (${offLine.length}${offLine.length ? `: ${offLine.join(', ')}` : ''})`)
-  check(deckBad.length === 0, `deck ≤ y_lens − 0.5, front rail ≥ 0.5 m ahead, lens ${TV_LENS.forward} m towards the track (${deckBad.length}${deckBad.length ? `: ${deckBad.join(', ')}` : ''})`)
+  check(deckBad.length === 0, `deck ≤ y_lens − 0.5, deck edge and front rail ≥ 0.5 m behind the lens, lens tvForwardOf (${tvLens.tvForwardOf('scaffold')} m scaffold) towards the track (${deckBad.length}${deckBad.length ? `: ${deckBad.join(', ')}` : ''})`)
+  const towerFootings = env.group.getObjectByName('towerFootings')
+  check(floating.length === 0 && (maxSpread <= 0.03 || !!towerFootings), `every tower on its highest leg's ground (${floating.length}${floating.length ? `: ${floating.join(', ')}` : ''}; ground spread under the footprints ≤ ${maxSpread.toFixed(2)} m, footings ${towerFootings ? trisOf(towerFootings) + ' tris' : 'none'})`)
+  check(onRibbon.length === 0, `no tower on a far-field road ribbon (${ribbons.length} ribbons; centre + corners + 0.5 m: ${onRibbon.length}${onRibbon.length ? `: ${onRibbon.join(', ')}` : ''})`)
   check(fenceLow.length === 0, `every lens ≥ 1.5 m over the fence top in front of it (${fenceLow.length}${fenceLow.length ? `: ${fenceLow.join('; ')}` : ''})`)
   const shadows = env.farField ? scene.quality?.farField?.shadows : undefined
   const casting = towerMeshes.filter((m) => m.castShadow).length
@@ -430,12 +552,19 @@ async function checkTowers(scene, check, { tier, glb: withGlb }) {
  *  - every window of the table is cut: no fence vertex inside the opening (the 1.2 × 0.8 m
  *    rectangle over the sill, 5 cm in) at each listed s — 7 windows on 5 runs;
  *  - the tyre stacks: 2 per fence-post position of every tyre run when `quality.infield.detail`
- *    (0 otherwise), a prop set on the far-field registry (`infield-tyreStacks`, L0 per cell,
- *    markObject tyreStack), every one standing on the spectator side of its wall's back and ≥ hw + 1.5;
+ *    (0 otherwise) minus the positions under a scaffold / lattice TV tower (`tyreStackKeepOuts`
+ *    — the I4 review found the 'auto' towers' legs in the spare row), a prop set on the
+ *    far-field registry (`infield-tyreStacks`, L0 per cell, markObject tyreStack), every one
+ *    standing on the spectator side of its wall's back, ≥ hw + 1.5 and outside every platform
+ *    tower's footprint + a stack radius;
  *  - the sponge blocks: two rows in front of chicane-exit-tyres (SPONGE), the ground row tagged
- *    `sponge`, every block ≥ 0.7 m from the line on the track side and ≥ hw + 1.5;
+ *    `sponge`, every block ≥ 0.7 m from the line on the track side and ≥ hw + 1.5, the row
+ *    continuous along the diagonal wall (consecutive ground blocks SPONGE.pitch apart in XZ ± 5 cm);
  *  - the triple beam (`guardrails3`) on the two 130R verge runs only;
- *  - boards: `barrierBoards` (the face boards + 8 ad bands), `adPanels` = AD_PANELS.length;
+ *  - boards: `barrierBoards` (the face boards + 8 ad bands), `adPanels` = AD_PANELS.length, both
+ *    FrontSide with a plain `adPanelBacks` sheet behind (the I4 review: DoubleSide showed the
+ *    words mirrored from behind), and every band's u running with the track-side viewer's
+ *    right — increasing with s on the left-hand runs, decreasing on the right-hand ones;
  *  - the bridge fascia's top is FASCIA_TOP over the road plane and the girder constants are
  *    unchanged (the source still says SOFFIT −1.3, FASCIA_BOTTOM −1.05, GIRDER_Y = SOFFIT − GIRDER_H);
  *  - no TecPro texture is left (textures.ts) and no mesh / material is named after it;
@@ -544,24 +673,33 @@ async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
   // --- tyre stacks ---------------------------------------------------------------------------------------
   {
     const tyreRuns = bar.BARRIERS.filter((r) => r.kind === 'tyre')
-    let expected = 0
+    const keepOuts = barMod.tyreStackKeepOuts(track)
+    let expected = 0, skipped = 0
     for (const r of tyreRuns) {
       const len = fwd(r.sRange[0], r.sRange[1])
-      for (let d = 0; d <= len; d += barMod.FENCE_POST_PITCH) for (const dS of [-barMod.TYRE_STACK.dS, barMod.TYRE_STACK.dS]) if (d + dS >= 0 && d + dS <= len) expected++
+      const line = trackside.resolveLineCached(track, r.source, r.sRange, r.side, r.minGap ?? 0.6)
+      for (let d = 0; d <= len; d += barMod.FENCE_POST_PITCH) for (const dS of [-barMod.TYRE_STACK.dS, barMod.TYRE_STACK.dS]) {
+        if (d + dS < 0 || d + dS > len) continue
+        const s = r.sRange[0] + d + dS
+        if (barMod.stackUnderTower(track, keepOuts, s, line.lat(s) + r.side * (1.3 + barMod.TYRE_STACK.radius))) skipped++
+        else expected++
+      }
     }
     // the stacks are a prop set on the far-field registry (the viewport passes env.farField): near level L0 per cell
     const stacks = []
     env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyreStacks-.*-L0-/.test(o.name)) stacks.push(o) })
     const n = stacks.reduce((a, m) => a + m.count, 0)
     if (quality.infield.detail) {
-      check(n === expected && st.tyreStacks === n, `tyre stacks: ${n} instances = 2 per post position of ${tyreRuns.length} tyre runs (${expected}; stats ${st.tyreStacks})`)
+      check(n === expected && st.tyreStacks === n && skipped > 0, `tyre stacks: ${n} instances = 2 per post position of ${tyreRuns.length} tyre runs minus ${skipped} under the ${keepOuts.length} platform towers (${expected}; stats ${st.tyreStacks})`)
       check(stacks.every((m) => m.userData.groundObject?.kind === 'tyreStack'), `every infield-tyreStacks L0 mesh tagged markObject tyreStack (${stacks.length} cells)`)
       const far = []
       env.farField.group.traverse((o) => { if (o.isInstancedMesh && /^infield-tyreStacks-.*-L1-/.test(o.name)) far.push(o) })
       check(withGlb && reg?.has('model/trackside/tire_stack') ? far.length === stacks.length && stacks.every((m) => /tyre-stack-glb/.test(m.name)) : far.length === 0 && stacks.every((m) => /-tyre-stack-L0-/.test(m.name)), `tyre stack levels: ${stacks.length} near (${stacks[0]?.name.replace(/-\d+$/, '')}), ${far.length} far`)
-      // every stack on the spectator side of its wall's back, off the road
-      let bad = 0, inRoad = 0
+      // every stack on the spectator side of its wall's back, off the road, and clear of the platform towers
+      let bad = 0, inRoad = 0, underTower = 0
       const m4 = new THREE.Matrix4(), v = new THREE.Vector3()
+      const tvLens = await import('../../app/three/tv-lens.ts')
+      const platforms = bar.TV_CAMERAS.filter((c) => c.tower === 'scaffold' || c.tower === 'lattice').map((c) => ({ id: c.id, s: c.s, lateral: tvLens.towerLateralAt(track, c), half: tvLens.TV_TOWER_FOOTPRINT[c.tower] / 2 + barMod.TYRE_STACK.radius }))
       for (const inst of stacks) for (let i = 0; i < inst.count; i++) {
         inst.getMatrixAt(i, m4)
         v.setFromMatrixPosition(m4.premultiply(inst.matrixWorld))
@@ -574,8 +712,14 @@ async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
           if (r.side * (q.lateral - line) >= 1.3) { ok = true; if (Math.abs(q.lateral) < track.halfWidthAt(q.s) + 1.5) inRoad++; break }
         }
         if (!ok) bad++
+        for (const t of platforms) {
+          const q = track.nearestOnRange(v.x, v.z, t.s - 20, t.s + 20, 2)
+          const ds = Math.abs(((q.s - t.s + L / 2) % L + L) % L - L / 2)
+          if (ds <= t.half && Math.abs(q.lateral - t.lateral) <= t.half) { underTower++; break }
+        }
       }
       check(bad === 0 && inRoad === 0, `every tyre stack behind its run's back (≥ 1.3 m off the line, spectator side: ${bad} off) and ≥ hw + 1.5 (${inRoad} in)`)
+      check(underTower === 0, `no tyre stack inside a platform tower's footprint + a stack radius (${underTower} of ${n}, ${platforms.length} towers)`)
       const tris = stacks.reduce((a, m) => a + trisOf(m), 0)
       console.log(`    note: tyre stacks ${fmt(tris)} triangles in ${stacks.length} cells (near level, drawn inside ${quality.infield.propsNearM} m with the pack, the far tori to ${quality.infield.propsFarM} m)`)
       if (withGlb && reg?.has('model/trackside/tire_stack')) {
@@ -590,20 +734,24 @@ async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
   {
     const run = bar.BARRIERS.find((r) => r.id === barMod.SPONGE.run)
     const len = fwd(run.sRange[0], run.sRange[1])
-    const [sl] = barMod.SPONGE.size
-    let low = 0, high = 0
-    for (let d = sl / 2; d + sl / 2 <= len; d += barMod.SPONGE.pitch) { low++; if (d + barMod.SPONGE.shift + sl / 2 <= len) high++ }
+    const line = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
+    // the pitch is walked along the row's own length in the world (barriers.ts spongeSteps on the row's offset line)
+    const [, sa] = barMod.SPONGE.size
+    const slope = (s) => barMod.wallSlope((x) => line.lat(x), run.sRange[0], len, s)
+    const latRow = (s) => line.lat(s) - run.side * ((barMod.SPONGE.gap + sa / 2) / Math.cos(Math.atan(slope(s))))
+    const steps = barMod.spongeSteps(track, run.sRange[0], len, latRow)
+    const low = steps.length, high = steps.filter((x) => x.high !== null).length
     const lo = byName.get('spongeBlocks'), hi = byName.get('spongeBlocksTop')
-    check(lo?.count === low && hi?.count === high && st.sponges === low + high, `sponge blocks: ${lo?.count} + ${hi?.count} (expected ${low} + ${high}; stats ${st.sponges})`)
+    check(lo?.count === low && hi?.count === high && st.sponges === low + high, `sponge blocks: ${lo?.count} + ${hi?.count} (expected ${low} + ${high} along the row's length; stats ${st.sponges})`)
     check(lo?.userData.groundObject?.kind === 'sponge' && !hi?.userData.groundObject, `the ground row tagged markObject sponge, the top row not`)
     if (lo) {
       // the wall is diagonal to the road: the clearance is the XZ distance to the line's polyline (0.5 m samples), O5's w / 2 + 0.2 = 0.7
-      const line = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
       const pts = []
       const v = new THREE.Vector3()
       for (let d = 0; d <= len; d += 0.5) { track.pointAt(run.sRange[0] + d, line.lat(run.sRange[0] + d), v, 0); pts.push([v.x, v.z]) }
-      let bad = 0, worst = Infinity
+      let bad = 0, worst = Infinity, gapBad = 0, gapMin = Infinity, gapMax = 0
       const m4 = new THREE.Matrix4()
+      let prev = null
       for (let i = 0; i < lo.count; i++) {
         lo.getMatrixAt(i, m4)
         v.setFromMatrixPosition(m4.premultiply(lo.matrixWorld))
@@ -617,8 +765,17 @@ async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
         const q = track.nearestOnRange(v.x, v.z, run.sRange[0], run.sRange[1], 5)
         worst = Math.min(worst, dist)
         if (dist < 0.7 - 0.02 || -run.side * (q.lateral - line.lat(q.s)) < 0 || Math.abs(q.lateral) < track.halfWidthAt(q.s) + 1.5) bad++
+        // the row is continuous: consecutive ground blocks one pitch apart along the wall (the instances are pushed in s order)
+        if (prev) {
+          const gap = Math.hypot(v.x - prev.x, v.z - prev.z)
+          gapMin = Math.min(gapMin, gap)
+          gapMax = Math.max(gapMax, gap)
+          if (Math.abs(gap - barMod.SPONGE.pitch) > 0.05) gapBad++
+        }
+        prev = v.clone()
       }
       check(bad === 0, `every sponge block ≥ 0.7 m in front of the line (nearest ${worst.toFixed(2)} m) and ≥ hw + 1.5 (${bad} off)`)
+      check(gapBad === 0, `the ground row continuous along the diagonal wall: consecutive blocks ${barMod.SPONGE.pitch} m apart ± 5 cm (${gapMin.toFixed(2)} … ${gapMax.toFixed(2)}, ${gapBad} off)`)
     }
   }
   // --- the triple beam ------------------------------------------------------------------------------------
@@ -632,6 +789,47 @@ async function checkBarriers(scene, check, { tier, glb: withGlb, reg }) {
     const bands = bar.BARRIERS.filter((r) => r.adBand).length
     check(bands === 8 && byName.has('barrierBoards'), `wall-top ad bands on ${bands} runs, mesh barrierBoards ${byName.has('barrierBoards')}`)
     check(st.panels === bar.AD_PANELS.length && byName.has('adPanels') && byName.has('adPanelPosts'), `free-standing panels: ${st.panels} = AD_PANELS ${bar.AD_PANELS.length} (meshes ${['adPanels', 'adPanelPosts'].filter((n) => byName.has(n)).join(', ')})`)
+    // the hoardings are one-sided with a plain back: FrontSide materials, the adPanelBacks mesh
+    // with one back sheet per panel (2 tris) and one ribbon per ad band (the same 2 m steps)
+    {
+      const boardsMesh = byName.get('barrierBoards'), panelsMesh = byName.get('adPanels'), backs = byName.get('adPanelBacks')
+      const front = (m) => !!m && [m.material].flat().every((mm) => mm.side === THREE.FrontSide)
+      const backTris = backs ? trisOf(backs) : 0
+      let wantBack = 2 * bar.AD_PANELS.length
+      for (const r of bar.BARRIERS) if (r.adBand) wantBack += 2 * Math.max(1, Math.ceil(fwd(r.sRange[0], r.sRange[1]) / 2))
+      check(front(boardsMesh) && front(panelsMesh) && !!backs && backTris === wantBack && [backs.material].flat().every((mm) => !mm.map), `hoardings FrontSide (boards ${front(boardsMesh)}, panels ${front(panelsMesh)}), plain backs adPanelBacks ${backTris} tris = ${wantBack} (5 panels + 8 bands), no map`)
+    }
+    // every band's words run with the track-side viewer's right: u increases with s on the
+    // left-hand runs and decreases on the right-hand ones (the I4 review: 5 mirrored bands)
+    {
+      const boardsMesh = byName.get('barrierBoards')
+      const wrong = [], checked = []
+      if (boardsMesh) {
+        const pos = boardsMesh.geometry.attributes.position, uv = boardsMesh.geometry.attributes.uv
+        const v = new THREE.Vector3()
+        for (const r of bar.BARRIERS.filter((x) => x.adBand || x.boards)) {
+          const line = trackside.resolveLineCached(track, r.source, r.sRange, r.side, r.minGap ?? 0.6)
+          const len = fwd(r.sRange[0], r.sRange[1])
+          const pairs = []
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(boardsMesh.matrixWorld)
+            const q = track.nearestOnRange(v.x, v.z, r.sRange[0], r.sRange[0] + len, 4)
+            const d = fwd(r.sRange[0], q.s)
+            if (d > len + 0.5 || Math.abs(q.lateral - line.lat(q.s)) > 0.2) continue
+            pairs.push([d, uv.getX(i)])
+          }
+          if (pairs.length < 4) { wrong.push(`${r.id} (no vertices found)`); continue }
+          // the least-squares slope of u over the forward distance: its sign is the run's side
+          let sd = 0, su = 0, sdd = 0, sdu = 0
+          for (const [d, u] of pairs) { sd += d; su += u; sdd += d * d; sdu += d * u }
+          const nP = pairs.length
+          const slope = (nP * sdu - sd * su) / (nP * sdd - sd * sd || 1)
+          checked.push(r.id)
+          if (Math.sign(slope) !== r.side) wrong.push(`${r.id} (du/ds ${slope.toFixed(3)}, side ${r.side})`)
+        }
+      }
+      check(checked.length === bar.BARRIERS.filter((x) => x.adBand || x.boards).length && wrong.length === 0, `every hoarding band reads left-to-right from the track: sign(du/ds) = side on ${checked.length} runs (${wrong.length} wrong${wrong.length ? `: ${wrong.join(', ')}` : ''})`)
+    }
     check(bar.BARRIERS.filter((r) => r.face === 'painted-rwg').length === 3 && byName.has('tyreWallsPainted') && byName.has('barrierWallsPainted'), `painted faces: ${bar.BARRIERS.filter((r) => r.face === 'painted-rwg').map((r) => r.id).join(', ')} → tyreWallsPainted + barrierWallsPainted`)
     const horns = named(/^pitHorns-/).reduce((a, m) => a + m.count, 0)
     check(quality.infield.detail && fenceOn ? horns > 50 && horns === st.horns : horns === 0, `loudspeaker horns: ${horns} (stats ${st.horns})`)

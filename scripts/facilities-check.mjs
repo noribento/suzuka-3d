@@ -1069,7 +1069,11 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  * outside every stand's OSM footprint (world space), not inside the pit lane's band where the
  * lane runs; `boards` only on concrete runs (the boards hang on a wall face); AD_PANELS (I4-c)
  * under the same rules, on the spectator side of and ≥ 0.28 m off every BARRIERS line of their
- * side. SIGNS rows with a `mount` (pitWallBoard / pitWallTop / barrierTop) hang on a wall and are
+ * side — and, since the I4 review, every corner of the 12 m board outside the stand footprints,
+ * the board ≥ TYRE_STACK.radius + 0.3 from a tyre run's spare stack row (its centre line: the
+ * wall's 1.3 m depth + the radius behind the line, at the panel's centre and both ends) and
+ * outside every scaffold / lattice TV tower's footprint + 1 m (tv-lens.ts resolves the tower).
+ * SIGNS rows with a `mount` (pitWallBoard / pitWallTop / barrierTop) hang on a wall and are
  * exempt; they must name a wall that exists at their s (the pit wall's sRange, or a BARRIERS run
  * — a barrierTop row names it in `run`).
  */
@@ -1106,13 +1110,48 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   }
   for (const run of bar.BARRIERS) if (run.boards && run.kind !== 'concrete') fail(`${run.id}: boards on a ${run.kind} run — boards hang on concrete walls only`)
   // the panels stand off every BARRIERS line of their side (O5's rule: ≥ half their depth + 0.2), inside the circuit ring
-  for (const p of bar.AD_PANELS ?? []) {
-    const side = p.lateral >= 0 ? 1 : -1
-    for (const run of bar.BARRIERS) {
-      if (run.side !== side || !inArc(p.s, run.sRange)) continue
-      const line = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6).lat(p.s)
-      if (Math.abs(p.lateral - line) < 0.15 / 2 + 0.2) fail(`ad panel ${p.id}: ${fmt(Math.abs(p.lateral - line), 2)} m from the line of ${run.id} — O5`)
-      if (side * (p.lateral - line) < 0) fail(`ad panel ${p.id}: on the track side of ${run.id} (line ${fmt(line)})`)
+  {
+    const tvLens = await import('../app/three/tv-lens.ts')
+    // the stack row from the data (bar.TYRE_STACK) and ops-spec's restated wall depth: no scene module here (R13)
+    const { TYRE_STACK } = bar
+    const { barrierDepthOf: barrierDepth } = await import('../app/data/ops-spec.ts')
+    const stackClear = TYRE_STACK.radius + 0.3
+    for (const p of bar.AD_PANELS ?? []) {
+      const side = p.lateral >= 0 ? 1 : -1
+      const alongS = p.facing === '+lat' || p.facing === '-lat'
+      /** the board's half-extents along s and across (a thin sheet across its facing) */
+      const halfS = alongS ? p.width / 2 : 0.1, halfL = alongS ? 0.1 : p.width / 2
+      const ends = alongS ? [p.s - p.width / 2, p.s, p.s + p.width / 2] : [p.s]
+      for (const run of bar.BARRIERS) {
+        if (run.side !== side || !inArc(p.s, run.sRange)) continue
+        const lineAt = trackside.resolveLineCached(track, run.source, run.sRange, run.side, run.minGap ?? 0.6)
+        const line = lineAt.lat(p.s)
+        if (Math.abs(p.lateral - line) < 0.15 / 2 + 0.2) fail(`ad panel ${p.id}: ${fmt(Math.abs(p.lateral - line), 2)} m from the line of ${run.id} — O5`)
+        if (side * (p.lateral - line) < 0) fail(`ad panel ${p.id}: on the track side of ${run.id} (line ${fmt(line)})`)
+        // a tyre run's spare stack row stands behind the wall's back: the board keeps off it along its whole length
+        if (run.kind === 'tyre') {
+          for (const s of ends) {
+            if (!inArc(s, run.sRange)) continue
+            const row = lineAt.lat(s) + side * (barrierDepth(run) + TYRE_STACK.radius)
+            if (Math.abs(p.lateral - row) < stackClear) fail(`ad panel ${p.id}: ${fmt(Math.abs(p.lateral - row), 2)} m from ${run.id}'s spare tyre row at s ${fmt(s, 0)} (row centre ${fmt(row)}, needs ${stackClear}) — A11`)
+          }
+        }
+      }
+      // every corner of the board outside the stand footprints (the centre alone let a 12 m board end inside I)
+      for (const cs of alongS ? [p.s - p.width / 2, p.s + p.width / 2] : [p.s]) for (const cl of alongS ? [p.lateral] : [p.lateral - p.width / 2, p.lateral + p.width / 2]) {
+        track.pointAt(cs, cl, v3, 0)
+        const inside = standFootprintAt(v3.x, v3.z)
+        if (inside) fail(`ad panel ${p.id}: its end at (${fmt(cs, 0)}, ${fmt(cl)}) is inside the footprint of stand ${inside} — A11`)
+      }
+      // off every scaffold / lattice TV tower's footprint (+ 1 m): the tower stands behind the same wall
+      for (const c of bar.TV_CAMERAS ?? []) {
+        if (c.tower !== 'scaffold' && c.tower !== 'lattice') continue
+        let lat
+        try { lat = tvLens.towerLateralAt(track, c) } catch { continue }
+        const half = tvLens.TV_TOWER_FOOTPRINT[c.tower] / 2
+        const ds = Math.min(arcLen(c.s, p.s), arcLen(p.s, c.s))
+        if (ds < halfS + half + 1 && Math.abs(p.lateral - lat) < halfL + half + 1) fail(`ad panel ${p.id}: inside TV tower ${c.id}'s footprint + 1 m (tower (${c.s}, ${fmt(lat)}), Δs ${fmt(ds)}, Δlateral ${fmt(Math.abs(p.lateral - lat))}) — A11`)
+      }
     }
   }
   // mounted signs: the wall they hang on exists at their s
@@ -1340,10 +1379,12 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
  *       in order, unique ids; the tower footprint (TV_TOWER_FOOTPRINT) on the spectator side of
  *       the barrier line and 0.6 m outside it, its edge ≥ hw + 1.5, outside stands, paved aprons
  *       and inside the circuit ring; 'auto' = the line + TV_LENS.autoSetback; the lens
- *       TV_LENS.forward inside the front rail, the deck ≤ y_lens − 0.5 and the rails ≥ 0.5 m from
- *       the lens (the rig's NEAR); the operator (cameraSlots) on the footprint, off the road.
+ *       tvForwardOf(tower) towards the track — the deck's front edge and its rail ≥ 0.5 m
+ *       BEHIND the lens and the deck ≤ y_lens − 0.5 (the rig's NEAR); the operator
+ *       (cameraSlots) on the footprint, off the road.
  *   O8  MARSHAL_POSTS v2 (I4-a): |lateral| ≥ hw + 2; `marshalNumbers()` unique, monotonic in
- *       s and equal to every `number` anchor; `type 'building'` carries osmWay or size; the
+ *       s, without gaps, and the ascending count reaching every `number` anchor
+ *       (`marshalNumberFaults`); `type 'building'` carries osmWay or size; the
  *       cabin's stand + stair / the low box / a sized building under O1 / O2 / O4, ≥ 0.6 m on
  *       the spectator side of the nearest barrier run's line (bare 'fence' runs excepted) and
  *       ≥ 0.2 m off every other overlapping run's line; the marshal slots under O1 / O2.
@@ -1621,8 +1662,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
 
   // --- O7 TV_CAMERAS ---------------------------------------------------------------------------------
   // tv-lens.ts is the one resolver of a row (the 'auto' lateral behind the barrier line, the lens
-  // TV_LENS.forward towards the track, the deck TV_LENS.deckDrop under it): the guard reads the
-  // same numbers the builder and the rig read, at the road plane (no ground here).
+  // tvForwardOf(tower) towards the track — the deck's half-width + TV_LENS.overhang — and the
+  // deck TV_LENS.deckDrop under it): the guard reads the same numbers the builder and the rig
+  // read, at the road plane (no ground here).
   {
     const tvLens = await import('../app/three/tv-lens.ts')
     /** the broadcast director's 13 lens positions (the former TV_CAMERA_SPOTS): the rig's CAM order — a change here is a deliberate one */
@@ -1631,12 +1673,17 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     if (lensRows.length !== LENS_S.length) fail(`TV_CAMERAS: ${lensRows.length} lens rows for the ${LENS_S.length} broadcast positions — O7`)
     lensRows.forEach((c, i) => { if (c.s !== LENS_S[i]) fail(`TV_CAMERAS ${c.id}: lens row ${i} is at s ${c.s}, the rig's CAM ${i + 1} is ${LENS_S[i]} — O7`) })
     const ids = new Set()
-    const { deckDrop, forward, rail, autoSetback } = tvLens.TV_LENS
-    // the platform vs the lens: the deck top must be ≤ y_lens − 0.5 and the rails ≥ 0.5 m from the lens (the rig's NEAR)
+    const { deckDrop, autoSetback } = tvLens.TV_LENS
+    // the platform vs the lens: the deck top ≤ y_lens − 0.5, and the deck's front edge and its
+    // rail (tv-towers.ts: the rail bar 0.05 inside the edge, 0.04 wide) BEHIND the lens by
+    // ≥ 0.5 — the rig's NEAR — so no post crosses the frame when the camera pans down at a car
     if (deckDrop < 0.5) fail(`TV_LENS.deckDrop ${deckDrop} puts the deck inside 0.5 m of the lens — O7`)
     for (const kind of ['scaffold', 'lattice']) {
-      const half = tvLens.TV_TOWER_FOOTPRINT[kind] / 2
-      if (half - forward < 0.5 && rail > deckDrop - 0.5) fail(`${kind}: the front rail (${fmt(half - forward, 2)} m ahead of the lens, top ${fmt(rail - deckDrop, 2)} m above it) is inside the lens's 0.5 m — O7`)
+      const deckHalf = tvLens.TV_DECK_HALF[kind]
+      const forward = tvLens.tvForwardOf(kind)
+      if (forward - deckHalf < 0.5) fail(`${kind}: the deck edge is ${fmt(forward - deckHalf, 2)} m behind the lens (needs ≥ 0.5) — O7`)
+      const railBack = forward - (deckHalf - 0.05) - 0.02
+      if (railBack < 0.5) fail(`${kind}: the front rail's near face is ${fmt(railBack, 2)} m behind the lens (needs ≥ 0.5, the rig's NEAR) — O7`)
     }
     for (const c of bar.TV_CAMERAS) {
       const id = `TV_CAMERAS ${c.id}`
@@ -1669,8 +1716,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       if (c.lateral === 'auto' && Math.abs(Math.abs(lateral) - Math.abs(trackside.barrierLateralAt(track, c.s, side)) - autoSetback) > 1e-9) fail(`${id}: 'auto' lateral ${fmt(lateral)} is not the line + ${autoSetback} — O7`)
       if (c.lens !== false) {
         const lens = tvLens.tvLensAt(track, c)
+        const forward = tvLens.tvForwardOf(c.tower)
         if (Math.abs(lens.lateral - (lateral - side * forward)) > 1e-9) fail(`${id}: lens lateral ${fmt(lens.lateral)} is not the tower's ${fmt(lateral)} − ${forward} towards the track — O7`)
-        if (c.height < deckDrop + rail + 1.0) fail(`${id}: height ${c.height} leaves no platform under the lens (needs ≥ ${deckDrop + rail + 1.0}) — O7`)
+        if (c.height < deckDrop + tvLens.TV_LENS.rail + 1.0) fail(`${id}: height ${c.height} leaves no platform under the lens (needs ≥ ${deckDrop + tvLens.TV_LENS.rail + 1.0}) — O7`)
       }
       // the camera operator (ops-spec cameraSlots): on the tower's footprint, off the road
       for (const f of ops.cameraSlots({ id: c.id, s: c.s, lateral, tower: c.tower, floorY: 0 })) {
@@ -1683,7 +1731,9 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
   // --- O8 MARSHAL_POSTS -------------------------------------------------------------------------------
   /**
    * MARSHAL_POSTS v2 (I4-a): every row's centre ≥ hw + 2 off the road; `marshalNumbers()` is
-   * unique, ascends with s (one wrap) and lands exactly on every `number` anchor; a 'building'
+   * unique, without gaps, ascends with s (one wrap) and its ascending count reaches every
+   * `number` anchor (`marshalNumberFaults` — the anchor itself resets the count, so the
+   * function that numbers the boards cannot report it); a 'building'
    * row carries osmWay or size; the drawn rectangles — the cabin's floor with its deck and the
    * stair on the `stair` side (ops-spec MARSHAL_STAND, what marshal-posts.ts builds), the low
    * box, a hand-sized building — pass O1 / O2 / O4, and against the barrier lines of their own
@@ -1697,11 +1747,15 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
     const S = ops.MARSHAL_STAND
     const numbers = bar.marshalNumbers()
     const byNumber = new Map()
+    // the anchors: marshalNumbers() resets the count AT an anchor (so the boards show the intended
+    // numbers), which is why the fault is reported by `marshalNumberFaults` — the count the rows
+    // before the anchor reach vs the anchor itself — and a gap is caught on its own
+    for (const f of bar.marshalNumberFaults()) fail(`marshal post s ${f.s}: the ascending count reaches ${f.expected}, its anchor says ${f.anchor} (a row added or removed before it) — O8`)
     for (const [m, n] of numbers) {
-      if (m.number !== undefined && m.number !== n) fail(`marshal post s ${m.s}: the ascending count gives ${n}, its anchor says ${m.number} — O8`)
       if (byNumber.has(n)) fail(`marshal post s ${m.s}: duplicate post number ${n} (also s ${byNumber.get(n)}) — O8`)
       byNumber.set(n, m.s)
     }
+    for (let k = 1; k <= Math.max(0, ...byNumber.keys()); k++) if (!byNumber.has(k)) fail(`marshal post numbers skip ${k} — O8`)
     const byS = [...numbers.entries()].sort((a, b) => a[0].s - b[0].s)
     let descents = 0
     for (let i = 1; i < byS.length; i++) if (byS[i][1] < byS[i - 1][1]) descents++

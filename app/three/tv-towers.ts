@@ -11,18 +11,21 @@ import { pbrFromAssets } from './materials'
 import { figureToWorld } from './ops-people'
 import { frameAt } from './pit-geometry'
 import { glbOr, procProp, propMaterial, type PropProto } from './props-pack'
-import { TV_LENS, TV_TOWER_FOOTPRINT, towerLateralAt, tvLensAt, type TvLens } from './tv-lens'
+import { CRANE_JIB, TV_DECK_HALF, TV_LENS, TV_TOWER_FOOTPRINT, towerBaseAt, towerLateralAt, tvForwardOf, tvLensAt, type TvLens } from './tv-lens'
 
 /**
  * The TV camera towers (plan I4-b): one tower per TV_CAMERAS row, drawn where tv-lens.ts puts
  * the lens — the rig (`cameras.ts setTvCameras`) looks from `group.userData.tvLenses`, so the
  * platform, its rails and its camera are what the other cameras see at the lens point, and the
- * lens itself sits `TV_LENS.forward` inside the front rail, `TV_LENS.deckDrop` above the deck
- * (outside the rig's NEAR 0.5). Kinds:
+ * lens itself overhangs the deck's front edge by `TV_LENS.overhang` (`tvForwardOf`: the camera
+ * head sits on the front rail, its rear over the deck edge), `TV_LENS.deckDrop` above the deck —
+ * so the deck edge, the rail posts and the kick plate are all behind the rig's NEAR 0.5 whatever
+ * the pitch. Kinds:
  *  - scaffold — the tubular tower behind the fence: a square lattice (lattice.ts, braces on
  *    `quality.fence`) to the deck's underside, a 2.4 × 2.4 grating deck (MetalWalkway012 PBR,
- *    steel without the pack), 1.1 m rails with a kick plate, a ladder on the back face, a camera
- *    on a tripod at the front rail;
+ *    steel without the pack), 1.1 m rails with a kick plate (the front face's mid post split
+ *    into two either side of the camera bay), a ladder on the back face, a camera on a tripod
+ *    inside the front rail with its head over it;
  *  - lattice — the tall steel tower (b-tower, 22 m): a heavier lattice, a 3 × 3 deck and rails;
  *  - crane — the yellow camera column (hairpin.jpg): a 1.5 m base plate, a φ0.5 column, a 4 m jib
  *    at 25° towards the track with the camera head under its tip and a counterweight behind;
@@ -34,7 +37,10 @@ import { TV_LENS, TV_TOWER_FOOTPRINT, towerLateralAt, tvLensAt, type TvLens } fr
  * 'infield-towers', …)`, casting on the near level with `quality.farField.shadows`, cut at
  * `TOWER_LOD_M`. One camera operator per platform / crane (ops-spec `cameraSlots`, role
  * photographer, `infield-towers-crew`). A keep-out disc under each tower keeps the trackside
- * scatter off it. Publishes `group.userData.tvLenses` (the lens rows, `TvLens`) and
+ * scatter off it. A platform on a sloped site (the 200R bank) stands on its HIGHEST corner
+ * (`towerBaseAt`: the max of `ground.standAt` under the four legs — the lens reads the same
+ * base) and every lower leg gets a footing box down to its own ground (`towerFootings`), so
+ * no leg floats. Publishes `group.userData.tvLenses` (the lens rows, `TvLens`) and
  * `group.userData.trackside.towers`; `stats.trackside.towers` = TV_CAMERAS.length.
  */
 
@@ -42,14 +48,17 @@ import { TV_LENS, TV_TOWER_FOOTPRINT, towerLateralAt, tvLensAt, type TvLens } fr
 const TOWER_LOD_M = 700
 /** the base plate of a crane (m): the operator stands on it */
 const CRANE_BASE_H = 0.3
-/** the crane's jib: length and elevation */
-const CRANE_JIB = { length: 4, angle: (25 * Math.PI) / 180, section: 0.25 }
 /** the camera head: body (w × h × d) and the lens hood */
 const CAMERA = { w: 0.5, h: 0.35, d: 0.6, hood: 0.1, hoodR: 0.08 }
+/** the front rail's mid posts stand this far either side of the camera head (m) */
+const CAMERA_BAY = 0.5
+/** a leg's footing on a sloped site: the box side per platform kind (m) and the ground drop that earns one */
+const FOOTING = { side: { scaffold: 0.06, lattice: 0.12 } as const, minDrop: 0.03 }
 
 type Part = { geometry: THREE.BufferGeometry; material: THREE.MeshStandardMaterial }
 
 const _t = new THREE.Matrix4()
+const _p = new THREE.Vector3()
 const _r = new THREE.Matrix4()
 
 export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'towers'> {
@@ -90,13 +99,19 @@ export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'tower
 
   // --- the platform's furniture, shared by the scaffold and the lattice --------------------------------
   const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
-  /** rails on the deck's edge: corner + mid posts, a top and a mid rail, a kick plate; a gap in the back rail for the ladder */
+  /**
+   * rails on the deck's edge: corner + mid posts, a top and a mid rail, a kick plate. The
+   * front face (+z, towards the track) has two mid posts at ±CAMERA_BAY instead of one in the
+   * middle: the camera head sits over that rail (`tvForwardOf`), its tripod just inside it.
+   */
   const rails = (half: number, deckTop: number): Part[] => {
     const out: Part[] = []
     const e = half - 0.05
     const top = deckTop + TV_LENS.rail
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) out.push(bar(V(sx * e, deckTop, sz * e), V(sx * e, top, sz * e), 0.04, steel))
-    for (const sx of [-1, 1]) out.push(bar(V(sx * e, deckTop, 0), V(sx * e, top, 0), 0.04, steel), bar(V(0, deckTop, sx * e), V(0, top, sx * e), 0.04, steel))
+    for (const sx of [-1, 1]) out.push(bar(V(sx * e, deckTop, 0), V(sx * e, top, 0), 0.04, steel))
+    out.push(bar(V(0, deckTop, -e), V(0, top, -e), 0.04, steel))
+    for (const sx of [-1, 1]) out.push(bar(V(sx * CAMERA_BAY, deckTop, e), V(sx * CAMERA_BAY, top, e), 0.04, steel))
     for (const y of [top, deckTop + TV_LENS.rail / 2]) {
       out.push(bar(V(-e, y, -e), V(e, y, -e), 0.04, steel), bar(V(-e, y, e), V(e, y, e), 0.04, steel))
       out.push(bar(V(-e, y, -e), V(-e, y, e), 0.04, steel), bar(V(e, y, -e), V(e, y, e), 0.04, steel))
@@ -113,16 +128,19 @@ export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'tower
     for (let y = 0.3; y < deckTop; y += 0.3) out.push(bar(V(-0.2, y, z), V(0.2, y, z), 0.025, alu))
     return out
   }
-  /** the tripod under the camera head: three legs from the deck to a head plate 0.25 m under the lens height */
+  /**
+   * the tripod under the camera head: three legs from the deck (one back, two forward either
+   * side — all inside the front rail) to a head plate 0.25 m under the lens height, just
+   * inside the front rail at `z`; the head's box overhangs it onto the rail
+   */
   const tripod = (deckTop: number, headY: number, z: number): Part[] => {
     const out: Part[] = []
-    for (let i = 0; i < 3; i++) {
-      const a = (i * 2 * Math.PI) / 3
-      out.push(bar(V(Math.sin(a) * 0.35, deckTop, z + Math.cos(a) * 0.35), V(0, headY, z), 0.02, alu))
-    }
+    for (const [x, dz] of [[0, -0.6], [-0.45, -0.15], [0.45, -0.15]] as const) out.push(bar(V(x, deckTop, z + dz), V(0, headY, z), 0.02, alu))
     out.push(box(0.16, 0.04, 0.16, dark, 0, headY - 0.04, z))
     return out
   }
+  /** the camera head's base centre along the local +z: its hood front at `tvForwardOf(kind)` */
+  const headZ = (kind: TvTowerKind) => tvForwardOf(kind) - CAMERA.d / 2 - CAMERA.hood
 
   // --- the tower prototypes, one per kind and height ------------------------------------------------
   const protos = new Map<string, PropProto>()
@@ -137,7 +155,7 @@ export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'tower
         const deckTop = h - TV_LENS.deckDrop
         const half = TV_TOWER_FOOTPRINT.scaffold / 2
         for (const g of latticeParts({ height: deckTop - 0.05, baseHalf: half, topHalf: half, panel: 2.0, leg: 0.06, ring: 0.05, brace: 0.04, braces: quality.fence })) parts.push({ geometry: g, material: steel })
-        parts.push(deckPart(TV_TOWER_FOOTPRINT.scaffold, deckTop), ...rails(half, deckTop), ...ladder(half, deckTop), ...tripod(deckTop, h - CAMERA.h / 2 - 0.05, TV_LENS.forward - CAMERA.d / 2 - CAMERA.hood))
+        parts.push(deckPart(TV_DECK_HALF.scaffold * 2, deckTop), ...rails(TV_DECK_HALF.scaffold, deckTop), ...ladder(half, deckTop), ...tripod(deckTop, h - CAMERA.h / 2 - 0.05, TV_DECK_HALF.scaffold - 0.1))
         break
       }
       case 'lattice': {
@@ -145,9 +163,9 @@ export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'tower
         const half = TV_TOWER_FOOTPRINT.lattice / 2
         for (const g of latticeParts({ height: deckTop - 0.05, baseHalf: half, topHalf: 1.0, panel: 3, leg: 0.12, ring: 0.08, brace: 0.06, braces: quality.fence })) parts.push({ geometry: g, material: steel })
         // the 3 × 3 deck overhangs the 2 m top: a ring of outriggers under its edge
-        const dh = 1.5
+        const dh = TV_DECK_HALF.lattice
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) parts.push(bar(V(sx * 1.0, deckTop - 0.05, sz * 1.0), V(sx * dh, deckTop - 0.05, sz * dh), 0.06, steel))
-        parts.push(deckPart(3.0, deckTop), ...rails(dh, deckTop), ...ladder(half, deckTop), ...tripod(deckTop, h - CAMERA.h / 2 - 0.05, TV_LENS.forward - CAMERA.d / 2 - CAMERA.hood))
+        parts.push(deckPart(dh * 2, deckTop), ...rails(dh, deckTop), ...ladder(half, deckTop), ...tripod(deckTop, h - CAMERA.h / 2 - 0.05, dh - 0.1))
         break
       }
       case 'crane': {
@@ -191,16 +209,30 @@ export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'tower
   const lenses: TvLens[] = []
   const towers: { id: string; s: number; lateral: number; tower: TvTowerKind; height: number; x: number; y: number; z: number; deckY: number }[] = []
   const slots: TvTowerSlotInput[] = []
+  const footingGeos: THREE.BufferGeometry[] = []
   for (const row of TV_CAMERAS) {
     const lateral = towerLateralAt(track, row)
     const side = lateral < 0 ? -1 : 1
-    const base = ground.standAt(row.s, lateral)
+    // the highest corner's ground (tv-lens.ts towerBaseAt — the lens reads the same); the lower legs get footings
+    const base = towerBaseAt(track, row, ground.standAt, lateral)
     // the tower's frame: +x = the driver's left, +z = +s; turned so the prototype's front (+z) faces the track
     const m = frameAt(track, row.s, lateral, base, new THREE.Matrix4()).multiply(_r.makeRotationY(-side * Math.PI / 2))
     setOf(towerProto(row.tower, row.height)).placements.push({ m })
     if (row.tower === 'scaffold' || row.tower === 'lattice') {
-      // the camera's lens front at (0, height, forward): the head's origin is its base centre, the hood in front
-      camSet.placements.push({ m: m.clone().multiply(_t.makeTranslation(0, row.height - CAMERA.h / 2, TV_LENS.forward - CAMERA.d / 2 - CAMERA.hood)) })
+      // a footing under every leg whose ground (read in the world under the drawn leg) is below the base: from that ground up to the leg's foot
+      const w = FOOTING.side[row.tower]
+      const half = TV_TOWER_FOOTPRINT[row.tower] / 2
+      const originY = new THREE.Vector3().setFromMatrixPosition(m).y
+      for (const lx of [-half, half]) for (const lz of [-half, half]) {
+        _p.set(lx, 0, lz).applyMatrix4(m)
+        const drop = originY - ground.standY(_p.x, _p.z)
+        if (drop < FOOTING.minDrop) continue
+        footingGeos.push(new THREE.BoxGeometry(w, drop, w).translate(lx, -drop / 2, lz).applyMatrix4(m))
+      }
+    }
+    if (row.tower === 'scaffold' || row.tower === 'lattice') {
+      // the camera's lens front at (0, height, tvForwardOf): the head's origin is its base centre, the hood in front
+      camSet.placements.push({ m: m.clone().multiply(_t.makeTranslation(0, row.height - CAMERA.h / 2, headZ(row.tower))) })
     }
     const deckY = base + (row.tower === 'crane' ? CRANE_BASE_H : row.height - TV_LENS.deckDrop)
     slots.push({ id: row.id, s: row.s, lateral, tower: row.tower, floorY: deckY })
@@ -213,6 +245,13 @@ export function buildTvTowers(ctx: EnvBuildContext): Pick<TracksideStats, 'tower
   const levels = { nearM: quality.infield.propsNearM, farM: TOWER_LOD_M }
   registerPropSet(ctx, 'infield', 'infield-towers', [...towerSets.values()], levels, { receiveShadow: true })
   registerPropSet(ctx, 'infield', 'infield-tower-cams', [camSet], levels, { receiveShadow: true })
+  if (footingGeos.length) {
+    const mesh = new THREE.Mesh(mergeGeometries(footingGeos, false)!, steel)
+    for (const g of footingGeos) g.dispose()
+    mesh.name = 'towerFootings'
+    mesh.receiveShadow = true
+    group.add(mesh)
+  }
   // one operator per platform / crane, in the photographers' black
   buildOpsFigures(ctx, slots.flatMap(cameraSlots).map((f) => figureToWorld(ctx, f)), 'infield-towers-crew')
 

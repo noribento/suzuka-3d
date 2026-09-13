@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { AD_PANELS, BARRIERS, FENCE_BACK_SETBACK, FENCE_BLACK, FENCE_GREEN, MARSHAL_POSTS, type BarrierKind, type BarrierRun } from '~/data/suzuka-barriers-spec'
+import { AD_PANELS, BARRIERS, FENCE_BACK_SETBACK, FENCE_BLACK, FENCE_GREEN, MARSHAL_POSTS, TV_CAMERAS, TYRE_STACK, type BarrierKind, type BarrierRun } from '~/data/suzuka-barriers-spec'
 import { forwardDelta, type Track } from '~/sim/track'
+import { TV_TOWER_FOOTPRINT, towerLateralAt } from './tv-lens'
 import { profileRibbonGeometry, ribbonGeometry, wallGeometry } from './track-mesh'
 import { GROUND_OBJECTS, markObject, type Ground } from './ground'
 import { BIG_PANEL_CELLS, BOARD_TILE_M, PAINTED_BLOCK_TILE_M, TYRE_WALL_H, TYRE_WALL_TILE_M, armco3Maps, armcoMaps, bigPanelTexture, boardTexture, chainLinkTexture, concreteMaps, paintedBlockTexture, tricolourWallTexture, tyreWallTexture } from './textures'
@@ -64,8 +65,30 @@ export const FENCE_WINDOW = { w: 1.2, h: 0.8, sill: 0.5 } as const
 export const FENCE_HORN = { pitch: 40, size: [0.3, 0.3, 0.4] as const, drop: 0.35 } as const
 /** the foam sponge blocks in front of the chicane exit tyres (I4-c): the box, the pitch, the gap to the wall, the top row's shift along s */
 export const SPONGE = { size: [1.5, 1.0, 1.0] as const, pitch: 1.5, gap: 0.3, shift: 0.4, run: 'chicane-exit-tyres' } as const
-/** the tyre stacks behind the tyre walls: two per fence-post position, this far apart along s, their edge against the wall's back */
-export const TYRE_STACK = { dS: 0.45, radius: 0.42, tyres: 5, tyreH: 0.24 } as const
+/** the tyre stacks behind the tyre walls (the data file's row: two per fence-post position, TYRE_STACK.dS apart along s, their edge against the wall's back) */
+export { TYRE_STACK }
+/** the hoardings' back sheets (the AD_PANELS and the wall-top ad bands) stand this far behind their face (m): plain grey, no mirrored words */
+export const BOARD_BACK = 0.03
+
+/**
+ * The stack positions a TV tower claims (tv-lens.ts): a scaffold / lattice platform 'auto'
+ * behind a tyre run stands with its near legs on the wall's back, exactly where the spare row
+ * would be, so the stacks inside `TV_TOWER_FOOTPRINT / 2 + TYRE_STACK.radius + 0.1` of a tower
+ * centre (in s and lateral) are left out — the smoke and the builder read this one list.
+ */
+export function tyreStackKeepOuts(track: Track): { s: number; lateral: number; half: number }[] {
+  return TV_CAMERAS.filter((r) => r.tower === 'scaffold' || r.tower === 'lattice').map((r) => ({ s: track.wrap(r.s), lateral: towerLateralAt(track, r), half: TV_TOWER_FOOTPRINT[r.tower] / 2 + TYRE_STACK.radius + 0.1 }))
+}
+
+/** true when a stack at (s, lateral) falls inside one of `tyreStackKeepOuts` */
+export function stackUnderTower(track: Track, keepOuts: { s: number; lateral: number; half: number }[], s: number, lateral: number): boolean {
+  const L = track.length
+  const ws = track.wrap(s)
+  return keepOuts.some((b) => {
+    const d = (((ws - b.s + L / 2) % L) + L) % L - L / 2
+    return Math.abs(d) <= b.half && Math.abs(lateral - b.lateral) <= b.half
+  })
+}
 
 /**
  * A barrier vertex takes the height of the ground beside ITS road. Where the crossover puts one
@@ -114,12 +137,74 @@ function facing(g: THREE.BufferGeometry, towardsPositiveLateral: boolean): THREE
   return towardsPositiveLateral ? g : flipWinding(g)
 }
 
+/**
+ * `wallGeometry`'s u runs with +s. A viewer on the track sees a RIGHT-hand wall (side −1) with
+ * +s to their left, so a texture with words would read mirrored there: for those runs u is
+ * turned round (`uMax − u`, the panel seam kept at the run's start), so the words run with the
+ * track-side viewer's right on both sides. The fence / concrete / tyre tiles are symmetric and
+ * never need it.
+ */
+function mirrorU(g: THREE.BufferGeometry, uMax: number): THREE.BufferGeometry {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute
+  for (let i = 0; i < uv.count; i++) uv.setX(i, uMax - uv.getX(i))
+  uv.needsUpdate = true
+  return g
+}
+
 /** Square (or triangular) tube along the track: a rail or a cable following a fence top. */
 function tube(track: Track, s0: number, s1: number, lat: Fn, y: Fn, r: number, sides: 3 | 4 = 4, step = 2): THREE.BufferGeometry {
   const edges: [Fn, Fn][] = sides === 4
     ? [[(s) => lat(s) - r, (s) => y(s) - r], [(s) => lat(s) - r, (s) => y(s) + r], [(s) => lat(s) + r, (s) => y(s) + r], [(s) => lat(s) + r, (s) => y(s) - r], [(s) => lat(s) - r, (s) => y(s) - r]]
     : [[(s) => lat(s) - r, (s) => y(s) - r], [(s) => lat(s), (s) => y(s) + r], [(s) => lat(s) + r, (s) => y(s) - r], [(s) => lat(s) - r, (s) => y(s) - r]]
   return profileRibbonGeometry(track, s0, s1, edges, step, 4)
+}
+
+/**
+ * The wall's slope dlat/ds at s, a central difference kept inside the run [s0, s0 + len] (the
+ * resolved line is undefined outside its window: sampling past an end read a jump there).
+ */
+export function wallSlope(lat: Fn, s0: number, len: number, s: number): number {
+  const a = Math.max(s0, s - 0.5), b = Math.min(s0 + len, s + 0.5)
+  return b > a ? (lat(b) - lat(a)) / (b - a) : 0
+}
+
+/**
+ * The sponge blocks' s positions along a run `len` long from `s0`: one box every SPONGE.pitch
+ * of the ROW'S OWN LENGTH in the world (the arc of `latRow` — the offset line the boxes stand
+ * on — integrated in XZ, so the row stays continuous where the wall is diagonal to the road
+ * and round the outside of the bend, where a metre of s is more than a metre of wall), the
+ * top row SPONGE.shift further on; a box whose far end would pass the row's end is left out
+ * (`high` null when only the top one would).
+ */
+export function spongeSteps(track: Track, s0: number, len: number, latRow: Fn): { low: number; high: number | null }[] {
+  const [sl] = SPONGE.size
+  // the arc length of the row from s0, sampled every 0.1 m of s
+  const ds = 0.1
+  const sAt: number[] = [], aAt: number[] = []
+  let a = 0, px = 0, pz = 0
+  for (let d = 0; d <= len + 1e-9; d += ds) {
+    const s = s0 + Math.min(d, len)
+    track.pointAt(s, latRow(s), _p, 0)
+    if (d > 0) a += Math.hypot(_p.x - px, _p.z - pz)
+    px = _p.x
+    pz = _p.z
+    sAt.push(s)
+    aAt.push(a)
+  }
+  const total = a
+  const sOf = (arc: number): number => {
+    let i = 1
+    while (i < aAt.length - 1 && aAt[i]! < arc) i++
+    const a0 = aAt[i - 1]!, a1 = aAt[i]!
+    const t = a1 > a0 ? (arc - a0) / (a1 - a0) : 0
+    return sAt[i - 1]! + (sAt[i]! - sAt[i - 1]!) * t
+  }
+  const out: { low: number; high: number | null }[] = []
+  for (let c = sl / 2; c + sl / 2 <= total; c += SPONGE.pitch) {
+    const ch = c + SPONGE.shift
+    out.push({ low: sOf(c), high: ch + sl / 2 <= total ? sOf(ch) : null })
+  }
+  return out
 }
 
 /** Split [a, b] (forward along the lap, `len` long) around the cuts, returning the kept intervals as forward distances from `a`. */
@@ -148,8 +233,12 @@ function keepOutside(len: number, cuts: [number, number][]): [number, number][] 
  * spectator-side fence where `fenceSide: 'both'`; the tyre walls are 1.5 m of segmented belting
  * with real tyre stacks behind them; the chicane exit has its sponge blocks; the concrete walls
  * take the concrete046 photo PBR (FrontSide, a back-face ribbon); the hoardings are the
- * BOARD_TEXTS words (wall-face boards, wall-top ad bands, the free-standing AD_PANELS); the
- * loudspeaker horns hang on the fence posts every FENCE_HORN.pitch.
+ * BOARD_TEXTS words (wall-face boards, wall-top ad bands, the free-standing AD_PANELS) —
+ * one-sided sheets facing the track, the words reading left-to-right from the track on both
+ * sides of the lap (`mirrorU` on the right-hand runs), a plain grey back sheet behind the bands
+ * and the panels (`adPanelBacks`); the loudspeaker horns hang on the fence posts every
+ * FENCE_HORN.pitch. The spare tyre stacks are left out where a TV tower stands on the wall's
+ * back (`tyreStackKeepOuts`).
  *
  * Nothing here is derived from the run-off table any more: the old code placed the rail at the far
  * edge of whatever gravel trap was nearby, which put it through the C, D, O and S grandstands, over
@@ -220,10 +309,12 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground, as
     return colour
   }
   const bucketOf = (colour: string): 'green' | 'dark' => (colour === FENCE_BLACK ? 'dark' : 'green')
-  const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide })
-  const panelMat = new THREE.MeshStandardMaterial({ map: bigPanelTexture(), roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide })
+  // the hoardings are one-sided (FrontSide): the words face the track, and a plain grey back
+  // sheet BOARD_BACK behind (`adPanelBacks`, the post material) is what the spectator side sees
+  const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.45, metalness: 0.1 })
+  const panelMat = new THREE.MeshStandardMaterial({ map: bigPanelTexture(), roughness: 0.45, metalness: 0.1 })
 
-  const geos: Record<string, THREE.BufferGeometry[]> = { rail: [], guard: [], guard3: [], concrete: [], cap: [], tyre: [], tyreTop: [], painted: [], tricolour: [], boards: [], panelPosts: [], panels: [] }
+  const geos: Record<string, THREE.BufferGeometry[]> = { rail: [], guard: [], guard3: [], concrete: [], cap: [], tyre: [], tyreTop: [], painted: [], tricolour: [], boards: [], panelPosts: [], panels: [], panelBacks: [] }
   const fenceGeos = new Map<string, THREE.BufferGeometry[]>()
   const fenceRailGeos: Record<'green' | 'dark', THREE.BufferGeometry[]> = { green: [], dark: [] }
   const postMatrices: THREE.Matrix4[] = []
@@ -272,6 +363,7 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground, as
 
   const wallDepth = (run: BarrierRun) => barrierDepth(run)
   const postsOnSide = (run: BarrierRun) => MARSHAL_POSTS.filter((m) => Math.sign(m.lateral) === run.side && forwardDelta(run.sRange[0], m.s, L) <= forwardDelta(run.sRange[0], run.sRange[1], L))
+  const stackKeepOuts = tyreStackKeepOuts(track)
 
   for (const run of BARRIERS) {
     const k = KIND[run.kind]
@@ -312,39 +404,50 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground, as
         geos[run.kind === 'tyre' ? 'tyre' : 'concrete']!.push(run.kind === 'concrete' ? facing(g, !towardsTrack) : g)
       }
       if (k.posts) for (let d = 0; d <= len; d += FENCE_POST_PITCH) addPost(s0 + d, lat(s0 + d), base(s0 + d) + 0.1, k.top - 0.1, 0.14, { m: postMatrices, s: postS })
+      // the hoardings' sheets face the track (FrontSide): wallGeometry's winding looks to
+      // +lateral, so a left-hand run's sheet is flipped; the words run with the track-side
+      // viewer's right on both sides (mirrorU for the right-hand runs)
+      const hoarding = (g: THREE.BufferGeometry): THREE.BufferGeometry => facing(run.side < 0 ? mirrorU(g, len / BOARD_TILE_M) : g, towardsTrack)
       // advertising boards on the track face of the grandstand front wall (`boards`, concrete
       // runs only): a band hung BOARD_OFFSET off the face, BOARD_TEXTS panels of 8 m per repeat
       if (run.boards) {
         const face: Fn = (s) => lat(s) - run.side * BOARD_OFFSET
-        geos.boards!.push(wallGeometry(track, s0, s1, face, (s) => base(s) + 0.15, (s) => base(s) + k.top - 0.05, 2, BOARD_TILE_M))
+        geos.boards!.push(hoarding(wallGeometry(track, s0, s1, face, (s) => base(s) + 0.15, (s) => base(s) + k.top - 0.05, 2, BOARD_TILE_M)))
       }
-      // the wall-top ad band: a hoarding standing on the wall's top along its track face
+      // the wall-top ad band: a hoarding standing on the wall's top along its track face, its
+      // plain back sheet BOARD_BACK behind it (facing the spectators)
       if (run.adBand) {
         const face: Fn = (s) => lat(s) - run.side * 0.05
+        const rear: Fn = (s) => face(s) + run.side * BOARD_BACK
         const h = run.adBand
-        geos.boards!.push(wallGeometry(track, s0, s1, face, top, (s) => top(s) + h, 2, BOARD_TILE_M))
+        geos.boards!.push(hoarding(wallGeometry(track, s0, s1, face, top, (s) => top(s) + h, 2, BOARD_TILE_M)))
+        geos.panelBacks!.push(facing(wallGeometry(track, s0, s1, rear, top, (s) => top(s) + h, 2, BOARD_TILE_M), !towardsTrack))
       }
       // the tyre stacks behind a tyre wall: two per fence-post position, standing on the ground
-      // against the wall's back (the spare rows the spectator side sees), sunk GROUND_OBJECTS.tyreStack.sink
+      // against the wall's back (the spare rows the spectator side sees), sunk
+      // GROUND_OBJECTS.tyreStack.sink — except under a TV tower (`tyreStackKeepOuts`)
       if (run.kind === 'tyre' && quality.infield.detail) {
         const latStack: Fn = (s) => back(s) + run.side * TYRE_STACK.radius
         for (let d = 0; d <= len; d += FENCE_POST_PITCH) {
           for (const dS of [-TYRE_STACK.dS, TYRE_STACK.dS]) {
             const s = s0 + d + dS
             if (d + dS < 0 || d + dS > len) continue
+            const ls = latStack(s)
+            if (stackUnderTower(track, stackKeepOuts, s, ls)) continue
             const m = new THREE.Matrix4()
-            frameAt(s, latStack(s), ground.standAt(s, latStack(s)) - GROUND_OBJECTS.tyreStack.sink, m)
+            frameAt(s, ls, ground.standAt(s, ls) - GROUND_OBJECTS.tyreStack.sink, m)
             stackMatrices.push(m)
             stackS.push(track.wrap(s))
           }
         }
       }
       // the sponge blocks: grey tarp boxes, two rows, in front of the chicane exit tyres. That
-      // wall runs diagonally to the road (up to 40°), so the gap is measured square to the wall
-      // and each box is turned along it
+      // wall runs diagonally to the road (up to 40°) round the outside of the bend, so the gap
+      // is measured square to the wall, each box is turned along it and the pitch is walked
+      // along the ROW'S OWN LENGTH in the world (`spongeSteps`), so the blocks stay touching
       if (run.id === SPONGE.run) {
-        const [sl, sa, sh] = SPONGE.size
-        const slope = (s: number) => (lat(s + 0.5) - lat(s - 0.5))
+        const [, sa, sh] = SPONGE.size
+        const slope = (s: number) => wallSlope(lat, s0, len, s)
         const latSponge: Fn = (s) => lat(s) - run.side * ((SPONGE.gap + sa / 2) / Math.cos(Math.atan(slope(s))))
         const place = (s: number, y: number, into: THREE.Matrix4[]) => {
           const m = new THREE.Matrix4()
@@ -352,12 +455,10 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground, as
           m.multiply(new THREE.Matrix4().makeRotationY(Math.atan(slope(s))))
           into.push(m)
         }
-        for (let d = sl / 2; d + sl / 2 <= len; d += SPONGE.pitch) {
-          const s = s0 + d
-          const y = ground.standAt(s, latSponge(s)) - GROUND_OBJECTS.sponge.sink
-          place(s, y + sh / 2, spongeLow)
-          if (d + SPONGE.shift + sl / 2 > len) continue
-          place(s + SPONGE.shift, y + sh * 1.5, spongeHigh)
+        for (const { low, high } of spongeSteps(track, s0, len, latSponge)) {
+          const y = ground.standAt(low, latSponge(low)) - GROUND_OBJECTS.sponge.sink
+          place(low, y + sh / 2, spongeLow)
+          if (high !== null) place(high, y + sh * 1.5, spongeHigh)
         }
       }
     }
@@ -460,6 +561,11 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground, as
     const frame = new THREE.Matrix4()
     frameAt(p.s, p.lateral, y, frame)
     geos.panels!.push(board.applyMatrix4(frame))
+    // the plain back sheet BOARD_BACK behind the face, looking the other way
+    const backSheet = new THREE.PlaneGeometry(p.width, p.boardHeight)
+    backSheet.rotateY(yaw + Math.PI)
+    backSheet.translate(p.facing === '+lat' ? -BOARD_BACK : p.facing === '-lat' ? BOARD_BACK : 0, p.height + p.boardHeight / 2, p.facing === '+s' ? -BOARD_BACK : p.facing === '-s' ? BOARD_BACK : 0)
+    geos.panelBacks!.push(backSheet.applyMatrix4(frame))
     const along = p.facing === '+s' || p.facing === '-s' ? 'x' : 'z'
     for (const o of [-p.width * 0.4, p.width * 0.4]) {
       const post = new THREE.BoxGeometry(0.15, p.height + p.boardHeight * 0.9, 0.15)
@@ -492,6 +598,7 @@ export function buildBarriers(track: Track, quality: Quality, ground: Ground, as
   add('tyreTop', tyreTopMat, 'tyreWallTops', false)
   add('boards', boardMat, 'barrierBoards', false)
   add('panels', panelMat, 'adPanels', true)
+  add('panelBacks', postMat, 'adPanelBacks', true)
   add('panelPosts', postMat, 'adPanelPosts', true)
   for (const [key, list] of fenceGeos) {
     geos[`fence${key}`] = list

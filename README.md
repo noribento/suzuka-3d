@@ -192,7 +192,7 @@ app/
     suzuka.ts                  # 中心線（実測）、標高・幅・カントのキーフレーム（DEM5A）、レーシングラインのピン、コーナー速度目標、DRS、ピット
     suzuka-facilities.ts       # OSM 由来のフットプリント（スタンド・ピットビル・建物・ランオフ・水面・レースウェイ・柵内の硬地 apron／駐車場 parking／歩行者トンネル tunnel／歩道橋 footbridge／柵内の管理道路と教習コース road（SERVICE_ROAD_WAYS）、ODbL、生成物）
     suzuka-facilities-spec.ts  # スタンドの列・蹴上・構造・色、ランオフ帯、塗装エプロン、ピット定数、季節パレット（手書き）
-    suzuka-barriers-spec.ts    # 全周のバリア run（`BARRIERS` 73 本: I4-c で色・上部レール・写真窓・門・面塗装・広告帯のフィールド、`AD_PANELS` 5、`SIGNS` の pitEntry）・実在する縁石／緑帯・白線・二輪路・マーシャルポスト v2（`MARSHAL_POSTS` 32 行 + `marshalNumbers()` + `TRACKSIDE_CCTV`）・`TV_CAMERAS`・調整池（手書き、OSM way id 参照）
+    suzuka-barriers-spec.ts    # 全周のバリア run（`BARRIERS` 73 本: I4-c で色・上部レール・写真窓・門・面塗装・広告帯のフィールド、`AD_PANELS` 5、`SIGNS` の pitEntry）・実在する縁石／緑帯・白線・二輪路・マーシャルポスト v2（`MARSHAL_POSTS` 32 行 + `marshalNumbers()` / `marshalNumberFaults()` + `TRACKSIDE_CCTV`）・`TV_CAMERAS`・`TYRE_STACK`（予備タイヤ列の寸法、barriers.ts と A11 が読む）・調整池（手書き、OSM way id 参照）
     suzuka-power.ts            # 送電鉄塔・架線（OSM、生成物）
     suzuka-dem.ts              # 柵の外の標高: 30 m 汎化グリッド（DEM5A σ20 m、±3.3×2.9 km）と 500 m 遠景グリッド（DEM10B、±35 km）。国土地理院、生成物、ASL 整数の int16 デルタ
     suzuka-surroundings.ts     # 柵の外の土地利用（森・田・草地・水面・小川・駐車場・太陽光・建物・道路・鉄道・サイト。OSM、ODbL、生成物）
@@ -261,7 +261,7 @@ app/
     ops-people.ts              # 運営レイヤー (I3-d): クルー／オフィシャル／マーシャル／写真家／スタッフ 298 体 + I4-a のトラックサイドマーシャル 90 + I4-c の柵の窓の写真家 7（ops-spec D `figuresAt({ lineAt })` → `figureToWorld` → figures.ts buildOpsFigures、役割毎の 'ops-figures-crew' / '-officials' / '-marshals' / '-photographers' / '-staff'）と E パドック縁の旗 8（`flagPlacements()` → registerPropSet 'ops-flags'、静止）。「人物配置」参照
     marshal-posts.ts           # マーシャルポスト v2（I4-a）: 架台上のキャビン 28 + 低ポスト 3（`registerPropSet 'infield-marshal-cabins'`、GLB の警備ブース／消火器が近景）、番号板 29（`marshalNumbers` メッシュ、8 × 4 アトラス）、消灯 EM パネル 30（`emPanels` IM、発光無し）、PTZ CCTV 42（`cctvPoles` / `cctvHeads`）、旗架・消火器・キャビネット。「マーシャルポスト v2」参照
     tv-towers.ts               # TV カメラ塔（I4-b: TV_CAMERAS の行ごとに足場塔／格子塔／黄クレーン柱／ポール、天板・手摺・梯子・三脚・カメラヘッド（security_camera_01 の glbOr）、操作者 1 人、registerPropSet 'infield-towers' / 'infield-tower-cams'、group.userData.tvLenses。「TV タワーとレンズ」参照）
-    tv-lens.ts                 # TV レンズ点の唯一の解決（純関数）: cameraSide、'auto' 横位置 = バリア線 + 2.5、tvLensAt（塔中心・レンズ・世界座標）、TV_LENS / TV_TOWER_FOOTPRINT — 塔ビルダー・カメラリグ・facilities-check O7・smoke が同じ数を読む
+    tv-lens.ts                 # TV レンズ点の唯一の解決（純関数）: cameraSide、'auto' 横位置 = バリア線 + 2.5、towerBaseAt（4 隅の最高地面）、tvForwardOf（天板半幅 + 張出し 0.7）、tvLensAt（塔中心・レンズ・世界座標）、TV_LENS / TV_TOWER_FOOTPRINT / TV_DECK_HALF — 塔ビルダー・カメラリグ・facilities-check O7 / A11・barriers.ts（塔下のタイヤ積み省略）・smoke が同じ数を読む
     infield-ground.ts          # インフィールドの地面の上の物（I5）: I5-a = 管理道路・教習コースの破線中央線デカール（`wayLineDecal`、LAYER.verge.line、面の無い所・路面・段差の上は塗らない）と BUILDINGS `builder: 'infield'` の押出し（交通教育センター）。地面そのものは GROUND_AREAS の行が描く（README「柵の内側の地面行」）。施設・壁・柵・池の岸・車・街灯は I5-b/c
     cuttings.ts                # 切通しとトンネル（I6 / P8: 壁・坑口・高欄。I0 は入口のみ）
     props-pack.ts              # 柵の内側の小物プロトタイプ: パック GLB（model-proto + orientPack、部品ごとの材質）か手続き版を同じ形 PropProto に、テクスチャ集合／色ごとに材質を共有する PropCache、ティアの切替 glbOr
@@ -915,26 +915,37 @@ marshals / photographers`、`STAFF`（歩廊の線、前庭、コンパウンド
   すべて `registerPropSet(ctx, 'infield', 'infield-marshal-cabins', …)`（`propsNearM` 120 / `propsFarM` 600、架台・本体・低ポストは
   `quality.farField.shadows` のとき L0 で影を落とす、消火器は受けのみ）。
 - **番号板**: 1.2 × 0.8 の白板 0.06、中心 2.4 m、ポストの s に最も近いフェンス柱（run の `sRange[0] + 4k`、barriers.ts と同じ）の走行側
-  0.08 m、`facing` の面（既定 −s）に `marshalNumberAtlas()`（8 × 4、セル 0 空白、数字 0.67 m）のセル。フェンスの無い run（バリアだけ、
-  または低ティア）は線の 0.3 m 走行側に自前の柱。1 メッシュ `marshalNumbers`。文字は `TRACKSIDE_TEXTS`（数字のみ、textures-lint）。
+  0.08 m に柵と平行に掛け、**トラックを向く 1.2 × 0.8 の面**（BoxGeometry の ±x 面: 左のポストは −x、右は +x — I4 レビュー前は ±z の
+  6 cm 小口に数字が乗っていて全 29 枚が白紙だった）に `marshalNumberAtlas()`（8 × 4、セル 0 空白、数字 0.67 m）のセル；行の `facing`
+  は読まない（ポール立ての板用に予約）。柵付きの run で低ティア（柵を描かない）は線の 0.3 m 走行側に自前の柱、**柵の無い run**（素の壁・
+  レール）は線の裏（壁厚 + 予備タイヤ列 + 0.2）に自前の柱。1 メッシュ `marshalNumbers`。文字は `TRACKSIDE_TEXTS`（数字のみ、textures-lint）。
 - **EM ライトパネル = 消灯**（lpfront.jpg: グリーンフラッグ中は黒い枠に暗い LED 面だけ）: 黒箱 0.7 × 0.6 × 0.2、`panel.s ?? s − 3.2` を
-  柱ピッチにスナップ、柱から 0.35 m の亜鉛アーム（φ0.05）で走行側へ（面の中心は線から 0.7 m）、面 0.62 × 0.52 = `emPanelTexture()` の
-  64 × 48 ドット（0x2a1f1d、**発光無し**: `EMISSIVE.digitalFlag` と sun-model-check の登録を削除、旗状態の発光行は後日）。ベージュの
-  制御キャビネット 0.5 × 0.4 × 0.7 を柱の裏（壁厚 / タイヤ 1.3 + 0.3）に地上 +0.3 の脚で（`ctx.boxes`）。IM `emPanels`（筐体 + 面の
-  2 材質）、`group.userData.trackside.panels = [{ s, lateral, x, y, z }]`。building 行（3245 の役員室、幾何は I5 の INFIELD_FACILITIES）
-  はパネルとカメラだけ。
+  柱ピッチにスナップ、**柵付きの run**（`RunAt.hung`: fence kind か fence > 0、ティア非依存）では柱から 0.35 m の亜鉛アーム（φ0.05）で
+  走行側へ（面の中心は線から 0.7 m；柵を描かないティアは自前の柱）、**柵の無い run** では線の裏（壁厚 + 予備タイヤ列 + 0.2 m、hw + 1.5
+  の包絡の外）に自前の柱 — I4 レビュー前はガードレールだけの区間で筐体がランオフの路肩（白線から 0.3 m）に立っていた。面 0.62 × 0.52 =
+  `emPanelTexture()` の 64 × 48 ドット（0x2a1f1d、**発光無し**: `EMISSIVE.digitalFlag` と sun-model-check の登録を削除、旗状態の発光行は
+  後日）。ベージュの制御キャビネット 0.5 × 0.4 × 0.7 は筐体の背面（+s 側、天端 0.05 下）にボルト留め（lprear.jpg — 地上の箱と脚は無し）。
+  IM `emPanels`（筐体 + 面 + キャビネットの 3 材質）、`group.userData.trackside.panels = [{ s, lateral, x, y, z }]`。building 行（3245 の
+  役員室、幾何は I5 の INFIELD_FACILITIES）はパネルとカメラだけ。
 - **PTZ CCTV**（web-suzuka: 43–44 台）: 番号付き / building のポスト 30 に各 1（s + 3 の柱の裏）+ `TRACKSIDE_CCTV` 12 行（直線、
   unverified）= 42。6 m 灰ポール φ0.08（`cctvPoles`）+ `security_camera_02` / 0.25 × 0.15 × 0.2 箱（`cctvHeads`）、フェンス線の裏
-  （壁厚 + 0.25）。mount 'fencePost' 相当で O5 免除。
+  （壁厚 + タイヤ run の予備タイヤ列 0.84 + 0.25）。mount 'fencePost' 相当で O5 免除。
+- **傾斜地の架台**（I4 レビュー）: 架台の原点は 4 本の脚の下の地面（`ground.standY`、行の路面フレーム）の**最高点**に置き、低い脚には
+  0.1² の継ぎ足し（地面 − 原点 > 3 cm）、階段の足元には桁受け 2 本 + 踏み台 0.8 × 0.4（> 5 cm）を `marshalFootings`（1 メッシュ、鋼色）
+  で足す — 200R 土手のポスト 18（3292, 24.7）は脚の地面差 2.0 m、以前は 2 本が宙に浮き 2 本が埋まっていた。
 - **人物**: `marshalSlots(post)`（ops-spec A、純関数）= デッキに 1（本体の前、−s 向き、mount 'platform'、y = 2.12）+ 地上 1–3（床の
   走行側縁から 0.35 m、1.5 m 間隔、トラック向き ± 20°、mount 'trackside'）— 計 90 体（32 行、5450 はキープアウトのため 1、5240 は
   斜めタイヤ壁のため 2）。`figuresAt()` に含まれるので ops-people.ts が他の運営人物と同じ `ops-figures-marshals` に描き、
   `stats.ops.figures` は 298 → 388（I4-c の柵の窓の写真家 7 で 395）。
-- **検査**: facilities-check O8（中心 hw + 2、番号の一意・単調・アンカー一致、架台 + 階段 / 低箱 / 建物矩形が O1 / O2 / O4、最寄り run
+- **検査**: facilities-check O8（中心 hw + 2、番号の一意・単調・欠番無し・アンカー一致 — `marshalNumbers()` はアンカーで計数を
+  リセットするので、アンカーの手前で行が増減したことは `marshalNumberFaults()`（計数の到達値 vs アンカー）が報告する（I4 レビュー前の
+  「アンカー ≠ 計数」は恒真だった）、架台 + 階段 / 低箱 / 建物矩形が O1 / O2 / O4、最寄り run
   の観客側 ≥ 0.6 m、他の重なる run から ≥ 0.2 m — run の窓の内側だけで評価する: 端の clamp 値で手前の小屋を裁かない、'fence' kind =
   駐車場外周は除外）、O9 / O12 は 'trackside' / 'platform' を窓検査から外す（O1 / O2 / リング / 建物は掛かる）；
   `scripts/audit/trackside-smoke.mjs checkPosts`（stats = 表、架台の床 + 階段の世界隅が最寄り run の観客側 ≥ 0.6 m、階段の向き、
-  番号板 29 が一意・単調・2.4 m、`emPanels` 30 の材質に emissive 無し、パネルが柱ピッチ内・線から 0.35–0.75 m、カメラ 42 が線の裏、
+  架台の原点が最高脚の地面上（浮き無し）、番号板 29 が一意・単調・2.4 m で数字がトラック向きの 1.2 × 0.8 面（番号付き三角形が板ごとに
+  2 枚・0.48 m²・法線が横軸）、`emPanels` 30 の材質に emissive 無し・3 グループ目のキャビネットが筐体の裏、パネルが柱ピッチ内・柵付き
+  run では線から 0.35–0.75 m 走行側・柵無し run では裏 0.2–0.9 m、板とパネルが hw + 1.5 の外、カメラ 42 が線の裏、
   スロット 90 が包絡の外、`--glb` で警備ブース 686 tris / 1.87 m と L1 の手続き段）。低ティア（fence 無し）は板・パネルが自前の柱に。
 #### TV タワーとレンズ
 
@@ -946,18 +957,25 @@ cameras.ts のレンズ（`cameraSide · (hw + 9)`、路面 +7.9）と props.ts 
 - **行**: `{ id, s, lateral: number | 'auto', height, tower: scaffold | lattice | crane | pole, lens?: false, unverified }`。
   レンズ行は放送ディレクターが切ってきた 13 の s（250 / 640 / 1180 / 1500 / 1960 / 2230 / 2640 / 3100 / 3650 / 4350 / 4900 / 5250 /
   5560、s 順 = CAM 番号順、height 7.9 = 旧レンズ高）。`'auto'` = `cameraSide` 側の解決した BARRIERS 線 + 2.5 m（`TV_LENS.autoSetback`、
-  観客側、グラベルに塔を立てない）。3650 −40 / 4350 −24 は旧 override の明示値。塔だけの行: `b-tower`（590, +82, 22 m 格子塔 —
+  観客側、グラベルに塔を立てない）。3650 −40 / 4350 −24 は旧 override の明示値。塔だけの行: `b-tower`（602, +88, 22 m 格子塔 —
   計画の (520, +70) は sports_centre リング（そこで +61 まで）の外、航空写真 03 の (575, +70) は B2 の足跡（背面 +76）の中なので
-  B2 の背後へ）、`hairpin-column`（2680, +14, 6 m 黄クレーン柱、hairpin.jpg）、`t1-crane`（455, −24, 6 m）。FOM の実位置は全部 unverified。
-- **レンズ点**: 塔中心 `towerLateralAt` の地面 `ground.standAt` + `height`、トラック側へ `TV_LENS.forward` 0.65 m（前手摺の内側の三脚）。
-  天板の上面はレンズの `deckDrop` 0.6 m 下、手摺 1.1 m（前手摺はレンズの 0.55 m 前 — リグの NEAR 0.5 の外）。
+  B2 の背後へ；I4-b の (590, +82) は B スタンド裏のサービス道路 `roads-b6`（+79…+84.5）の真ん中だったので I4 レビューで道路の外側、
+  リング（+93）の手前の芝へ）、`hairpin-column`（2680, +14, 6 m 黄クレーン柱、hairpin.jpg）、`t1-crane`（455, −24, 6 m）。FOM の実位置は
+  全部 unverified。
+- **レンズ点**: 塔中心 `towerLateralAt` の地面 `towerBaseAt`（4 隅の `ground.standAt` の**最高値** — 傾斜地では低い脚に `towerFootings`
+  を継ぎ足す、200R 塔は ±0.4 m）+ `height`、トラック側へ `tvForwardOf(tower)` = 天板半幅（`TV_DECK_HALF` scaffold 1.2 / lattice 1.5）+
+  `TV_LENS.overhang` 0.7 m（scaffold 1.9 m）。カメラヘッドは前手摺の上に張り出し、その後端が天板前縁 — **天板前縁はレンズの 0.7 m 後ろ、
+  前手摺（柱・中桟・幅木）は 0.75 m 後ろ、天板の上面は `deckDrop` 0.6 m 下**（リグの NEAR 0.5 の外: 俯角 49° まで手摺が画角に入らない。
+  I4-b の `forward` 0.65 は手摺をレンズの 0.5 m **前**に置いていて、車を見下ろすたびに中央の柱が NEAR 面を跨いだ）。手摺 1.1 m、前面の
+  中柱はカメラ湾の両脇 ±0.5 に 2 本。
   `RaceViewport` は `buildEnvironment` の直後に `rig.setTvCameras(env.group.userData.tvLenses)`（13、表順）；未設定時は
   cameras.ts のコンストラクタが旧式で埋める（フォールバック）。**旧レンズとの差**（smoke の表）: 200R 0.2 m のほかは 1.1–22.9 m
   移動 — v1 の hw + 9 は 9 本でバリア線の手前（グラベル・ランオフの中）に立っていて、'auto' 規則が塔を線の後ろへ出す。
   計画の「override 3 本以外 ≤ 1 m」は成り立たない（規則はデータのもの、smoke は表を note として出す）。距離は自動ズームが吸収。
 - **幾何**（手続き、`registerPropSet(ctx, 'infield', 'infield-towers', …)` 段 [700 m, 空]、L0 の影は `farField.shadows`）:
   scaffold = `latticeParts({ height: h − 0.65, baseHalf 1.2, topHalf 1.2, panel 2, leg 0.06, ring 0.05, brace 0.04, braces: quality.fence })`
-  + 天板 2.4² × 0.05（`MetalWalkway012` PBR、パック無しは鋼色）+ 手摺（柱・上下レール・幅木）+ 背面梯子 + 三脚；lattice（b-tower）=
+  + 天板 2.4² × 0.05（`MetalWalkway012` PBR、パック無しは鋼色）+ 手摺（柱・上下レール・幅木）+ 背面梯子 + 三脚（脚 3 本は天板内、
+  頭は前手摺の 0.1 m 内側、カメラヘッドはその上から手摺越しに張り出す）；lattice（b-tower）=
   `latticeParts({ 21.35, 1.6, 1.0, 3, 0.12, 0.08, 0.06 })` + アウトリガー + 3 × 3 天板；crane = 台座 1.5² × 0.3 + 黄柱 φ0.5（0xf0b400）
   + ジブ 0.25² × 4 m 25° + 尾部 + 平衡錘 + ヨークで吊るカメラ；pole = 旧円柱（行なし）。カメラヘッド（箱 0.5 × 0.35 × 0.6 + フード）は
   別セット `infield-tower-cams`（`security_camera_01` を glbOr、近段 `propsNearM`）。塔ごとにキープアウト円（樹木散布）。
@@ -967,14 +985,15 @@ cameras.ts のレンズ（`cameraSide · (hw + 9)`、路面 +7.9）と props.ts 
   （既定の `figuresAt()` は変えない: O9 の窓はピット・パドックのもの）。`infield-towers-crew` 16。
 - **検査**: `facilities-check §16 O7`（レンズ行 13 が CAM 順の s に 1:1、id 一意、足跡 `TV_TOWER_FOOTPRINT`（2.4 / 3.2 / 1.5 / 0.5）
   の縁が hw + 1.5 の外・バリア線の観客側 0.6 m 外・スタンド足跡と `pavedApronAt` の外・リングの中、'auto' = 線 + 2.5、
-  天板 ≤ y_lens − 0.5 と前手摺 ≥ 0.5 m、操作者が足跡上）；`scripts/audit/trackside-smoke.mjs checkTowers`（両ティア + `--glb`:
-  towers 16、tvLenses 13 = `tvLensAt`、各塔が行の位置 ± 5 cm、線からの距離、天板／手摺／レンズ前進量、フェンス天端 + 1.5 以上、
-  影の有無、カメラヘッド 14 = 天板の塔数、操作者 16 が床上 ± 5 cm、`--glb` は近段が `tv-camera-glb`）。
+  天板 ≤ y_lens − 0.5 と天板前縁・前手摺がレンズの ≥ 0.5 m **後ろ**（`tvForwardOf − (TV_DECK_HALF − 0.05) − 0.02`）、操作者が
+  足跡上）；`scripts/audit/trackside-smoke.mjs checkTowers`（両ティア + `--glb`: towers 16、tvLenses 13 = `tvLensAt`、各塔が行の
+  位置 ± 5 cm で最高脚の地面上、線からの距離、`roads-*` リボンに脚が乗らない（中心 + 4 隅 + 0.5 m の鉛直レイ）、天板／手摺／レンズ
+  前進量、フェンス天端 + 1.5 以上、影の有無、カメラヘッド 14 = 天板の塔数、操作者 16 が床上 ± 5 cm、`--glb` は近段が `tv-camera-glb`）。
   静的コスト（Node）: 高 3,960,909 → 3,982,181 tris / IM 924 → 959 / エントリ 1,044 → 1,079（`farField/infield` 20,204 → 42,048、
   props.ts の tvMasts 2 IM は消えた）、低 2,114,627 / 733 / 755 / 815 — 予算内、再ベース無し。
 - GPU で確認すること: 黄クレーン柱（0xf0b400、無発光）が bloom で光らないこと、天板の `MetalWalkway012` の法線の向きと目地、
-  TV カメラで前手摺・三脚が画角に掛からないこと（レンズは手摺の 0.55 m 後ろ・0.5 m 上）、700 m の LOD 切替、22 m 格子塔の影が
-  B2 の屋根に落ちること、カメラヘッドの GLB ↔ 手続き切替（120 m）。
+  TV カメラで前手摺・三脚が画角に掛からないこと（レンズは前手摺の 0.75 m 前・0.5 m 上、車が真横を通る俯角でも）、700 m の LOD 切替、
+  22 m 格子塔の影が B2 の屋根に落ちること、カメラヘッドの GLB ↔ 手続き切替（120 m）、200R 塔の脚の継ぎ足しが土手に合うこと。
 
 #### 柵・バリア・看板・サイン
 
@@ -999,11 +1018,15 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   0.1 × 0.3、帯越しのタイヤの膨らみ）にし、`BARRIER_KIND.tyre.top` 1.95 → **1.5**（写真 1.2–1.5 m。A10 は柵の有無で遮蔽を決めるので
   影響なし）。実タイヤ積み: タイヤ run の柵柱位置（4 m ピッチ）ごとに 2 本（±0.45 m）、壁の裏面に接して地面に立つ（観客側から見える
   予備列）— `tire_stack` GLB（960 tris、近段 `propsNearM`）／トーラス 5 段（0.3 / 0.12、5 × 10 分割 = 500 tris、遠段）を
-  `registerPropSet(…, 'infield', 'infield-tyreStacks', …)` で登録（815 本、`markObject tyreStack`、y = standAt − 0.015）。低ティアは
-  `infield.detail` が偽なので無し。計画の 6 × 12 分割は 587 k tris になるので 5 × 10（408 k、近景は GLB）。
+  `registerPropSet(…, 'infield', 'infield-tyreStacks', …)` で登録（`markObject tyreStack`、y = standAt − 0.015；寸法は
+  suzuka-barriers-spec.ts の `TYRE_STACK`、A11 も読む）。**TV 塔の足跡の下は省く**（`tyreStackKeepOuts`: 足場塔 / 格子塔の中心から
+  足跡半幅 + 0.42 + 0.1 の正方形 — 'auto' の塔はタイヤ壁の裏 2.5 m に立つので近い脚がちょうど予備列の上に来る；815 → 802 本、13 本省略）。
+  低ティアは `infield.detail` が偽なので無し。計画の 6 × 12 分割は 587 k tris になるので 5 × 10（408 k、近景は GLB）。
 - **スポンジブロック**: chicane-exit-tyres の前 0.3 m（壁に直角に測る: この壁は道路に対して最大 40° 斜め）に 1.5 × 1.0 × 1.0 の灰タープ箱
-  （0x9a9b98 rough 0.95）を 1.5 m ピッチで 32 + 上段 32（+0.4 ずらし）、壁の向きに回して置く。IM `spongeBlocks`（`markObject sponge`）/
-  `spongeBlocksTop`。`tecproTexture` は削除し `Tecpro` を trademark-denylist に追加（textures-lint）。
+  （0x9a9b98 rough 0.95）を**列自身の世界長で 1.5 m ピッチ**（`spongeSteps`: 箱の乗るオフセット線の XZ 弧長を積分 — s で 1.5 m 刻むと
+  斜めの壁と曲がりの外側で世界の間隔が 2–2.5 m に開き、箱の間に隙間が出ていた）で 48 + 上段 48（+0.4 ずらし）、壁の向きに回して置く
+  （壁の傾き `wallSlope` は run の窓の内側で差分を取る）。IM `spongeBlocks`（`markObject sponge`）/ `spongeBlocksTop`。`tecproTexture` は
+  削除し `Tecpro` を trademark-denylist に追加（textures-lint）。
 - **130R の 3 本ビーム**: `kind 'guardrail3'`（0.25–0.95、`armco3Maps()`: 3 本の丸ビーム + ボルト、白）を 130r-inside-verge /
   130r-outside-verge の 2 run だけに（r130.jpg）。メッシュ `guardrails3`。
 - **コンクリート壁**: `pbrFromAssets(reg, 'concrete046', { handBuiltUv, normalScale 0.5, color 0xd8d8d4 })` **FrontSide**（走行側の面と
@@ -1011,10 +1034,15 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   programs +0（pit-geometry.ts の壁と同じ組合せ）。
 - **看板**: `BOARD_TEXTS`（textures.ts、16 語: SUZUKA / JAPANESE GP / ROUND 17 / SUZUKA CIRCUIT / PIT LANE / 2026 / EAST COURSE /
   WEST COURSE / GRAND PRIX / MOTORSPORT / RACE DAY / SPOON CURVE / 130R / HAIRPIN / CHICANE / DEGNER — 'F1 LIVE' と 'MOBILITY RESORT' の
-  面は消えた、B2 のボードも同じ帯）で `boardTexture()` 16 面 × 8 m（`BOARD_TILE_M` 128）。自立パネル `AD_PANELS`（12 × 4 m、
-  `bigPanelTexture()` の 4 セル、柱 2 本、メッシュ `adPanels` / `adPanelPosts`）は 5 枚: (600, +45)、(680, +27)、(2690, −40)、
-  (4830, −46)、(4900, −25.5) — 計画の座標はタイヤ壁の線の内側（ランオフ）だったので各 run の裏 1.5 m に。facilities-check A11 が
-  hw + 1.5・スタンド足跡・ピットレーン・舗装エプロン・バリア線の観客側 ≥ 0.28 m を検査。Spoon ランオフの塗装ロゴ（props.ts
+  面は消えた、B2 のボードも同じ帯）で `boardTexture()` 16 面 × 8 m（`BOARD_TILE_M` 128）。看板は**片面**（`boardMat` / `panelMat`
+  FrontSide、`wallGeometry` の巻きは +lateral 向きなので左側の run は反転）で、右側（side −1）の帯は u を折り返す（`mirrorU`: 走行側から
+  見ると右側の壁は +s が左へ走るので、I4-c では 5 本の帯の文字が鏡文字だった）；裏には無地の灰シート（`adPanelBacks`、`postMat`、面の
+  `BOARD_BACK` 0.03 m 裏 — DoubleSide だった I4-c は観客側／Degner 2 の chase から鏡文字が透けていた）。自立パネル `AD_PANELS`（12 × 4 m、
+  `bigPanelTexture()` の 4 セル、柱 2 本、メッシュ `adPanels` / `adPanelBacks` / `adPanelPosts`）は 5 枚: (600, +45)、(680, +27)、
+  (2682, −42)、(4830, −47.5)、(4915, −25.5) — 計画の座標はタイヤ壁の線の内側（ランオフ）だったので各 run の裏に；I4 レビューで
+  panel-hairpin（2690, −40: 端が I スタンドの足跡、予備タイヤが貫通）・panel-130r-a（−46: 予備列から 0.3 m）・panel-130r-b（4900, −25.5:
+  130r 足場塔の格子を貫通）を動かした。facilities-check A11 が hw + 1.5・スタンド足跡（板の両端）・ピットレーン・舗装エプロン・バリア線の
+  観客側 ≥ 0.28 m・タイヤ run の予備列（中心線 = 線 + 1.3 + 0.42）から ≥ 0.72 m・足場 / 格子塔の足跡 + 1 m の外を検査。Spoon ランオフの塗装ロゴ（props.ts
   `buildRunoffLogos`: 3600–3700 右 −14…−26 に 12 × 6 m × 3、`runoffLogoTexture()`、`ground.decal` @ `LAYER.verge.paint`、`markDecal`、
   メッシュ `runoffLogos`）。橋: 化粧板の天端を +0.95 に上げて 2.0 m（`FASCIA_TOP`、`FASCIA_BOTTOM` / `SOFFIT` / `GIRDER_Y` は不変 —
   chase レンズは桁下を通る）、高欄の走行側 0.3 m に青白のガードビーム 0.4 m（`bridgeRailTexture()`、4 m 箱 + 短柱、`BRIDGE_RAIL`、
@@ -1028,13 +1056,15 @@ scene-cost / surface-check はこのグループを測らない — `trackside-s
   で 7 人（`stats.ops.byRole.photographer` 11 → 18）。
 - **検査**: `scripts/audit/trackside-smoke.mjs checkBarriers`（両ティア + `--glb`: 73 run、Spoon 壁の頂点、柵の 2 色バケット
   `fencePosts` 1236 / `fencePostsDark` 396、`debrisFence` / `debrisFenceDark` / `fenceRails` / `fenceRailsDark`、逆バンクの 2 重柵、窓 7 の開口に
-  頂点無し、タイヤ積み 815 = 柵柱位置 × 2 が壁の裏・包絡の外、スポンジ 64 が線から ≥ 0.7 m（折線への XZ 距離）、guardrail3 が 2 run だけ、
-  広告帯 8 / パネル 5 / 塗装面 3、ホーン、門 5、化粧板天端 +0.95 と桁定数、TecPro 無し、写真家 7、pit-entry 板）；facilities-check
-  A10 / A11（AD_PANELS、barrierTop の `run`）/ O9（`figuresAt({ lineAt })`）。
+  頂点無し、タイヤ積み 802 = 柵柱位置 × 2 − 塔の下 13 が壁の裏・包絡の外・塔の足跡 + 0.42 の外、スポンジ 96 が線から ≥ 0.7 m（折線への
+  XZ 距離）で隣と 1.5 m ± 5 cm（列が連続）、guardrail3 が 2 run だけ、広告帯 8 / パネル 5 / 塗装面 3、看板が FrontSide で裏シート
+  `adPanelBacks` の三角形数が 5 枚 + 8 帯分、帯 8 本の u の勾配の符号 = side（走行側から左→右に読める）、ホーン、門 5、化粧板天端 +0.95 と
+  桁定数、TecPro 無し、写真家 7、pit-entry 板）；facilities-check A10 / A11（AD_PANELS、barrierTop の `run`）/ O9（`figuresAt({ lineAt })`）。
   静的コスト（Node、バリアは含まない）: 高 4,014,014 tris / 969 meshes / 1,031 IM / 1,110 entries — IM と entries が I4-a + I4-b の
   合流（ポストとタワーのセル別セット）+ 写真家の新セルで予算 1,019 / 1,090 を超えたので実測 × 1.10 = 1,134 / 1,221 に置き直し
   （`measuredAt` I4-c）；低 2,146,796 / 732 / 762 / 816（予算内）。バリアのグループ自体は高 119,700 tris + タイヤ積み 407,500（遠段）
-  / 782,400（GLB 近段）、低 33,556。
+  / 782,400（GLB 近段）、低 33,556。I4 レビュー後: 高 4,015,210 tris / 970 meshes（`marshalFootings` + `towerFootings`）/ 1,031 IM /
+  1,110 entries、バリアのグループ 121,764 tris（裏シート + スポンジ 96）+ タイヤ積み 401,000、低 35,620 — 予算内、再ベース無し。
 - GPU で確認すること: fence003 の金網が緑 / 黒の tint で A2C の縁がにじまず、斜めから見てモアレが出ないこと（上部レールとケーブルは
   金網より手前に見えること）、タイヤ壁の 3.96 m タイルの継目と黄マーカーが chase の速度で滲まないこと、帯の折返し帯が天端リボンの
   白と段差無く繋がること、concrete046 の壁の法線の向き（FrontSide: 裏面リボンが両側から見えること）、パネル 12 × 4 m の mips

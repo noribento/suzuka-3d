@@ -79,6 +79,14 @@ export interface BarrierRun {
 /** the second (spectator-side) fence of a `fenceSide: 'both'` run stands this far behind the wall's back face (m; unverified) */
 export const FENCE_BACK_SETBACK = 2.0
 
+/**
+ * The spare tyre stacks behind every tyre run (barriers.ts draws them, facilities-check A11
+ * keeps the hoardings off them): two per fence-post position, `dS` either side of it along s,
+ * their edge against the wall's back (the row's centre line is the wall's depth + `radius`
+ * behind the resolved line); `tyres` × `tyreH` tall.
+ */
+export const TYRE_STACK = { dS: 0.45, radius: 0.42, tyres: 5, tyreH: 0.24 } as const
+
 const P = (pts: [number, number][]) => pts
 
 export const BARRIERS: BarrierRun[] = [
@@ -113,7 +121,11 @@ export const BARRIERS: BarrierRun[] = [
   { id: 'bridge-parapet-left', kind: 'concrete', side: 1, sRange: [4585, 4740], fence: 2.6, topRail: true, source: { samples: P([[4585, 8.0], [4665, 8.0], [4740, 8.0]]) }, note: 'parapet of the crossover deck and its approaches; the multi-level-crossing photo shows a dark-green mesh on it' },
   // the G stand's debris fence continues along the inside of 130R on the verge rail: without it
   // the stand's front is screened for only 43 % of its length (facilities-check A10)
-  { id: '130r-inside-verge', kind: 'guardrail3', side: 1, sRange: [4740, 4830], fence: 2.6, fenceColour: FENCE_BLACK, topRail: true, source: { osm: [471532691] }, unverified: ['debris fence on the verge rail in front of G: the 2026 photos show the mesh continuing along the inside of 130R; height and extent estimated'] },
+  // the 4740–4764 diagonal off the parapet is hand-drawn like '130r-outside-verge': the OSM way
+  // carries it from s 4665, but that part lies along the deck (it would double the parapet run),
+  // and inside the run's window the way is already 18 m out at 4740 — hand samples ≤ 6 m apart,
+  // so no OSM sample survives between them (resolveLine drops those within 4 m of a hand sample)
+  { id: '130r-inside-verge', kind: 'guardrail3', side: 1, sRange: [4740, 4830], fence: 2.6, fenceColour: FENCE_BLACK, topRail: true, source: { osm: [471532691], samples: P([[4740, 8.0], [4746, 11.5], [4752, 15.0], [4758, 17.5], [4764, 18.5]]) }, unverified: ['debris fence on the verge rail in front of G: the 2026 photos show the mesh continuing along the inside of 130R; height and extent estimated', 'the 4740–4764 diagonal from the parapet (8.0) to the OSM verge rail (18.5) is hand-drawn (r130.jpg: the rail and fence run on continuously)'] },
   { id: '130r-inside-wall', kind: 'concrete', side: 1, sRange: [4830, 4905], fence: 2.6, fenceColour: FENCE_BLACK, topRail: true, adBand: 0.9, windows: [4870], gates: [[4846, 4847.2]], source: { osm: [468377693] } },
   { id: 'p-front-tyres', kind: 'tyre', side: 1, sRange: [4905, 5160], fence: 2.6, topRail: true, source: { osm: [467219902] } },
   // OSM 470173101 is ONE 160 m wall along the foot of the Q2 / Q1 bank, world (183,-164) to
@@ -329,7 +341,9 @@ export const OFFSET_LANES: OffsetLaneDef[] = [
  *    ascending count, which must land exactly on each anchor (O8);
  *  - `secondary`: a second hut of the same post (the pairs across the 110R and the bridge
  *    approach) — a cabin with its marshals but no number board, light panel or camera;
- *  - `facing`: which way the number board reads ('-s' = towards the approaching cars, default);
+ *  - `facing`: reserved for a pole-mounted number board read along the track ('-s' = towards
+ *    the approaching cars); today's board is flat on the fence with its digits on the face
+ *    towards the track (r130_post.jpg), so marshal-posts.ts does not read it;
  *  - `osmWay` / `size`: the hut's OSM footprint or a hand size [along s, across] (a 'building'
  *    row needs one of them);
  *  - `panel`: the light panel's s (default s − 3.2, snapped to the run's 4 m fence-post pitch)
@@ -351,7 +365,7 @@ export interface MarshalPostDef {
   number?: number
   /** a second hut of the same post: no number board / light panel / camera */
   secondary?: true
-  /** the number board's reading direction (default '-s') */
+  /** reserved: a pole-mounted board's reading direction (default '-s'); the flat-on-fence board does not use it */
   facing?: '-s' | '+s'
   osmWay?: number
   /** hand size [along s, across] (m) — 'building' rows without an osmWay */
@@ -371,7 +385,7 @@ export interface MarshalPostDef {
  * say so in their note.
  */
 export const MARSHAL_POSTS: MarshalPostDef[] = [
-  { s: 390, lateral: -31.3, number: 1, unverified: true, note: 'grass island tip, T1 inside (moved 0.3 m off the t1-inside-island line at I4-a)' },
+  { s: 390, lateral: -31.4, number: 1, unverified: true, note: 'grass island tip, T1 inside (moved 0.3 m off the t1-inside-island line at I4-a, 0.1 m more at the I4 review so the ground marshals stand behind the wall\'s back)' },
   { s: 420, lateral: 19.5, note: 'T1 outside wall' },
   { s: 500, lateral: 39, unverified: true, note: 'behind the T1 outside wall' },
   { s: 577, lateral: 43, type: 'low', osmWay: 469261666, unverified: true, note: 'OSM hut behind the T1–T2 outside tyre wall (I4-a)' },
@@ -398,10 +412,10 @@ export const MARSHAL_POSTS: MarshalPostDef[] = [
   { s: 4526, lateral: -11.5, note: 'OSM building 184419751' },
   { s: 4536, lateral: 10.7, secondary: true, note: 'OSM building 184419746 across the bridge approach: the second hut of the post at 4526 (no number); 1.7 m further off the bridge-approach-left rail at I4-a (the v1 hut at 9 stood on the line)' },
   { s: 4750, lateral: 30, unverified: true },
-  { s: 4840, lateral: 25.7, unverified: true, note: '130R inside, behind the 130r-inside-wall (the v1 hut at 10.5 stood in the grass 13 m on the track side of that fenced wall; moved behind it at I4-a)' },
+  { s: 4840, lateral: 25.9, unverified: true, note: '130R inside, behind the 130r-inside-wall (the v1 hut at 10.5 stood in the grass 13 m on the track side of that fenced wall; moved behind it at I4-a, 0.2 m further at the I4 review so the ground marshals clear the wall\'s 0.35 m back)' },
   { s: 4961, lateral: -26, number: 26, osmWay: 467386925, note: '130R exit outside: post 26 (r130_post.jpg — the cabin on its stand behind the tyre wall, the 26 board on the fence)' },
   { s: 5140, lateral: 27, unverified: true, note: 'chicane escape road' },
-  { s: 5240, lateral: -28.1, number: 28, figures: 2, unverified: true, note: 'chicane exit: post 28, behind the diagonal chicane-exit-tyres (the v1 row (5235, −19.5) lay on the track side of that wall; the aerial\'s other candidate on the mound at (5255, −22) straddles the car-park fence 474537488, which runs at −21 there)' },
+  { s: 5240, lateral: -28.4, number: 28, figures: 2, unverified: true, note: 'chicane exit: post 28, behind the diagonal chicane-exit-tyres (the v1 row (5235, −19.5) lay on the track side of that wall; −28.1 → −28.4 at the I4 review: the ground marshal stood 0.19 m inside the tyre wall\'s 1.3 m depth; the aerial\'s other candidate on the mound at (5255, −22) straddles the car-park fence 474537488, which runs at −21 there)' },
   // moved from {5395, −11.5} (I3-a): that spot is inside the sim's pit-entry path (entering cars
   // lag Track.pitLateralAt toward the track and drive through it; gap_Sim §2). Now on the apron
   // between the lane's keep-out and the car-park fence (its 5450 sample is 1.2 m behind the cabin;
@@ -413,16 +427,31 @@ export const MARSHAL_POSTS: MarshalPostDef[] = [
 /**
  * The post numbers: the rows that are neither 'building' nor `secondary`, ascending in s from
  * post 1 (T1 inside), the anchors (`number`) pinning the count — 1 @ 390, 26 @ 4961, 28 @ 5240.
- * Returns the number of every numbered row (by row object); a row whose count disagrees with
- * its own anchor is a data error facilities-check O8 reports. All numbers unverified.
+ * Returns the number of every numbered row (by row object): an anchor's own number, else the
+ * previous row's + 1 — so the boards always show the intended numbers, and a row added or
+ * removed before an anchor shows up as the ascending count NOT reaching that anchor
+ * (`marshalNumberFaults`, facilities-check O8) rather than as a silent gap or duplicate.
+ * All numbers unverified.
  */
 export function marshalNumbers(): Map<MarshalPostDef, number> {
-  const rows = MARSHAL_POSTS.filter((m) => m.type !== 'building' && !m.secondary).sort((a, b) => a.s - b.s)
   const out = new Map<MarshalPostDef, number>()
+  for (const { row, n } of marshalNumbering()) out.set(row, n)
+  return out
+}
+
+/** the anchors the ascending count does not land on: `expected` = the previous row's number + 1, `anchor` = the row's own `number` */
+export function marshalNumberFaults(): { s: number; expected: number; anchor: number }[] {
+  return marshalNumbering().filter((r) => r.row.number !== undefined && r.row.number !== r.expected).map((r) => ({ s: r.row.s, expected: r.expected, anchor: r.row.number! }))
+}
+
+function marshalNumbering(): { row: MarshalPostDef; n: number; expected: number }[] {
+  const rows = MARSHAL_POSTS.filter((m) => m.type !== 'building' && !m.secondary).sort((a, b) => a.s - b.s)
+  const out: { row: MarshalPostDef; n: number; expected: number }[] = []
   let n = 0
-  for (const m of rows) {
-    n = m.number ?? n + 1
-    out.set(m, n)
+  for (const row of rows) {
+    const expected = n + 1
+    n = row.number ?? expected
+    out.push({ row, n, expected })
   }
   return out
 }
@@ -461,8 +490,9 @@ export type TvTowerKind = 'scaffold' | 'lattice' | 'crane' | 'pole'
  * One broadcast camera position = one tower (plan I4-b, `app/three/tv-towers.ts`) and, for the
  * `lens` rows, one camera of the rig (`app/three/cameras.ts` reads the lens points the towers
  * publish through `tvLensAt`, `app/three/tv-lens.ts`). The lens is `height` metres above the
- * ground the tower stands on (`ground.standAt`), `TV_LENS.forward` metres towards the track from
- * the tower's centre. `lateral: 'auto'` puts the tower `TV_LENS.autoSetback` (2.5 m) behind the
+ * ground the tower stands on (`towerBaseAt`: the highest of its legs' `ground.standAt`),
+ * `tvForwardOf(tower)` metres towards the track from the tower's centre (the platform's deck
+ * half-width + the lens's 0.7 m overhang). `lateral: 'auto'` puts the tower `TV_LENS.autoSetback` (2.5 m) behind the
  * resolved BARRIERS line on the spectator side (`cameraSide`: the outside of the nearest corner)
  * — never in the run-off — so the towers move with the barrier table. The real FOM tower
  * positions are not surveyed: every row is an estimate (`unverified`).
@@ -494,8 +524,10 @@ export const TV_CAMERAS: TvCameraDef[] = [
   { id: 't1-crane', s: 455, lateral: -24, height: 6, tower: 'crane', lens: false, unverified: ['a TV crane on the T1 infield is usual on race weekends; position ±10 m'] },
   // the aerial reads the lattice at ≈ (520, +70) / (575, +70) (truth-aerial 02 / 03); (520, +70) is outside the
   // sports_centre ring (which reaches +61 there) and (575, +70) is inside B2's footprint (back edge +76), so it
-  // stands behind B2's back edge where the 03 mosaic shows it "east of B": inside the ring, off the stands
-  { id: 'b-tower', s: 590, lateral: 82, height: 22, tower: 'lattice', lens: false, note: 'the lattice camera tower behind the B stands (aerial: the one tower certain from above)', unverified: ['position ±10 m', 'height (25–30 m by shadow)'] },
+  // stands behind B2's back edge where the 03 mosaic shows it "east of B": inside the ring, off the stands —
+  // and off the service road behind them (the far-field ribbon `roads-b6` runs at +79…+84.5 there: the I4
+  // review found (590, +82) in the middle of it; (602, +88) is on the grass between the road and the ring's +93)
+  { id: 'b-tower', s: 602, lateral: 88, height: 22, tower: 'lattice', lens: false, note: 'the lattice camera tower behind the B stands (aerial: the one tower certain from above), outside the service road behind B', unverified: ['position ±15 m (moved 12 m along and 6 m out off the service road at the I4 review)', 'height (25–30 m by shadow)'] },
   { id: 't2-exit', s: 640, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
   { id: 'esses', s: 1180, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
   { id: 'esses-exit', s: 1500, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
@@ -507,7 +539,7 @@ export const TV_CAMERAS: TvCameraDef[] = [
   { id: 'spoon', s: 3650, lateral: -40, height: 7.9, tower: 'scaffold', note: 'behind the Spoon 1 outside tyres (the v1 override)', unverified: ['tower position'] },
   { id: 'back-straight', s: 4350, lateral: -24, height: 7.9, tower: 'scaffold', note: 'behind the west straight trap wall (the v1 override)', unverified: ['tower position'] },
   { id: '130r', s: 4900, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
-  { id: 'chicane', s: 5250, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
+  { id: 'chicane', s: 5250, lateral: -39.6, height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot; lateral fixed at −39.6 (auto = −30.6 put the scaffold on the T17-exit service road, I5-a row 467223464): the tower stands on the grass strip beyond that road, 41.5 m off the centreline'] },
   { id: 'start-line', s: 5560, lateral: 'auto', height: 7.9, tower: 'scaffold', unverified: ['tower position: generated spot'] },
 ]
 
@@ -575,8 +607,10 @@ export const SIGNS: SignDef[] = [
  * 12 × 4 m boards on two posts, the graphic on the face towards the track (`facing` like a
  * sign's). Positions are estimates (unverified): the plan's spots (600, +36) / (680, +33) / (2690, −33) /
  * (4830, −31) / (4900, −31) lay INSIDE the tyre walls' resolved lines (the run-off), so every panel
- * stands ≈ 1.5 m behind its run's back instead; A11 keeps them off the road, the stands' footprints,
- * the pit lane, the paved aprons and the track side of every BARRIERS line.
+ * stands behind its run's back and its spare tyre row instead; A11 keeps them off the road, the
+ * stands' footprints (every corner), the pit lane, the paved aprons, the track side of every
+ * BARRIERS line, the tyre runs' spare stack row (≥ 0.72 m from its centre line) and the TV
+ * towers' footprints (+ 1 m).
  */
 export interface AdPanelDef {
   id: string
@@ -593,9 +627,13 @@ export interface AdPanelDef {
 export const AD_PANELS: AdPanelDef[] = [
   { id: 'panel-t1-t2-a', s: 600, lateral: 45, facing: '-lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m (behind the T1–T2 tyre wall, in front of B)'] },
   { id: 'panel-t1-t2-b', s: 680, lateral: 27, facing: '-lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m'] },
-  { id: 'panel-hairpin', s: 2690, lateral: -40, facing: '+lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m (behind the hairpin outside tyres, in front of I)'] },
-  { id: 'panel-130r-a', s: 4830, lateral: -46, facing: '+lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m (behind the 130R outside tyres)'] },
-  { id: 'panel-130r-b', s: 4900, lateral: -25.5, facing: '+lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m'] },
+  // (2690, −40) at I4-c: its 2696 end was inside the I stand's footprint (sRange from 2692) and the
+  // spare stacks behind the hairpin tyres (line −38.2 → row −39.9) poked through it; before the stand, 2 m behind the stacks
+  { id: 'panel-hairpin', s: 2682, lateral: -42, facing: '+lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m (behind the hairpin outside tyres and their spare stacks, just before I)'] },
+  // −46 at I4-c stood 0.3 m from the spare stack row (line −44.5 at 4824 → row −46.2)
+  { id: 'panel-130r-a', s: 4830, lateral: -47.5, facing: '+lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m (behind the 130R outside tyres and their spare stacks)'] },
+  // (4900, −25.5) at I4-c cut through the '130r' scaffold tower (centre −24.67, footprint 2.4 at s 4900): 15 m on, beside it
+  { id: 'panel-130r-b', s: 4915, lateral: -25.5, facing: '+lat', width: 12, boardHeight: 4, height: 1.0, unverified: ['position ±5 m (beside the 130r TV tower, behind the 130R exit tyres)'] },
 ]
 
 // ---------------------------------------------------------------- basins

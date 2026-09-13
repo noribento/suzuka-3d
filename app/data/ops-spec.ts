@@ -513,7 +513,7 @@ export interface TvTowerSlotInput {
 
 /** where the camera operator stands on a tower, metres from its centre away from the track (the local −z of tv-towers.ts) */
 export const CAMERA_OPERATOR = {
-  /** on a platform: behind the tripod at the front rail (tv-lens.ts TV_LENS.forward 0.65 − 0.6) */
+  /** on a platform: just behind the deck's centre, behind the tripod (its rear foot stands 0.5 m in front of the centre — tv-towers.ts) */
   deckBack: 0.05,
   /** at a crane: on the base plate behind the column (base 1.5, column r 0.25) */
   craneBack: 0.5,

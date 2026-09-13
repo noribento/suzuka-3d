@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { MARSHAL_STAND, marshalSlots, marshalStairSign } from '~/data/ops-spec'
 import { BARRIERS, MARSHAL_POSTS, TRACKSIDE_CCTV, marshalNumbers, type BarrierRun, type MarshalPostDef } from '~/data/suzuka-barriers-spec'
 import { forwardDelta } from '~/sim/track'
-import { BARRIER_KIND, barrierProfile } from './barriers'
+import { TYRE_STACK, barrierDepth, barrierProfile } from './barriers'
 import type { EnvBuildContext } from './environment'
 import { registerPropSet, type PropSet } from './infield-lod'
 import type { TracksideStats } from './infield'
@@ -31,20 +31,26 @@ import { resolveLineCached } from './trackside'
  *    body is the Small Guard Booth drop (`packProp` scaled to 2.5 m along; its glass
  *    transmission is dropped by `propMaterial`, which rebuilds every part as a plain Standard);
  *  - the LOW post (type 'low'): a 2.0 × 1.6 × 2.0 grey box (0xb9bcc0) with a dark roof;
- *  - the NUMBER BOARD: 1.2 × 0.8 m white, centre 2.4 m up, hung on the track side of the fence
- *    post nearest the post's s (`marshalNumbers()`; `facing` per row), cell of the 8 × 4
- *    `marshalNumberAtlas` (digits 0.67 m) — one merged mesh `marshalNumbers`;
+ *  - the NUMBER BOARD: 1.2 × 0.8 m white, centre 2.4 m up, flat on the track side of the fence
+ *    post nearest the post's s (`marshalNumbers()`), the digits on the 1.2 × 0.8 face that
+ *    looks at the track (BoxGeometry's ±x face — `numberUv`; the row's `facing` is not read
+ *    here), cell of the 8 × 4 `marshalNumberAtlas` (digits 0.67 m) — one merged mesh
+ *    `marshalNumbers`;
  *  - the EM LIGHT PANEL, DARK: under a green flag the panels show nothing (lpfront.jpg), so the
  *    0.7 × 0.6 × 0.2 black housing carries a 64 × 48 LED-dot face (`emPanelTexture`, 0x2a1f1d)
- *    with NO emissive (EMISSIVE.digitalFlag is gone); it hangs 0.35 m on the track side of the
- *    fence post at `panel.s ?? s − 3.2` (snapped to the run's 4 m fence-post pitch) on a zinc
- *    arm, its beige control cabinet 0.5 × 0.4 × 0.7 on the ground behind the post — one
- *    InstancedMesh `emPanels` (housing + face), the arms / own poles merged into `marshalPoles`,
- *    the cabinets through `ctx.boxes`. Runs without a fence (quality.fence off, or a bare wall /
- *    rail) get a pole of their own at the line;
- *  - the PTZ CCTV: one 6 m pole (`cctvPoles`) behind the fence at every numbered post plus the
- *    TRACKSIDE_CCTV rows along the straights, a `security_camera_02` head (`glbOr`, else a
- *    0.25 × 0.15 × 0.2 box) on top (`cctvHeads`);
+ *    with NO emissive (EMISSIVE.digitalFlag is gone); on a FENCED run (`RunAt.hung`: a debris
+ *    fence or a bare fence, whatever the tier) it hangs 0.35 m on the track side of the fence
+ *    post at `panel.s ?? s − 3.2` (snapped to the run's 4 m fence-post pitch) on a zinc arm (a
+ *    pole of its own when the tier draws no fence); on a run WITHOUT a fence (a bare wall or
+ *    rail at the verge) it stands BEHIND the line on its own pole — 0.2 m behind the run's back
+ *    (and its spare tyre row), never inside the sim's hw + 1.5 envelope — so no housing is
+ *    planted in the run-off. The beige control cabinet 0.5 × 0.4 × 0.7 is bolted to the back of
+ *    the housing (lprear.jpg), nothing on the ground — one InstancedMesh `emPanels` (housing +
+ *    face + cabinet), the arms / own poles merged into `marshalPoles`;
+ *  - the PTZ CCTV: one 6 m pole (`cctvPoles`) behind the fence (the wall / tyre depth, the spare
+ *    tyre row and 0.25 m) at every numbered post plus the TRACKSIDE_CCTV rows along the
+ *    straights, a `security_camera_02` head (`glbOr`, else a 0.25 × 0.15 × 0.2 box) on top
+ *    (`cctvHeads`);
  *  - the MARSHALS: ops-spec `marshalSlots(post)` (section A) — the rows are part of
  *    `figuresAt()`, so ops-people.ts draws them with the rest of the ops figures (role marshal,
  *    white helmet); this builder only counts them (`slots`).
@@ -53,7 +59,11 @@ import { resolveLineCached } from './trackside'
  * resolved line (facilities-check O8; trackside-smoke `checkPosts`); the boards, panels and
  * cameras hang on the fence line itself (mount 'fencePost', O5 exempt). A 'building' row (the
  * 200R officials' building) gets only its panel and camera — INFIELD_FACILITIES draws it (I5);
- * a `secondary` row (the second hut of a post) gets the cabin and its marshals only.
+ * a `secondary` row (the second hut of a post) gets the cabin and its marshals only. A cabin
+ * on a sloped site (the 200R bank) stands on the HIGHEST of the ground under its four legs
+ * (`base`), the lower legs and the stair's foot get footings down to their own ground
+ * (`marshalFootings`: 0.1² leg extensions, two stringer-foot posts and a landing block), so no
+ * leg floats and none is buried.
  *
  * Cabins, lows and extinguishers are instanced per 250 m cell through
  * `registerPropSet(ctx, 'infield', 'infield-marshal-cabins', …)` (`Quality.infield.propsNearM` /
@@ -80,8 +90,12 @@ const _r = new THREE.Matrix4()
 const BOARD = { w: 1.2, h: 0.8, t: 0.06, centreY: 2.4 }
 /** the EM light panel (m): housing width (across the track), height, depth (along s); face inset; arm length off the post; centre height */
 const PANEL = { w: 0.7, h: 0.6, d: 0.2, faceW: 0.62, faceH: 0.52, arm: 0.35, centreY: 2.05, dS: -3.2 }
-/** the panel's control cabinet: along s × across × high, standing 0.3 m over the ground behind the post */
-const CABINET = { l: 0.5, w: 0.4, h: 0.7, lift: 0.3, gap: 0.3 }
+/** the panel's control cabinet, bolted to the back of the housing (lprear.jpg): along s × across × high, its top under the housing's top */
+const CABINET = { l: 0.5, w: 0.4, h: 0.7, drop: 0.05 }
+/** an unfenced run's panel / board stand this far behind the run's back (and its spare tyre row) */
+const BEHIND_GAP = 0.2
+/** a stand's leg gets a footing when its ground is more than this below the stand's base (m); the stair's foot a landing */
+const FOOTING = { leg: 0.03, stair: 0.05, landing: [0.8, 0.4] as const }
 /** the CCTV pole: height, radius; the head box (along s × across × high); pitch after the post's s */
 const CCTV = { h: 6.0, r: 0.04, head: [0.25, 0.15, 0.2] as const, dS: 3.0 }
 /** the fence posts' pitch along a run (barriers.ts places them at sRange[0] + 4 k) */
@@ -95,14 +109,18 @@ interface RunAt {
   run: BarrierRun
   lat: (s: number) => number
   base: (s: number) => number
-  /** the run has fence posts (a debris fence or a bare fence, and the tier draws fences) */
+  /** the run carries a fence (a debris fence or a bare fence) — a data fact, whatever the tier: the panels and boards hang on its track side */
+  hung: boolean
+  /** the run has fence posts drawn (`hung` and the tier draws fences): the arm / the board hang on a post, else on a pole of their own */
   posts: boolean
   /** how far behind the line the run's back is (m): the wall / tyre depth, the rail's posts */
   back: number
+  /** how far behind the line everything drawn with the run reaches (m): `back` plus the spare tyre row of a tyre run (barriers.ts TYRE_STACK, when the tier draws it) */
+  behind: number
 }
 
 export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { value: number } }): Omit<TracksideStats, 'towers'> {
-  const { track, ground, group, boxes, quality, assets } = ctx
+  const { track, ground, group, quality, assets } = ctx
   const L = track.length
   const numbers = marshalNumbers()
 
@@ -112,9 +130,10 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
     let r = runCache.get(run)
     if (!r) {
       const prof = barrierProfile(track, ground, run)
-      const fenceTop = run.kind === 'fence' ? 1 : run.fence ?? 0
-      const k = BARRIER_KIND[run.kind]
-      r = { run, lat: prof.lat, base: prof.base, posts: fenceTop > 0 && quality.fence, back: run.kind === 'tyre' ? 1.3 : k.cap > 0 ? 0.35 : k.posts ? 0.14 : 0.05 }
+      const hung = run.kind === 'fence' || (run.fence ?? 0) > 0
+      const back = barrierDepth(run)
+      const stackRow = run.kind === 'tyre' && quality.infield.detail ? 2 * TYRE_STACK.radius : 0
+      r = { run, lat: prof.lat, base: prof.base, hung, posts: hung && quality.fence, back, behind: back + stackRow }
       runCache.set(run, r)
     }
     return r
@@ -145,7 +164,13 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
     return track.wrap(s0 + d)
   }
   /** a mount on the fence line: the line's lateral and the barrier's base there (the fence post's foot) */
-  const mountAt = (r: RunAt | null, s: number, fallbackLat: number) => (r ? { lat: r.lat(s), base: r.base(s), posts: r.posts, back: r.back } : { lat: fallbackLat, base: ground.standAt(s, fallbackLat), posts: false, back: 0 })
+  const mountAt = (r: RunAt | null, s: number, fallbackLat: number) => (r ? { lat: r.lat(s), base: r.base(s), hung: r.hung, posts: r.posts, behind: r.behind } : { lat: fallbackLat, base: ground.standAt(s, fallbackLat), hung: false, posts: false, behind: 0 })
+  /** an unfenced run's furniture stands behind the line: `depth` behind its back — and never inside the sim's envelope (hw + 1.5) */
+  const behindLine = (s: number, side: 1 | -1, m0: { lat: number; behind: number }, depth: number): number => {
+    const lat = m0.lat + side * (m0.behind + BEHIND_GAP + depth)
+    const min = track.halfWidthAt(s) + 1.5
+    return Math.abs(lat) < min ? side * min : lat
+  }
 
   // --- materials --------------------------------------------------------------------------------
   const plain = (color: number, roughness = 0.6, metalness = 0.2) => propMaterial(ctx.props, { color, roughness, metalness })
@@ -322,11 +347,16 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
     const r = runFor(post.s, side, post.lateral)
     const sb = snapToPost(r, post.s)
     const m0 = mountAt(r, sb, post.lateral - side * (acrossHalf + 0.6))
-    // on the track side of the fence post (0.045 half post + the board's half thickness), else on its own pole 0.3 m off the line
-    const lat = m0.lat - side * (m0.posts ? 0.045 + BOARD.t / 2 + 0.005 : 0.3)
+    // flat on the track side of the fence post (0.045 half post + the board's half thickness) —
+    // on a fenced run without drawn posts (the low tier) on its own pole 0.3 m off the line;
+    // on an unfenced run behind the line on its own pole
+    const lat = m0.hung ? m0.lat - side * (m0.posts ? 0.045 + BOARD.t / 2 + 0.005 : 0.3) : behindLine(sb, side, m0, BOARD.t / 2)
     const y = m0.base + BOARD.centreY
+    // the box is t × h × w in the frameAt frame (x = lateral, z = along s): the wide faces are
+    // BoxGeometry's ±x; the one looking at the track is −x for a post on the left (side +1,
+    // group 1) and +x for one on the right (group 0) — both read unmirrored from outside
     const geo = new THREE.BoxGeometry(BOARD.t, BOARD.h, BOARD.w)
-    numberUv(geo.attributes.uv as THREE.BufferAttribute, post.facing === '+s' ? 4 : 5, n)
+    numberUv(geo.attributes.uv as THREE.BufferAttribute, side > 0 ? 1 : 0, n)
     geo.applyMatrix4(frameAt(track, sb, lat, y, _t))
     numberGeos.push(geo)
     if (!m0.posts) pole(sb, lat, m0.base, BOARD.centreY + BOARD.h / 2, 0.02)
@@ -338,20 +368,13 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
     const r = runFor(ps, side, post.lateral)
     const sp = snapToPost(r, ps)
     const m0 = mountAt(r, sp, post.panel?.lateral ?? post.lateral - side * (acrossHalf + 1.2))
-    // the housing hangs on the track side of the post: its inner edge PANEL.arm off the line
-    const lat = m0.lat - side * (PANEL.arm + PANEL.w / 2)
+    // on a fenced run the housing hangs on the track side of the post (its inner edge
+    // PANEL.arm off the line); on an unfenced run it stands behind the line on its own pole
+    const lat = m0.hung ? m0.lat - side * (PANEL.arm + PANEL.w / 2) : behindLine(sp, side, m0, PANEL.w / 2)
     const y = m0.base + PANEL.centreY
     panelMatrices.push(frameAt(track, sp, lat, y, new THREE.Matrix4()))
     if (m0.posts) arm(sp, m0.lat, m0.lat - side * PANEL.arm, y)
     else pole(sp + 0.15, lat, m0.base, PANEL.centreY + PANEL.h / 2, 0.025)
-    // the control cabinet on the ground behind the post
-    const cabLat = m0.lat + side * (m0.back + CABINET.gap + CABINET.w / 2)
-    boxes.place(sp, cabLat, CABINET.l, CABINET.w, CABINET.h, cabinetMat, CABINET.lift, false, false)
-    for (const x of [-0.18, 0.18]) for (const z of [-0.2, 0.2]) {
-      const leg = new THREE.BoxGeometry(0.04, CABINET.lift, 0.04).translate(x, CABINET.lift / 2, z)
-      leg.applyMatrix4(frameAt(track, sp, cabLat, ground.standAt(sp, cabLat), _t))
-      poleGeos.push(leg)
-    }
     track.pointAt(sp, lat, _p, y)
     panelsOut.push({ s: sp, lateral: lat, x: _p.x, y: _p.y, z: _p.z })
   }
@@ -359,8 +382,8 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
     const r = runFor(s, side, fallbackLat)
     const sc = snapToPost(r, s)
     const m0 = mountAt(r, sc, fallbackLat)
-    // behind the fence line: the wall / tyres / rail posts plus a clearance
-    const lat = m0.lat + side * (m0.back + 0.25)
+    // behind the fence line: the wall / tyres / rail posts, the spare tyre row, plus a clearance
+    const lat = m0.lat + side * (m0.behind + 0.25)
     const base = ground.standAt(sc, lat)
     cctvMatrices.push(frameAt(track, sc, lat, base, new THREE.Matrix4()))
     track.pointAt(sc, lat, _p, base + CCTV.h)
@@ -368,22 +391,48 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
   }
 
   // --- the rows -------------------------------------------------------------------------------------
+  const footingGeos: THREE.BufferGeometry[] = []
   let cabins = 0, lows = 0, panels = 0, slots = 0
   for (const post of MARSHAL_POSTS) {
     const side: 1 | -1 = post.lateral >= 0 ? 1 : -1
     const s = track.wrap(post.s)
-    const base = ground.standAt(s, post.lateral)
     const yaw = side > 0 ? 0 : Math.PI
     const type = post.type ?? 'cabin'
     slots += marshalSlots(post).length
     if (type === 'cabin') {
       cabins++
       const L: 1 | -1 = (marshalStairSign(post) * side) as 1 | -1
+      // the ground under the four legs and the stair's foot, read in the WORLD under each foot
+      // (the prototype's frame is the road plane at the row's point, yawed: x = +lateral for a
+      // left-hand post, z = +s, a right-hand post turned half round) and expressed over that
+      // plane — the frame every part of the stand is placed in
+      const plane = frameAt(track, s, post.lateral, 0, new THREE.Matrix4()).multiply(_r.makeRotationY(yaw))
+      const planeY = new THREE.Vector3().setFromMatrixPosition(plane).y
+      const groundAt = (x: number, z: number) => {
+        _p.set(x, 0, z).applyMatrix4(plane)
+        return ground.standY(_p.x, _p.z) - planeY
+      }
+      const feet: [number, number][] = []
+      for (const x of [-(acrossHalf - 0.1), acrossHalf - 0.1]) for (const z of [-L * (half - 0.1), L * (half + S.deckS - 0.1)]) feet.push([x, z])
+      const stairFoot: [number, number] = [0, L * (half + S.deckS + S.stairLen)]
+      // the stand stands on its highest leg's ground; the lower legs get footings down to theirs
+      const base = Math.max(...feet.map(([x, z]) => groundAt(x, z)))
       const at = (dy: number, dx = 0, dz = 0): THREE.Matrix4 => {
-        const m = frameAt(track, s, post.lateral, base + dy, new THREE.Matrix4())
-        m.multiply(_r.makeRotationY(yaw))
+        const m = plane.clone()
+        m.elements[13] += base + dy
         if (dx || dz) m.multiply(_t.makeTranslation(dx, 0, dz))
         return m
+      }
+      const footing = (w: number, gap: number, d: number, x: number, z: number) => footingGeos.push(new THREE.BoxGeometry(w, gap, d).translate(x, -gap / 2, z).applyMatrix4(at(0)))
+      for (const [x, z] of feet) {
+        const gap = base - groundAt(x, z)
+        if (gap > FOOTING.leg) footing(0.1, gap, 0.1, x, z)
+      }
+      const stairGap = base - groundAt(...stairFoot)
+      if (stairGap > FOOTING.stair) {
+        // the stringers' feet on two posts and a landing block under the bottom step
+        for (const x of [-(S.stairW / 2 + 0.03), S.stairW / 2 + 0.03]) footing(0.05, stairGap, 0.05, x, stairFoot[1] - L * 0.05)
+        footing(FOOTING.landing[0], stairGap, FOOTING.landing[1], 0, stairFoot[1] - L * (FOOTING.landing[1] / 2))
       }
       protoOf(stands, L, (l) => ({ proto: standProto(l), placements: [], casts: true })).placements.push({ m: at(0) })
       const body = protoOf(bodies, L, (l) => {
@@ -396,7 +445,7 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
       extSet.placements.push({ m: at(0, -acrossHalf - 0.15, -L * 0.6) }, { m: at(0, -acrossHalf - 0.15, L * 0.6) }, { m: at(F, acrossHalf - 0.25, L * (half + S.deckS - 0.25)) })
     } else if (type === 'low') {
       lows++
-      const m = frameAt(track, s, post.lateral, base, new THREE.Matrix4())
+      const m = frameAt(track, s, post.lateral, ground.standAt(s, post.lateral), new THREE.Matrix4())
       lowSet.placements.push({ m })
     }
     if (post.secondary) continue
@@ -425,12 +474,21 @@ export function buildMarshalPosts(ctx: EnvBuildContext, _opts: { flagTime: { val
     mesh.receiveShadow = true
     group.add(mesh)
   }
+  if (footingGeos.length) {
+    const mesh = new THREE.Mesh(mergeGeometries(footingGeos, false)!, steel)
+    for (const g of footingGeos) g.dispose()
+    mesh.name = 'marshalFootings'
+    mesh.receiveShadow = true
+    group.add(mesh)
+  }
   if (panelMatrices.length) {
-    // the housing and its dark LED face towards −s (the approaching cars), one geometry with two groups
+    // the housing, its dark LED face towards −s (the approaching cars) and the beige control
+    // cabinet bolted to its back (+s, its top CABINET.drop under the housing's) — one geometry, three groups
     const housing = new THREE.BoxGeometry(PANEL.w, PANEL.h, PANEL.d).toNonIndexed()
     const face = new THREE.PlaneGeometry(PANEL.faceW, PANEL.faceH).rotateY(Math.PI).translate(0, 0, -PANEL.d / 2 - 0.003).toNonIndexed()
-    const geo = mergeGeometries([housing, face], true)!
-    const inst = new THREE.InstancedMesh(geo, [housingMat, ledMat], panelMatrices.length)
+    const cabinet = new THREE.BoxGeometry(CABINET.w, CABINET.h, CABINET.l).translate(0, PANEL.h / 2 - CABINET.drop - CABINET.h / 2, PANEL.d / 2 + CABINET.l / 2).toNonIndexed()
+    const geo = mergeGeometries([housing, face, cabinet], true)!
+    const inst = new THREE.InstancedMesh(geo, [housingMat, ledMat, cabinetMat], panelMatrices.length)
     panelMatrices.forEach((m, i) => inst.setMatrixAt(i, m))
     inst.instanceMatrix.needsUpdate = true
     inst.receiveShadow = true
@@ -531,10 +589,13 @@ export function marshalNumberAtlas(): THREE.Texture {
 }
 
 /**
- * Remap a board box's uv so face `face` (BoxGeometry groups: +x, −x, +y, −y, +z, −z) shows cell
- * `n` of the number atlas and every other face the blank cell; the board is 1.5 : 1 while the
- * cells are square, so the face reads the middle 60 % of its cell's height (the digits are
- * drawn at 50 % of the cell's height, centred — the crop keeps them whole, 0.67 m on the board).
+ * Remap a board box's uv so face `face` (BoxGeometry groups: 0 +x, 1 −x, +y, −y, +z, −z) shows
+ * cell `n` of the number atlas and every other face the blank cell. The numbered face is one of
+ * the two ±x faces — the board is `BoxGeometry(t, h, w)` in a frame whose x is the lateral
+ * axis, so those are its 1.2 × 0.8 m sides and the ±z faces only its 6 cm edges. The board is
+ * 1.5 : 1 while the cells are square, so the face reads the middle 60 % of its cell's height
+ * (the digits are drawn at 50 % of the cell's height, centred — the crop keeps them whole,
+ * 0.67 m on the board). Three's box faces read unmirrored from outside, so no u flip is needed.
  */
 function numberUv(uv: THREE.BufferAttribute, face: number, n: number) {
   const rect = (i: number) => {

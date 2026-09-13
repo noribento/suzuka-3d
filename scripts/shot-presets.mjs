@@ -57,9 +57,22 @@ export const PRESETS = [
   ['pit-exit-yard', [110, -22, 3], [165, -40, 3], 50],
   ['e-paddock', [5470, -20, 6], [5420, -70, 3], 50],
   ['sc-pocket', [138, -22, 2.5], [157, -30, 1.5], 50], // the FIA safety / medical cars wait in the pit-exit yard strip (I3-b: (154 / 160, −30)), not beside the T1 cap
-  ['marshal-post-t1', [390, -24, 2], [420, -16, 2], 40],
+  // the I4 review: 'marshal-post-t1' never framed post 1 (390, −31.4) and 'tv-b-tower' looked at
+  // the plan's (520, +70) while the row stands at (602, +88) — both now aim at the rows
+  ['marshal-post-t1', [360, -16, 2], [392, -31, 3], 40],
   ['post26', [4930, -14, 2], [4965, -26, 3], 40],
-  ['tv-b-tower', [480, 30, 4], [520, 70, 12], 45],
+  ['post26-eye', [4945, -8, 1.4], [4961, -24, 3], 45], // post 26 from the verge: the number board, the EM panel and the cabin at eye level
+  ['tv-b-tower', [540, 30, 4], [602, 88, 14], 45],
+  // I4-c details no preset framed (the I4 review): the Spoon inside wall from the track, the chicane
+  // sponges at eye level, the bridge fascia / deck rail, the T2 tricolour wall, the pit-entry
+  // sign, a gs-front photo window
+  ['spoon-inside-wall', [3560, 12, 3], [3640, 24, 2], 45],
+  ['chicane-sponges', [5215, -10, 1.6], [5235, -18, 1.2], 45],
+  ['bridge-fascia', [2250, -2, 2], [2321, 0, 6], 45],
+  ['bridge-rail', [4600, -4, 2], [4700, -7.5, 1.5], 45],
+  ['t2-tricolour', [560, -10, 2], [640, -17, 1.5], 45],
+  ['pit-entry-sign', [5370, -6, 1.6], [5400, -9.9, 1.5], 45],
+  ['gs-window', [5680, 8, 1.6], [5700, 14, 2], 45],
   ['hairpin-inside', [2640, -70, 10], [2700, -20, 4], 45],
   ['spoon-yard', [3500, 60, 10], [3650, 40, 3], 45],
   ['esses-inside', [1010, -70, 12], [1150, -30, 4], 45],

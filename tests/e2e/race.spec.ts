@@ -173,6 +173,8 @@ test.describe('Suzuka 3D broadcast', () => {
       const names: string[] = []
       for (const parent of [d.env.group, ff.group]) for (const o of parent.children) if (typeof o.name === 'string') names.push(o.name)
       const placed = d.env.group.userData.ops
+      const groupNames: string[] = []
+      d.env.group.traverse((o: any) => { if (typeof o.name === 'string' && o.name) groupNames.push(o.name) })
       return {
         ops: d.env.stats.ops,
         crowd: d.env.stats.crowd,
@@ -183,8 +185,17 @@ test.describe('Suzuka 3D broadcast', () => {
         names,
         placements: Array.isArray(placed) ? placed.length : -1,
         placementKinds: Array.isArray(placed) ? [...new Set(placed.map((p: any) => p.kind))].sort() : [],
+        // the trackside (plan I4): the marshal posts' and TV towers' stats, the lens rows the rig reads, the meshes
+        trackside: d.env.stats.trackside,
+        tvLenses: Array.isArray(d.env.group.userData.tvLenses) ? d.env.group.userData.tvLenses.length : -1,
+        groupNames,
       }
     })
+    // --- the trackside (I4): 32 posts / 16 towers in the stats, the 13 broadcast lenses published for the rig, the meshes drawn
+    expect(st.trackside).toMatchObject({ posts: 32, towers: 16 })
+    for (const k of ['cabins', 'lows', 'panels', 'slots']) expect(st.trackside[k], `stats.trackside.${k}`).toBeGreaterThan(0)
+    expect(st.tvLenses).toBe(13)
+    for (const name of ['marshalNumbers', 'emPanels', 'cctvPoles', 'cctvHeads', 'marshalFootings', 'towerFootings']) expect(st.groupNames, `missing ${name}`).toContain(name)
     // --- the people: ≈ 300 figures — every one has an impostor level; the near 3D level is added
     // on top on the high tier with the pack (mode 'baked'), so near3d is 0 or every figure
     expect(st.ops.figures).toBeGreaterThan(200)
