@@ -21,8 +21,8 @@
  *        with its roof, inside the ring, and paddock.ts's `paddockBuildings` no longer carries
  *        it; the road face carries the `aFresh` attribute (0 outside FRESH_ASPHALT, 1 in the
  *        middle of it), and the asphaltArea material is its own (not the lanes'); on the low
- *        tier the plan / meshes build times are PRINTED against the pre-I5-a numbers held in
- *        BASE_MS (report-only: the plan expected +1.5–2.5 s, this is what it is).
+ *        tier the plan / meshes build times are PRINTED against the numbers held in BASE_MS
+ *        (report-only; the I5-a rows had doubled them, the partition speed-up took them back).
  *  I5-c  the ponds and trees (`checkPondsTrees` below): the water planes of the `surface`
  *        BASINS rows, the dry basins' shore rings, reeds and puddles, the material
  *        combinations (the reed cards are the one new program), INFIELD_TREES planted by the
@@ -50,10 +50,12 @@ const spec = await import(path.join(ROOT, 'app/data/suzuka-facilities-spec.ts'))
 const groundMod = await import(path.join(ROOT, 'app/three/ground.ts'))
 
 /**
- * The plan / meshes build times before I5-a (Node, this machine, c0e4bc5 rows, measured 2026-09-13 with the I5-a rows spliced out): the smoke prints the
- * deltas as a fact, it does not fail on them — the browser's setupMs ceiling is perf-gate's.
+ * The plan / meshes build times after the partition speed-up (Node, this machine, medians of 3 on an idle box,
+ * measured 2026-09-13 on c8bd7e7 + the speed-up; before it the I5-a rows had taken them to 19.8 / 15.9 s (high)
+ * and 18.9 / 16.1 s (low), and before I5-a they were 8.7 / 7.9 s and 10.6 / 8.2 s): the smoke prints the deltas as
+ * a fact, it does not fail on them — the browser's setupMs ceiling is perf-gate's.
  */
-const BASE_MS = { high: { plan: 8709, meshes: 7860 }, low: { plan: 10571, meshes: 8200 } }
+const BASE_MS = { high: { plan: 4350, meshes: 10700 }, low: { plan: 4390, meshes: 10800 } }
 
 const inRing = (x, z, r) => { let inside = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const a = r[i], b = r[j]; if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside } return inside }
 const ringArea = (pts) => { let a2 = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a2 += p.x * q.z - q.x * p.z } return Math.abs(a2) / 2 }

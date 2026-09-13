@@ -40,6 +40,8 @@ export interface HeightField {
   yAt(s: number, lateral: number): number
   /** height at world (x, z), projected onto the road within `window` when given */
   y(x: number, z: number, window?: [number, number]): number
+  /** `y(x, z)` for a caller that already holds the point's crossover-aware projection (`plan.project(x, z)`): the same number, one projection fewer */
+  yProjected?(x: number, z: number, p: { s: number; lateral: number }): number
 }
 
 export type GroundMaterials = Partial<Record<OwnerKind, THREE.Material>>
@@ -105,6 +107,8 @@ export interface BuiltGround {
   decal: (quads: readonly DecalQuad[], rung: number | ((kind: OwnerKind) => number), layout: readonly { name: string; size: number }[]) => { geo: THREE.BufferGeometry | null; stats: DecalStats }
   stats: {
     vertices: number; triangles: number; cells: number; dropped: number; byKind: Record<string, number>; worldTris: number; stitchTris: number; buildMs: number
+    /** wall-clock ms per stage: cells, raster, stitch, boundary, world, normals, geometry */
+    timing: Record<string, number>
     /** build-time failures (an untriangulable world part): each is also a console.error */
     errors: string[]
     /** ring arcs the tracing could not close (a console.warn each; the census measures what stays bare) */
@@ -133,6 +137,18 @@ const _p = new THREE.Vector3()
 /** a stitch strip is extended over declared-capped stations only while its rails stay this close (m) */
 const MAX_STRIP_WIDTH = 15
 
+/**
+ * The pool's map keys are integers (a string key cost more than the lookup it served, and the
+ * 1 mm search below makes nine of them per vertex): the station key packs the station index and
+ * the lateral at 5 mm (|lateral| < 2,621 m), the XZ key the millimetre cell (|x|, |z| < 8,388 m —
+ * the far field's DEM extent is ±3.3 km); both stay under 2^53.
+ */
+const POOL_LAT_SPAN = 1048576
+const POOL_XZ_SPAN = 16777216
+/** an undirected edge of pool vertices as one integer key (pool indices stay under 2^26) */
+const EDGE_SPAN = 67108864
+const edgeKey = (u: number, v: number): number => (u < v ? u * EDGE_SPAN + v : v * EDGE_SPAN + u)
+
 /** vertex pool: one entry per (station, lateral), written once by the first (highest) owner */
 class Pool {
   x: number[] = []
@@ -140,27 +156,28 @@ class Pool {
   z: number[] = []
   s: number[] = []
   lat: number[] = []
-  private keys = new Map<string, number>()
+  private keys = new Map<number, number>()
   /** every vertex by its world XZ (1 mm): a world vertex landing on a station vertex reuses it */
-  private xz = new Map<string, number>()
+  private xz = new Map<number, number>()
   /** 5 mm: two columns within COLUMN_TIE of each other are one vertex, not a sliver cell */
-  key(i: number, lateral: number): string {
-    return `${i}|${Math.round(lateral * 200)}`
+  key(i: number, lateral: number): number {
+    return i * POOL_LAT_SPAN + (Math.round(lateral * 200) + POOL_LAT_SPAN / 2)
   }
   /** 1 mm: a refinement midpoint 4 mm from a 0.1 m contour vertex must NOT be folded onto it */
-  private xzKey(x: number, z: number): string {
-    return `${Math.round(x * 1e3)}|${Math.round(z * 1e3)}`
+  private xzKey(x: number, z: number): number {
+    return (Math.round(x * 1e3) + POOL_XZ_SPAN / 2) * POOL_XZ_SPAN + (Math.round(z * 1e3) + POOL_XZ_SPAN / 2)
   }
   /**
    * The vertex within 1 mm of world (x, z), if any: the exact key first, then the eight cells
    * around it — a world-part vertex and the station vertex it lands on can straddle a rounding
    * boundary of the 1 mm grid (0.04 mm apart, keys one cell apart), and two vertices there
-   * are a crack the seam guard (G9) sees at 0.1 mm (I5-a, the service road behind the C stand)
+   * are a crack the seam guard (G9) sees at 0.1 mm (I5-a, the service road behind the C stand).
+   * The cells are visited in one fixed order (dx, then dz) and the first vertex within 1 mm wins.
    */
   private nearXZ(x: number, z: number): number | undefined {
-    const kx = Math.round(x * 1e3), kz = Math.round(z * 1e3)
+    const kx = Math.round(x * 1e3) + POOL_XZ_SPAN / 2, kz = Math.round(z * 1e3) + POOL_XZ_SPAN / 2
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-      const idx = this.xz.get(`${kx + dx}|${kz + dz}`)
+      const idx = this.xz.get((kx + dx) * POOL_XZ_SPAN + (kz + dz))
       if (idx !== undefined && Math.hypot(this.x[idx]! - x, this.z[idx]! - z) <= 1e-3) return idx
     }
     return undefined
@@ -205,6 +222,10 @@ interface Cell {
 
 export function buildGroundMeshes(plan: GroundPlan, field: HeightField, materials: GroundMaterials): BuiltGround {
   const t0 = performance.now()
+  /** wall-clock per stage (diagnostics: `stats.timing`) */
+  const timing: Record<string, number> = {}
+  let tLast = t0
+  const lap = (name: string) => { const now = performance.now(); timing[name] = Math.round((timing[name] ?? 0) + now - tLast); tLast = now }
   const track = plan.track
   const L = track.length
   const m = plan.stations.length
@@ -255,6 +276,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     }
   }
 
+  lap('cells')
   // --- vertices, highest owner first ---------------------------------------------------------------
   cells.sort((c, d) => (ownerBeats(c.owner, d.owner) ? -1 : ownerBeats(d.owner, c.owner) ? 1 : 0))
   const heightOf = (cell: Cell, stationIdx: number, lateral: number, col: Column | null): number => {
@@ -315,16 +337,18 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   const DEVIATION = 0.04
   const MIN_EDGE = 1
   const OWNER_EDGE = 0.5
-  const refine = <T extends { p: number; q: number; r: number; kind: OwnerKind }>(tris: T[], maxEdge: number, fixed: Set<string>, yOf: (x: number, z: number) => number, ownerAt: ((x: number, z: number) => Owner) | null, make: (p: number, q: number, r: number, kind: OwnerKind) => T): T[] => {
-    const edgeKey = (u: number, v: number) => (u < v ? `${u},${v}` : `${v},${u}`)
-    const mid = new Map<string, number>()
+  /** the field at a world point: on the projection the caller holds when the field offers it (the same number, one projection fewer) */
+  const fieldY = (x: number, z: number, pr: { s: number; lateral: number }): number => (field.yProjected ? field.yProjected(x, z, pr) : field.y(x, z))
+  const refine = <T extends { p: number; q: number; r: number; kind: OwnerKind }>(tris: T[], maxEdge: number, fixed: Set<number>, yOf: (x: number, z: number) => number, ownerAt: ((x: number, z: number) => Owner) | null, make: (p: number, q: number, r: number, kind: OwnerKind) => T): T[] => {
+    const mid = new Map<number, number>()
     const midpoint = (u: number, v: number): number => {
       const key = edgeKey(u, v)
       let k = mid.get(key)
       if (k === undefined) {
         const x = (pool.x[u]! + pool.x[v]!) / 2, z = (pool.z[u]! + pool.z[v]!) / 2
         const pr = plan.project(x, z)
-        k = pool.addWorld(x, yOf(x, z), z, pr.s, pr.lateral)
+        // `yOf` is the field at (x, z) — the same projection again; read it on the one we have
+        k = pool.addWorld(x, fieldY(x, z, pr), z, pr.s, pr.lateral)
         mid.set(key, k)
       }
       return k
@@ -405,6 +429,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     return work
   }
 
+  lap('raster')
   // --- stitch strips across the bisectors ----------------------------------------------------------
   // Two facing stretches both stop BISECTOR_MARGIN short of their bisector; the strip between
   // their extent polylines is zipped (a two-polyline triangulation, no earcut, no refinement) so
@@ -417,6 +442,56 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   let stitchTris = 0
   /** every stitch triangle (pool indices), for the covered-ground test */
   const stitchTriList: number[] = []
+  /**
+   * The index into `list` (pool vertices) of the vertex nearest to (x, z) — the lowest index at
+   * the minimum distance, as a linear scan with a strict `<` finds it. A grid of RAIL_CELL m
+   * cells is walked in rings around the point's cell; a vertex in ring R lies at least
+   * (R − 1) × RAIL_CELL away, so once the best distance is under that bound no further ring can
+   * hold a vertex at the minimum, and among the visited ones the (distance, index) order picks
+   * the same vertex whatever the visiting order.
+   */
+  const RAIL_CELL = 16
+  const railNearest = (list: number[]): ((x: number, z: number) => number) => {
+    if (!list.length) return () => 0
+    let x0 = Infinity, z0 = Infinity
+    for (const v of list) { if (pool.x[v]! < x0) x0 = pool.x[v]!; if (pool.z[v]! < z0) z0 = pool.z[v]! }
+    const cells = new Map<number, number[]>()
+    const keyOf = (ix: number, iz: number) => (ix + 32768) * 65536 + (iz + 32768)
+    let ix1 = 0, iz1 = 0
+    for (let k = 0; k < list.length; k++) {
+      const v = list[k]!
+      const ix = Math.floor((pool.x[v]! - x0) / RAIL_CELL), iz = Math.floor((pool.z[v]! - z0) / RAIL_CELL)
+      if (ix > ix1) ix1 = ix
+      if (iz > iz1) iz1 = iz
+      const key = keyOf(ix, iz)
+      let arr = cells.get(key)
+      if (!arr) { arr = []; cells.set(key, arr) }
+      arr.push(k)
+    }
+    return (x: number, z: number): number => {
+      const cx = Math.floor((x - x0) / RAIL_CELL), cz = Math.floor((z - z0) / RAIL_CELL)
+      let best = -1, bd = Infinity
+      const visitCell = (ix: number, iz: number) => {
+        if (ix < 0 || iz < 0 || ix > ix1 || iz > iz1) return
+        const arr = cells.get(keyOf(ix, iz))
+        if (!arr) return
+        for (const k of arr) {
+          const v = list[k]!
+          const dd = Math.hypot(pool.x[v]! - x, pool.z[v]! - z)
+          if (dd < bd || (dd === bd && k < best)) { bd = dd; best = k }
+        }
+      }
+      const maxR = Math.max(cx, ix1 - cx, cz, iz1 - cz) + 1
+      for (let R = 0; R <= maxR; R++) {
+        // every vertex not yet visited is at least (R − 1) cells away: nothing left can tie
+        if (best >= 0 && (R - 1) * RAIL_CELL > bd * (1 + 1e-9) + 1e-9) break
+        if (R === 0) { visitCell(cx, cz); continue }
+        for (let ix = cx - R; ix <= cx + R; ix++) { visitCell(ix, cz - R); visitCell(ix, cz + R) }
+        for (let iz = cz - R + 1; iz <= cz + R - 1; iz++) { visitCell(cx - R, iz); visitCell(cx + R, iz) }
+      }
+      return best < 0 ? 0 : best
+    }
+  }
   interface Strip { sideA: Side; a: number[]; aSt: number[]; sideB: Side; b: number[]; bSt: number[]; ends: [number[], number[]] }
   const strips: Strip[] = []
   const extentVertex = (i: number, side: Side): number | undefined => pool.get(i, side * (plan.hw[i]! + plan.sides[side].W[i]!))
@@ -527,14 +602,15 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       // wedge-shaped strip has its mouth ends far apart, so "the end nearest a[0]" picked the apex)
       if (d(a[0]!, b[0]!) + d(a[a.length - 1]!, b[b.length - 1]!) > d(a[0]!, b[b.length - 1]!) + d(a[a.length - 1]!, b[0]!)) { b.reverse(); bSt.reverse() }
 
-      const outerA = (k: number) => plan.ownerAtSL(plan.stations[k]!, A.side, plan.sides[A.side].W[k]! - 0.01, true)
-      const outerB = (k: number) => plan.ownerAtSL(plan.stations[k]!, B.side, plan.sides[B.side].W[k]! - 0.01, true)
+      // the outer owners at a run's stations, once per station (pure in k)
+      const outerMemoA = new Map<number, Owner>(), outerMemoB = new Map<number, Owner>()
+      const outerA = (k: number): Owner => { let o = outerMemoA.get(k); if (!o) { o = plan.ownerAtSL(plan.stations[k]!, A.side, plan.sides[A.side].W[k]! - 0.01, true); outerMemoA.set(k, o) } return o }
+      const outerB = (k: number): Owner => { let o = outerMemoB.get(k); if (!o) { o = plan.ownerAtSL(plan.stations[k]!, B.side, plan.sides[B.side].W[k]! - 0.01, true); outerMemoB.set(k, o) } return o }
       let area = 0
       /** the strip's triangles before refinement: [p, q, r, ownerKind] */
       const zipTris: { p: number; q: number; r: number; kind: OwnerKind }[] = []
       /** an edge along one of the two extent polylines is a raster edge and is never split */
-      const railEdge = new Set<string>()
-      const edgeKey = (u: number, v: number) => (u < v ? `${u},${v}` : `${v},${u}`)
+      const railEdge = new Set<number>()
       for (let k = 0; k + 1 < a.length; k++) railEdge.add(edgeKey(a[k]!, a[k + 1]!))
       for (let k = 0; k + 1 < b.length; k++) railEdge.add(edgeKey(b[k]!, b[k + 1]!))
       /**
@@ -595,13 +671,14 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       // chords the field; split those (never the rail edges, which the raster cells share) with
       // midpoints on the field, then again where the field or the owner demands it. The owner of
       // a strip triangle beyond every ring is the higher of the two outer owners it joins.
+      // the nearest rail vertex of each run: the first index at the minimum distance, found
+      // through a grid over the run's vertices (exact: every vertex that could be at the minimum
+      // is visited, and ties fall to the lower index as the linear scan's strict `<` did)
+      const nearestA = railNearest(a), nearestB = railNearest(b)
       const fallback = (x: number, z: number): Owner => {
         const o = plan.ownerAt(x, z)
         if (o.kind !== 'terrain') return o
-        let ka = 0, kb = 0, da = Infinity, db = Infinity
-        for (let k = 0; k < a.length; k++) { const dd = Math.hypot(pool.x[a[k]!]! - x, pool.z[a[k]!]! - z); if (dd < da) { da = dd; ka = k } }
-        for (let k = 0; k < b.length; k++) { const dd = Math.hypot(pool.x[b[k]!]! - x, pool.z[b[k]!]! - z); if (dd < db) { db = dd; kb = k } }
-        const oa = outerA(aSt[ka]!), ob = outerB(bSt[kb]!)
+        const oa = outerA(aSt[nearestA(x, z)]!), ob = outerB(bSt[nearestB(x, z)]!)
         return ownerBeats(oa, ob) ? oa : ob
       }
       const work = refine(zipTris, WORLD_STEP, railEdge, (x, z) => field.y(x, z), fallback, (p, q, r, kind) => ({ p, q, r, kind }))
@@ -630,6 +707,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     }
   }
 
+  lap('stitch')
   // --- the covered ground: the rasters and the stitch strips ----------------------------------------
   const inRaster = (x: number, z: number): { inside: boolean; s: number; side: Side; off: number; W: number } => {
     const p = plan.project(x, z)
@@ -709,8 +787,6 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
   /** loops of U as pool indices, oriented with the uncovered ground on the left */
   const uLoops: number[][] = []
-  /** for every directed U edge p→q of a loop: which loop and the edge's position in it */
-  const uEdge = new Map<string, { loop: number; k: number }>()
   let uBad = 0
   {
     const seen = new Set<number>()
@@ -755,9 +831,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       }
       if (reverse > keep) loop.reverse()
       else if (reverse === keep) uBad++
-      const id = uLoops.length
       uLoops.push(loop)
-      for (let k = 0; k < loop.length; k++) uEdge.set(`${loop[k]}|${loop[(k + 1) % loop.length]}`, { loop: id, k })
     }
     if (uBad) console.warn(`[ground-mesh] union boundary: ${uBad} vertex(es) or loop(s) with a degree other than 2 were skipped`)
   }
@@ -767,7 +841,6 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     const loop = uLoops[li]!
     for (let k = 0; k < loop.length; k++) {
       const p = loop[k]!, q = loop[(k + 1) % loop.length]!
-      uEdge.set(`${p}|${q}`, { loop: li, k })
       const i0 = Math.floor(Math.min(pool.x[p]!, pool.x[q]!) / CELL), i1 = Math.floor(Math.max(pool.x[p]!, pool.x[q]!) / CELL)
       const j0 = Math.floor(Math.min(pool.z[p]!, pool.z[q]!) / CELL), j1 = Math.floor(Math.max(pool.z[p]!, pool.z[q]!) / CELL)
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const kk = cellKey(i, j); let arr = uCells.get(kk); if (!arr) { arr = []; uCells.set(kk, arr) } arr.push([li, k]) }
@@ -785,7 +858,6 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   for (const loop of uLoops) for (let k = 0; k < loop.length; k++) uNext.set(loop[k]!, loop[(k + 1) % loop.length]!)
   const rebuildLoops = () => {
     uLoops.length = 0
-    uEdge.clear()
     uCells.clear()
     const seen = new Set<number>()
     for (const v0 of uNext.keys()) {
@@ -832,6 +904,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     return best
   }
 
+  lap('boundary')
   // --- world parts: what the rings cover beyond the covered ground ----------------------------------
   let worldTris = 0
   let droppedWorldArea = 0
@@ -966,8 +1039,8 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       })
       // the contour's own edges are shared with the raster (extent edges) or are the ring's outline:
       // never split; the interior is refined further where the field demands it (a basin bank)
-      const fixedEdges = new Set<string>()
-      for (let i = 0; i < contour.length; i++) { const u = idx[i]!, v = idx[(i + 1) % contour.length]!; fixedEdges.add(u < v ? `${u},${v}` : `${v},${u}`) }
+      const fixedEdges = new Set<number>()
+      for (let i = 0; i < contour.length; i++) fixedEdges.add(edgeKey(idx[i]!, idx[(i + 1) % contour.length]!))
       const before = tris.map(([a, b, c]) => ({ p: idx[a]!, q: idx[b]!, r: idx[c]!, kind: owner.kind }))
       const poolTris = refine(before, Infinity, fixedEdges, (x, z) => field.y(x, z), null, (p, q, r, kind) => ({ p, q, r, kind }))
       if ((globalThis as unknown as { GM_DEBUG?: string }).GM_DEBUG === owner.name) {
@@ -1404,6 +1477,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     }
   }
 
+  lap('world')
   // --- normals once over the union of all faces ----------------------------------------------------
   const N = pool.x.length
   const nx = new Float64Array(N), ny = new Float64Array(N), nz = new Float64Array(N)
@@ -1427,6 +1501,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
     normal[i * 3 + 2] = nz[i]! / l
   }
 
+  lap('normals')
   // --- one mesh per kind: bit-identical copies of the shared vertices, its own uv ------------------
   const group = new THREE.Group()
   group.name = 'ground'
@@ -1520,7 +1595,8 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   if (droppedWorldArea > 0) console.info(`[ground-mesh] ${droppedWorldArea.toFixed(0)} m² of world-part triangles dropped as covered ground or nested rings`)
   const stripStats = strips.map((st) => ({ sideA: st.sideA, aFrom: plan.stations[st.aSt[0]!]!, aTo: plan.stations[st.aSt[st.aSt.length - 1]!]!, sideB: st.sideB, bFrom: plan.stations[Math.min(st.bSt[0]!, st.bSt[st.bSt.length - 1]!)]!, bTo: plan.stations[Math.max(st.bSt[0]!, st.bSt[st.bSt.length - 1]!)]! }))
   const index = new FaceIndex(faces)
-  return { group, faces, yAt: (x, z) => index.yAt(x, z), decal: (quads, rung, layout) => index.decal(quads, rung, layout), stats: { vertices: N, triangles, cells: cells.length, dropped, byKind, worldTris, stitchTris, buildMs: performance.now() - t0, errors, uncoveredArcs, strips: stripStats, boundary: { loops: uLoops.map((l) => l.length), skipped: uBad } } }
+  lap('geometry')
+  return { group, faces, yAt: (x, z) => index.yAt(x, z), decal: (quads, rung, layout) => index.decal(quads, rung, layout), stats: { vertices: N, triangles, cells: cells.length, dropped, byKind, worldTris, stitchTris, buildMs: performance.now() - t0, timing, errors, uncoveredArcs, strips: stripStats, boundary: { loops: uLoops.map((l) => l.length), skipped: uBad } } }
 }
 
 /**

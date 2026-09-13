@@ -21,6 +21,13 @@ export interface GroundField {
   yAt(s: number, lateral: number): number
   /** height at world (x, z), projected onto the road within `window` when given, else crossover-aware nearest */
   y(x: number, z: number, window?: [number, number]): number
+  /**
+   * `y(x, z)` for a caller that already holds the point's crossover-aware projection
+   * (`projectGlobal` / `plan.project(x, z)` without a window): the same arithmetic on the same
+   * projection, so the same number — the mesh builder's refinement projects every midpoint for
+   * its (s, lateral) anyway and reads the field on that instead of projecting twice.
+   */
+  yProjected(x: number, z: number, p: { s: number; lateral: number }): number
   /** the field's terrain term alone (no strip rule), for faces far from any road */
   terrainAt(x: number, z: number): number
 }
@@ -45,8 +52,7 @@ export function makeField(track: Track, terrain: Terrain): GroundField {
     if (off >= BLEND_TO) return t
     return strip + (t - strip) * smoothstep((off - FLAT_STRIP) / (BLEND_TO - FLAT_STRIP))
   }
-  const y = (x: number, z: number, window?: [number, number]): number => {
-    const p = window ? track.nearestOnRange(x, z, window[0], window[1], 60) : projectGlobal(track, x, z)
+  const yProjected = (x: number, z: number, p: { s: number; lateral: number }): number => {
     const hw = track.halfWidthAt(p.s)
     const off = Math.abs(p.lateral) - hw
     if (off >= BLEND_TO) return terrain.heightAt(x, z) + RUNOFF_LIFT
@@ -58,5 +64,6 @@ export function makeField(track: Track, terrain: Terrain): GroundField {
     const t = terrain.heightAt(x, z) + RUNOFF_LIFT
     return strip + (t - strip) * smoothstep((off - FLAT_STRIP) / (BLEND_TO - FLAT_STRIP))
   }
-  return { yAt, y, terrainAt: (x, z) => terrain.heightAt(x, z) + RUNOFF_LIFT }
+  const y = (x: number, z: number, window?: [number, number]): number => yProjected(x, z, window ? track.nearestOnRange(x, z, window[0], window[1], 60) : projectGlobal(track, x, z))
+  return { yAt, y, yProjected, terrainAt: (x, z) => terrain.heightAt(x, z) + RUNOFF_LIFT }
 }

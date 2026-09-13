@@ -205,6 +205,22 @@ function smoothstep(t: number): number {
   return t * t * (3 - 2 * t)
 }
 
+/**
+ * `x.toFixed(d)` as an integer (x × 10^d rounded the way toFixed rounds), for the memo keys
+ * below: the keys used to be strings built with toFixed, which cost more than the lookups they
+ * saved (≈ 0.7 µs a key, 2 M keys per evaluation of the columns). The fast path rounds the
+ * product; toFixed rounds the EXACT value, and the two can only differ when x × 10^d is within
+ * the product's rounding error (≤ 1e-9 here) of a half — that case, and the negatives toFixed
+ * rounds away from zero, go through toFixed itself, so the key is identical either way.
+ */
+function fixedKey(x: number, digits: 2 | 3): number {
+  const scale = digits === 3 ? 1000 : 100
+  const y = x * scale
+  const r = Math.round(y)
+  if (y >= 0 && Math.abs(y - r) < 0.4999999) return r
+  return Math.round(Number(x.toFixed(digits)) * scale)
+}
+
 // ---------------------------------------------------------------- run-off bands (RUNOFF_ZONES)
 
 export interface RunoffLayout {
@@ -528,11 +544,89 @@ export function inRing(x: number, z: number, ring: readonly Pt[]): boolean {
   return inside
 }
 
+/**
+ * A ring's edges bucketed by z band, so a point test walks the few edges whose z range holds the
+ * point's z instead of the whole loop (the infield's service-road ring has 1,534 vertices and a
+ * 700 × 520 m box: every point inside the fences walked it). Built lazily, once per loop, and
+ * held off the ring object so the same loop gets the same index however it is reached. The test
+ * itself is `inRing`'s: the same edges (those straddling z — every other edge fails the parity
+ * test whatever the band says), the same `a = ring[i], b = ring[i − 1]` operands and the same
+ * expression, so the parity is identical bit for bit; only the edges that could never toggle it
+ * are not visited.
+ */
+interface RingIndex {
+  z0: number
+  z1: number
+  /** band height (m) */
+  h: number
+  /** per band: the edge indices i (edge ring[i − 1] → ring[i]) whose z range meets the band */
+  bands: Int32Array[]
+  /** XZ boxes of RING_CHUNK consecutive edges (edges i in [c·RING_CHUNK, (c + 1)·RING_CHUNK)), for the line tests */
+  chunks: Float64Array
+}
+/** edges per chunk box of a ring index */
+const RING_CHUNK = 16
+/**
+ * Margin (m) on a chunk's side-of-line test: a chunk is skipped only when its whole box lies
+ * further than this from the line, so an edge whose per-vertex test could round the other way
+ * (|f| ~ 1e-12 at these magnitudes) is always visited.
+ */
+const RING_CHUNK_EPS = 1e-6
+const ringIndexes = new WeakMap<readonly Pt[], RingIndex | null>()
+function ringIndexOf(ring: readonly Pt[]): RingIndex | null {
+  let idx = ringIndexes.get(ring)
+  if (idx !== undefined) return idx
+  const n = ring.length
+  if (n < 64) { ringIndexes.set(ring, null); return null }
+  let z0 = Infinity, z1 = -Infinity
+  for (const p of ring) { if (p.z < z0) z0 = p.z; if (p.z > z1) z1 = p.z }
+  const nb = Math.max(1, Math.min(4096, Math.ceil(n / 8)))
+  const h = Math.max((z1 - z0) / nb, 1e-6)
+  const lists: number[][] = Array.from({ length: nb }, () => [])
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const a = ring[i]!, b = ring[j]!
+    const lo = Math.min(a.z, b.z), hi = Math.max(a.z, b.z)
+    const k0 = Math.max(0, Math.min(nb - 1, Math.floor((lo - z0) / h))), k1 = Math.max(0, Math.min(nb - 1, Math.floor((hi - z0) / h)))
+    for (let k = k0; k <= k1; k++) lists[k]!.push(i)
+  }
+  const nc = Math.ceil(n / RING_CHUNK)
+  const chunks = new Float64Array(nc * 4)
+  for (let c = 0; c < nc; c++) {
+    let x0 = Infinity, x1 = -Infinity, cz0 = Infinity, cz1 = -Infinity
+    // edge i spans ring[i − 1] and ring[i]: the box holds both ends of every edge of the chunk
+    for (let i = c * RING_CHUNK; i < Math.min(n, (c + 1) * RING_CHUNK); i++) {
+      for (const p of [ring[i]!, ring[(i - 1 + n) % n]!]) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.z < cz0) cz0 = p.z; if (p.z > cz1) cz1 = p.z }
+    }
+    chunks[c * 4] = x0; chunks[c * 4 + 1] = x1; chunks[c * 4 + 2] = cz0; chunks[c * 4 + 3] = cz1
+  }
+  idx = { z0, z1, h, bands: lists.map((l) => Int32Array.from(l)), chunks }
+  ringIndexes.set(ring, idx)
+  return idx
+}
+function inRingIndexed(x: number, z: number, ring: readonly Pt[]): boolean {
+  const idx = ringIndexOf(ring)
+  if (!idx) return inRing(x, z, ring)
+  // outside the loop's z range no edge straddles z (the parity test fails on every edge); at
+  // the range's ends the band index is clamped, so an edge reaching the extreme z is still seen
+  if (z < idx.z0 || z > idx.z1) return false
+  const nb = idx.bands.length
+  const k = Math.max(0, Math.min(nb - 1, Math.floor((z - idx.z0) / idx.h)))
+  const band = idx.bands[k]!
+  const n = ring.length
+  let inside = false
+  for (let e = 0; e < band.length; e++) {
+    const i = band[e]!
+    const a = ring[i]!, b = ring[(i - 1 + n) % n]!
+    if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+  }
+  return inside
+}
+
 export function inWorldRing(x: number, z: number, r: WorldRing): boolean {
   const b = r.box
   if (x < b[0] || x > b[1] || z < b[2] || z > b[3]) return false
-  if (!inRing(x, z, r.outer)) return false
-  for (const h of r.holes) if (inRing(x, z, h)) return false
+  if (!inRingIndexed(x, z, r.outer)) return false
+  for (const h of r.holes) if (inRingIndexed(x, z, h)) return false
   return true
 }
 
@@ -1094,15 +1188,25 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   let drawnStations: Float64Array | null = null
   let drawnW: { 1: Float64Array; '-1': Float64Array } | null = null
   const _e0 = new THREE.Vector3(), _e1 = new THREE.Vector3(), _o = new THREE.Vector3()
+  /** the drawn extent per exact (s, side) once the stations are final — the mesh asks once per cell, ~50 cells a row */
+  const drawnMemo = { 1: new Map<number, number>(), '-1': new Map<number, number>() }
   const extentDrawn = (s: number, side: Side): number => {
     if (!drawnStations || !drawnW) return extent(s, side)
-    const st = drawnStations
+    const memo = drawnMemo[side]
+    const hit = memo.get(s)
+    if (hit !== undefined) return hit
+    const v = extentDrawnAt(s, side)
+    memo.set(s, v)
+    return v
+  }
+  const extentDrawnAt = (s: number, side: Side): number => {
+    const st = drawnStations!, dW = drawnW!
     const m = st.length
     const sw = track.wrap(s)
     const j = indexAtOrAfter(st, sw)
     const i = (j - 1 + m) % m
     const si = st[i]!, sj = st[j]!
-    const Wi = drawnW[side][i]!, Wj = drawnW[side][j]!
+    const Wi = dW[side][i]!, Wj = dW[side][j]!
     if (Math.abs(Wi - Wj) < 0.02) return Wi + (Wj - Wi) * 0.5
     track.pointAt(si, side * (track.halfWidthAt(si) + Wi), _e0, 0)
     track.pointAt(sj, side * (track.halfWidthAt(sj) + Wj), _e1, 0)
@@ -1303,6 +1407,14 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   // --- owners (used by the columns to decide which of them are real boundaries) -------------------
   const hwOf = (s: number) => track.halfWidthAt(s)
   const pitSpanOf = pitLaneSpan(track, pit)
+  /** the kerb at the exact (s, side) — pure in both, asked ~200 times per station by the columns and ~50 times per row by the mesh */
+  const kerbExact = { 1: new Map<number, { width: number; taper: number; spread: number }>(), '-1': new Map<number, { width: number; taper: number; spread: number }>() }
+  const kerbAtExact = (s: number, side: Side) => {
+    const memo = kerbExact[side]
+    let k = memo.get(s)
+    if (!k) { k = kerbAt(kerbs, track, s, side); memo.set(s, k) }
+    return k
+  }
   const ownerAtSL = (s: number, side: Side, off: number, inRaster = false, at?: { x: number; z: number }): Owner => {
     if (off < 0) return ROAD
     const hw = hwOf(s)
@@ -1311,10 +1423,13 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       if (at) _v.set(at.x, 0, at.z)
       else track.pointAt(s, side * (hw + off), _v, 0)
       let best: Owner | null = null
-      for (const r of rings) if (inWorldRing(_v.x, _v.z, r.ring) && (!best || ownerBeats(r.owner, best))) best = r.owner
+      // the rings are in precedence order: once one holds the point, none below it can win, and
+      // the (cheap) precedence test goes first so their point tests are not run at all
+      for (const r of rings) if ((!best || ownerBeats(r.owner, best)) && inWorldRing(_v.x, _v.z, r.ring)) best = r.owner
       return best ?? TERRAIN
     }
-    if (off < kerbWidthTapered(kerbs, track, s, side)) return KERB
+    const kb = kerbAtExact(s, side)
+    if (off < kb.width * kb.spread) return KERB
     if (off < deckShoulderAt(track, s)) return DECK
     if (side < 0) {
       const [pin, pout, aout] = pitSpanOf(s, hw)
@@ -1330,7 +1445,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     if (at) _v.set(at.x, 0, at.z)
     else track.pointAt(s, side * (hw + off), _v, 0)
     let best: Owner | null = null
-    for (const r of rings) if (inWorldRing(_v.x, _v.z, r.ring) && (!best || ownerBeats(r.owner, best))) best = r.owner
+    for (const r of rings) if ((!best || ownerBeats(r.owner, best)) && inWorldRing(_v.x, _v.z, r.ring)) best = r.owner
     if (best) return best
     const g = layout.gravel(s, side)
     if (g && hw + off >= g[0] && hw + off < g[1]) return GRAVEL_BAND
@@ -1341,18 +1456,23 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   // --- columns per side ---------------------------------------------------------------------------
   // The station set grows pass by pass, but every primitive below is a function of (side, s)
   // alone, so it is cached across passes: a re-evaluation only pays for the stations it gained.
-  const hitCache = new Map<string, [number, number][]>()
+  // The memo keys are integers: s at 1 mm and a side bit (s < 5,808 m → under 2^24), the offset
+  // at 1 mm (under 2^18), the extent at 1 cm (under 2^14), the ring's index (under 2^8) — the
+  // same quantisation the string keys had (fixedKey), packed so every key stays a safe integer.
+  const stationKey = (s: number, side: Side): number => fixedKey(s, 3) * 2 + (side > 0 ? 1 : 0)
+  const hitCache = new Map<number, [number, number][]>()
   const ringIndex = new Map<WorldRing, number>(rings.map((r, i) => [r.ring, i]))
   const rayHit = (s: number, side: Side, r: WorldRing, W: number): [number, number][] => {
-    const key = `${ringIndex.get(r) ?? -1}|${side}|${s.toFixed(3)}|${W.toFixed(2)}`
+    const key = ((ringIndex.get(r) ?? 255) * 16777216 + stationKey(s, side)) * 16384 + fixedKey(W, 2)
     let h = hitCache.get(key)
     if (!h) { h = rayHitRing(track, s, side, r, W); hitCache.set(key, h) }
     return h
   }
-  const realCache = new Map<string, number>()
-  const kerbCache = new Map<string, { width: number; taper: number; spread: number }>()
+  /** per station key: the real verdict per offset key (mm) */
+  const realCache = new Map<number, Map<number, number>>()
+  const kerbCache = new Map<number, { width: number; taper: number; spread: number }>()
   const kerbAtCached = (s: number, side: Side) => {
-    const key = `${side}|${s.toFixed(3)}`
+    const key = stationKey(s, side)
     let k = kerbCache.get(key)
     if (!k) { k = kerbAt(kerbs, track, s, side); kerbCache.set(key, k) }
     return k
@@ -1379,12 +1499,13 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       return c
     }
     col('edge', 'edge', null, () => 0)
-    // kerb profile columns (collapsed at 0 where there is no kerb)
-    const kc = (s: number) => { const k = kerbAtCached(s, side); return kerbColumns(k.width, k.spread) }
-    col('kerb.ramp', 'kerb', null, (_i, s) => kc(s)[0])
-    col('kerb.crown', 'kerb', null, (_i, s) => kc(s)[1])
-    col('kerb.back', 'kerb', null, (_i, s) => kc(s)[2])
-    col('kerb.out', 'kerb', null, (_i, s) => kc(s)[3])
+    // kerb profile columns (collapsed at 0 where there is no kerb): the profile once per station
+    const kcs: [number, number, number, number][] = []
+    for (let i = 0; i < m; i++) { const k = kerbAtCached(st[i]!, side); kcs.push(kerbColumns(k.width, k.spread)) }
+    col('kerb.ramp', 'kerb', null, (i) => kcs[i]![0])
+    col('kerb.crown', 'kerb', null, (i) => kcs[i]![1])
+    col('kerb.back', 'kerb', null, (i) => kcs[i]![2])
+    col('kerb.out', 'kerb', null, (i) => kcs[i]![3])
     // the crossover deck shoulder
     col('deck.out', 'deck', null, (_i, s) => deckShoulderAt(track, s))
     // the road plane's crossfall breaks at |lateral| = ROLL_CAP (track.ts rollLift: the full
@@ -1404,18 +1525,23 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     col('band.gravel.out', 'band', null, (i, s) => { const g = layout.gravel(s, side); return (g ? g[1] : layout.gravelInner(s, side)) - hwA[i]! })
     // rings: every station whose ray can reach the ring's box is a candidate — a ring lives on
     // its own stretch of road, but the figure-8 puts other stretches within its reach (the paddock
-    // behind the pit building is 125 m from the straight and beside NIPPO's outside)
+    // behind the pit building is 125 m from the straight and beside NIPPO's outside). The ray's
+    // box (its road-edge and extent points) is the station's, computed once for all the rings.
+    const rayX0 = new Float64Array(m), rayX1 = new Float64Array(m), rayZ0 = new Float64Array(m), rayZ1 = new Float64Array(m)
+    for (let i = 0; i < m; i++) {
+      const s = st[i]!
+      const hw = hwA[i]!
+      track.pointAt(s, side * hw, _v, 0)
+      const x0 = _v.x, z0 = _v.z
+      track.pointAt(s, side * (hw + W[i]!), _v, 0)
+      const x1 = _v.x, z1 = _v.z
+      rayX0[i] = Math.min(x0, x1); rayX1[i] = Math.max(x0, x1); rayZ0[i] = Math.min(z0, z1); rayZ1[i] = Math.max(z0, z1)
+    }
     for (const r of rings) {
       const b = r.ring.box
       const order: number[] = []
       for (let i = 0; i < m; i++) {
-        const s = st[i]!
-        const hw = hwA[i]!
-        track.pointAt(s, side * hw, _v, 0)
-        const x0 = _v.x, z0 = _v.z
-        track.pointAt(s, side * (hw + W[i]!), _v, 0)
-        const x1 = _v.x, z1 = _v.z
-        if (Math.max(x0, x1) < b[0] || Math.min(x0, x1) > b[1] || Math.max(z0, z1) < b[2] || Math.min(z0, z1) > b[3]) continue
+        if (rayX1[i]! < b[0] || rayX0[i]! > b[1] || rayZ1[i]! < b[2] || rayZ0[i]! > b[3]) continue
         order.push(i)
       }
       if (!order.length) continue
@@ -1465,26 +1591,28 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       if (!tracks.length) continue
       tracks.forEach((t, k) => {
         const key = `${r.owner.kind}:${r.owner.name}#${k}`
+        const rel = (a: number, b: number) => (b >= a ? b - a : b + m - a)
+        const len = rel(t.start, t.end)
+        // the parked positions outside the track (below): the nearer end's interval edge snapped
+        // onto the fill column just INSIDE the interval (the in edge up, the out edge down), so it
+        // coincides with a vertex the row has anyway and costs no cell of its own, and the parked
+        // pair never reaches past the ring: parked outward, the pair at the station before a tip
+        // spanned [fill below in, fill above out], and the row to the tip was a sliver of the
+        // ring's kind 2.5 m beyond it (the pit exit yard at s 103). Four constants per track.
+        const parkIn = (edge: number): number => { for (const fo of FILL_OFFS) if (fo >= edge - 1e-6) return fo; return edge }
+        const parkOut = (edge: number): number => { let best = 0; for (const fo of FILL_OFFS) if (fo <= edge + 1e-6) best = fo; return best }
+        const first = t.iv[0]!, last = t.iv[t.iv.length - 1]!
+        const parkedFirst: [number, number] = [parkIn(first[0]), parkOut(first[1])]
+        const parkedLast: [number, number] = [parkIn(last[0]), parkOut(last[1])]
         const pos = (i: number, which: 0 | 1): number => {
           // stations inside the track's range index its interval list; outside, each column keeps
           // ITS OWN edge of the nearer end's interval (it is a free vertex there anyway). Collapsing
           // both onto the interval's start made the row before a wide tip — a paddock band's
           // square end, 68 m across — a fan of triangles with 68 m edges.
-          const rel = (a: number, b: number) => (b >= a ? b - a : b + m - a)
-          const dIn = rel(t.start, i), len = rel(t.start, t.end)
+          const dIn = rel(t.start, i)
           if (dIn <= len) return t.iv[dIn]![which]
-          const first = t.iv[0]!, last = t.iv[t.iv.length - 1]!
           const dAfter = rel(t.end, i), dBefore = rel(i, t.start)
-          const edge = (dAfter < dBefore ? last : first)[which]
-          // ...snapped onto the fill column just INSIDE the interval (the in edge up, the out edge
-          // down), so it coincides with a vertex the row has anyway and costs no cell of its own,
-          // and the parked pair never reaches past the ring: parked outward, the pair at the
-          // station before a tip spanned [fill below in, fill above out], and the row to the tip
-          // was a sliver of the ring's kind 2.5 m beyond it (the pit exit yard at s 103)
-          if (which === 0) { for (const fo of FILL_OFFS) if (fo >= edge - 1e-6) return fo; return edge }
-          let best = 0
-          for (const fo of FILL_OFFS) if (fo <= edge + 1e-6) best = fo
-          return best
+          return (dAfter < dBefore ? parkedLast : parkedFirst)[which]
         }
         // one station of margin either side so the tip vertex belongs to both adjacent rows
         const active: [number, number] = [(t.start - 1 + m) % m, (t.end + 1) % m]
@@ -1494,6 +1622,15 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     }
     for (const f of FILL_OFFS) col(`fill@${f}`, 'fill', null, () => f)
     col('extent', 'extent', null, (i) => W[i]!)
+    // the verdicts are memoised per (station, offset) at 1 mm across the passes (a re-evaluation
+    // pays only for the stations it gained); the station's map is looked up once per station
+    const realAt: Map<number, number>[] = []
+    for (let i = 0; i < m; i++) {
+      const key = stationKey(st[i]!, side)
+      let mm = realCache.get(key)
+      if (!mm) { mm = new Map(); realCache.set(key, mm) }
+      realAt.push(mm)
+    }
     for (const c of columns) {
       if (c.role === 'fill') continue
       for (let i = 0; i < m; i++) {
@@ -1504,11 +1641,12 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         // dragged by whatever real column passes through the kerb (the asphalt band's edge at
         // T1's exit, the chicane apron's edge) and the cell then chords the profile by 26–76 mm
         if (c.role === 'kerb' || c.role === 'kink') { c.real[i] = 1; continue }
-        const key = `${side}|${st[i]!.toFixed(3)}|${o.toFixed(3)}`
-        let r = realCache.get(key)
+        const mm = realAt[i]!
+        const key = fixedKey(o, 3)
+        let r = mm.get(key)
         if (r === undefined) {
           r = ownerAtSL(st[i]!, side, o - 0.01).name !== ownerAtSL(st[i]!, side, o + 0.01).name ? 1 : 0
-          realCache.set(key, r)
+          mm.set(key, r)
         }
         c.real[i] = r
       }
@@ -1551,14 +1689,21 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       const midSide = pass < 2 ? evalSide(side, Float64Array.from(stations, (v, i) => track.wrap((v + (stations[(i + 1) % m]! + ((i + 1) % m === 0 ? L : 0))) / 2))) : null
       // the midpoint evaluation may carry a different ring column set: match by id
       const mid = midSide ? new Map(midSide.columns.map((c) => [c.id, c])) : null
+      // the fill columns (never real) and, per row, the columns that are real boundaries in it:
+      // `rowReal` reads roles, ranges and the real flags, none of which a row's snaps change, so
+      // it is evaluated once per column and row instead of once per pair
+      const fillIdx: number[] = []
+      for (let k = 0; k < cols.length; k++) if (cols[k]!.role === 'fill') fillIdx.push(k)
+      const rowReals: number[] = []
       for (let i = 0; i < m; i++) {
         const j = (i + 1) % m
         const s0 = stations[i]!, s1 = stations[j]! + (j === 0 ? L : 0)
         if (s1 - s0 < MICRO_ROW) continue
+        rowReals.length = 0
+        for (let a = 0; a < cols.length; a++) if (rowReal(cols[a]!, i, j)) rowReals.push(a)
         if (mid && s1 - s0 > 0.2) {
-          for (let a = 0; a < cols.length; a++) {
+          for (const a of rowReals) {
             const c = cols[a]!
-            if (!rowReal(c, i, j)) continue
             const chord = (c.off[i]! + c.off[j]!) / 2
             // a ring column is checked against the ring itself at the row's midpoint — the nearest
             // edge of its intervals there — not against the midpoint evaluation's column of the
@@ -1616,13 +1761,15 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
             }
           }
         }
-        for (let a = 0; a < cols.length; a++) {
-          if (!rowReal(cols[a]!, i, j)) continue
-          for (let b = 0; b < cols.length; b++) {
-            if (b === a) continue
+        for (let ra = 0; ra < rowReals.length; ra++) {
+          const a = rowReals[ra]!
+          // real × real once per pair; real × fill from the real side — the partners b of a are
+          // the fills and the real columns after a, visited in ascending column index (the snaps
+          // inside write `off`, so the order of the pairs is part of the result)
+          let fi = 0, ri = ra + 1
+          while (fi < fillIdx.length || ri < rowReals.length) {
+            const b = ri >= rowReals.length || (fi < fillIdx.length && fillIdx[fi]! < rowReals[ri]!) ? fillIdx[fi++]! : rowReals[ri++]!
             const cb = cols[b]!
-            // real × real once per pair; real × fill from the real side
-            if (cb.role === 'fill' ? false : b < a || !rowReal(cb, i, j)) continue
             const da = cols[a]!.off[i]! - cb.off[i]!
             const db = cols[a]!.off[j]! - cb.off[j]!
             if ((da > COLUMN_TIE && db < -COLUMN_TIE) || (da < -COLUMN_TIE && db > COLUMN_TIE)) {
@@ -1865,14 +2012,29 @@ export function rayHitRing(track: Track, s: number, side: Side, r: WorldRing, W:
   // crossing beyond it: the chicane apron's edge 0.2 m out, sampled 1 cm from one of its 1 m
   // vertices, came back as [9.86, W] instead of [0.2, 9.86] at one station and the ring's columns
   // jumped 6 m within a 2 cm row
+  const edge = (ring: readonly Pt[], i: number) => {
+    const a = ring[(i - 1 + ring.length) % ring.length]!, c = ring[i]!
+    const fa = (a.x - ex) * nz - (a.z - ez) * nx
+    const fc = (c.x - ex) * nz - (c.z - ez) * nx
+    if (fa > 0 === fc > 0) return
+    const u = fa / (fa - fc)
+    ts.push((a.x - ex + (c.x - a.x) * u) * nx + (a.z - ez + (c.z - a.z) * u) * nz)
+  }
+  // every edge against the INFINITE line (the crossings behind the road edge decide whether the
+  // edge point itself is inside), in index order; a long ring is walked by chunks of RING_CHUNK
+  // edges, and a chunk whose box lies wholly on one side of the line (f is affine, so its range
+  // over a box is spanned by the corners) holds no crossing edge and is skipped
   const cross = (ring: readonly Pt[]) => {
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const a = ring[j]!, c = ring[i]!
-      const fa = (a.x - ex) * nz - (a.z - ez) * nx
-      const fc = (c.x - ex) * nz - (c.z - ez) * nx
-      if (fa > 0 === fc > 0) continue
-      const u = fa / (fa - fc)
-      ts.push((a.x - ex + (c.x - a.x) * u) * nx + (a.z - ez + (c.z - a.z) * u) * nz)
+    const n = ring.length
+    const idx = ringIndexOf(ring)
+    if (!idx) { for (let i = 0; i < n; i++) edge(ring, i); return }
+    const ch = idx.chunks
+    const nc = ch.length / 4
+    for (let c = 0; c < nc; c++) {
+      const x0 = ch[c * 4]! - ex, x1 = ch[c * 4 + 1]! - ex, z0 = ch[c * 4 + 2]! - ez, z1 = ch[c * 4 + 3]! - ez
+      const f00 = x0 * nz - z0 * nx, f01 = x0 * nz - z1 * nx, f10 = x1 * nz - z0 * nx, f11 = x1 * nz - z1 * nx
+      if ((f00 > RING_CHUNK_EPS && f01 > RING_CHUNK_EPS && f10 > RING_CHUNK_EPS && f11 > RING_CHUNK_EPS) || (f00 < -RING_CHUNK_EPS && f01 < -RING_CHUNK_EPS && f10 < -RING_CHUNK_EPS && f11 < -RING_CHUNK_EPS)) continue
+      for (let i = c * RING_CHUNK, end = Math.min(n, (c + 1) * RING_CHUNK); i < end; i++) edge(ring, i)
     }
   }
   cross(r.outer)
