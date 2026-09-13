@@ -55,7 +55,7 @@ try {
   }
   await page.locator('.tower .row').nth(21).waitFor({ timeout: 180000 })
   // the far field is built after loading in time slices; shoot only once it has drained
-  const farFieldDrained = () => page.waitForFunction(() => { const d = window.__suzuka; return !!d && (!d.env?.farField || d.env.farField.pending === 0) }, null, { timeout: 120000 })
+  const farFieldDrained = () => page.waitForFunction(() => { const d = window.__suzuka; return !!d && (!d.env?.farField || d.env.farField.pending === 0) }, null, { timeout: 300000 })
   await farFieldDrained()
   // the HUD would cover the compare; keep only the 3D view
   if (!args.includes('--hud')) await page.addStyleTag({ content: '.hud, .loading { display: none !important }' })
