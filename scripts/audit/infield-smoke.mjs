@@ -49,7 +49,9 @@
  *        caps; no MARSHAL_POSTS row, ops placement or facility footprint inside a corridor and
  *        no placed instance / merged vertex standing on or hanging in one; the wall MESH read
  *        back over every run (≥ 0.5 m over the floor, sunk below it, no unwalled side) and the
- *        drawn ground at its foot; the portals counted from CUTS. The I6 review (R1 / R2 / R9)
+ *        drawn ground at its foot; the portals counted from CUTS. I7: every opening shows the
+ *        dark bore (3 rays per portal from inside the corridor at eye height meet
+ *        `furniture-cut-tunnelInterior` first), with the low rays' collar hits reported. The I6 review (R1 / R2 / R9)
  *        replaced the three assertions that could not fail and the centreline-only sampling.
  *        buildMs.cuts / plan / meshes printed against BASE_MS, and the settle bleed outside the
  *        corridors reported (V8, P7).
@@ -616,6 +618,38 @@ async function checkCuts(scene, check, tier) {
     if (p.openH < minH) portalBad.push(`${p.cut}/${p.at}: opening ${p.openH.toFixed(2)} m high`)
   }
   check(portalBad.length === 0, `no portal opening crosses a BARRIERS line, every headwall's back is ≥ ${O5} m from them, openings ≥ 2.4 m (pedestrian) / 1.8 m${portalBad.length ? ` — ${portalBad.join('; ')}` : ''}`)
+  // I7: every opening SHOWS the dark bore. A ray fired from 6 m inside the corridor at eye height
+  // (floor + 2 m, kept 0.4 m under the soffit) through three positions across the opening must
+  // meet `furniture-cut-tunnelInterior` before anything else — before the I7 fix 20 of the 21
+  // openings met the lit ground ramp instead (the cut's own fade climbs from the floor to the cap
+  // inside the headwall's thickness, and the flat box was hung under it). The same rays are fired
+  // at a third of the opening's height as a REPORT: there they still meet the drawn floor's rim
+  // 2–10 cm IN FRONT of the sill — the corridor's end collar, which the P7 settle-bleed collar owns.
+  const boreBad = [], collarHits = []
+  const rc = new THREE.Raycaster()
+  rc.far = 60
+  env.group.updateMatrixWorld(true)
+  for (const p of facts.portals) {
+    const c = cuts.corridors.find((q) => q.id === p.cut)
+    const k = p.at === 'start' ? 0 : c.samples.length - 1
+    const q = c.samples[k], d = dirAt(c, k)
+    const ux = p.at === 'start' ? d.x : -d.x, uz = p.at === 'start' ? d.z : -d.z
+    const [A, B] = p.sill
+    const shoot = (f, y) => {
+      const tx = A.x + (B.x - A.x) * f, tz = A.z + (B.z - A.z) * f
+      rc.set(new THREE.Vector3(tx + ux * 6, y, tz + uz * 6), new THREE.Vector3(-ux, 0, -uz))
+      const hit = rc.intersectObject(env.group, true)[0]
+      return { name: hit ? hit.object.name || hit.object.type : 'nothing', d: hit ? hit.distance - 6 : Infinity }
+    }
+    for (const f of [0.2, 0.5, 0.8]) {
+      const eye = shoot(f, q.floor + Math.min(2, p.openH - 0.4))
+      if (!eye.name.startsWith('furniture-cut-tunnelInterior')) boreBad.push(`${p.cut}/${p.at} at ${(100 * f).toFixed(0)} % across: ${eye.name} ${eye.d.toFixed(2)} m past the sill`)
+      const low = shoot(f, q.floor + p.openH / 3)
+      if (!low.name.startsWith('furniture-cut-tunnelInterior')) collarHits.push(`${p.cut}/${p.at}@${(100 * f).toFixed(0)}% ${low.name} ${low.d >= 0 ? '+' : ''}${low.d.toFixed(2)}`)
+    }
+  }
+  check(boreBad.length === 0, `every opening shows the dark bore at eye height: ${facts.portals.length} portals × 3 rays meet furniture-cut-tunnelInterior first (bore ${Math.min(...facts.portals.map((p) => p.boreD)).toFixed(2)}–${Math.max(...facts.portals.map((p) => p.boreD)).toFixed(2)} m deep)${boreBad.length ? ` — not: ${boreBad.slice(0, 6).join('; ')}` : ''}`)
+  console.log(`    note: ${collarHits.length} of ${3 * facts.portals.length} low rays (a third of the opening) meet the corridor's end collar first, all within 0.15 m of the sill (P7): ${collarHits.slice(0, 3).join(', ')}${collarHits.length > 3 ? ' …' : ''}`)
   const pits = cuts.corridors.filter((c) => c.def.kind === 'stairPit')
   check(facts.stairs.length === pits.length && pits.every((c) => facts.stairs.includes(c.id)), `stairs in every stair pit (${facts.stairs.length} of ${pits.length})`)
   // the footbridges: every FOOTBRIDGES row is a `structures-footbridge-<id>` mesh, its soffit ≥ clearance over a cut floor / road face

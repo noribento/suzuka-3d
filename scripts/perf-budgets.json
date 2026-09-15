@@ -25,7 +25,8 @@
     "(3 cascades), of which the 22 cars alone are ≈ 250; the S phase adds ≈ 200 in the overview (forest lids, buildings/solar",
     "block merges, car-park speckle, scatter trees) — count per pass/group by wrapping renderer.renderBufferDirect.",
     "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only.",
-    "Re-based at the end of the R phase (2026-09-12, baseline after-r6): every tier/mode mean is that run's value +12.5 % (rounded up, calls to 10, triangles to 10k), maxRatio = max(previous, measuredMax / measuredMean × 1.1); programs = the measured max + 4 (high, the road ribbon / foliage / bark / tree impostor / GLB car / facade-normal programs) + 2 (low). The R phase adds the road ribbons (static per 1 km block), the road furniture, the pack trees (per-quadrant mesh entries, cards, mass), hero houses / cars, solar detail and the terrain-side overlays — in the overview ≈ +110 calls and +2 % triangles over after-s2, in the follow modes +10–17 % triangles from the tree meshes inside 110 m."
+    "Re-based at the end of the R phase (2026-09-12, baseline after-r6): every tier/mode mean is that run's value +12.5 % (rounded up, calls to 10, triangles to 10k), maxRatio = max(previous, measuredMax / measuredMean × 1.1); programs = the measured max + 4 (high, the road ribbon / foliage / bark / tree impostor / GLB car / facade-normal programs) + 2 (low). The R phase adds the road ribbons (static per 1 km block), the road furniture, the pack trees (per-quadrant mesh entries, cards, mass), hero houses / cars, solar detail and the terrain-side overlays — in the overview ≈ +110 calls and +2 % triangles over after-s2, in the follow modes +10–17 % triangles from the tree meshes inside 110 m.",
+    "I7 (2026-09-15): the STATIC budgets are re-based here on the final I-phase tree (see static.*.measuredAt); the BROWSER ceilings below are still the after-r6 ones and the I phase is over them everywhere (the prelim after-i6 probe: high programs 106 = budget, setupMs 29.8 s, chase / onboard triangles max 8.4 / 8.9 M, low programs 63 of 61) — they are re-based in ONE step from a `LABEL=after-i7 pnpm perf` run on this tree, per the plan's formulas (mean × 1.125, maxRatio = max(old, max / mean × 1.1), programs = max + 4 / + 2, setupMs = measured + headroom rounded to 100 ms), with baseline set to that run. Quality.infield's high-tier LOD was cut to propsNearM 90 / figures3dM 60 at I7 for the same reason, so the follow modes must be re-measured, not scaled."
   ],
   "policy": {
     "band": {
@@ -132,20 +133,20 @@
   },
   "static": {
     "highNoAssets": {
-      "triangles": 4637500,
-      "meshes": 1090,
-      "instancedMeshes": 1143,
-      "farFieldEntries": 1221,
+      "triangles": 4860000,
+      "meshes": 1110,
+      "instancedMeshes": 1220,
+      "farFieldEntries": 1270,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 3,671,971 tris / 893 meshes / 734 InstancedMeshes / 991 entries (roads, furniture, trees on the cone path, buildings v2, solar detail, rail, streams, paddies), +10 %; instancedMeshes re-based at I2-b: 808 measured, +10 %; re-based again at I3-d: 926 measured (the ops layer's per-cell sets: ops-vehicles / -hospitality / -tents / -containers / -compound of I3-b, ops-pitEquipment / -perches / -cones / -cables of I3-c, the five ops-figures-<role> impostor sets and ops-flags of I3-d — 3,961,823 tris / 970 meshes / 926 IM / 1,044 entries), +10 %; instancedMeshes and farFieldEntries re-based at I4-c (the I4-a + I4-b merge — the marshal posts' per-cell cabin / panel / camera sets and the TV towers' tower / camera / crew sets — plus the fence-window photographers' impostor cells: 4,014,014 tris / 969 meshes / 1,031 IM / 1,110 entries measured, scene-cost high, Node, assets null), +10 %; triangles re-based at I5-a: 4,215,843 measured (the infield ground rows: ground triangles 420 k → 615 k — the C paddock lot, the Spoon hard-standing, the E-stand / Dunlop / T1 service roads and the school loop as raster and world parts, + the way-line decals; 972 meshes / 990 IM / 1,068 entries), +10 %; meshes and instancedMeshes re-based at I5-b: 991 meshes / 1,039 IM measured (the infield facilities: furniture-infield-<mat> merges ×12, the walls, the south / island kerbs, 8 bay-line decals; the per-cell sets infield-blocks / -tyres / -forklift / -toilets / -shutters / -marquees / -mast-heads / -service-lamps / -cars and the fence posts — 4,266,752 tris / 1,088 entries), +10 %"
+      "measuredAt": "2026-09-15 I7 final (scene-cost --tier high, Node, assets null): 4,409,392 tris / 1,008 meshes / 1,105 InstancedMeshes / 1,149 far-field entries measured, every budget = that × 1.10 (triangles rounded up to 10k, counts to 10). The I phase added +737,421 tris / +115 meshes / +371 IM / +158 entries over after-r6 (3,671,971 / 893 / 734 / 991): the pit building v2 and its lane, the paddock, the ops layer (vehicles / pit equipment / figures), the marshal posts and TV towers, the infield ground rows, facilities, ponds and trees, and the cuts' walls / portals / bores / stairs / footbridges."
     },
     "lowNoAssets": {
-      "triangles": 2594000,
-      "meshes": 801,
-      "instancedMeshes": 835,
-      "farFieldEntries": 866,
+      "triangles": 2780000,
+      "meshes": 850,
+      "instancedMeshes": 890,
+      "farFieldEntries": 930,
       "measured": true,
-      "measuredAt": "2026-09-12 R phase 6 scene-cost (Node, assets null): 1,853,053 tris / 656 meshes / 624 InstancedMeshes / 787 entries, +10 %; meshes re-based at I2-b: 728 measured (the paddock's named meshes — offices A, centre house 8, SMSC, fuel station 6, service house / tyre garage 6, vehicle base 3, tunnel heads, fence, gates, masts, rails, glass, steps), +10 %; triangles and instancedMeshes re-based at I2-c: 2,039,776 tris / 688 IM measured (the paddock car parks: 6 bay-line decals + the hatch decal ≈ 9 k tris, infield-paddock-cars 141 bodies in 7 InstancedMeshes (one per body kind, one bucket on the low tier)), +10 %; instancedMeshes re-based at I4-a: 759 measured (the marshal posts v2: infield-marshal-cabins — stands / bodies / low / extinguishers in one bucket on the low tier — plus emPanels, cctvPoles, cctvHeads and the trackside marshals' impostor cells; digitalFlags and its housings gone; 2,128,973 tris / 730 meshes / 759 IM / 813 entries), +10 %; triangles re-based at I5-a: 2,358,122 measured (the infield ground rows, as the high tier; 735 meshes / 756 IM), +10 %"
+      "measuredAt": "2026-09-15 I7 final (scene-cost --tier low, Node, assets null): 2,523,288 tris / 770 meshes / 801 InstancedMeshes / 840 far-field entries measured, every budget = that × 1.10 (triangles rounded up to 10k, counts to 10). The I phase added +670,235 tris / +114 meshes / +177 IM / +53 entries over after-r6 (1,853,053 / 656 / 624 / 787) — the same content with one bucket per prop set, no GLB level and no 3D figures."
     }
   },
   "data": {

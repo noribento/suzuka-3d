@@ -301,7 +301,7 @@ export const QUALITY: Record<QualityTier, Quality> = {
     coverRes: [1024, 512],
     coverDetail: true,
     farField: { lodScale: 1.0, nearTrees: 900, heroPerCell: 24, midTrees: 6000, canopy: true, buildingsDetailM: 700, heroBuildings: 48, parkedCars: 4000, heroCars: 400, carImpostors: true, lightPoles: 350, solarDetail: true, paddyRelief: true, shadows: true, tickMs: 12, rangeFar: 2200, roads: { rows: 'full', stepScale: 1, ring: true, furniture: 1 }, trees: { lodM: [50, 110], cards: true, leafShadowM: 50, shrubs: 2500 } },
-    infield: { glb: true, propsNearM: 120, propsFarM: 600, vehiclesNearM: 260, figures3dM: 80, figuresFarM: 600, figuresRamp: 150, shadows: true, fences: true, detail: true, cells: true, paddockCars: 320, infieldCars: 260 },
+    infield: { glb: true, propsNearM: 90, propsFarM: 600, vehiclesNearM: 260, figures3dM: 60, figuresFarM: 600, figuresRamp: 150, shadows: true, fences: true, detail: true, cells: true, paddockCars: 320, infieldCars: 260 },
   },
   // The low tier is what SwiftShader (and the e2e suite) runs: log depth, no post chain, and
   // every budget halved or better. `?fx=0` forces it on a real GPU.

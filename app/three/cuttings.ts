@@ -26,10 +26,18 @@ import { osmWay, resolveLineCached } from './trackside'
  *   + 1 m wide, floor − 0.3 to floor + depth + 1 high, its back face ON the cap (the cap is
  *   already ≥ BARRIER_CLEAR outside the BARRIERS line the tunnel passes under), the front face
  *   PORTAL_T in; an opening the clear width between the walls × OPENING_H (4.5 m; a stair pit
- *   2.5 × 2.5), closed by a black box (`furniture-cut-tunnelInterior`, plain dark, receives
- *   only) INTERIOR_D deep behind the headwall — under the ground, which stays the field between
- *   two portals (the tunnel roof is never cut). The box's height is clamped under the drawn
- *   ground over it so it never pokes through the verge.
+ *   2.5 × 2.5), closed by a black bore (`furniture-cut-tunnelInterior`, plain dark, receives
+ *   only) up to INTERIOR_D deep behind the opening — under the ground, which stays the field
+ *   between two portals (the tunnel roof is never cut). The opening's height is clamped under
+ *   the drawn ground over the bore so it never pokes through the verge, and the bore's FLOOR is
+ *   draped on the drawn ground (`BORE_LIFT` over it, never under the sill, never over the
+ *   soffit): the field cannot bore a tunnel, so the cut fades out over the last ≈ 2 m of the
+ *   corridor and the ground climbs from the floor to the cap inside the headwall's own thickness
+ *   (measured at all 21 portals: floor + 0.5…1.2 m at the front face, the cap 0.8 m behind it).
+ *   A box hung flat under that ramp had the lit ramp standing in it — which is what showed in
+ *   the openings instead of the black box (the I7 fix). The bore's back wall stands at the first
+ *   station where the ground closes the opening, so it keeps its full depth only where the
+ *   ground behind really is lower (a cut ending at the next tunnel's mouth).
  * - Pedestrian tunnels: the stair pits get the same headwall with a 2.5 × 2.5 opening and a
  *   flight of stairs at the far end (`props-cut-stairs`: STAIR_PIT.depth / FOOTBRIDGE.riser
  *   risers × FOOTBRIDGE.tread, the clear width of the pit) with a handrail either side.
@@ -84,6 +92,16 @@ const LINTEL_MIN = 0.5
 const INTERIOR_D = 8
 const INTERIOR_MIN_D = 3
 const INTERIOR_CLEAR = 0.45
+/**
+ * the bore behind the opening: how much wider / taller than the opening it is (so its walls and
+ * ceiling are buried in the headwall instead of coplanar with the reveal), how far its floor is
+ * lifted over the drawn ground it is draped on (≥ LAYER_MIN_STEP), and the stations it is
+ * sampled at along the bore and across the opening
+ */
+const BORE_OUT = 0.03
+const BORE_LIFT = 0.02
+const BORE_STEP = 0.15
+const BORE_COL = 0.6
 /** a headwall (and every wall: O5) keeps this much from a BARRIERS resolved line — ground-field.ts's BARRIER_CLEAR, the corridor's own rule */
 const BARRIER_CLEAR = 0.6
 /** the white coping on the headwall: height, overhang */
@@ -197,6 +215,8 @@ export interface CutPortalFact {
   back: [Pt, Pt]
   /** the opening's height over the floor */
   openH: number
+  /** the dark bore's depth behind the front face: where its back wall stands (the ground closed it, or PORTAL_T + the interior depth) */
+  boreD: number
 }
 export interface FootbridgeFact {
   osmWay: number
@@ -470,18 +490,55 @@ function buildPortal(ground: Ground, barriers: Pt[][], c: CutCorridor, edges: Co
   // (the frame's x is `u`, into the corridor; its z is the left of `u`, which is `across` for a
   //  start portal and −across for an end portal — the box is symmetric across, so only x matters)
   copings.push(boxIn(PORTAL_T + COPING_OVER, COPING_H, eL - eR + 2 * COPING_OVER, frameOf(q.x, top, q.z, u.x, u.z), (back + front) / 2 + COPING_OVER / 2, 0, (at === 'start' ? 1 : -1) * (eL + eR) / 2))
-  // the tunnel interior: a dark box interiorD deep behind the back face, the opening's width and height
-  {
-    const p = (along: number, side: number, y: number) => { const w = at2(along, side); return V(w.x, y, w.z) }
-    const d0 = back, d1 = back - interiorD
+  // the tunnel interior: a dark bore from the opening back into the ground, its floor draped on
+  // the drawn ground (see the header: the cut's own fade climbs through the headwall's thickness,
+  // so a flat box left that lit ramp standing in the opening). It starts at the front face and is
+  // BORE_OUT wider / taller than the opening, so its walls and ceiling are buried in the concrete
+  // instead of fighting the reveal; it ends where the ground has closed it, at most interiorD
+  // behind the back face.
+  const boreD = (() => {
+    const bR = oR - BORE_OUT, bL = oL + BORE_OUT, bTop = yOpen + BORE_OUT
+    const cols = Math.max(2, Math.round((bL - bR) / BORE_COL))
+    const maxD = PORTAL_T + interiorD
+    const steps = Math.max(2, Math.ceil(maxD / BORE_STEP))
+    const sideOf = (j: number) => bR + ((bL - bR) * j) / cols
+    const alongOf = (i: number) => front - (maxD * i) / steps
+    const pt = (i: number, j: number, y: number) => { const w = at2(alongOf(i), sideOf(j)); return V(w.x, y, w.z) }
+    const UV: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]]
+    const grid: number[][] = []
+    let last = steps
+    for (let i = 0; i <= steps; i++) {
+      const row: number[] = []
+      for (let j = 0; j <= cols; j++) {
+        // the node and its four half-cell neighbours: the drape is the ground's upper envelope,
+        // so a ramp that bulges between two stations still stays under it
+        let g = -Infinity
+        for (const [di, dj] of [[0, 0], [0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, 0.5], [-0.5, -0.5]] as const) {
+          const w = at2(alongOf(Math.min(steps, Math.max(0, i + di))), sideOf(Math.min(cols, Math.max(0, j + dj))))
+          g = Math.max(g, ground.standY(w.x, w.z))
+        }
+        row.push(Math.min(bTop, Math.max(y0, g + BORE_LIFT)))
+      }
+      grid.push(row)
+      // the ground has closed the opening: the bore ends here (never at the mouth itself)
+      if (i > 0 && row.every((y) => y >= bTop - 1e-6)) { last = i; break }
+    }
     const inward = { x: -across.x, z: -across.z }
-    interiors.quad(p(d0, oL, y0), p(d1, oL, y0), p(d1, oL, yOpen), p(d0, oL, yOpen), [[0, 0], [1, 0], [1, 1], [0, 1]], V(inward.x, 0, inward.z))
-    interiors.quad(p(d0, oR, y0), p(d1, oR, y0), p(d1, oR, yOpen), p(d0, oR, yOpen), [[0, 0], [1, 0], [1, 1], [0, 1]], V(across.x, 0, across.z))
-    interiors.quad(p(d1, oR, y0), p(d1, oL, y0), p(d1, oL, yOpen), p(d1, oR, yOpen), [[0, 0], [1, 0], [1, 1], [0, 1]], V(u.x, 0, u.z))
-    interiors.quad(p(d0, oR, yOpen), p(d0, oL, yOpen), p(d1, oL, yOpen), p(d1, oR, yOpen), [[0, 0], [1, 0], [1, 1], [0, 1]], V(0, -1, 0))
-    interiors.quad(p(d0, oR, y0), p(d0, oL, y0), p(d1, oL, y0), p(d1, oR, y0), [[0, 0], [1, 0], [1, 1], [0, 1]], V(0, 1, 0))
-  }
-  facts.portals.push({ cut: c.id, at, sill: [at2(front, oR), at2(front, oL)], back: [at2(back, eR), at2(back, eL)], openH })
+    for (let i = 0; i < last; i++) {
+      const g0 = grid[i]!, g1 = grid[i + 1]!
+      // the floor on the ground, and the two side walls from it up to the ceiling
+      for (let j = 0; j < cols; j++) interiors.quad(pt(i, j, g0[j]!), pt(i, j + 1, g0[j + 1]!), pt(i + 1, j + 1, g1[j + 1]!), pt(i + 1, j, g1[j]!), UV, V(0, 1, 0))
+      interiors.quad(pt(i, cols, g0[cols]!), pt(i + 1, cols, g1[cols]!), pt(i + 1, cols, bTop), pt(i, cols, bTop), UV, V(inward.x, 0, inward.z))
+      interiors.quad(pt(i, 0, g0[0]!), pt(i + 1, 0, g1[0]!), pt(i + 1, 0, bTop), pt(i, 0, bTop), UV, V(across.x, 0, across.z))
+    }
+    // the ceiling, and the back wall closing the whole cross-section at the last station (sill to
+    // ceiling, not just over the drape: where the ground already fills the opening the wall is
+    // behind it, and where the drawn ground has a hole the bore is still closed)
+    interiors.quad(pt(0, 0, bTop), pt(0, cols, bTop), pt(last, cols, bTop), pt(last, 0, bTop), UV, V(0, -1, 0))
+    interiors.quad(pt(last, 0, y0), pt(last, cols, y0), pt(last, cols, bTop), pt(last, 0, bTop), UV, V(u.x, 0, u.z))
+    return (maxD * last) / steps
+  })()
+  facts.portals.push({ cut: c.id, at, sill: [at2(front, oR), at2(front, oL)], back: [at2(back, eR), at2(back, eL)], openH, boreD })
 }
 
 // ---------------------------------------------------------------- pedestrian stairs

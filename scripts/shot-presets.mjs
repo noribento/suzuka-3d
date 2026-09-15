@@ -90,7 +90,7 @@ export const PRESETS = [
   // the A1_TEMP stand's new end is shot on a GPU; the maintainer's yard camera
   // [150, −48, 7] → [117, −30, −1] is blocked by the ops crane at 22 m
   ['cut-chicane', [5080, -20, 8], [5105, -30, -3], 45], // the county-road cut's walls from the chicane approach
-  ['works-portal-sw', [117, -108, 6.9], [117, -30.3, -5.4], 45], // down the worksSW ramp from the fuel-station side: the ramp, the headwall, the paddock road crossing
+  ['works-portal-sw', [125, -41, 9], [117, -30.3, -4], 45], // over the worksSW ramp onto its headwall (I7: the fuel-station side at (117, −108) stood in the T1 pond's tree cluster — foliage at 4.7 m and the line of sight blocked at 15 m; this one is clear for 17 m and the ray meets the mouth)
   ['cut643-heli', [5117, 4.5, 9], [5096, -42.8, -7.1], 45], // over the chicane-side tunnel roof onto the 39 m cut's floor and its far portal
   ['cut643-from-dunlop-side', [5140, -40, 12], [5110, -70, -2], 45],
   ['loopSouth-portal', [1744, 72.3, 5.4], [1779, 17.8, -5], 45], // the county road's south approach down to the Dunlop tunnel's portal
