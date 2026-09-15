@@ -1059,6 +1059,48 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
       if (trisDump) (globalThis as unknown as { GM_DEBUG_TRIS?: unknown }).GM_DEBUG_TRIS = trisDump
       const debugRejected: { area: number; x: number; z: number }[] = []
       const drawn: number[] = []
+      // largest first: a contour traced with a spur (the 0.6 m annulus a cut corridor's ring keeps
+      // around its own foot ring, I6) triangulates into overlapping ears, and the coverage test
+      // below only rejects a triangle whose centroid is already drawn — drawn small-first, an ear
+      // and the triangle it lies in both survived and two gravel sheets stacked 41 mm apart (G2,
+      // the I6 review). Emitting by descending area rejects the ear instead; for a contour with no
+      // spur no centroid lies in a sibling, so the order changes nothing
+      const areaOf = (t: { p: number; q: number; r: number }): number => Math.abs((pool.x[t.q]! - pool.x[t.p]!) * (pool.z[t.r]! - pool.z[t.p]!) - (pool.z[t.q]! - pool.z[t.p]!) * (pool.x[t.r]! - pool.x[t.p]!))
+      poolTris.sort((a, b) => areaOf(b) - areaOf(a))
+      // the part's OWN drawn triangles on a 2 m grid: the global `covered` test reads one point
+      // (the centroid), which two ears overlapping in a lens both pass. Here a candidate is also
+      // tried at three points just inside its edges — a tenth of the way back from each edge's
+      // midpoint toward the centroid, so a neighbour that only SHARES the edge never answers
+      const FOLD_CELL = 2
+      const foldCells = new Map<string, number[]>()
+      const foldTris: number[] = []
+      const foldAdd = (a: number, b: number, c: number) => {
+        const t = foldTris.length
+        foldTris.push(a, b, c)
+        const x0 = Math.min(pool.x[a]!, pool.x[b]!, pool.x[c]!), x1 = Math.max(pool.x[a]!, pool.x[b]!, pool.x[c]!)
+        const z0 = Math.min(pool.z[a]!, pool.z[b]!, pool.z[c]!), z1 = Math.max(pool.z[a]!, pool.z[b]!, pool.z[c]!)
+        for (let ci = Math.floor(x0 / FOLD_CELL); ci <= Math.floor(x1 / FOLD_CELL); ci++) {
+          for (let cj = Math.floor(z0 / FOLD_CELL); cj <= Math.floor(z1 / FOLD_CELL); cj++) {
+            const k = `${ci}|${cj}`
+            let arr = foldCells.get(k); if (!arr) { arr = []; foldCells.set(k, arr) }
+            arr.push(t)
+          }
+        }
+      }
+      const foldHit = (x: number, z: number): boolean => {
+        const arr = foldCells.get(`${Math.floor(x / FOLD_CELL)}|${Math.floor(z / FOLD_CELL)}`)
+        if (!arr) return false
+        for (const t of arr) {
+          const a = foldTris[t]!, b = foldTris[t + 1]!, c = foldTris[t + 2]!
+          const ax = pool.x[a]!, az = pool.z[a]!, bx = pool.x[b]!, bz = pool.z[b]!, cx2 = pool.x[c]!, cz2 = pool.z[c]!
+          const dd = (bz - cz2) * (ax - cx2) + (cx2 - bx) * (az - cz2)
+          if (Math.abs(dd) < 1e-12) continue
+          const u = ((bz - cz2) * (x - cx2) + (cx2 - bx) * (z - cz2)) / dd
+          const v = ((cz2 - az) * (x - cx2) + (ax - cx2) * (z - cz2)) / dd
+          if (u >= 1e-9 && v >= 1e-9 && 1 - u - v >= 1e-9) return true
+        }
+        return false
+      }
       for (const { p: ia, q: ib, r: ic } of poolTris) {
         // drop slivers: a hair-thin ear spans metres of terrain and takes a sideways normal
         const cross = (pool.x[ib]! - pool.x[ia]!) * (pool.z[ic]! - pool.z[ia]!) - (pool.z[ib]! - pool.z[ia]!) * (pool.x[ic]! - pool.x[ia]!)
@@ -1076,8 +1118,22 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
           if (trisDump) trisDump.after.push({ v: [ia, ib, ic].map((v) => [pool.x[v]!, pool.z[v]!]), verdict: `rejected covered=${covered((pool.x[ia]! + pool.x[ib]! + pool.x[ic]!) / 3, (pool.z[ia]! + pool.z[ib]! + pool.z[ic]!) / 3)}` })
           continue
         }
+        // an ear of a folded contour: it lies over a triangle of this part already drawn
+        let folded = false
+        for (const [p0, p1] of [[ia, ib], [ib, ic], [ic, ia]] as [number, number][]) {
+          const mx = (pool.x[p0]! + pool.x[p1]!) / 2, mz = (pool.z[p0]! + pool.z[p1]!) / 2
+          if (foldHit(cxT + (mx - cxT) * 0.9, czT + (mz - czT) * 0.9)) { folded = true; break }
+        }
+        if (folded) {
+          rejected++
+          rejectedArea += Math.abs(cross) / 2
+          droppedWorldArea += Math.abs(cross) / 2
+          if (trisDump) trisDump.after.push({ v: [ia, ib, ic].map((v) => [pool.x[v]!, pool.z[v]!]), verdict: 'folded' })
+          continue
+        }
         if (trisDump) trisDump.after.push({ v: [ia, ib, ic].map((v) => [pool.x[v]!, pool.z[v]!]), verdict: 'emitted' })
         tri(owner.kind, ia, ib, ic, srcTag)
+        foldAdd(ia, ib, ic)
         coverTriangle(ia, ib, ic)
         drawn.push(ia, ib, ic)
         worldTris++

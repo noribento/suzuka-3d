@@ -934,24 +934,81 @@ async function cutsReport() {
     if (c.end === 'cap') fail(`${c.id}: the corridor hit the length cap without daylighting`)
     summary.push({ id: c.id, startD: c.startD, endD: c.endD, end: c.end, maxDepth })
   }
-  // --- identity outside the corridors ---------------------------------------------------------------
-  const g = terrain.grid()
-  const x0 = g.x0, z0 = g.z0, x1 = g.x0 + (g.nx - 1) * g.dx, z1 = g.z0 + (g.nz - 1) * g.dz
-  let outside = 0, inside = 0, differ = 0, higher = 0, worst = 0, worstAt = ''
-  for (let z = z0; z <= z1; z += 2) for (let x = x0; x <= x1; x += 2) {
-    const cut = field.cutAt(x, z)
-    const a = field.y(x, z), b = field.yNoCut(x, z)
-    if (cut === null) {
-      outside++
-      if (a !== b) { differ++; if (Math.abs(a - b) > worst) { worst = Math.abs(a - b); worstAt = `(${x.toFixed(0)}, ${z.toFixed(0)})` } }
-    } else {
-      inside++
-      if (a > b + 1e-9) higher++
+  // --- the corridor interiors, and the sampler's confinement outside them -----------------------------
+  // (the I6 review, R8: the old "identity" compared field.y with field.yNoCut where field.cutAt was
+  // null — the very predicate makeField branches on, so it could not fail. Outside the corridors
+  // the field takes the no-cut branch by construction; what CAN fail is the sampler leaking past
+  // its polygon + foot, and the interior not being the floor.)
+  //   (a) inside every corridor, on its own grid (CUT_STEP along × 0.5 m across, out to the wall
+  //       top): never a fill (field ≤ yNoCut), never under the floor, and bit-exactly the floor
+  //       (+ the grade over the along offset) wherever the point is ≥ CUT_WALL_FOOT + 0.1 from
+  //       the polygon's edge — the caps included;
+  //   (b) on the 2 m grid, every point whose distance to every corridor polygon exceeds
+  //       CUT_WALL_FOOT + 0.05 reads field.cutAt === null AND field.y === field.yNoCut (the 32 m
+  //       cell grid and the foot smoothstep confine the sampler to the polygon + foot).
+  const polys = cuts.corridors.map((c) => ({ c, ring: cuts.corridor(c.id) }))
+  const segDist = (px, pz, a, b) => { const dx = b.x - a.x, dz = b.z - a.z; const l2 = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (pz - a.z) * dz) / l2)); return Math.hypot(px - (a.x + dx * t), pz - (a.z + dz * t)) }
+  const ringDist = (px, pz, ring) => { let d = Infinity; for (let i = 0; i < ring.length; i++) d = Math.min(d, segDist(px, pz, ring[i], ring[(i + 1) % ring.length])); return d }
+  const inRing = (x, z, r) => { let inside = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const a = r[i], b = r[j]; if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside } return inside }
+  /** how far past the foot a point must lie before the floor is asked to be bit-exact (see below) */
+  const FOOT_SLACK = 0.25
+  let inN = 0, fills = 0, under = 0, notFloor = 0, worstFloor = 0, worstFloorAt = ''
+  for (const { c, ring } of polys) {
+    for (let i = 0; i < c.samples.length; i++) {
+      const q = c.samples[i]
+      const n = c.samples[Math.min(c.samples.length - 1, i + 1)], pv = c.samples[Math.max(0, i - 1)]
+      let dx = n.x - pv.x, dz = n.z - pv.z
+      const l = Math.hypot(dx, dz) || 1
+      dx /= l; dz /= l
+      for (let w = -q.wr; w <= q.wl + 1e-9; w += 0.5) {
+        const x = q.x - dz * w, z = q.z + dx * w
+        if (!inRing(x, z, ring)) continue
+        inN++
+        const y = field.y(x, z), y0 = field.yNoCut(x, z)
+        if (y > y0 + 1e-9) fills++
+        if (y < q.floor - c.def.grade * 0.5 - 1e-9) under++
+        // ≥ the foot + FOOT_SLACK from the polygon's edge: bit-exact floor (+ grade · the
+        // along offset the sampler read). The slack is the difference between the two ways of
+        // measuring that distance — perpendicular to the polygon's chord here, and as the
+        // corridor frame's own `wl − across` / `across + wr` in the sampler — which parts
+        // company where the wall half-width changes along the corridor and its edge slants
+        // (measured max 0.13 m, at gyakuTunnelL's widening +lateral wall)
+        if (ringDist(x, z, ring) >= CUT_WALL_FOOT + FOOT_SLACK) {
+          const smp = cuts.sample(x, z)
+          const expect = smp && smp.t >= 1 ? smp.floor : NaN
+          const e = Number.isFinite(expect) ? Math.abs(y - expect) : Infinity
+          const tol = 0 // bit-exact: withCut returns c.floor itself when t ≥ 1
+          if (!(e <= tol) || Math.abs(expect - q.floor) > c.def.grade * 0.5 + 1e-6) { notFloor++; if (e > worstFloor || !Number.isFinite(e)) { worstFloor = e; worstFloorAt = `${c.id} d ${q.d} w ${w.toFixed(1)} (field ${y.toFixed(3)}, floor ${q.floor.toFixed(3)}, t ${smp?.t?.toFixed(3) ?? 'null'})` } }
+        }
+      }
     }
   }
-  console.log(`\n  identity: ${outside} grid points outside every corridor, ${differ} read a different field with the cuts than without (worst ${(worst * 1000).toFixed(1)} mm${worstAt ? ` at ${worstAt}` : ''}); ${inside} inside, ${higher} read higher than without`)
-  if (differ) fail(`the field differs outside the corridors on ${differ} points (a cut may change nothing but its corridor + its ${CUT_WALL_FOOT} m foot, which lies inside the polygon)`)
-  if (higher) fail(`the field is higher than without the cut on ${higher} points inside a corridor`)
+  console.log(`\n  interiors: ${inN} corridor grid points (CUT_STEP × 0.5 m); ${fills} above the no-cut field, ${under} under the floor, ${notFloor} not bit-exactly the floor beyond the ${CUT_WALL_FOOT} m foot + ${FOOT_SLACK}${notFloor ? ` (worst ${Number.isFinite(worstFloor) ? (worstFloor * 1000).toFixed(1) + ' mm' : 'null'} at ${worstFloorAt})` : ''}`)
+  if (fills) fail(`the field is a fill (above the no-cut field) on ${fills} corridor points`)
+  if (under) fail(`the field is under the floor on ${under} corridor points`)
+  if (notFloor) fail(`the field is not the floor on ${notFloor} corridor points ≥ ${CUT_WALL_FOOT} + ${FOOT_SLACK} m from the wall tops`)
+  const g = terrain.grid()
+  const x0 = g.x0, z0 = g.z0, x1 = g.x0 + (g.nx - 1) * g.dx, z1 = g.z0 + (g.nz - 1) * g.dz
+  const boxes = polys.map(({ ring }) => { let bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity; for (const q of ring) { bx0 = Math.min(bx0, q.x); bx1 = Math.max(bx1, q.x); bz0 = Math.min(bz0, q.z); bz1 = Math.max(bz1, q.z) } return [bx0 - 1, bx1 + 1, bz0 - 1, bz1 + 1] })
+  let outside = 0, leaked = 0, differ = 0, worst = 0, worstAt = '', nearFoot = 0
+  for (let z = z0; z <= z1; z += 2) for (let x = x0; x <= x1; x += 2) {
+    // the distance to the nearest corridor polygon (its box first: 2.19 M points × 20 rings)
+    let d = Infinity
+    for (let k = 0; k < polys.length && d > CUT_WALL_FOOT + 0.05; k++) {
+      const b = boxes[k]
+      if (x < b[0] || x > b[1] || z < b[2] || z > b[3]) continue
+      const ring = polys[k].ring
+      d = Math.min(d, inRing(x, z, ring) ? 0 : ringDist(x, z, ring))
+    }
+    if (d <= CUT_WALL_FOOT + 0.05) { nearFoot++; continue }
+    outside++
+    if (field.cutAt(x, z) !== null) leaked++
+    const a = field.y(x, z), b = field.yNoCut(x, z)
+    if (a !== b) { differ++; if (Math.abs(a - b) > worst) { worst = Math.abs(a - b); worstAt = `(${x.toFixed(0)}, ${z.toFixed(0)})` } }
+  }
+  console.log(`  sampler confinement: ${outside} grid points further than ${CUT_WALL_FOOT} + 0.05 m from every corridor polygon (${nearFoot} within it): ${leaked} read a cut, ${differ} read a field other than yNoCut (worst ${(worst * 1000).toFixed(1)} mm${worstAt ? ` at ${worstAt}` : ''})`)
+  if (leaked) fail(`the cut sampler answers outside its polygon + ${CUT_WALL_FOOT} m foot on ${leaked} points`)
+  if (differ) fail(`the field differs from yNoCut outside the corridors + foot on ${differ} points`)
   console.log('\n  summary (id: start d, end d, why, max depth):')
   for (const r of summary) console.log(`    ${r.id.padEnd(14)} ${String(r.startD).padStart(5)} ${String(r.endD).padStart(6)}  ${r.end.padEnd(9)} ${r.maxDepth.toFixed(2)}`)
   console.log(ok ? '  cuts: PASS' : '  cuts: FAIL')

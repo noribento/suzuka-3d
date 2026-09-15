@@ -351,18 +351,21 @@ export const STANDS: StandDef[] = [
     id: 'A1_TEMP',
     name: 'A1 メインストレート（仮設）',
     osmWays: [],
-    sRange: [65, 130],
+    // ends at s 110: the works-road tunnel's north-east approach (CUTS worksNE, portal (119, +28.5))
+    // occupies s 114.5–123.5 across this band, and the stand's tubes stood on its floor (the
+    // I6 review, R3 / V2); 110 keeps 4.5 m from its wall foot (O5 0.6). V1 ends at s 61.
+    sRange: [65, 110],
     side: 1,
     lateralFront: 22,
     lateralBack: 40,
     structure: 'scaffold',
     tiers: [{ id: 'A1-temp', rows: 20, ...SCAFFOLD_BENCH, colour: '#9a9a96' }],
-    aisles: { pitch: 4.3, width: 1.0 }, // 15 blocks A–O, 12 seats wide
+    aisles: { pitch: 4.3, width: 1.0 }, // ≈ 10 blocks, 12 seats wide
     frontHeight: 2.5,
     platform: 'Elevated scaffold stand behind/above the permanent A1 toward the last corner',
     permanent: false,
     fence: 'single',
-    unverified: ['position (not in OSM; from map.png)', 'lateral band', 'front height'],
+    unverified: ['position (not in OSM; from map.png)', 'lateral band', 'front height', 'shortened at the T1 end to clear the works-tunnel NE portal (119, +28.5): the map shows it reaching s ≈ 130'],
   },
   // A2 is TWO scaffold blocks, not one (GSI z18, .cache/audit/sections/02-t1-pit-exit-aerial.png):
   // the pit-end one carries a blue steel canopy over its rows (a solid panelled deck, 4 m panel
@@ -1215,8 +1218,11 @@ export const PADDOCK_LAMPS = {
     // doors' no-parking hatches (PADDOCK_BAY.hatch −79.4…−76.4; paddock.ts drops an extra inside one)
     [5612, -75.5], [5652, -75.5], [5692, -75.5], [5732, -75.5], [12, -75.5], [52, -75.5], [86, -75.5],
     // the E paddock's edge, the vehicle base and the fuel station (its −s end: (130, −64) is the
-    // grass 4 m outside the pond 184005565's rim; paddock.ts drops a lamp that lands on a water face)
-    [5430, -40], [5520, -44], [150, -48], [185, -48], [100, -66], [130, -64],
+    // grass 4 m outside the pond 184005565's rim; paddock.ts drops a lamp that lands on a water
+    // face). (5545, −44), not (5520, −44): the 逆バンクトンネル's paddock-side ramp (CUTS
+    // gyakuTunnelR, (5522, −32) → (5524, −64)) runs through the latter, and the pole stood on
+    // the ramp floor (the I6 review, V6); paddock.ts also drops a lamp inside any corridor
+    [5430, -40], [5545, -44], [150, -48], [185, -48], [100, -66], [130, -64],
   ] as [number, number][],
   unverified: ['positions (aerials, ±10 m)', 'height 8 m'],
 } as const
@@ -1708,10 +1714,21 @@ export interface CutDef {
 
 /** the flat strip beyond the road edge a cut never enters (m) — wider than FLAT_STRIP's 2 m so the strip's own blend keeps a metre */
 export const CUT_KEEP_OFF = 2.5
-/** the asphalt road inside a corridor: ± this about the centreline, clamped to halfWidth − CUT_WALL_FOOT − 0.1 */
+/** the asphalt road inside a corridor: ± this about the centreline where a gravel foot ring fits between it and the wall foot (`cutHasFootRing`), else the foot itself */
 export const CUT_ROAD_HALF = 3.5
 /** the foot of a cut's wall: the field rises from the floor to the outside over this much of the corridor's edge (smoothstep) */
 export const CUT_WALL_FOOT = 0.6
+/** the narrowest gravel shoulder (m) between the road ring and the wall foot that gets its own `foot` ring; narrower, the road reaches the foot */
+export const CUT_FOOT_RING_MIN = 0.3
+/**
+ * Whether a cut's corridor carries three ground rings (corridor / foot / road) or two: the
+ * county-road cuts (halfWidth 5–5.5) have a 0.9–1.4 m gravel shoulder between the ± 3.5 m road
+ * and the 0.6 m wall foot; the 4.0 / 3.5 m ramps and the 3.5 m stair pits have none, so their
+ * road / floor ring lands on the foot itself. The foot ring is what gives the raster a column
+ * AT the foot: without one the mesh chorded the 0.6 m foot over the whole shoulder and drew a
+ * 3–4 m earth bank in front of the retaining wall's face (the I6 review, R2 / V1).
+ */
+export const cutHasFootRing = (c: Pick<CutDef, 'halfWidth' | 'kind'>): boolean => c.kind !== 'stairPit' && c.halfWidth - CUT_WALL_FOOT - CUT_ROAD_HALF >= CUT_FOOT_RING_MIN
 /** a pedestrian tunnel's stair pit (both ends): width across, length along the tunnel, depth */
 export const STAIR_PIT = { width: 3.5, length: 7, depth: 3.0 }
 
@@ -1739,7 +1756,11 @@ export const CUTS: CutDef[] = [
   // --- the works road under the pit straight (UNDERPASSES 175231859): the north-east portal is the way's first node, the
   //     south-west one is hand-placed outside the garage apron (−28.7) and the pit-exit-outer wall
   { id: 'worksNE', name: '構内道路トンネル 北東進入路', osmWay: 175231859, portal: { from: 'first' }, window: [60, 180], depth: 5.5, grade: 0.08, halfWidth: 4.0, wall: 'concrete', unverified: ['depth 5.5 / grade 8 % (aerial 01: the NE portal ≈ (118, +25) with its paved approach 469657637)'] },
-  { id: 'worksSW', name: '構内道路トンネル 南西進入路', osmWay: 175231859, portal: { s: 117, lateral: -28, heading: 231 }, window: [60, 180], depth: 5.5, grade: 0.08, halfWidth: 4.0, wall: 'concrete', unverified: ['the way ends at lateral −25.8 under the garage apron; the portal is set at −28 (the apron reaches −28.7, so the corridor starts where the apron ends) heading 231 = the way\'s own bearing'] },
+  //     The south-west ramp meets the paddock road at (116, −53) (UNDERPASSES; aerial 02: the queued approach ends at a T
+  //     junction ≈ 25 m from the portal): 4.0 m at 16 % daylights at d ≈ 24 (lateral ≈ −52). The plan's 5.5 m / 8 % ran
+  //     66 m through the pit-exit yard, across that road and through the fuel station's forecourt to the T1 pond rim (the
+  //     I6 review, R4 / V3); the tunnel floor falls 1.5 m from this portal to the north-east one (57 m at ≈ 2.6 %)
+  { id: 'worksSW', name: '構内道路トンネル 南西進入路', osmWay: 175231859, portal: { s: 117, lateral: -28, heading: 231 }, window: [60, 180], depth: 4.0, grade: 0.16, halfWidth: 4.0, wall: 'concrete', unverified: ['the way ends at lateral −25.8 under the garage apron; the portal is set at −28 (the apron reaches −28.7, so the corridor starts where the apron ends) heading 231 = the way\'s own bearing', 'depth 4.0 / grade 16 % (1:6, a works-van ramp) chosen so the ramp meets the paddock road at (116, −53) after ≈ 24 m; 5.5 / 8 % ran 66 m through the paddock road and the fuel station'] },
   // --- the 200R service tunnel: the way is not in the raw cache; the white portal box on the south verge (+13) at s ≈ 3190
   //     (aerial 10-08). The corridor leaves it SOUTH (heading 200, away from the 200R): the road "continues north" INTO the
   //     tunnel, and the ground south of the portal falls 3.5 m within 15 m toward the west straight, so the approach is short
@@ -1966,12 +1987,14 @@ export type GroundFootprint =
   | { disc: { s: number; lateral: number; r: number } }
   /**
    * a CUT's corridor (CUTS, ground-field.ts `CutField.corridor`): `road` = the asphalt road
-   * inside it (± CUT_ROAD_HALF about the centreline; a stair pit whole), `corridor` = the whole
-   * width between the walls. The polygon is the cut field's own — computed from the portal,
-   * the grade and the ground, never an unclipped `{ way, width }` sweep (that would paint the
+   * inside it (± CUT_ROAD_HALF about the centreline, or out to the wall foot where no gravel
+   * shoulder fits — `cutHasFootRing`; a stair pit's floor), `foot` = the floor out to the wall
+   * foot (halfWidth − CUT_WALL_FOOT; only where `cutHasFootRing`), `corridor` = the whole width
+   * between the walls. The polygon is the cut field's own — computed from the portal, the
+   * grade and the ground, never an unclipped `{ way, width }` sweep (that would paint the
    * tunnel roof and the far DEM, and double roads.ts's ribbons)
    */
-  | { cut: string; part: 'road' | 'corridor' }
+  | { cut: string; part: 'road' | 'foot' | 'corridor' }
 
 export interface GroundArea {
   name: string
@@ -2378,22 +2401,25 @@ export const GROUND_AREAS: GroundArea[] = [
   { name: '管理道路 C・D5 裏', kind: 'asphaltArea', layer: 2, source: 'osm', footprint: { way: 468709099, width: 4, sRange: [570, 1335] } },
 
   // ================================================================ the cut corridors (I6-a, R6)
-  // Every CUT's corridor is ground: the road inside it as asphalt (layer 1) over the whole
-  // corridor as gravel (layer 0, the wall foot); a stair pit is the same pair in asphalt (the
-  // whole 3.5 × 7 m pit at layer 1, its floor inside the wall foot at layer 2 — the inner ring
-  // is what gives the raster a column at the foot of the walls). The polygons come from the cut
+  // Every CUT's corridor is ground: the road inside it as asphalt (layer 2) over the floor out
+  // to the wall foot as gravel (layer 1, `foot` — only the county-road cuts have the shoulder
+  // for it, `cutHasFootRing`) over the whole corridor as gravel (layer 0, the wall foot itself);
+  // a stair pit is a pair in asphalt (the whole 3.5 × 7 m pit at layer 1, its floor inside the
+  // wall foot at layer 2). The inner rings are what give the raster a column AT the foot of
+  // the walls: without one the mesh chorded the 0.6 m foot over the whole shoulder and drew an
+  // earth bank in front of the wall (the I6 review, R2 / V1). The polygons come from the cut
   // field (`{ cut }` footprints), so the rows cover exactly the ground the field lowers — a
-  // paddock band or a lot the corridor crosses (the works road's south-west ramp through the
-  // pit-exit yard) is cut through it: the same layer, these rows later.
-  ...CUTS.flatMap((c): GroundArea[] => (c.kind === 'stairPit'
-    ? [
+  // paddock band or a lot the corridor crosses is cut through it: the same layer, these rows later.
+  ...CUTS.flatMap((c): GroundArea[] => {
+    if (c.kind === 'stairPit') return [
       { name: `${c.name} 階段ピット`, kind: 'asphaltArea', layer: 1, source: 'photo', footprint: { cut: c.id, part: 'corridor' }, unverified: c.unverified },
       { name: `${c.name} 階段ピット床`, kind: 'asphaltArea', layer: 2, source: 'photo', footprint: { cut: c.id, part: 'road' }, unverified: c.unverified },
     ]
-    : [
-      { name: `${c.name} 廊下`, kind: 'gravelArea', layer: 0, source: 'photo', footprint: { cut: c.id, part: 'corridor' }, unverified: c.unverified },
-      { name: `${c.name} 路面`, kind: 'asphaltArea', layer: 1, source: 'photo', footprint: { cut: c.id, part: 'road' }, unverified: c.unverified },
-    ])),
+    const rows: GroundArea[] = [{ name: `${c.name} 廊下`, kind: 'gravelArea', layer: 0, source: 'photo', footprint: { cut: c.id, part: 'corridor' }, unverified: c.unverified }]
+    if (cutHasFootRing(c)) rows.push({ name: `${c.name} 廊下床`, kind: 'gravelArea', layer: 1, source: 'photo', footprint: { cut: c.id, part: 'foot' }, unverified: c.unverified })
+    rows.push({ name: `${c.name} 路面`, kind: 'asphaltArea', layer: 2, source: 'photo', footprint: { cut: c.id, part: 'road' }, unverified: c.unverified })
+    return rows
+  }),
 ]
 
 // ================================================================================================

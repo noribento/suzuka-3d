@@ -933,8 +933,9 @@ export function buildInfieldFacilities(ctx: EnvBuildContext): void {
     let dropped = 0
     const put2 = (x: number, z: number, yaw: number) => {
       const b = ground.builtY(x, z)
-      // never on the lap or the pit lane, never in a pond, never outside the ring, never in a facility
-      if ((b && (ROAD_FRAME.has(b.kind) || b.kind === 'water')) || !insideRing(track, x, z) || footprints.some((f) => inPoly(x, z, f))) { dropped++; return }
+      // never on the lap or the pit lane, never in a pond, never outside the ring, never in a
+      // facility, never on a cut corridor's floor (the I6 review, R6)
+      if ((b && (ROAD_FRAME.has(b.kind) || b.kind === 'water')) || !insideRing(track, x, z) || footprints.some((f) => inPoly(x, z, f)) || ground.field.cutAt(x, z) !== null) { dropped++; return }
       const m = m4().makeRotationY(yaw)
       m.setPosition(x, ground.standY(x, z) - 0.02, z)
       lamps.placements.push({ m })

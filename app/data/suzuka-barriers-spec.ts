@@ -384,7 +384,8 @@ export interface MarshalPostDef {
  * Marshal posts: the huts read off the aerial and the OSM `building` footprints at the barrier
  * lines (32 rows, 29 numbered). Every cabin sits on the spectator side of its barrier run with
  * its stand ≥ 0.6 m off the resolved line (O8 / trackside-smoke); rows moved for that at I4-a
- * say so in their note.
+ * say so in their note. No row stands inside a CUTS corridor (facilities-check O13, since the
+ * I6 review: the chicane escape-road post had been placed on the county road's cut floor).
  */
 export const MARSHAL_POSTS: MarshalPostDef[] = [
   { s: 390, lateral: -31.4, number: 1, unverified: true, note: 'grass island tip, T1 inside (moved 0.3 m off the t1-inside-island line at I4-a, 0.1 m more at the I4 review so the ground marshals stand behind the wall\'s back)' },
@@ -416,7 +417,7 @@ export const MARSHAL_POSTS: MarshalPostDef[] = [
   { s: 4750, lateral: 30, unverified: true },
   { s: 4840, lateral: 25.9, unverified: true, note: '130R inside, behind the 130r-inside-wall (the v1 hut at 10.5 stood in the grass 13 m on the track side of that fenced wall; moved behind it at I4-a, 0.2 m further at the I4 review so the ground marshals clear the wall\'s 0.35 m back)' },
   { s: 4961, lateral: -26, number: 26, osmWay: 467386925, note: '130R exit outside: post 26 (r130_post.jpg — the cabin on its stand behind the tyre wall, the 26 board on the fence)' },
-  { s: 5140, lateral: 27, unverified: true, note: 'chicane escape road' },
+  { s: 5144, lateral: 18, unverified: true, note: 'chicane escape road: on the verge between the P tyre wall (lat 13.1 there) and the county road cut (CUTS chicaneLeft, axis 10.9 m away; the v1 row (5140, +27) stood on the cut floor 3.6 m below the verge, at I6)' },
   { s: 5240, lateral: -28.4, number: 28, figures: 2, unverified: true, note: 'chicane exit: post 28, behind the diagonal chicane-exit-tyres (the v1 row (5235, −19.5) lay on the track side of that wall; −28.1 → −28.4 at the I4 review: the ground marshal stood 0.19 m inside the tyre wall\'s 1.3 m depth; the aerial\'s other candidate on the mound at (5255, −22) straddles the car-park fence 474537488, which runs at −21 there)' },
   // moved from {5395, −11.5} (I3-a): that spot is inside the sim's pit-entry path (entering cars
   // lag Track.pitLateralAt toward the track and drive through it; gap_Sim §2). Now on the apron

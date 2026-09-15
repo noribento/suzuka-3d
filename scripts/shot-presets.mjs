@@ -81,10 +81,25 @@ export const PRESETS = [
   ['infield-loop', [1850, 20, 60], [1980, 70, 4], 45],
   ['t1-infield', [230, -90, 8], [170, -40, 5], 45],
   ['hairpin-pond', [2350, 40, 30], [2400, 80, 2], 45],
-  ['cut-county-road', [1740, -20, 8], [1790, -45, -2], 45],
-  ['cut-chicane', [5080, -20, 8], [5105, -30, -3], 45],
-  ['works-tunnel', [90, -40, 6], [119, -26, -3], 45],
-  ['footbridge-q2', [5250, 20, 4], [5286, 55, 6], 40],
+  // the I6 review (V9): the four I6 rows framed the pit building's T1 nose ('works-tunnel', its
+  // camera 2 m inside the nose since pit v2), the cut rims from outside the near wall
+  // ('cut-chicane', 'cut-county-road': cut643 a far wall behind the Dunlop tyres) and the Q2
+  // fronts ('footbridge-q2': the decks sit in the gaps behind the fence) — these were checked by
+  // raycast on the built scene (the review's sight.mjs: the first hit and whether the look-at
+  // is visible). 'works-portal-ne' (the NE portal from the A1 side) is still to be derived once
+  // the A1_TEMP stand's new end is shot on a GPU; the maintainer's yard camera
+  // [150, −48, 7] → [117, −30, −1] is blocked by the ops crane at 22 m
+  ['cut-chicane', [5080, -20, 8], [5105, -30, -3], 45], // the county-road cut's walls from the chicane approach
+  ['works-portal-sw', [117, -108, 6.9], [117, -30.3, -5.4], 45], // down the worksSW ramp from the fuel-station side: the ramp, the headwall, the paddock road crossing
+  ['cut643-heli', [5117, 4.5, 9], [5096, -42.8, -7.1], 45], // over the chicane-side tunnel roof onto the 39 m cut's floor and its far portal
+  ['cut643-from-dunlop-side', [5140, -40, 12], [5110, -70, -2], 45],
+  ['loopSouth-portal', [1744, 72.3, 5.4], [1779, 17.8, -5], 45], // the county road's south approach down to the Dunlop tunnel's portal
+  ['r200-portal', [3190, 39, 2.3], [3190, 16.3, -4.6], 45], // the 200R service tunnel's short ramp and headwall
+  ['gyaku-ramp-paddock', [5500, -70, 8], [5522, -34, -1], 45], // the 逆バンクトンネル's paddock-side ramp and its black interior
+  ['gyaku-ramp-square', [5540, 40, 5], [5513, 28, -3], 45], // the GP-Square-side ramp across the S-beyond lawn (the crowd now keeps 1 m off the walls)
+  ['stair-pit-nippo', [1460, 32.3, 5.3], [1483, 30, -2.7], 45], // the pedNippo_L stair pit: headwall, flights, handrails
+  ['q2-gap', [5286, 75, 6], [5286, 52, 1], 45], // down the gap between the Q2 bars onto the middle footbridge's deck
+  ['chicane-bridge', [5160, 45, 4], [5139, 30, 2], 45], // the chicane service bridge over the county road cut: parapets, deck, the cut below
   // the I5 review (V7): the three I5 wide views above frame none of the I5-b yards' objects —
   // these do, checked by projection (45°, 16:9): the Spoon sheds / tyres / forklift / blocks at
   // 60–170 m, the west paddock's toilets / garage / fence / both lots at 30–125 m, the south

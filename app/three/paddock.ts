@@ -1426,6 +1426,8 @@ export function buildPaddock(ctx: EnvBuildContext, opts: { buildingRoofMat: THRE
       // never on a water face (the fuel station's −s end meets the pond 184005565); bare terrain
       // (builtY null: the un-drawn fuel apron until P7) stays allowed
       if (ground.builtY(x, z)?.kind === 'water') { console.warn('[paddock] lamp dropped on a water face', x.toFixed(1), z.toFixed(1)); return }
+      // never on a cut corridor's floor (the 逆バンク ramp crosses the E paddock's edge: the I6 review, R6 / V6)
+      if (ground.field.cutAt(x, z) !== null) { console.warn('[paddock] lamp dropped inside a cut corridor', x.toFixed(1), z.toFixed(1)); return }
       const m = m4().makeRotationY(yaw)
       m.setPosition(x, ground.standY(x, z) - 0.02, z)
       lamps.placements.push({ m })

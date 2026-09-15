@@ -28,6 +28,8 @@ export interface BankStats {
   rows: { id: string; people: number; seated: number; sheets: number; tents: number }[]
   people: number
   seated: number
+  /** places, sheets and tents left out because they fell inside a CUT corridor (+ CUT_MARGIN) */
+  inCut: number
   sheets: number
   tents: number
   /** banks that produced at least one place (the crowd's bank bays) */
@@ -90,9 +92,20 @@ function tentGeometry(): THREE.BufferGeometry {
  * Every spectator bank: the lawn places (returned as seat slots for the crowd) and the kit drawn
  * on them. `settled` must already be true — the places sit on `Ground.standY`, the drawn ground.
  */
+/**
+ * A lawn place keeps this much (m) from a CUT corridor's polygon edge (the wall top / coping):
+ * the 逆バンク ramp and the pedPaddock_L stair pit run through the bank past the S stand and the
+ * crowd stood on their floors and sagged into the trenches (the I6 review, R6 / V5). Wider than
+ * the 0.6 m wall-foot smoothstep, so nothing sits on the coping or the fence.
+ */
+const CUT_MARGIN = 1.0
+
 export function buildBanks(ctx: EnvBuildContext): { seats: SeatSlot[]; group: THREE.Group; stats: BankStats } {
-  const { track, ground } = ctx
+  const { track, ground, cuts } = ctx
   const L = track.length
+  let inCut = 0
+  /** inside a corridor, or within CUT_MARGIN of one (five probes: the point and a cross around it) */
+  const cutsNear = (x: number, z: number): boolean => cuts.at(x, z) !== null || cuts.at(x + CUT_MARGIN, z) !== null || cuts.at(x - CUT_MARGIN, z) !== null || cuts.at(x, z + CUT_MARGIN) !== null || cuts.at(x, z - CUT_MARGIN) !== null
   const rng = new Rng(23)
   const group = new THREE.Group()
   group.name = 'banks'
@@ -128,7 +141,10 @@ export function buildBanks(ctx: EnvBuildContext): { seats: SeatSlot[]; group: TH
         if (v < near + 0.5 || v > far - 0.5) continue
         const blob = 3 + Math.floor(rng.next() * 4)
         const blobSeated = rng.next() < bank.seated
-        // the blob's own centre on the ground, for the sheet and the yaw
+        // the blob's own centre on the ground, for the sheet and the yaw; a blob whose centre
+        // lies in or beside a cut corridor is skipped whole (places and sheet)
+        track.pointAt(s, bank.side * v, _p, 0)
+        if (cutsNear(_p.x, _p.z)) { inCut++; continue }
         const h = track.headingAt(s)
         const yaw = Math.atan2(-bank.side * h.tz, bank.side * h.tx)
         let placed = 0
@@ -141,6 +157,8 @@ export function buildBanks(ctx: EnvBuildContext): { seats: SeatSlot[]; group: TH
           const vv = v + dv
           if (vv < near || vv > far) continue
           track.pointAt(ss, bank.side * vv, _p, 0)
+          // a ring place reaches 1.3 m out from a centre that passed: test it on its own
+          if (cutsNear(_p.x, _p.z)) { inCut++; continue }
           const y = ground.standY(_p.x, _p.z)
           seats.push({
             standId: bank.id,
@@ -177,6 +195,7 @@ export function buildBanks(ctx: EnvBuildContext): { seats: SeatSlot[]; group: TH
         const s = track.wrap(s0 + ((i + 0.5) * len) / Math.max(1, n))
         const [, far] = bandAt(bank, s)
         track.pointAt(s, bank.side * (far - 2.5), _p, 0)
+        if (cutsNear(_p.x, _p.z)) { inCut++; continue }
         _p.y = ground.standY(_p.x, _p.z)
         const g = tentGeo.clone()
         _q.setFromAxisAngle(Y_UP, rng.next() * Math.PI * 2)
@@ -217,5 +236,5 @@ export function buildBanks(ctx: EnvBuildContext): { seats: SeatSlot[]; group: TH
     if (people) bays++
   }
   if (import.meta.dev) console.info(`[banks] ${SPECTATOR_BANKS.length} banks, ${totalPeople} places (${totalSeated} seated), ${totalSheets} sheets, ${totalTents} tents`)
-  return { seats, group, stats: { rows, people: totalPeople, seated: totalSeated, sheets: totalSheets, tents: totalTents, bays } }
+  return { seats, group, stats: { rows, people: totalPeople, seated: totalSeated, sheets: totalSheets, tents: totalTents, bays, inCut } }
 }

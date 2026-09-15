@@ -1988,7 +1988,88 @@ console.log(`${bar.BARRIERS.length} runs, ${bar.KERBS.length} kerbs, ${bar.LINES
       for (let i = 0; i < outlines.length; i++) for (let j = i + 1; j < outlines.length; j++) if (ringsCross(outlines[i].ring, outlines[j].ring)) fail(`${outlines[i].id} and ${outlines[j].id}: outlines cross — O11`)
     }
   }
-  if (!spec.CUTS) skip('O6 / O11 CUTS')
+  // --- O13 CUTS (I6, the I6 review): the rows of the cut field against the tables -------------------
+  // A data-only reading of each corridor: the portal (explicit, or the way's first / last node
+  // projected in the row's window), the heading (a hand heading within SQUARE_DEG of the road's
+  // normal is snapped to it, as ground-field.ts builds it), and the corridor line from the
+  // portal along it for `length` (a level cut) or the flat-ground daylight (depth − 0.2) / grade
+  // capped at 120 m (a road cut; the built corridor is shorter on falling ground and longer on
+  // rising ground — infield-smoke --cuts tests the built polygons exactly). Fails: a portal
+  // inside a STANDS band / OSM ring or a building / facility footprint; a MARSHAL_POSTS row, a
+  // PADDOCK_MASTS / PADDOCK_LAMPS.extra row, an ops placement or a hand-placed INFIELD_FACILITIES anchor within halfWidth + 2 m
+  // of the corridor line (the chicane escape-road post stood on the county road's cut floor);
+  // depth 2–8, grade 0–0.16 (1:6, the works-van ramp), halfWidth 1–6, the window holding the
+  // portal. A portal inside hw + CUT_KEEP_OFF + halfWidth is NOT a fault: the builder pushes it
+  // out (the pedestrian tunnels' nodes are digitised inside their walls).
+  if (spec.CUTS) {
+    const SQUARE_DEG = 3
+    const bearingOf = (dx, dz) => ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360
+    const dirOf = (heading) => { const r = (heading * Math.PI) / 180; return { x: Math.sin(r), z: -Math.cos(r) } }
+    const segDist = (px, pz, a, b) => { const dx = b.x - a.x, dz = b.z - a.z; const l2 = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (pz - a.z) * dz) / l2)); return Math.hypot(px - (a.x + dx * t), pz - (a.z + dz * t)) }
+    const standRings = []
+    for (const st of spec.STANDS) {
+      let rings = 0
+      for (const id of st.osmWays ?? []) { const r = worldRingOf(id); if (r) { standRings.push({ id: st.id, ring: r }); rings++ } }
+      if (rings) continue
+      const [s0, s1] = st.sRange
+      const len = arcLen(s0, s1) || L
+      const n = Math.max(2, Math.ceil(len / 5) + 1)
+      const front = [], back = []
+      for (let i = 0; i < n; i++) {
+        const s = wrap(s0 + (len * i) / (n - 1))
+        const [fx, fz] = worldOf(s, st.side * spec.alongAt(st.lateralFront, s, st.sRange)); front.push({ x: fx, z: fz })
+        const [bx, bz] = worldOf(s, st.side * spec.alongAt(st.lateralBack, s, st.sRange)); back.push({ x: bx, z: bz })
+      }
+      standRings.push({ id: `${st.id} (band)`, ring: [...front, ...back.reverse()] })
+    }
+    const anchors = []
+    bar.MARSHAL_POSTS.forEach((m) => anchors.push({ id: `marshal post s ${m.s}`, s: wrap(m.s), lateral: m.lateral }))
+    for (const m of spec.PADDOCK_MASTS?.at ?? []) anchors.push({ id: `PADDOCK_MASTS s ${m.s}`, s: wrap(m.s), lateral: m.lateral })
+    for (const [s, lateral] of spec.PADDOCK_LAMPS?.extra ?? []) anchors.push({ id: `PADDOCK_LAMPS extra s ${s}`, s: wrap(s), lateral })
+    for (const o of ops.opsPlacements()) anchors.push({ id: `ops ${o.id ?? o.kind} s ${o.s}`, s: wrap(o.s), lateral: o.lateral })
+    for (const f of spec.INFIELD_FACILITIES ?? []) if (f.osmWay === undefined && f.s !== undefined && typeof f.lateral === 'number') anchors.push({ id: `INFIELD_FACILITIES ${f.id}`, s: wrap(f.s), lateral: f.lateral })
+    let checked = 0
+    for (const c of spec.CUTS) {
+      const id = `CUTS ${c.id}`
+      checked++
+      if (!(c.depth >= 2 && c.depth <= 8)) fail(`${id}: depth ${c.depth} outside 2–8 m — O13`)
+      if (!(c.grade >= 0 && c.grade <= 0.16)) fail(`${id}: grade ${c.grade} outside 0–0.16 — O13`)
+      if (!(c.halfWidth >= 1 && c.halfWidth <= 6)) fail(`${id}: halfWidth ${c.halfWidth} outside 1–6 m — O13`)
+      // the portal
+      let s, lateral, heading, polyline = null
+      if ('from' in c.portal) {
+        const f = c.osmWay !== undefined ? osm.osmFeature(c.osmWay) : null
+        if (!f || f.en.length < 2) { fail(`${id}: OSM way ${c.osmWay} missing or too short for portal '${c.portal.from}' — O13`); continue }
+        const pts = f.en.map(([e, n]) => ({ x: e * track.enScale, z: -n * track.enScale }))
+        const node = c.portal.from === 'first' ? pts[0] : pts[pts.length - 1]
+        const inward = c.portal.from === 'first' ? pts[1] : pts[pts.length - 2]
+        if (f.tags?.tunnel === 'yes') heading = bearingOf(node.x - inward.x, node.z - inward.z)
+        else { heading = bearingOf(inward.x - node.x, inward.z - node.z); polyline = c.portal.from === 'first' ? pts.slice(1) : pts.slice(0, -1).reverse() }
+        const pr = track.nearestOnRange(node.x, node.z, c.window[0], c.window[1], 60)
+        s = pr.s; lateral = pr.lateral
+      } else ({ s, lateral, heading } = c.portal)
+      s = wrap(s)
+      if (!inArc(s, c.window)) fail(`${id}: the portal projects to s ${fmt(s, 0)} outside its window ${c.window.join('→')} — O13`)
+      const [ax, az] = worldOf(s, 0), [bx, bz] = worldOf(s, Math.sign(lateral || 1) * 10)
+      const normal = bearingOf(bx - ax, bz - az)
+      if (!polyline && Math.abs(((heading - normal + 540) % 360) - 180) < SQUARE_DEG) heading = normal
+      const [px, pz] = worldOf(s, lateral)
+      for (const st of standRings) if (inWorldRing(px, pz, st.ring)) fail(`${id}: the portal (${fmt(s, 0)}, ${fmt(lateral)}) lies inside the footprint of stand ${st.id} — O13`)
+      for (const b of buildingRings) if (inWorldRing(px, pz, b.ring)) fail(`${id}: the portal (${fmt(s, 0)}, ${fmt(lateral)}) lies inside the footprint of ${b.name} — O13`)
+      // the corridor line
+      const length = c.level ? (c.length ?? spec.STAIR_PIT.length) : Math.min(120, c.grade > 0 ? (c.depth - 0.2) / c.grade : 120)
+      const line = [{ x: px, z: pz }]
+      if (polyline) { let run = 0; for (const q of polyline) { const prev = line[line.length - 1]; run += Math.hypot(q.x - prev.x, q.z - prev.z); line.push(q); if (run >= length) break } }
+      else { const u = dirOf(heading); line.push({ x: px + u.x * length, z: pz + u.z * length }) }
+      for (const a of anchors) {
+        const [qx, qz] = worldOf(a.s, a.lateral)
+        let d = Infinity
+        for (let i = 0; i + 1 < line.length; i++) d = Math.min(d, segDist(qx, qz, line[i], line[i + 1]))
+        if (d < c.halfWidth + 2) fail(`${a.id} (${fmt(a.s, 0)}, ${fmt(a.lateral)}): ${fmt(d, 1)} m from the axis of the CUTS ${c.id} corridor (halfWidth ${c.halfWidth} + 2; the floor is ${c.depth} m below the field) — O13`)
+      }
+    }
+    notes.push(`O13: ${checked} CUTS rows against ${standRings.length} stand footprints, ${buildingRings.length} building footprints and ${anchors.length} anchors (marshal posts, paddock masts and extra lamps, ops placements, hand-placed facilities)`)
+  } else skip('O13 CUTS')
   // --- O11 FOOTBRIDGES (I6-b): the way exists with ≥ 2 nodes (§6 holds the id), both end nodes project into the row's window
   //     (R14: the Q2 gaps sit in the figure-8 fold), a shift stays within a metre of the digitised line, the deck is 1.5–6 m wide
   if (spec.FOOTBRIDGES) {

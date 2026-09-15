@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { SPECTATOR_BANKS, STANDS } from '~/data/suzuka-facilities-spec'
+import { CUT_WALL_FOOT, SPECTATOR_BANKS, STANDS } from '~/data/suzuka-facilities-spec'
 import { Rng } from '~/sim/random'
 import { ROLL_CAP, type Track } from '~/sim/track'
 import { makeGround, settleGround, type Ground } from './ground'
@@ -912,6 +912,9 @@ export interface StandZone {
  * a builder can pick up a new dependency (the asset pack, the terrain) without touching the
  * call sites in buildEnvironment.
  */
+/** a cut corridor's keep-out reaches this much (m) beyond its wall foot: the coping, the handrail and a clear metre for a trunk or a bumper */
+const CUT_KEEP_OUT_CLEAR = 1.0
+
 export interface EnvBuildContext {
   track: Track
   terrain: Terrain
@@ -1085,6 +1088,21 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
     ops: [],
     infieldStats: {},
     infieldFootprints: [],
+  }
+  // the cut corridors are keep-outs for every placer that reads the context's polygons (the
+  // forest and scatter, the parked cars, the infield tree rows): the polygon grown by the wall
+  // foot and a clear metre, pushed before any builder runs. The placers that stand by
+  // `ground.standY` alone (the banks' crowd, the lamps) test `cuts.at` themselves; the tables
+  // (STANDS, MARSHAL_POSTS, the facilities) are guarded by infield-smoke --cuts and
+  // facilities-check O13 (the I6 review, V7)
+  for (const c of cuts.corridors) {
+    const poly = cuts.keepOut(c.id, CUT_WALL_FOOT + CUT_KEEP_OUT_CLEAR)
+    if (poly.length < 3) continue
+    const ring: [number, number][] = poly.map((q) => [q.x, q.z])
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+    for (const [x, z] of ring) { x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z) }
+    ctx.keepOutPolys.push({ ring, box: [x0, z0, x1, z1] })
+    ctx.infieldFootprints.push({ ring, box: [x0, z0, x1, z1] })
   }
   // the species prototypes and their materials, synchronously (the viewport's material setup
   // runs over `group` once, before the deferred placers use them)

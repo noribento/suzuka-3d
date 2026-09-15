@@ -1637,12 +1637,19 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
         // coincides with a vertex the row has anyway and costs no cell of its own, and the parked
         // pair never reaches past the ring: parked outward, the pair at the station before a tip
         // spanned [fill below in, fill above out], and the row to the tip was a sliver of the
-        // ring's kind 2.5 m beyond it (the pit exit yard at s 103). Four constants per track.
+        // ring's kind 2.5 m beyond it (the pit exit yard at s 103). A tip interval with NO fill
+        // inside it (narrower than the fill spacing: a stair pit's floor ring cap between two
+        // fills, the county road's road ring cap) parks on its own edges — parked on the fills
+        // the pair inverted and reached PAST the enclosing corridor ring's edge, a phantom
+        // real-vs-real crossing that tied the corridor ring's column to the inner ring's tip and
+        // dented the grass a metre deep just beyond the cap (the I6 review, R7). Four constants
+        // per track.
         const parkIn = (edge: number): number => { for (const fo of FILL_OFFS) if (fo >= edge - 1e-6) return fo; return edge }
         const parkOut = (edge: number): number => { let best = 0; for (const fo of FILL_OFFS) if (fo <= edge + 1e-6) best = fo; return best }
+        const park = (iv: [number, number]): [number, number] => { const a = parkIn(iv[0]), b = parkOut(iv[1]); return a <= b ? [a, b] : [iv[0], iv[1]] }
         const first = t.iv[0]!, last = t.iv[t.iv.length - 1]!
-        const parkedFirst: [number, number] = [parkIn(first[0]), parkOut(first[1])]
-        const parkedLast: [number, number] = [parkIn(last[0]), parkOut(last[1])]
+        const parkedFirst = park(first)
+        const parkedLast = park(last)
         const pos = (i: number, which: 0 | 1): number => {
           // stations inside the track's range index its interval list; outside, each column keeps
           // ITS OWN edge of the nearer end's interval (it is a free vertex there anyway). Collapsing
@@ -1675,6 +1682,10 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
       for (let i = 0; i < m; i++) {
         const o = c.off[i]!
         if (c.role === 'extent') { c.real[i] = 1; continue }
+        // a ring column outside its track (and its one station of margin) is a parked point
+        // whose verdict `isFree` never reads: skipped (a pair parked on its own tip edges has
+        // offsets no other column shares, and its owner tests cost 3 s a pass when tried)
+        if (c.role === 'ring' && !columnActive(c, i)) { c.real[i] = 0; continue }
         if (o <= 0.005 || o >= W[i]! - 0.005) { c.real[i] = 0; continue }
         // the kerb's profile columns are height breakpoints, not owner boundaries: a free one is
         // dragged by whatever real column passes through the kerb (the asphalt band's edge at
@@ -1713,6 +1724,8 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   const CHORD_TOL_RING = 0.25
   /** rows shorter than this are slivers: no station is inserted inside them and their bow-ties are ignored */
   const MICRO_ROW = 0.01
+  /** a ring's tip station sits this far (m) inside the ring from the bisected tip: past the ± 1 cm owner test that decides `real` */
+  const TIP_INSIDE = 0.02
   const tipRing = (colId: string): WorldRing | null => {
     const key = colId.replace(/#\d+\.(in|out)$/, '')
     const r = rings.find((q) => `${q.owner.kind}:${q.owner.name}` === key)
@@ -1795,7 +1808,19 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
                 if (h.length) sIn = sm
                 else sOut = sm
               }
-              extra.push(track.wrap((sIn + sOut) / 2))
+              // an oblique tip (the interval at the bracket's inside end is the corner, narrower
+              // than 0.15 m) is stationed at the bracket's midpoint as before; a cap that lies ON
+              // a ray (every stair pit, every track-frame corridor: the interval there is still
+              // the cap's whole width) TIP_INSIDE inside the inside end, no further than station
+              // k — on the cap line itself the ray hit counts the ring, the owner test at ± 1 cm
+              // does not, the ring's columns there were free and the tip row to the next station
+              // chorded the cap over the fill spacing: a 3.5 m ramp from the wall top into the
+              // floor at the pits' and ramps' corners (the I6 review, R7 / V1)
+              const hIn = rayHit(track.wrap(sIn), side, ring, extent(track.wrap(sIn), side))
+              const square = hIn.some(([a, b]) => b - a >= 0.15)
+              const inward = Math.sign(sIn - sOut)
+              const sk = stations[k]! + (dir < 0 && k === 0 ? L : 0)
+              extra.push(track.wrap(!square ? (sIn + sOut) / 2 : inward > 0 ? Math.min(sk, sIn + TIP_INSIDE) : Math.max(sk, sIn - TIP_INSIDE)))
               stats.tips++
             }
           }

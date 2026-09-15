@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { CUT_KEEP_OFF, CUT_ROAD_HALF, CUT_WALL_FOOT, CUTS, type CutDef } from '~/data/suzuka-facilities-spec'
+import { CUT_KEEP_OFF, CUT_ROAD_HALF, CUT_WALL_FOOT, CUTS, cutHasFootRing, type CutDef } from '~/data/suzuka-facilities-spec'
 import type { Track } from '~/sim/track'
 import type { Terrain } from './environment'
 import { signedDelta } from '~/sim/track'
@@ -87,13 +87,25 @@ export interface CutCorridor {
   samples: { x: number; z: number; d: number; floor: number; wl: number; wr: number }[]
 }
 
+/** the road ring keeps this much (m) inside the foot ring where both exist, so the two nested rings never share an edge */
+const ROAD_SLACK = 0.15
+
+export type CutPart = 'road' | 'foot' | 'corridor'
+
 export interface CutField {
   /** the floor at world (x, z), null outside every corridor (the polygon edge is the wall's top) */
   at(x: number, z: number): number | null
   /** the floor and the wall-foot weight at world (x, z), null outside every corridor */
   sample(x: number, z: number): CutSample | null
-  /** a corridor's polygon (world XZ, closed, counter-clockwise or not — the caller winds it): the whole width, or the asphalt road inside it; [] for an unknown / empty cut */
-  corridor(id: string, part?: 'road' | 'corridor'): { x: number; z: number }[]
+  /**
+   * a corridor's polygon (world XZ, closed, counter-clockwise or not — the caller winds it): the
+   * whole width (`corridor`), the floor out to the wall foot (`foot`: only where a gravel
+   * shoulder fits between the road and the foot, `cutHasFootRing`; [] otherwise), or the asphalt
+   * road inside it (`road`); [] for an unknown / empty cut
+   */
+  corridor(id: string, part?: CutPart): { x: number; z: number }[]
+  /** a corridor's polygon grown by `margin` metres on every side (the wall tops and both caps): the placers' keep-out; [] for an unknown cut */
+  keepOut(id: string, margin: number): { x: number; z: number }[]
   corridors: CutCorridor[]
 }
 
@@ -140,6 +152,8 @@ type Pt = { x: number; z: number }
 const bearingOf = (dx: number, dz: number): number => ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360
 /** unit world direction of a compass bearing */
 const dirOf = (heading: number): Pt => { const r = (heading * Math.PI) / 180; return { x: Math.sin(r), z: -Math.cos(r) } }
+/** the unit vector of a world XZ direction (x alone when the direction is null) */
+const unitOf = (dx: number, dz: number): Pt => { const l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l } }
 
 /**
  * Build the cut field: one corridor per CUT, computed from the portal, the heading, the grade
@@ -207,13 +221,13 @@ export function buildCutField(track: Track, terrain: Terrain, cuts: readonly Cut
     dx /= l; dz /= l
     return { x: q.x - dz * w, z: q.z + dx * w }
   }
-  /** the corridor's polygon from sample index i0 to i1 (left edge forward, right edge back), the half-widths capped at `half` */
-  const polygonFrom = (g: Geom, sm: CutCorridor['samples'], i0: number, half = Infinity, i1 = sm.length - 1): Pt[] => {
+  /** the corridor's polygon from sample index i0 to i1 (left edge forward, right edge back), each side's half-width mapped by `widthOf` (the wall foot's half-width in, the ring's out) */
+  const polygonFrom = (g: Geom, sm: CutCorridor['samples'], i0: number, i1 = sm.length - 1, widthOf: (w: number) => number = (w) => w): Pt[] => {
     const left: Pt[] = [], right: Pt[] = []
     for (let k = i0; k <= i1; k++) {
       const q = sm[k]!
-      left.push(sideAt(g, sm, k, Math.min(q.wl, half)))
-      right.push(sideAt(g, sm, k, -Math.min(q.wr, half)))
+      left.push(sideAt(g, sm, k, widthOf(q.wl)))
+      right.push(sideAt(g, sm, k, -widthOf(q.wr)))
     }
     return [...left, ...right.reverse()]
   }
@@ -404,39 +418,90 @@ export function buildCutField(track: Track, terrain: Terrain, cuts: readonly Cut
     }
   })
 
+  // the world-frame corridors' chord: its unit direction, every sample's position along it, and
+  // the sample window `locateFrame` searches either side of the chord estimate (the corridor's
+  // half-width plus a step, in samples, plus two)
+  const chordDir = new Map<string, Pt>(), chordOf = new Map<string, Float64Array>(), windowOf = new Map<string, number>()
+  for (const c of corridors) {
+    const sm = c.samples
+    const first = sm[0]!, last = sm[sm.length - 1]!
+    const ux = last.x - first.x, uz = last.z - first.z
+    const ul = Math.hypot(ux, uz) || 1
+    chordDir.set(c.id, { x: ux / ul, z: uz / ul })
+    chordOf.set(c.id, Float64Array.from(sm, (q) => ((q.x - first.x) * ux + (q.z - first.z) * uz) / ul))
+    windowOf.set(c.id, Math.ceil((c.def.halfWidth + CUT_STEP) / CUT_STEP) + 2)
+  }
+
   /** a point's (d along, across to the left, the sample index at d) in a corridor's frame */
   const locateFrame = (c: CutCorridor, x: number, z: number): { k: number; a: number; across: number } | null => {
     const sm = c.samples
     const g = geoms.get(c.id)!
     if (g.frame === 'track') {
-      // the (s, lateral) frame: d along the portal's ray, across = the s offset (−s is the left
-      // of travel on the left side of the road, +s on the right)
+      // the (s, lateral) frame: d along the portal's ray (the point's lateral is the same to a
+      // centimetre however it is projected), then the sample by the local direction as in the
+      // world frame below, and `across` as the point's position between the sample and ITS
+      // polygon corner — the wall is the ray at `portal.s ∓ w`, and the centreline's samples
+      // are digitised with a jitter that makes the rays cross a few metres out, so the s of a
+      // projection (nearest point, or a ray solved for) read the foot's smoothstep 0.3 m off
+      // inside the wall (the I6 review); measured against the corner the polygon was built
+      // with, the two agree by construction
       const p = track.nearestOnRange(x, z, c.def.window[0], c.def.window[1], 60)
       const d = g.sign * (p.lateral - g.lateral)
-      const k = Math.round((d - sm[0]!.d) / CUT_STEP)
-      if (k < 0 || k >= sm.length) return null
-      return { k, a: d - sm[k]!.d, across: -g.sign * signedDelta(g.s, p.s, track.length) }
+      const i = Math.max(0, Math.min(sm.length - 1, Math.round((d - sm[0]!.d) / CUT_STEP)))
+      const W = windowOf.get(c.id)!
+      if (d < sm[0]!.d - W * CUT_STEP || d > sm[sm.length - 1]!.d + W * CUT_STEP) return null
+      let best: { k: number; a: number; dx: number; dz: number } | null = null
+      for (let k = Math.max(0, i - W); k <= Math.min(sm.length - 1, i + W); k++) {
+        const q = sm[k]!
+        const n = sm[Math.min(sm.length - 1, k + 1)]!, pv = sm[Math.max(0, k - 1)]!
+        let dx = n.x - pv.x, dz = n.z - pv.z
+        const l = Math.hypot(dx, dz) || 1
+        dx /= l; dz /= l
+        const a = (x - q.x) * dx + (z - q.z) * dz
+        if (Math.abs(a) > CUT_STEP + 1e-6 || (best && Math.abs(a) >= Math.abs(best.a))) continue
+        best = { k, a, dx, dz }
+      }
+      if (!best) return null
+      const q = sm[best.k]!
+      // the side by the perpendicular, the distance as the share of the way to that side's corner
+      const perp = -(x - q.x) * best.dz + (z - q.z) * best.dx
+      const w = perp >= 0 ? q.wl : q.wr
+      if (w <= 1e-6) return { k: best.k, a: best.a, across: perp }
+      const e = sideAt(g, sm, best.k, perp >= 0 ? w : -w)
+      const ex = e.x - q.x, ez = e.z - q.z
+      const share = ((x - q.x) * ex + (z - q.z) * ez) / (ex * ex + ez * ez || 1)
+      return { k: best.k, a: best.a, across: (perp >= 0 ? 1 : -1) * share * w }
     }
-    const first = sm[0]!, last = sm[sm.length - 1]!
-    // along-distance from the first sample on the corridor's overall direction picks the sample
-    const ux = last.x - first.x, uz = last.z - first.z
-    const ul = Math.hypot(ux, uz) || 1
-    const along = ((x - first.x) * ux + (z - first.z) * uz) / ul
-    let i = Math.round(along / CUT_STEP)
-    if (i < -1 || i > sm.length) return null
-    i = Math.max(0, Math.min(sm.length - 1, i))
-    // refine on the local segment direction (a corridor along a curving way)
-    for (let k = Math.max(0, i - 2); k <= Math.min(sm.length - 1, i + 2); k++) {
+    const first = sm[0]!
+    // the along-distance from the first sample on the corridor's overall chord picks the sample
+    // — by binary search on the samples' own chord positions (`chordOf`: a corridor along a
+    // curving way is up to a few samples longer than its chord), then refined on the local
+    // direction over a window wide enough for the across-induced error: a point `across` metres
+    // off the centreline of a way that bends θ from the chord projects across · sin θ along it
+    // (chicaneLeft: 3° → 38° over 60 m, 4.4 m across → 2.7 m; the ±2-sample window missed it
+    // and the field returned the NO-CUT height inside the corridor: the I6 review, R1). Of the
+    // window's samples the one the point lies NEAREST to along its local direction is taken,
+    // within a step: at a kink of the way the local directions of two consecutive samples
+    // diverge, and a point across from the kink is more than half a step from both
+    const ch = chordOf.get(c.id)!, W = windowOf.get(c.id)!
+    const { x: ux, z: uz } = chordDir.get(c.id)!
+    const along = (x - first.x) * ux + (z - first.z) * uz
+    let lo = 0, hi = sm.length - 1
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ch[mid]! <= along) lo = mid; else hi = mid }
+    const i = along - ch[lo]! <= ch[hi]! - along ? lo : hi
+    if (along < ch[0]! - W * CUT_STEP || along > ch[sm.length - 1]! + W * CUT_STEP) return null
+    let best: { k: number; a: number; across: number } | null = null
+    for (let k = Math.max(0, i - W); k <= Math.min(sm.length - 1, i + W); k++) {
       const q = sm[k]!
       const n = sm[Math.min(sm.length - 1, k + 1)]!, pv = sm[Math.max(0, k - 1)]!
       let dx = n.x - pv.x, dz = n.z - pv.z
       const l = Math.hypot(dx, dz) || 1
       dx /= l; dz /= l
       const a = (x - q.x) * dx + (z - q.z) * dz
-      if (Math.abs(a) > CUT_STEP / 2 + 1e-6) continue
-      return { k, a, across: -(x - q.x) * dz + (z - q.z) * dx }
+      if (Math.abs(a) > CUT_STEP + 1e-6 || (best && Math.abs(a) >= Math.abs(best.a))) continue
+      best = { k, a, across: -(x - q.x) * dz + (z - q.z) * dx }
     }
-    return null
+    return best
   }
   /** the corridor's floor and wall-foot distance at a world point, or null when it lies outside */
   const locate = (c: CutCorridor, x: number, z: number): { floor: number; edge: number } | null => {
@@ -474,22 +539,55 @@ export function buildCutField(track: Track, terrain: Terrain, cuts: readonly Cut
     }
     return out
   }
-  const corridor = (id: string, part: 'road' | 'corridor' = 'corridor'): Pt[] => {
+  const corridor = (id: string, part: CutPart = 'corridor'): Pt[] => {
     const c = corridors.find((q) => q.id === id)
     if (!c) return []
-    if (part !== 'road') return polygonFrom(geoms.get(c.id)!, c.samples, 0)
-    // the road inside the corridor: ± CUT_ROAD_HALF, inside the wall foot (a stair pit's 3.5 m
-    // leaves 2.1), starting a foot past the portal's cap and, for a level cut, stopping a foot
-    // short of the end wall: the road ring's caps give the raster a column at the FOOT of those
-    // walls (the corridor ring's cap is the wall's top); without them the floor was chorded up to
-    // the top over the fill columns' 5 m
-    const half = Math.min(CUT_ROAD_HALF, Math.max(0, c.def.halfWidth - CUT_WALL_FOOT - 0.15))
+    const g = geoms.get(c.id)!
+    if (part === 'corridor') return polygonFrom(g, c.samples, 0)
+    // the rings inside the corridor: the floor out to the wall FOOT (`foot`: the half-width less
+    // CUT_WALL_FOOT at every sample — a side pulled in at a road frame pulls it in too), and the
+    // road (`road`: ± CUT_ROAD_HALF, ROAD_SLACK inside the foot ring where one exists, else the
+    // foot itself — the 4.0 / 3.5 m ramps and the 3.5 m stair pits). Both start a foot past the
+    // portal's cap and, for a level cut, stop a foot short of the end wall: their caps give the
+    // raster a column at the FOOT of those walls (the corridor ring's cap is the wall's top),
+    // their sides a column at the foot of the side walls; without them the floor was chorded up
+    // to the top over the fill columns' 5 m along the caps and over the whole gravel shoulder
+    // along the sides (a 3–4 m bank in front of the wall face: the I6 review, R2 / V1). The
+    // road ring inside a foot ring keeps its caps one sample further in, so the two nested rings
+    // never share a collinear cap edge
+    const hasFoot = cutHasFootRing(c.def)
+    if (part === 'foot' && !hasFoot) return []
     const foot = Math.ceil((CUT_WALL_FOOT + 0.1) / CUT_STEP)
-    const i1 = c.def.level ? Math.max(1, c.samples.length - 1 - foot) : c.samples.length - 1
-    const i0 = Math.min(foot, Math.max(0, i1 - 1))
-    return polygonFrom(geoms.get(c.id)!, c.samples, i0, half, i1)
+    const n = c.samples.length
+    // an end that is a wall (a level cut's end wall, the next tunnel's headwall at a way's end)
+    // has a foot too; only a daylighting end runs the rings out to the last sample
+    let i1 = c.end !== 'daylight' ? Math.max(1, n - 1 - foot) : n - 1
+    let i0 = Math.min(foot, Math.max(0, i1 - 1))
+    if (part === 'road' && hasFoot && i1 - i0 >= 3) { i0 += 1; i1 -= 1 }
+    const footW = (w: number): number => Math.max(0, w - CUT_WALL_FOOT)
+    const widthOf = part === 'foot' || !hasFoot ? footW : (w: number) => Math.min(CUT_ROAD_HALF, Math.max(0, footW(w) - ROAD_SLACK))
+    return polygonFrom(g, c.samples, i0, i1, widthOf)
   }
-  return { at: (x, z) => sample(x, z)?.floor ?? null, sample, corridor, corridors }
+  const keepOut = (id: string, margin: number): Pt[] => {
+    const c = corridors.find((q) => q.id === id)
+    if (!c || c.samples.length < 2) return []
+    const g = geoms.get(c.id)!
+    const sm = c.samples
+    // one synthetic sample `margin` before the first and after the last (on the portal's ray in
+    // the track frame, along the end's local direction in the world frame), then the polygon of
+    // the whole list with every half-width grown by `margin`
+    const beyond = (k: number, dir: -1 | 1): CutCorridor['samples'][number] => {
+      const q = sm[k]!
+      const d = q.d + dir * margin
+      if (g.frame === 'track') { track.pointAt(g.s, g.lateral + g.sign * d, _p, 0); return { ...q, x: _p.x, z: _p.z, d } }
+      const o = sm[k - dir]!
+      const u = unitOf(q.x - o.x, q.z - o.z)
+      return { ...q, x: q.x + u.x * margin, z: q.z + u.z * margin, d }
+    }
+    const ext = [beyond(0, -1), ...sm, beyond(sm.length - 1, 1)]
+    return polygonFrom(g, ext, 0, ext.length - 1, (w) => w + margin)
+  }
+  return { at: (x, z) => sample(x, z)?.floor ?? null, sample, corridor, keepOut, corridors }
 }
 
 // ================================================================ the field
