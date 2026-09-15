@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseline": "after-r6-2026-09-11T22-24-24-148Z",
+  "baseline": "after-i7-2026-09-15T15-32-08-393Z",
   "comment": [
     "Render-cost ceilings for scripts/perf-gate.mjs (plan §0a). Every number here is a ceiling the SwiftShader probe",
     "(scripts/perf-probe.mjs, 1280×720, 90 frames per mode) must stay under; the per-area allocations of a phase must",
@@ -26,7 +26,7 @@
     "block merges, car-park speckle, scatter trees) — count per pass/group by wrapping renderer.renderBufferDirect.",
     "Mode keys: 1 overview, 2 heli, 3 chase, 4 onboard, 5 tv; 6 (director) is report-only.",
     "Re-based at the end of the R phase (2026-09-12, baseline after-r6): every tier/mode mean is that run's value +12.5 % (rounded up, calls to 10, triangles to 10k), maxRatio = max(previous, measuredMax / measuredMean × 1.1); programs = the measured max + 4 (high, the road ribbon / foliage / bark / tree impostor / GLB car / facade-normal programs) + 2 (low). The R phase adds the road ribbons (static per 1 km block), the road furniture, the pack trees (per-quadrant mesh entries, cards, mass), hero houses / cars, solar detail and the terrain-side overlays — in the overview ≈ +110 calls and +2 % triangles over after-s2, in the follow modes +10–17 % triangles from the tree meshes inside 110 m.",
-    "I7 (2026-09-15): the STATIC budgets are re-based here on the final I-phase tree (see static.*.measuredAt); the BROWSER ceilings below are still the after-r6 ones and the I phase is over them everywhere (the prelim after-i6 probe: high programs 106 = budget, setupMs 29.8 s, chase / onboard triangles max 8.4 / 8.9 M, low programs 63 of 61) — they are re-based in ONE step from a `LABEL=after-i7 pnpm perf` run on this tree, per the plan's formulas (mean × 1.125, maxRatio = max(old, max / mean × 1.1), programs = max + 4 / + 2, setupMs = measured + headroom rounded to 100 ms), with baseline set to that run. Quality.infield's high-tier LOD was cut to propsNearM 90 / figures3dM 60 at I7 for the same reason, so the follow modes must be re-measured, not scaled."
+    "I7 re-base (2026-09-16, baseline after-i7-2026-09-15T15-32-08-393Z = `LABEL=after-i7 pnpm perf` on main a7e9184, the final I-phase tree with Quality.infield high propsNearM 90 / figures3dM 60): every tier/mode calls / triangles mean = that run's mean × 1.125 (rounded up, calls to 10, triangles to 10k); maxRatio = max(previous, measured max / mean × 1.1 rounded up to 0.01) — it moved on high chase (calls 1.63 / triangles 1.74), high onboard (1.76 / 2.13: the follow modes' peak frames are the pit straight with the ops layer, the terrace crowd and the 3D figures inside 60 m), high tv calls 2.95, low onboard calls 2.35, low tv calls 2.91; programs = the walk max + 4 (high: 106 → 110) / + 2 (low: 64 → 66). The walk max rose 102 → 106 (high) / 59 → 64 (low) over after-r6 against the plan's +1 (the reed cards' MeshStandard {map, alphaMap, alphaTest, DoubleSide}) to +2 estimate — no customProgramCacheKey was added in the I phase, the remaining programs are define combinations of existing materials and were not attributed one by one; setupMs = measured × 1.125 rounded up to 100 ms, as at after-r6 (high 29,123 → 32,800; low 20,394 → 23,000). Over after-r6 that is +4.7 s (high) / +3.2 s (low), measured in buildMs: the ground meshes +4.1 / +3.8 s (the 33 I5-a ground rows, the pond rings and the 20 CUT corridors' rings — 3 of them with a foot ring), the plan −2.2 / −2.0 s (the 3321af8 speed-up), the synchronous infield builders (pit / pitLane / paddock / ops / trackside / infield / cuts) +1.4 / +0.9 s; the residual +1.4 / +0.5 s is setup time outside every buildMs bucket (renderer / scene setup and run-to-run SwiftShader variance — crowd / stands / surroundings themselves fell 0.17 / 0.21 s). loadMs is kept (low 26.3 s measured under the 30 s warn ceiling; high has no ceiling — 43.5 s measured, +7.2 s over after-r6 with 177 textures instead of 134 and the pack's ops / trackside / pit GLBs, dev-server dependent). What the I phase added over after-r6, measured means: high overview calls 843 → 1,279 (+52 %: the per-cell InstancedMesh prop sets — 64 ops + 93 infield far-field entries in this browser run with the pack, 64 + 83 in the Node no-assets build — under the 3 shadow cascades) and triangles 3.00 → 3.84 M (+28 %); high chase 929 → 1,343 calls / 3.37 → 5.17 M triangles (+53 %) and onboard 933 → 1,271 / 3.18 → 4.50 M (+41 %) — the follow modes carry the pit lane's equipment, the terrace crowd and the near figures; heli +3 % calls / +12 % triangles; tv +20 % / +39 %. Low tier: overview 690 → 925 calls / 1.87 → 2.40 M, chase 534 → 780 / 1.41 → 2.02 M, onboard 476 → 536 / 1.19 → 1.61 M (one bucket per prop set, no GLB level, impostor-only figures). The static budgets (scene-cost) were re-based on the same tree at I7 (static.*.measuredAt). Re-base again only from a measured run, never by scaling these numbers."
   ],
   "policy": {
     "band": {
@@ -38,94 +38,94 @@
   },
   "tiers": {
     "low": {
-      "setupMs": 19400,
+      "setupMs": 23000,
       "loadMs": 30000,
-      "programs": 61,
+      "programs": 66,
       "modes": {
         "overview": {
-          "triangles": 2110000,
-          "calls": 780,
+          "triangles": 2710000,
+          "calls": 1050,
           "maxRatio": {
             "triangles": 1.6,
             "calls": 1.6
           }
         },
         "heli": {
-          "triangles": 1410000,
-          "calls": 530,
+          "triangles": 1930000,
+          "calls": 640,
           "maxRatio": {
             "triangles": 1.73,
             "calls": 2.23
           }
         },
         "chase": {
-          "triangles": 1600000,
-          "calls": 610,
+          "triangles": 2280000,
+          "calls": 880,
           "maxRatio": {
             "triangles": 1.62,
             "calls": 2.01
           }
         },
         "onboard": {
-          "triangles": 1340000,
-          "calls": 540,
+          "triangles": 1820000,
+          "calls": 610,
           "maxRatio": {
             "triangles": 1.82,
-            "calls": 2.22
+            "calls": 2.35
           }
         },
         "tv": {
-          "triangles": 1240000,
-          "calls": 370,
+          "triangles": 1720000,
+          "calls": 450,
           "maxRatio": {
             "triangles": 1.94,
-            "calls": 2.72
+            "calls": 2.91
           }
         }
       }
     },
     "high": {
-      "setupMs": 27500,
-      "programs": 106,
+      "setupMs": 32800,
+      "programs": 110,
       "modes": {
         "overview": {
-          "triangles": 3380000,
-          "calls": 950,
+          "triangles": 4330000,
+          "calls": 1440,
           "maxRatio": {
             "triangles": 1.6,
             "calls": 1.6
           }
         },
         "heli": {
-          "triangles": 3120000,
-          "calls": 980,
+          "triangles": 3490000,
+          "calls": 1010,
           "maxRatio": {
             "triangles": 2.12,
             "calls": 2.39
           }
         },
         "chase": {
-          "triangles": 3800000,
-          "calls": 1050,
+          "triangles": 5820000,
+          "calls": 1520,
           "maxRatio": {
-            "triangles": 1.69,
-            "calls": 1.6
+            "triangles": 1.74,
+            "calls": 1.63
           }
         },
         "onboard": {
-          "triangles": 3580000,
-          "calls": 1050,
+          "triangles": 5070000,
+          "calls": 1430,
           "maxRatio": {
-            "triangles": 1.9,
-            "calls": 1.6
+            "triangles": 2.13,
+            "calls": 1.76
           }
         },
         "tv": {
-          "triangles": 2460000,
-          "calls": 570,
+          "triangles": 3410000,
+          "calls": 680,
           "maxRatio": {
             "triangles": 2.11,
-            "calls": 2.86
+            "calls": 2.95
           }
         }
       }

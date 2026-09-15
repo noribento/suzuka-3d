@@ -133,8 +133,15 @@ node scripts/perf-gate.mjs --file .perf/after-C2-….json --against .perf/after-
 天井は `scripts/perf-budgets.json`（ティア／モードごとの三角形・draw call の平均と最大、setupMs、programs）にあり、
 平均は budget × (1 + band) で FAIL、budget × 0.9 で警告、最大はベースラインの max/mean × 1.1 倍まで。数式はファイルの
 `comment` にそのまま書いてあります。probe は遠景（`__suzuka.env.farField.pending === 0`）が組み上がるのを待ってから採取します。
-天井の数値は R フェーズ末（2026-09-12、`.perf/after-r6-…`）の実測 +12.5 %（warnAt 0.9 の直下）で、最大は
-max(従来値, 実測 max / mean × 1.1)、programs は実測の最大 +4（高）/ +2（低）です。R フェーズ（柵の外の道路リボン・道路脇の設備・
+天井の数値は I フェーズ末（2026-09-16、`.perf/after-i7-2026-09-15T15-32-08-393Z.json`、main a7e9184）の実測 +12.5 %
+（warnAt 0.9 の直下）で、最大は max(従来値, 実測 max / mean × 1.1)、programs は実測の最大 +4（高 110）/ +2（低 66）、setupMs は
+実測 × 1.125（高 32.8 s / 低 23.0 s）です。I フェーズ（柵の内側: ピット v2・パドック・運営レイヤー・トラックサイド・インフィールド・
+切通し）で R フェーズ末から俯瞰は draw call +52 %（高、セルごとの InstancedMesh 小物集合 — パック付きのブラウザで ops 64 + infield 93 エントリ — と影 3 段）・三角形 +28 %、
+追従（chase / onboard）は三角形 +53 / +41 %（ピットレーンの機材・テラスの観客・60 m 以内の 3D 人物）、setupMs +4.7 s（高）/ +3.2 s（低、
+地面メッシュ +4.1 / +3.8 s、プラン −2.2 / −2.0 s、柵の内側の同期ビルダー +1.4 / +0.9 s、残り +1.4 / +0.5 s は buildMs の外の
+セットアップと SwiftShader の走行差）。programs は 102 → 106（高）/ 59 → 64（低）で、
+計画の見込み +1〜2 を超えていますが新しい `customProgramCacheKey` は無く、既存材質の define の組合せです（個別の帰属は未調査）。
+R フェーズ末（2026-09-12、`.perf/after-r6-…`）の時点は次のとおりでした: R フェーズ（柵の外の道路リボン・道路脇の設備・
 パックの樹木・ヒーロー家屋と車・太陽光の詳細・地形系）で俯瞰は draw call ≈ +110、三角形 ≈ +2 %、追従モードは 110 m 以内の樹木メッシュで三角形 +10〜17 %。低ティアの `setupMs` ≈ 17〜19 s（SwiftShader）は地面の区画（プラン ≈ 7.0 s＋
 メッシュ ≈ 7.1 s、P3〜P6）で、周辺の同期ビルドは 1 s 未満、遠景は遅延ビルドなので setupMs に入りません。draw call の内訳（パスごと・グループごと）は `__suzuka.ctx.renderer.renderBufferDirect` を包んで数えるのが早道で、
 高ティアは影のパス（CSM 3 段）が全体の 4〜6 割、そのうち車が 22 台 × 部品 × 段数で 250 前後を占めます。
@@ -1560,7 +1567,9 @@ I6-b は廊下の上に**立つ物**（`cuttings.ts buildCuttings`、infield.ts 
   カメラの 3 m 以内に物が無く最初の当たりが地面か坑口／橋であることを確かめました。
 - **静的予算**: `scripts/perf-budgets.json` の `static` を I7 の実測 × 1.10 に置き直し（高 4,409,392 tris / 1,008 メッシュ /
   1,105 IM / 1,149 エントリ、低 2,523,288 / 770 / 801 / 840）。生成データは 1,022,222 B / 1,150,000。
-  **ブラウザの天井は未再ベース**（`LABEL=after-i7 pnpm perf` の 1 回で置き直す。`comment` に手順）。
+  **ブラウザの天井**は `LABEL=after-i7 pnpm perf`（main a7e9184、`.perf/after-i7-2026-09-15T15-32-08-393Z.json`）の 1 回で置き直し
+  （上の「性能」節と `perf-budgets.json` の `comment` 末尾の段落: 平均 × 1.125、maxRatio、programs +4 / +2、setupMs × 1.125）。
+  `node scripts/perf-gate.mjs --latest --strict` は 0 FAIL / 0 warn。
 
 ## GPU で確認すること
 
