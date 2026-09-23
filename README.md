@@ -204,6 +204,7 @@ app/
   assets/css/main.css          # 中継グラフィックの共通スタイル
   components/
     RaceViewport.client.vue    # three.js シーン、レンダーループ、車の挙動表現、エフェクト、HUD 同期、ディレクター
+    LoadingScreen.vue          # ローディング画面（実行中の段階と内容・進捗バー・％・直近 5 段階の所要時間、DL 中はファイルと MB）
     hud/                       # TimingTower / Telemetry / TrackMap / Controls / StartLights / Banners / Battle / LowerThird / ResultPanel / RaceHeader
     hud/broadcast/             # TV / AUTO 用の放送パッケージ: Layer（キャンバス）/ Tower + TowerRow / Strap / NameStrap / Battle / Onboard / Tracker / Weather / Strategy / Tyre
   composables/
@@ -297,7 +298,9 @@ app/
     boxes.ts                   # 単一マテリアルの箱をマテリアルごとにマージする placer
     crowd.ts                   # 観客: 焼き込みアトラスのインポスター（方位・仰角セル、個体着色、歓声フリップブック）と近景 3D、60 m ベイの LOD、占有抽選 → 誤差拡散の予算配分（インポスター・プロトタイプ・材質は figures.ts）
     banks.ts                   # 芝土手の観客（クラスタ格子の立ち位置、レジャーシート、ポップアップテント）
-    assets.ts                  # アセットパックのローダー（manifest、KTX2 / meshopt、404 フォールバック、進捗）
+    assets.ts                  # アセットパックのローダー（manifest、KTX2 / meshopt、404 フォールバック、進捗: 比率と件数・MB・最後のファイル）
+    steps.ts                   # 段階ビルド `Steps<T>`（`yield` = 始まる段階名、`runSteps` で同期に回す、`within` で `親/段階`）と描画待ちを除く `buildClock`
+    loading.ts                 # ローディング画面のモデル: 段階の表 `STAGES`（表示名・内容・ティア別の実測 ms）、`LoadTracker`（段階ごとの再描画、バーの配分と速さ）
     materials.ts               # 実写 PBR マテリアルのファクトリ（ARM パック、hand-built UV の法線規約、芝の緑化ムラ）
     car-model.ts               # 2026 年規定のマシン（ロフト車体、翼型ウイング、可動フラップ、リバリー、キャスター／キャンバー付き足回り、ブレーキディスク、ドライバー人形、3 段階 LOD）
     driver-figure.ts           # ドライバーの胴体・腕（前腕はハンドルに追従）・ステアリングホイール
@@ -337,6 +340,17 @@ scripts/
   bloom の閾値 4.5 は REC709 輝度に対する値なので、発光値は `app/three/emissive.ts` で輝度基準に設計しています
   （スタートシグナル、約 950 °C 以上のブレーキディスク、火花、ピットガレージの照明だけが光り、低負荷モードでは全体を 0.4 倍）。
   影は追従カメラでは毎フレーム、俯瞰では 2〜3 フレームに 1 回だけ再描画し、車は高品質で 250 m 以内が詳細メッシュ・400 m 以内が LOD1/2、低負荷では 120 m 以内だけが影を落とします（それより遠くは太陽方向に伸びる接地ブロブ）。
+- **ローディング画面**（`app/components/LoadingScreen.vue`、`app/three/loading.ts`、`app/three/steps.ts`）：起動の各段階を
+  始まる前に名前と内容で表示し、終わった段階の所要時間を直近 5 行で流します（アセットパックの DL 中はファイル名とサイズ、件数と MB）。
+  環境のビルドは段階ジェネレータ `environmentSteps`（`yield` = 始まる段階名 = `buildMs` のキー。地面の plan / meshes は
+  `plan/<段階>`・`meshes/<段階>` まで細分し、infield も 5 段階を yield）で、ビューポートの `LoadTracker.drain` が段階の間に
+  1 フレーム描かせてから次へ進みます（予想 100 ms 未満の段階は描かずに続けて回す）。Node と監査は `buildEnvironment` =
+  `runSteps(environmentSteps(…))` で従来どおり同期に組みます。段階の中はメインスレッドが塞がるので、バーは段階の開始位置から
+  予想終了位置への `transform` の Web Animation で、コンポジタが動かし続けます（CSS transition は塞がった直後の付け替えで
+  古い位置から始まり逆走するため不可）。バーの配分と進む速さは `STAGES` のティア別実測値（ブラウザの dev サーバ、SwiftShader。
+  `window.__suzuka.load` で取り直す）に、その端末でここまで測れた実測／予想の比を掛けたもので、表に無い段階はバーを動かさず
+  名前だけ出します。描画待ちは `buildClock` から外すので `buildMs`・`setupMs` はビルダーの所要時間のままです（描画は 1 回 2〜35 ms、
+  低ティアで 25〜30 回）。最後の「First frame」はシェーダのコンパイルとテクスチャ転送で、画面はその描画が終わってから消えます。
 - **季節と施設**：再現しているのは 2026 年日本 GP 決勝日（3 月 29 日）です。路肩の高麗芝は休眠期の麦わら色（刈込縞なし、
   30〜60 m 周期の緑化ムラ）、桜が S 字・ヘアピン・パーク側に混じり、気象は 15 °C / 路温 26 °C。`SEASON`
   （`app/data/suzuka-facilities-spec.ts`）を `'autumn'` にすると 10 月のパレットに戻ります。スタンド約 30 基は OSM の

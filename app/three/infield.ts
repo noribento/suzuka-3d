@@ -8,6 +8,7 @@ import { buildMarshalPosts } from './marshal-posts'
 import { buildOps } from './ops'
 import { buildPaddock } from './paddock'
 import { buildPitLane } from './pit-lane'
+import type { Steps } from './steps'
 import { buildTvTowers } from './tv-towers'
 
 /**
@@ -22,8 +23,9 @@ import { buildTvTowers } from './tv-towers'
  *
  * Every sub-builder reports through the same shapes: `ctx.infieldStats` (instances per prop
  * set), `OpsStats`, `TracksideStats` — `Environment.stats.ops / .trackside / .infield`, which
- * the e2e suite, the smokes and the ops-check read — and laps its wall-clock into `buildMs`
- * as 'pitLane' / 'paddock' / 'ops' / 'trackside' / 'infield'.
+ * the e2e suite, the smokes and the ops-check read — and opens its stages of `buildMs` through
+ * the environment's `stage` as 'pitLane' / 'paddock' / 'ops' / 'trackside' / 'infield' (each
+ * `yield` is one of them, so the loading screen names the sub-builder that runs).
  */
 
 /** the operations layer's counts (figures.ts `buildOpsFigures` + the vehicles and equipment of ops.ts) */
@@ -66,24 +68,24 @@ export interface InfieldOptions {
   buildingRoofMat: THREE.Material
   /** the flag-wave clock the marshal posts share with the trackside props */
   flagTime: { value: number }
-  /** buildEnvironment's wall-clock lap (`buildMs[name]`) */
-  lap: (name: string) => void
+  /** the environment's stage marker: closes the running stage of `buildMs` and opens `name` */
+  stage: (name: string) => string
 }
 
-export function buildInfield(ctx: EnvBuildContext, opts: InfieldOptions): InfieldStats {
-  const { lap } = opts
+export function* buildInfield(ctx: EnvBuildContext, opts: InfieldOptions): Steps<InfieldStats> {
+  const { stage } = opts
+  yield stage('pitLane')
   buildPitLane(ctx)
-  lap('pitLane')
+  yield stage('paddock')
   buildPaddock(ctx, { buildingRoofMat: opts.buildingRoofMat })
-  lap('paddock')
+  yield stage('ops')
   const ops = buildOps(ctx)
-  lap('ops')
+  yield stage('trackside')
   const posts = buildMarshalPosts(ctx, { flagTime: opts.flagTime })
   const towers = buildTvTowers(ctx)
-  lap('trackside')
+  yield stage('infield')
   buildInfieldGround(ctx)
   buildInfieldWater(ctx)
   buildCuttings(ctx)
-  lap('infield')
   return { ops, trackside: { ...posts, ...towers }, infield: ctx.infieldStats }
 }

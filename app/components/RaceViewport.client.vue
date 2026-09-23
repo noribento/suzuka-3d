@@ -7,12 +7,14 @@ import { DRIVERS, TEAMS } from '~/data/drivers'
 import { CIRCUIT } from '~/data/suzuka'
 import { toMap } from '~/sim/projection'
 import { createScene, type SceneContext } from '~/three/scene'
-import { probeCapabilities } from '~/three/quality'
+import { assetsOverride, pickTier, probeCapabilities, QUALITY } from '~/three/quality'
 import { loadAssets, type AssetRegistry } from '~/three/assets'
+import { LoadCancelled, LoadTracker } from '~/three/loading'
+import { buildClock } from '~/three/steps'
 import { freezeStatic } from '~/three/instancing'
 import { markAllDirty, textureBytes } from '~/three/textures'
 import { buildTrackMeshes, type TrackMeshes } from '~/three/track-mesh'
-import { assertGroundRegistered, buildEnvironment, type Environment } from '~/three/environment'
+import { assertGroundRegistered, environmentSteps, type Environment } from '~/three/environment'
 import { groundCensus } from '~/three/ground-census'
 import { buildCarModel, CAR_DIMENSIONS, type CarModel } from '~/three/car-model'
 import { buildBarriers } from '~/three/barriers'
@@ -254,10 +256,19 @@ function placeLabels() {
 
 async function setup() {
   if (!canvas.value || !container.value || !labelLayer.value) return
-  const t0 = performance.now()
-  rig = new CameraRig(track, container.value)
+  // setupMs is the build clock's: the loading screen's paints between stages are not in it
+  const t0 = buildClock()
   // the GPU is probed on a throwaway context first: the tier decides context-creation flags
-  ctx = createScene(canvas.value, rig.camera, track.center, probeCapabilities())
+  const caps = probeCapabilities()
+  const tier = pickTier(caps)
+  // the loading screen names each stage before it runs (an unmount during one of its paints ends
+  // setup() with LoadCancelled); the tier picks the expected durations, and the asset pack gets a
+  // share of the bar when the tier fetches it (loadAssets decides the same way)
+  const downloads = assetsOverride() ?? QUALITY[tier].assets
+  const load = new LoadTracker(store.load, { tier, downloads, cancelled: () => disposed })
+  await load.stage('renderer')
+  rig = new CameraRig(track, container.value)
+  ctx = createScene(canvas.value, rig.camera, track.center, caps)
   const q = ctx.quality
   // the emissive budget depends on whether bloom exists — decide before any lit material is built
   setEmissiveTier(ctx.tier)
@@ -267,31 +278,31 @@ async function setup() {
   canvas.value.addEventListener('webglcontextrestored', onContextRestored)
 
   // the external asset pack (photo PBR tiles, models) — an empty registry on the low tier, so the
-  // e2e path never waits on the network; the downloads own the first 70 % of the loading bar
-  assets = await loadAssets(ctx.renderer, q, undefined, (p) => { store.loadProgress = p * 0.7 })
+  // e2e path never waits on the network
+  if (downloads) await load.stage('assets')
+  assets = await loadAssets(ctx.renderer, q, undefined, (p, info) => load.downloads(p, info))
   if (disposed) return
-  if (assets.bytes() > 0) {
-    // let the 70 % mark paint before the synchronous scene build blocks the main thread
-    store.loadProgress = 0.7
-    await new Promise<void>((r) => setTimeout(r, 0))
-    if (disposed) return
-  }
 
-  env = buildEnvironment(track, q, 7, assets)
+  // the environment's builders one stage at a time, the loading screen repainted in between
+  env = await load.drain(environmentSteps(track, q, 7, assets))
   ctx.scene.add(env.group)
   // the TV cameras look from the lens points the towers drew (tv-towers.ts, plan I4-b)
   if (Array.isArray(env.group.userData.tvLenses)) rig.setTvCameras(env.group.userData.tvLenses)
-  trackMeshes = buildTrackMeshes(track, env.ground, q.fence)
-  const barriers = buildBarriers(track, q, env.ground, assets, env.farField)
-  const whiteLines = buildLines(track, env.ground)
-  // The ground was drawn, the terrain settled under it and the grid uploaded inside
-  // buildEnvironment, before anything stood on it; the track meshes, barriers and lines above
+  // The ground was drawn, the terrain settled under it and the grid uploaded inside the
+  // environment's build, before anything stood on it; the track meshes, barriers and lines below
   // read the same drawn faces (ground.standY / decalY) as the environment's own builders.
+  await load.stage('trackMeshes')
+  trackMeshes = buildTrackMeshes(track, env.ground, q.fence)
   ctx.scene.add(trackMeshes.group)
+  await load.stage('barriers')
+  const barriers = buildBarriers(track, q, env.ground, assets, env.farField)
   ctx.scene.add(barriers)
+  await load.stage('lines')
+  const whiteLines = buildLines(track, env.ground)
   setLineViewportHeight(ctx.renderer.getDrawingBufferSize(new THREE.Vector2()).y)
   ctx.scene.add(whiteLines)
   // nothing in these trees moves except the Ferris wheel: compute their matrices once
+  await load.stage('freeze')
   freezeStatic(env.group, env.ferrisWheel ? [env.ferrisWheel] : [])
   freezeStatic(trackMeshes.group)
   freezeStatic(barriers)
@@ -303,6 +314,7 @@ async function setup() {
   ctx.scene.add(sparks.points, smoke.points, marks.mesh)
   ctx.setTimeOfDay(store.timeOfDay)
 
+  await load.stage('cars')
   models = DRIVERS.map((d, idx) => {
     const m = buildCarModel(d, 'M', ctx!.tier === 'high')
     m.root.userData.carIndex = idx
@@ -310,15 +322,19 @@ async function setup() {
     ctx!.scene.add(m.root)
     return m
   })
+  await load.stage('materials')
   ctx.setupMaterials(ctx.scene)
 
   initRace()
   onResize()
   resizeObserver = new ResizeObserver(onResize)
   resizeObserver.observe(container.value)
+  // the first render compiles the programs and uploads the textures behind the last painted
+  // loading screen (the frame that drops it is painted after that render), so it gets a caption too
+  await load.stage('firstFrame')
+  load.end()
   store.ready = true
-  store.loadProgress = 1
-  setupMs = performance.now() - t0
+  setupMs = buildClock() - t0
   // the far field is built after the loading screen, in wall-clock ticks: each job's root is
   // added under env.group (already frozen) and gets the same material setup and matrix freeze
   env.farField.start((o) => { ctx!.setupMaterials(o); freezeStatic(o) })
@@ -334,6 +350,8 @@ async function setup() {
       get audio() { return audio },
       RaceAudio,
       get setupMs() { return setupMs },
+      /** the loading screen's stages as they ran (build clock, ms) with the paint before each */
+      load: load.stages,
       get settleMs() { return env?.terrain.settleMs ?? 0 },
       /** wall-clock ms per builder: the synchronous ones by name, the deferred far-field jobs as `far/<job>` */
       get buildMs() {
@@ -1197,6 +1215,7 @@ onMounted(() => {
   // screen (the error is on the console) instead of leaving the page on the splash forever
   setTimeout(() => {
     setup().catch((err: unknown) => {
+      if (err instanceof LoadCancelled) return
       console.warn('[viewport] setup failed', err)
       store.ready = true
     })

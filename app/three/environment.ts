@@ -28,6 +28,7 @@ import { buildTreeLibrary, tickTrees, type TreeLibrary } from './trees'
 import { makePropCache, type PropCache } from './props-pack'
 import { buildFigureLibrary, type FigureLibrary } from './figures'
 import { buildInfield, type InfieldStats } from './infield'
+import { buildClock, runSteps, within, type Steps } from './steps'
 import type { OpsPlacement } from '~/data/ops-spec'
 
 /** Which side of the track a trackside camera should stand on — lives with the props, re-exported for the camera rig. */
@@ -1011,52 +1012,68 @@ export interface Environment {
   update: (dt: number, cameraPos?: THREE.Vector3, wind?: number) => void
 }
 
+/** The whole environment in one synchronous call (Node, the audits); the viewport drains `environmentSteps` itself. */
 export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Environment {
+  return runSteps(environmentSteps(track, quality, seed, assets))
+}
+
+/**
+ * The environment as a staged build (steps.ts): every `yield` names the builder that starts —
+ * the keys of `buildMs` ('landCover' … 'commit'), and `plan/<stage>` / `meshes/<stage>` inside
+ * the ground plan and meshes. Nothing is built between two stages that a stage needs later, so
+ * a caller may paint in between.
+ */
+export function* environmentSteps(track: Track, quality: Quality = QUALITY.high, seed = 7, assets: AssetRegistry | null = null): Steps<Environment> {
   const group = new THREE.Group()
-  // wall-clock per builder, surfaced as `Environment.buildMs` / `window.__suzuka.buildMs`
+  // wall-clock per builder, surfaced as `Environment.buildMs` / `window.__suzuka.buildMs`:
+  // `stage(name)` closes the running builder and opens `name`, on the build clock (a caller's
+  // paints between two stages are billed to neither)
   const buildMs: Record<string, number> = {}
-  let tLast = performance.now()
-  const lap = (name: string) => {
-    const now = performance.now()
-    buildMs[name] = now - tLast
-    tLast = now
+  let open = ''
+  let tOpen = 0
+  const stage = (name: string) => {
+    const now = buildClock()
+    if (open) buildMs[open] = now - tOpen
+    open = name
+    tOpen = now
+    return name
   }
   // the land-cover masks first: the chunk material binds the inner layer at construction. The
   // rectangles are the grid's and the ring's (asserted against the built Terrain below).
+  yield stage('landCover')
   const innerRect = terrainRect(track)
   const outerRect = ringRect(innerRect, quality.terrain, quality.terrainRingCells)
   const landCover = buildLandCover(track, quality, innerRect, outerRect, assets)
-  lap('landCover')
+  yield stage('terrain')
   const terrain = new Terrain(track, quality.terrain, assets, quality.terrainRingCells, landCover.layer('inner'))
   group.add(terrain.group)
-  lap('terrain')
   if (import.meta.dev) {
     const g = terrain.grid(), r = terrain.ring
     const off = Math.max(Math.abs(g.x0 - innerRect.x0), Math.abs(g.z0 - innerRect.z0), Math.abs(r.x0 - outerRect.x0), Math.abs(r.z0 - outerRect.z0), Math.abs((r.nx - 1) * r.dx - outerRect.w), Math.abs((r.nz - 1) * r.dz - outerRect.d))
     if (off > 1e-6) console.error(`[env] land-cover rectangles differ from the terrain's by ${off.toFixed(3)} m (terrainRect / ringRect vs Terrain)`)
   }
+  yield stage('terrainFar')
   // the coarse ring, the DEM_FAR skyline and the water planes, under terrain.group
   const terrainFar = buildTerrainFar(terrain, quality, assets, landCover.layer('outer'))
-  lap('terrainFar')
   // the cuts (R6): their corridors are computed from the terrain and the road-frame rule before
   // the plan, because the plan's `{ cut }` rows are those corridors and the field follows them
+  yield stage('cuts')
   const cuts = buildCutField(track, terrain)
-  lap('cuts')
+  yield stage('plan')
   const field: GroundField = makeField(track, terrain, cuts)
   // the ground: plan (who owns each point) → meshes (one face per owner kind, shared vertices,
   // one height per vertex) → registered and the grid settled under them → wired into `ground`.
   // All of it before anything stands on the ground, so every object and decal below reads the
   // DRAWN faces over the SETTLED terrain (the three-phase build: draw, settle, place).
-  const plan = buildGroundPlan(track, { cuts })
+  const plan = yield* within('plan', buildGroundPlan(track, { cuts }))
   const ground = makeGround(field, plan)
-  lap('plan')
-  const groundMeshes = buildGroundMeshes(plan, field, groundMaterials(assets, landCover.layer('inner')))
+  yield stage('meshes')
+  const groundMeshes = yield* within('meshes', buildGroundMeshes(plan, field, groundMaterials(assets, landCover.layer('inner'))))
   group.add(groundMeshes.group)
   for (const face of groundMeshes.faces) terrain.addGroundFace(face)
-  lap('meshes')
+  yield stage('settle')
   terrain.settle()
   settleGround(ground, groundMeshes, (x, z) => terrain.meshHeightAt(x, z))
-  lap('settle')
   if (import.meta.dev) console.info(`[ground] plan ${buildMs.plan!.toFixed(0)} ms (${plan.stations.length} stations), meshes ${groundMeshes.stats.buildMs.toFixed(0)} ms (${groundMeshes.stats.triangles} triangles, ${groundMeshes.faces.length} faces)`)
   // only the trees draw from this generator (the crowd seeds its own)
   const rng = new Rng(seed)
@@ -1106,54 +1123,55 @@ export function buildEnvironment(track: Track, quality: Quality = QUALITY.high, 
   }
   // the species prototypes and their materials, synchronously (the viewport's material setup
   // runs over `group` once, before the deferred placers use them)
+  yield stage('treeLibrary')
   ctx.trees = buildTreeLibrary(ctx)
-  lap('treeLibrary')
+  yield stage('figureLibrary')
   // the figures' impostor and prototypes, likewise (the ops layer instances them)
   ctx.figures = buildFigureLibrary(ctx)
-  lap('figureLibrary')
 
   // --- grandstands from the real footprints; they hand every seat position to the crowd ----------
+  yield stage('stands')
   const stands = buildStands(ctx)
-  lap('stands')
   // --- spectators: instanced billboards per seat, in 60 m bays ---------------------------------
+  yield stage('crowd')
   const crowd = buildCrowd(track, stands.seats, quality, assets, 11)
   for (const o of crowd.objects) group.add(o)
-  lap('crowd')
   // --- pit building (garages, podium, control pod, screens), Leader Tower, pit wall, paddock ----
+  yield stage('pit')
   const { buildingRoofMat } = buildPitComplex(ctx)
-  lap('pit')
   // --- the infield (infield.ts): pit lane, paddock, ops layer, marshal posts + TV towers, ground, cuttings ---
   // one flag-wave clock for the marshal posts here and the trackside props below
   const flagTime = { value: 0 }
-  const infield = buildInfield(ctx, { buildingRoofMat, flagTime, lap })
+  const infield = yield* buildInfield(ctx, { buildingRoofMat, flagTime, stage })
   group.userData.ops = ctx.ops
   // --- the two-wheel chicanes / slip roads, in the lap's own frame ---------------------------
+  yield stage('lanes')
   group.add(buildLanes(track, ground))
-  lap('lanes')
   // --- trackside furniture, rubbered braking zones, TV camera masts -------------------------
+  yield stage('props')
   buildTracksideProps(ctx, buildingRoofMat, flagTime)
-  lap('props')
   // --- crossover bridge, underpass parapets, screens, signs, lamps (plan §3) -------------------
+  yield stage('structures')
   const structures = buildStructures(ctx, { buildingRoofMat })
-  lap('structures')
   // every single-material box placed above, merged per material
   boxes.flush()
 
   // --- Ferris wheel (the Suzuka landmark behind the final-corner stands) ------------------------
+  yield stage('ferris')
   const ferrisWheel = buildFerrisWheel(ctx)
-  lap('ferris')
   // --- far field: buildings / car parks / solar / poles / fence, then the woods (deferred jobs) --
+  yield stage('surroundings')
   buildSurroundings(ctx)
-  lap('surroundings')
+  yield stage('forest')
   buildForest(ctx)
-  lap('forest')
 
   // --- trackside scatter (a deferred 'forest' job inside buildTrees, after the keep-out producers) ---
+  yield stage('trees')
   buildTrees(ctx, ferrisWheel)
-  lap('trees')
   // every cut is in (the faces' settle, the stand decks' clampUnder): upload the grid once
+  yield stage('commit')
   terrain.commit()
-  lap('commit')
+  stage('') // closes 'commit'
   group.userData.buildMs = buildMs
   if (import.meta.dev) console.info(`[env] build: ${Object.entries(buildMs).map(([k, v]) => `${k} ${v.toFixed(0)} ms`).join(', ')}; ${farField.pending} far-field jobs deferred`)
 

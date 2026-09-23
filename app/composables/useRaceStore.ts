@@ -1,6 +1,7 @@
 import { computed, reactive } from 'vue'
 import type { Compound } from '~/data/drivers'
 import type { RaceEvent } from '~/sim/race'
+import { initialLoadState, type LoadState } from '~/three/loading'
 
 export type CameraMode = 'overview' | 'heli' | 'chase' | 'onboard' | 'tv' | 'director'
 export type RaceStatus = 'loading' | 'grid' | 'lights' | 'racing' | 'finished'
@@ -135,8 +136,8 @@ export interface HudEvent {
 
 export interface RaceStore {
   ready: boolean
-  /** 0..1 start-up progress behind the loading screen (asset downloads 0–0.7, scene build to 1); 0 = indeterminate */
-  loadProgress: number
+  /** the loading screen: the start-up stage that runs, its detail line, the bar and the last finished stages (three/loading.ts) */
+  load: LoadState
   status: RaceStatus
   lights: number
   lap: number
@@ -194,7 +195,7 @@ export function initialBroadcastState(): BroadcastState {
 
 const store = reactive<RaceStore>({
   ready: false,
-  loadProgress: 0,
+  load: initialLoadState(),
   status: 'loading',
   lights: 0,
   lap: 1,

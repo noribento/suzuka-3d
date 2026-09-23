@@ -86,6 +86,19 @@ export interface AssetRegistry {
   progress: { value: number }
 }
 
+/** where the downloads are (the loading screen's detail line) */
+export interface AssetProgress {
+  /** assets settled (loaded or failed) of those wanted; `total` is 0 until the manifest arrived */
+  settled: number
+  total: number
+  /** manifest bytes of the settled assets / of all wanted */
+  bytes: number
+  totalBytes: number
+  /** the key that settled last ('' before the first) and its manifest bytes */
+  last: string
+  lastBytes: number
+}
+
 const MANIFEST_URL = '/assets-manifest.json'
 const TRANSCODER_PATH = '/basis/'
 
@@ -108,22 +121,24 @@ function withBase(path: string): string {
  * Load the asset pack for this tier. Resolves to an EMPTY registry immediately when the tier (or
  * `?assets=0`) turns the pack off, and to a registry holding whatever arrived otherwise — never
  * rejects. `keys` restricts the load to a subset (default: every manifest entry). `onProgress`
- * receives 0..1 while the downloads run (the loading bar); the same value is on `progress`.
+ * receives 0..1 while the downloads run (the loading bar; the same value is on `progress`) and
+ * the counts behind it — also on every settled asset, whether or not the ratio moved.
  */
 export async function loadAssets(
   renderer: THREE.WebGLRenderer,
   q: Quality,
   keys?: string[],
-  onProgress?: (p: number) => void,
+  onProgress?: (p: number, info: AssetProgress) => void,
 ): Promise<AssetRegistry> {
   const enabled = assetsOverride() ?? q.assets
   const progress = { value: 0 }
-  const report = (p: number) => {
+  const info: AssetProgress = { settled: 0, total: 0, bytes: 0, totalBytes: 0, last: '', lastBytes: 0 }
+  const report = (p: number, settledOne = false) => {
     // monotonic: the LoadingManager's item total grows as nested loads register, so a raw ratio can go backwards
     const v = Math.min(1, Math.max(progress.value, p))
-    if (v === progress.value) return
+    if (v === progress.value && !settledOne) return
     progress.value = v
-    onProgress?.(v)
+    onProgress?.(v, info)
   }
   if (!enabled) {
     report(1)
@@ -140,13 +155,15 @@ export async function loadAssets(
     console.warn(`[assets] '${k}' is not in the manifest`)
     return false
   })
+  info.total = wanted.length
+  for (const k of wanted) info.totalBytes += manifest.assets[k]!.bytes
 
   // one manager, one KTX2 worker pool, one glTF loader: KTX2Loader warns about multiple instances
   const manager = new THREE.LoadingManager()
   // the manager smooths the bar between whole assets, capped at the next asset boundary: its item
   // total only grows as nested loads (transcoder, glTF buffers) register, so its raw ratio runs ahead
   manager.onProgress = (_url, loaded, total) => {
-    if (total > 0 && wanted.length) report(Math.min(loaded / total, (settled + 1) / wanted.length) * 0.98)
+    if (total > 0 && wanted.length) report(Math.min(loaded / total, (info.settled + 1) / wanted.length) * 0.98)
   }
   // a loader failure is reported per asset below; the manager's default onError would console.error
   manager.onError = () => {}
@@ -159,7 +176,6 @@ export async function loadAssets(
   /** everything a `dispose` / `markAllDirty` has to reach, including textures embedded in glTF materials */
   const allTextures = new Set<THREE.Texture>()
   const failures: string[] = []
-  let settled = 0
 
   const loadOne = async (key: string) => {
     const a = manifest.assets[key]!
@@ -187,8 +203,11 @@ export async function loadAssets(
     } catch (err) {
       failures.push(`${key} (${a.path}): ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      settled++
-      report(wanted.length ? (settled / wanted.length) * 0.98 : 1)
+      info.settled++
+      info.bytes += a.bytes
+      info.last = key
+      info.lastBytes = a.bytes
+      report(wanted.length ? (info.settled / wanted.length) * 0.98 : 1, true)
     }
   }
   await Promise.all(wanted.map(loadOne))

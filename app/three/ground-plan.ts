@@ -5,6 +5,7 @@ import { KERBS, OFFSET_LANES, type OffsetLaneDef } from '~/data/suzuka-barriers-
 import { forwardDelta, ROLL_CAP, signedDelta, type Track } from '~/sim/track'
 import { laneWorldPath, osmWay, patchOutline, simplifyRing, wayChainPath } from './trackside'
 import type { CutField } from './ground-field'
+import { buildClock, type Steps } from './steps'
 
 /**
  * The GROUND PLAN: a partition of the ground beside the road into exactly one opaque owner per
@@ -906,11 +907,17 @@ export interface PlanOptions {
   cuts?: CutField | null
 }
 
-export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPlan {
-  const t0 = performance.now()
+/**
+ * The plan as a staged build (steps.ts): each `yield` names the stage that starts — the same
+ * names as `stats.timing` (`passes` covers the pass-detect / pass-eval rounds). The
+ * environment drains it inside its 'plan' stage.
+ */
+export function* buildGroundPlan(track: Track, opts: PlanOptions = {}): Steps<GroundPlan> {
+  const t0 = buildClock()
   const timing: Record<string, number> = {}
   let tLast = t0
-  const lap = (name: string) => { const now = performance.now(); timing[name] = Math.round((timing[name] ?? 0) + now - tLast); tLast = now }
+  const lap = (name: string) => { const now = buildClock(); timing[name] = Math.round((timing[name] ?? 0) + now - tLast); tLast = now }
+  yield 'fold+bisector'
   const L = track.length
   const n = track.n
   const ds = track.ds
@@ -1123,6 +1130,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     }
   }
   lap('fold+bisector')
+  yield 'rings'
   const bisectorCap = (s: number, side: Side) => sampleAt(bisector[side], s)
   /** the facing centreline sample of station s on `side`, or −1 */
   const bisectorPartner = (s: number, side: Side): number => partner[side][Math.round(track.wrap(s) / ds) % n]!
@@ -1344,6 +1352,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   const wanted: number[] = []
   const stats = { base: n, endpoints: 0, kinks: 0, rows: 0, tips: 0, crossings: 0, snapped: 0, chord: 0, chordBy: {} as Record<string, number>, rings: rings.length, worldOnly: 0, residual: 0, residualMax: 0, buildMs: 0, timing, passes: [] as number[], cutRows: 0 }
   lap('rings')
+  yield 'stations'
   for (let i = 0; i < n; i++) wanted.push(i * ds)
   const endpoint = (s: number) => { wanted.push(track.wrap(s)); stats.endpoints++ }
   // a kerb's end: the column-convergence zone outside the span, then the height ramp inside it in
@@ -1442,6 +1451,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
 
   let stations = dedupStations(wanted, L, 0.05, ds)
   lap('stations')
+  yield 'eval0'
 
   // --- owners (used by the columns to decide which of them are real boundaries) -------------------
   const hwOf = (s: number) => track.halfWidthAt(s)
@@ -1733,6 +1743,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
   }
   let sides = { 1: evalSide(1, stations), '-1': evalSide(-1, stations) }
   lap('eval0')
+  yield 'passes'
   for (let pass = 0; pass < 8; pass++) {
     const extra: number[] = []
     for (const side of [1, -1] as const) {
@@ -1884,6 +1895,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     sides = { 1: evalSide(1, stations), '-1': evalSide(-1, stations) }
     lap('pass-eval')
   }
+  yield 'snap'
   /*
    * Fills are free vertices: a fill column that a real boundary passes between two stations is
    * clamped onto that boundary at the second station (the cell between them becomes a triangle,
@@ -1970,6 +1982,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
 
   // --- residue: declared band beyond the extent that no ring covers ----------------------------
   lap('snap')
+  yield 'residue'
   const residue: ResidueEntry[] = []
   {
     const zoneAt = (s: number) => RUNOFF_ZONES.find((z) => forwardDelta(z.sRange[0], s, L) <= forwardDelta(z.sRange[0], z.sRange[1], L))
@@ -2024,7 +2037,7 @@ export function buildGroundPlan(track: Track, opts: PlanOptions = {}): GroundPla
     return out
   }
   lap('residue')
-  stats.buildMs = performance.now() - t0
+  stats.buildMs = buildClock() - t0
   return {
     track, stations, hw, sides, layout, gravelRuns: runs, kerbs, rings, foldSafe, extent, extentDrawn, extentCap, bisectorPartner,
     ownerAtSL, ownerAt, project, residue,

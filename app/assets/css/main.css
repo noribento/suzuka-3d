@@ -36,63 +36,6 @@ body,
   pointer-events: none;
 }
 
-.loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  background: radial-gradient(ellipse at center, #15161f 0%, #05060a 70%);
-  z-index: 20;
-  letter-spacing: 0.3em;
-  font-weight: 700;
-}
-
-.loading .brand {
-  font-size: 44px;
-  font-style: italic;
-  font-weight: 900;
-  color: var(--f1-red);
-  letter-spacing: -0.04em;
-}
-
-.loading .sub {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.loading .bar {
-  width: 220px;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-  border-radius: 2px;
-}
-
-.loading .bar::after {
-  content: '';
-  display: block;
-  /* --p is bound from store.loadProgress (0..1) */
-  width: calc(var(--p, 0) * 100%);
-  height: 100%;
-  background: var(--f1-red);
-  transition: width 0.2s ease-out;
-}
-
-/* nothing to measure yet (or the tier loads no external assets): the classic sweep */
-.loading .bar.indeterminate::after {
-  width: 40%;
-  transition: none;
-  animation: load 1.1s infinite ease-in-out;
-}
-
-@keyframes load {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(260%); }
-}
-
 .hint {
   position: absolute;
   left: 50%;

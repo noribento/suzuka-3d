@@ -9,6 +9,7 @@ import {
   type Column, type GroundPlan, type Owner, type OwnerKind, type Pt, type RingOwner,
 } from './ground-plan'
 import { osmWay } from './trackside'
+import { buildClock, type Steps } from './steps'
 
 /** longest edge of a world-polygon triangle (m): fine enough to drape, coarse enough for the clamp */
 const WORLD_STEP = 4
@@ -220,12 +221,14 @@ interface Cell {
   cols: [Column, Column] | null
 }
 
-export function buildGroundMeshes(plan: GroundPlan, field: HeightField, materials: GroundMaterials): BuiltGround {
-  const t0 = performance.now()
+/** The meshes as a staged build (steps.ts): each `yield` names the stage that starts, as in `stats.timing`. */
+export function* buildGroundMeshes(plan: GroundPlan, field: HeightField, materials: GroundMaterials): Steps<BuiltGround> {
+  const t0 = buildClock()
   /** wall-clock per stage (diagnostics: `stats.timing`) */
   const timing: Record<string, number> = {}
   let tLast = t0
-  const lap = (name: string) => { const now = performance.now(); timing[name] = Math.round((timing[name] ?? 0) + now - tLast); tLast = now }
+  const lap = (name: string) => { const now = buildClock(); timing[name] = Math.round((timing[name] ?? 0) + now - tLast); tLast = now }
+  yield 'cells'
   const track = plan.track
   const L = track.length
   const m = plan.stations.length
@@ -277,6 +280,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
 
   lap('cells')
+  yield 'raster'
   // --- vertices, highest owner first ---------------------------------------------------------------
   cells.sort((c, d) => (ownerBeats(c.owner, d.owner) ? -1 : ownerBeats(d.owner, c.owner) ? 1 : 0))
   const heightOf = (cell: Cell, stationIdx: number, lateral: number, col: Column | null): number => {
@@ -430,6 +434,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
 
   lap('raster')
+  yield 'stitch'
   // --- stitch strips across the bisectors ----------------------------------------------------------
   // Two facing stretches both stop BISECTOR_MARGIN short of their bisector; the strip between
   // their extent polylines is zipped (a two-polyline triangulation, no earcut, no refinement) so
@@ -708,6 +713,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
 
   lap('stitch')
+  yield 'boundary'
   // --- the covered ground: the rasters and the stitch strips ----------------------------------------
   const inRaster = (x: number, z: number): { inside: boolean; s: number; side: Side; off: number; W: number } => {
     const p = plan.project(x, z)
@@ -905,6 +911,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
 
   lap('boundary')
+  yield 'world'
   // --- world parts: what the rings cover beyond the covered ground ----------------------------------
   let worldTris = 0
   let droppedWorldArea = 0
@@ -1534,6 +1541,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
 
   lap('world')
+  yield 'normals'
   // --- normals once over the union of all faces ----------------------------------------------------
   const N = pool.x.length
   const nx = new Float64Array(N), ny = new Float64Array(N), nz = new Float64Array(N)
@@ -1558,6 +1566,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   }
 
   lap('normals')
+  yield 'geometry'
   // --- one mesh per kind: bit-identical copies of the shared vertices, its own uv ------------------
   const group = new THREE.Group()
   group.name = 'ground'
@@ -1652,7 +1661,7 @@ export function buildGroundMeshes(plan: GroundPlan, field: HeightField, material
   const stripStats = strips.map((st) => ({ sideA: st.sideA, aFrom: plan.stations[st.aSt[0]!]!, aTo: plan.stations[st.aSt[st.aSt.length - 1]!]!, sideB: st.sideB, bFrom: plan.stations[Math.min(st.bSt[0]!, st.bSt[st.bSt.length - 1]!)]!, bTo: plan.stations[Math.max(st.bSt[0]!, st.bSt[st.bSt.length - 1]!)]! }))
   const index = new FaceIndex(faces)
   lap('geometry')
-  return { group, faces, yAt: (x, z) => index.yAt(x, z), decal: (quads, rung, layout) => index.decal(quads, rung, layout), stats: { vertices: N, triangles, cells: cells.length, dropped, byKind, worldTris, stitchTris, buildMs: performance.now() - t0, timing, errors, uncoveredArcs, strips: stripStats, boundary: { loops: uLoops.map((l) => l.length), skipped: uBad } } }
+  return { group, faces, yAt: (x, z) => index.yAt(x, z), decal: (quads, rung, layout) => index.decal(quads, rung, layout), stats: { vertices: N, triangles, cells: cells.length, dropped, byKind, worldTris, stitchTris, buildMs: buildClock() - t0, timing, errors, uncoveredArcs, strips: stripStats, boundary: { loops: uLoops.map((l) => l.length), skipped: uBad } } }
 }
 
 /**

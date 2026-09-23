@@ -26,11 +26,6 @@ const { store, broadcast } = useRaceStore()
       <HudStartLights />
       <HudResultPanel />
     </div>
-    <div v-if="!store.ready" class="loading">
-      <div class="brand">F1</div>
-      <div class="sub">SUZUKA INTERNATIONAL RACING COURSE</div>
-      <!-- real progress once the asset downloads report; an indeterminate sweep before that (and on the asset-less tier) -->
-      <div class="bar" :class="{ indeterminate: store.loadProgress === 0 }" :style="{ '--p': store.loadProgress }" />
-    </div>
+    <LoadingScreen v-if="!store.ready" />
   </div>
 </template>
